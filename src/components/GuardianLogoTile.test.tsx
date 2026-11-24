@@ -34,6 +34,25 @@ describe('GuardianLogoTile', () => {
     expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
   });
 
+  it('treats an id naming an inherited Object member as unknown', () => {
+    render(<GuardianLogoTile guardianId="constructor" />);
+    expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
+  });
+
+  it('resolves ids without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      const { rerender } = render(<GuardianLogoTile guardianId="open-zeppelin" />);
+      expect(screen.getByTestId('guardian-operator-logo')).toBeInTheDocument();
+      rerender(<GuardianLogoTile guardianId="constructor" />);
+      expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
+    } finally {
+      Object.hasOwn = original;
+    }
+  });
+
   it('draws the 88px circle at hero size', () => {
     render(<GuardianLogoTile guardianId="kodax" size="hero" />);
     expect(screen.getByTestId('guardian-logo-tile')).toHaveClass('size-22', 'rounded-full');

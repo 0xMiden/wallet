@@ -21,6 +21,7 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { WalletType } from 'screens/onboarding/types';
 import { truncateAddress } from 'utils/string';
 
@@ -120,6 +121,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
   const [password, setPassword] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const [saveResult, setSaveResult] = useState<AccountFileSaved | null>(null);
   // Remount token for PasscodeEntry. It guarantees exactly one submit per completed code and clears
   // its digits only when `error` turns non-null; a dismissed sheet is deliberately neither. Bumping
@@ -183,6 +185,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
         }
       } catch (cause: unknown) {
         setError(cause instanceof Error ? cause.message : String(cause));
+        setErrorId('raw_account_export_failed');
       } finally {
         bytes?.fill(0);
         setIsExporting(false);
@@ -275,7 +278,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
       {/* Suppressed on the passcode branch: PasscodeEntry paints the same string as its own hint,
           so rendering both duplicates the failure and displaces the passcode description. */}
       {error && !usePasscodeEntry && (
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId={errorId} tone="negative" role="alert" title={t('error')}>
           {error}
         </Notice>
       )}
@@ -293,6 +296,7 @@ const ExportAccountFileForAccount: FC<ExportAccountFileForAccountProps> = ({ acc
           onSubmit={code => runExport(code)}
           onChange={() => setError(null)}
           error={error}
+          errorId={errorId}
           subtitle={t('exportAccountFilePasscodeDescription')}
           disabled={!acknowledged}
           isSubmitting={isExporting}

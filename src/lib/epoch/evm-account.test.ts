@@ -17,16 +17,18 @@ import {
 
 import { SignEvmOperation } from 'lib/shared/types';
 
-import { buildVaultEvmWalletClient } from './evm-account';
+import { buildVaultEvmWalletClient, assertVaultEvmAccountCurrent } from './evm-account';
 
 const PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const signer = privateKeyToAccount(PRIVATE_KEY);
 const mockSignEvm = jest.fn();
+let mockCurrentAccount: { publicKey: string; evmAddress: string } | null = null;
 
 jest.mock('lib/store', () => ({
   useWalletStore: {
     getState: () => ({
-      signEvm: (...args: unknown[]) => mockSignEvm(...args)
+      signEvm: (...args: unknown[]) => mockSignEvm(...args),
+      currentAccount: mockCurrentAccount
     })
   }
 }));
@@ -94,8 +96,26 @@ const typedData = {
 
 describe('buildVaultEvmWalletClient', () => {
   beforeEach(() => {
+    mockCurrentAccount = { publicKey: 'miden-account', evmAddress: signer.address };
     mockSignEvm.mockReset();
     mockSignEvm.mockImplementation(mockVaultSignEvm);
+  });
+
+  it('checks the selected account and blocks the vault request at the signing boundary', async () => {
+    const client = buildVaultEvmWalletClient('miden-account', signer.address, () =>
+      assertVaultEvmAccountCurrent('miden-account', signer.address)
+    );
+    mockCurrentAccount = { publicKey: 'different-account', evmAddress: signer.address };
+    await expect(client.signMessage({ account: client.account!, message: 'test' })).rejects.toThrow(
+      'earnWithdrawRefresh'
+    );
+    expect(mockSignEvm).not.toHaveBeenCalled();
+  });
+  it('rejects a locked wallet or changed position owner', () => {
+    mockCurrentAccount = null;
+    expect(() => assertVaultEvmAccountCurrent('miden-account', signer.address)).toThrow('earnWithdrawRefresh');
+    mockCurrentAccount = { publicKey: 'miden-account', evmAddress: '0x1111111111111111111111111111111111111111' };
+    expect(() => assertVaultEvmAccountCurrent('miden-account', signer.address)).toThrow('earnWithdrawRefresh');
   });
 
   it('exposes a local signer that produces valid EIP-7702 authorizations through the vault', async () => {

@@ -7,8 +7,48 @@ import { buildFaviconUrl } from 'lib/dapp-browser/favicon-cache';
 import type { ExploreCatalog } from 'lib/explore-config/schema';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
+import { BrowserScreen } from '../BrowserScreen';
 import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
+
+const originalResizeObserver = globalThis.ResizeObserver;
+it('reveals the Arcade landing on explicit Home entry while retaining ordinary tab searches', async () => {
+  const onOpen = jest.fn();
+  const { rerender } = render(<DappLauncher onOpen={onOpen} requestedFilter="arcade" />);
+  fireEvent.click(screen.getByTestId('explore-search-toggle'));
+  fireEvent.change(screen.getByTestId('dapp-hero-search'), { target: { value: 'Quest' } });
+  rerender(<DappLauncher onOpen={onOpen} requestedFilter="arcade" />);
+  expect(screen.getByTestId('dapp-hero-search')).toHaveValue('Quest');
+  rerender(<DappLauncher onOpen={onOpen} requestedFilter="arcade" entryIntent={3} />);
+  await waitFor(() => expect(screen.queryByTestId('dapp-hero-search')).toBeNull());
+  expect(screen.getByTestId('arcade-landing')).toBeInTheDocument();
+});
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  });
+});
+afterAll(() =>
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: originalResizeObserver })
+);
+
+let mockBrowserMode = 'launcher';
+jest.mock('app/providers/DappBrowserProvider', () => ({
+  useDappBrowser: () => ({ mode: mockBrowserMode, open: jest.fn(), motion: null, session: null })
+}));
+jest.mock('../DappActive', () => ({ DappActive: () => null }));
+jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
+jest.mock('lib/platform', () => ({
+  isMobile: () => true,
+  isDesktop: () => false,
+  isExtension: () => false,
+  isIOS: () => false
+}));
 
 let mockLanguage: string | undefined = 'en';
 jest.mock('react-i18next', () => ({
@@ -42,9 +82,12 @@ jest.mock('lib/explore-config/runtime', () => ({
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 let mockBackHandler: (() => boolean | void) | null = null;
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (handler: () => boolean | void) => {
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void) => {
     mockBackHandler = handler;
+    return () => {
+      mockBackHandler = null;
+    };
   }
 }));
 
@@ -138,6 +181,11 @@ describe('DappLauncher', () => {
   it('renders the sections from config, in order, each in its own layout', async () => {
     await renderLauncher();
 
+    expect(
+      within(screen.getByTestId('explore-category-chips'))
+        .getAllByRole('radio')
+        .map(chip => chip.textContent)
+    ).toEqual(['all', 'categoryFinance', 'categoryArcade', 'categoryOthers']);
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
     expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-kind', 'featured');
     expect(screen.getByRole('heading', { level: 2, name: 'Featured' })).toHaveClass('text-title-page');
@@ -208,6 +256,8 @@ describe('DappLauncher', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]!.parentElement).toBe(cards[1]!.parentElement);
     expect(cards[0]!.parentElement).toHaveClass('overflow-x-auto');
+    expect(within(cards[0]!).getByText('Get testnet MIDEN tokens')).toBeInTheDocument();
+    expect(within(cards[1]!).getByText('Play')).toBeInTheDocument();
     fireEvent.click(cards[0]!);
     fireEvent.click(cards[1]!);
     expect(onOpen.mock.calls.map(call => call[0])).toEqual(['https://faucet.example/', 'https://quest.example/']);
@@ -219,16 +269,55 @@ describe('DappLauncher', () => {
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games']);
   });
 
-  it('shows the featured app on its brand color with its category, name, tagline and Open', async () => {
+  it('shows the featured app on its brand color with its name, its tagline as the headline, and Open', async () => {
     await renderLauncher();
 
     const card = screen.getByTestId('explore-featured-card');
     expect(card.tagName).toBe('BUTTON');
     expect(card).toHaveAccessibleName('Faucet');
     expect(card.querySelector('[data-slot="featured-art"]')).toHaveStyle({ backgroundColor: '#0EA5E9' });
-    expect(within(card).getByText('categoryTools')).toBeInTheDocument();
+    expect(within(card).getByText('Faucet')).toBeInTheDocument();
     expect(within(card).getByText('Get testnet MIDEN tokens')).toBeInTheDocument();
     expect(within(card).getByText('exploreOpen')).toBeInTheDocument();
+  });
+
+  it('opens All on its own Featured row, with each headline, when the catalog publishes none', async () => {
+    mockCatalog = {
+      ...catalog,
+      items: [
+        ...catalog.items,
+        {
+          id: 'geoquizz',
+          category: 'games',
+          name: { en: 'GeoQuizz' },
+          tagline: { en: 'Find ten cities on the map' },
+          url: 'https://geoquizz.example/',
+          isExchange: false
+        }
+      ],
+      sections: catalog.sections.filter(section => section.kind !== 'featured')
+    };
+    const { onOpen } = await renderLauncher();
+
+    expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
+    expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toBeInTheDocument();
+    const card = screen.getByTestId('explore-featured-card');
+    expect(card).toHaveAttribute('data-dapp-url', 'https://geoquizz.example/');
+    expect(within(card).getByText('exploreFeaturedGeoquizzHeadline')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('explore-search-toggle'));
+    fireEvent.change(await screen.findByTestId('dapp-hero-search'), { target: { value: 'GeoQuizz' } });
+    const results = await screen.findByTestId('explore-section-search-results');
+    const match = within(results).getByTestId('dapp-grid-card');
+    expect(match).toHaveAttribute('data-dapp-url', 'https://geoquizz.example/');
+    fireEvent.click(match);
+    expect(onOpen).toHaveBeenLastCalledWith('https://geoquizz.example/');
+  });
+
+  it('adds no Featured row when the catalog has none of the featured apps', async () => {
+    mockCatalog = { ...catalog, sections: catalog.sections.filter(section => section.kind !== 'featured') };
+    await renderLauncher();
+
+    expect(sectionIds()).toEqual(['helper-tools', 'games', 'recents']);
   });
 
   it('opens an app from the featured card, a catalog row and a Recents row, with one tap haptic each', async () => {
@@ -273,19 +362,21 @@ describe('DappLauncher', () => {
     fireEvent.click(screen.getByTestId('explore-chip-all'));
     expect(hapticSelection).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('explore-chip-games'));
+    fireEvent.click(screen.getByTestId('explore-chip-arcade'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'true');
-    await waitFor(() => expect(sectionIds()).toEqual(['games']));
+    expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(screen.getByTestId('arcade-landing')).toBeInTheDocument());
+    expect(screen.getByTestId('arcade-quick-actions')).toBeInTheDocument();
+    expect(sectionIds()).toEqual([]);
 
-    fireEvent.click(screen.getByTestId('explore-chip-tools'));
+    fireEvent.click(screen.getByTestId('explore-chip-finance'));
     await waitFor(() => expect(sectionIds()).toEqual(['featured', 'helper-tools']));
   });
 
   it('shows "Coming soon to Miden" for a category with nothing in it yet', async () => {
     await renderLauncher();
 
-    fireEvent.click(screen.getByTestId('explore-chip-learn'));
+    fireEvent.click(screen.getByTestId('explore-chip-others'));
     const empty = await screen.findByTestId('explore-empty');
     expect(empty).toHaveTextContent('exploreComingSoonTitle');
     expect(empty).toHaveTextContent('exploreComingSoonDescription');
@@ -327,7 +418,7 @@ describe('DappLauncher', () => {
     await act(async () => {});
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('explore-chip-tools'));
+      fireEvent.click(screen.getByTestId('explore-chip-finance'));
     });
 
     expect(screen.getByTestId('explore-section-helper-tools')).toHaveAttribute('data-reveal-index', '0');
@@ -529,11 +620,31 @@ describe('DappLauncher header search', () => {
     fireEvent.change(input, { target: { value: 'app.zoroswap.com' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onOpen).toHaveBeenLastCalledWith('https://app.zoroswap.com');
+    expect(hapticLight).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(input, { target: { value: 'http://localhost:4173/alpha' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    const pastedInput = await openSearch();
+    jest.mocked(hapticLight).mockClear();
+    fireEvent.change(pastedInput, { target: { value: 'http://localhost:4173/alpha' } });
+    fireEvent.keyDown(pastedInput, { key: 'Enter' });
     expect(onOpen).toHaveBeenLastCalledWith('http://localhost:4173/alpha');
-    expect(hapticLight).toHaveBeenCalledTimes(2);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Recents after opening a submitted URL without replacing the launcher', async () => {
+    await renderLauncher();
+    const launcher = screen.getByTestId('explore-launcher');
+    launcher.scrollTop = 124;
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: 'https://recent.example/' } });
+    await waitFor(() => expect(screen.queryByTestId('explore-recents')).not.toBeInTheDocument());
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const recents = await screen.findByTestId('explore-recents');
+    await waitFor(() => expect(within(recents).getByRole('button', { name: 'Recent' })).toBeVisible());
+    await waitFor(() => expect(screen.queryByTestId('dapp-hero-search')).not.toBeInTheDocument());
+    expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+    expect(launcher.scrollTop).toBe(124);
   });
 
   it('opens the first match for a name on Enter, and does nothing for an empty query', async () => {
@@ -547,4 +658,47 @@ describe('DappLauncher header search', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onOpen).toHaveBeenCalledWith('https://quest.example/');
   });
+});
+
+it('retains the actual launcher and its query, category and scroll through active play', async () => {
+  mockBrowserMode = 'launcher';
+  const view = render(<BrowserScreen />);
+  await act(async () => {});
+  fireEvent.click(screen.getByTestId('explore-chip-arcade'));
+  fireEvent.click(screen.getByTestId('explore-search-toggle'));
+  const search = screen.getByTestId('dapp-hero-search');
+  fireEvent.change(search, { target: { value: 'Quest' } });
+  const launcher = screen.getByTestId('explore-launcher');
+  launcher.scrollTop = 124;
+  search.focus();
+  mockBrowserMode = 'active';
+  view.rerender(<BrowserScreen />);
+  expect(screen.queryByTestId('explore-launcher')).toBe(launcher);
+  expect(launcher).not.toBeVisible();
+  expect(mockBackHandler).toBeNull();
+  expect(document.activeElement).not.toBe(search);
+  mockBrowserMode = 'launcher';
+  view.rerender(<BrowserScreen />);
+  expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+  expect(search).toHaveValue('Quest');
+  expect(screen.getByTestId('explore-chip-arcade')).toHaveAttribute('aria-checked', 'true');
+  expect(launcher.scrollTop).toBe(124);
+  await act(async () => {});
+});
+
+it('refreshes recents when the retained launcher becomes active again', async () => {
+  mockBrowserMode = 'launcher';
+  const view = render(<BrowserScreen />);
+  await act(async () => {});
+  const launcher = screen.getByTestId('explore-launcher');
+  mockBrowserMode = 'active';
+  view.rerender(<BrowserScreen />);
+  mockRecents = [{ ...recent, name: 'New recent', url: 'https://new.example/' }];
+  mockBrowserMode = 'launcher';
+  view.rerender(<BrowserScreen />);
+  await act(async () => {});
+  expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+  await waitFor(() =>
+    expect(within(screen.getByTestId('explore-recents')).getByRole('button', { name: 'New recent' })).toBeVisible()
+  );
 });

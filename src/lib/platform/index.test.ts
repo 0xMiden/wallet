@@ -53,6 +53,34 @@ describe('platform detection', () => {
     });
   });
 
+  describe('hasExtensionRuntime', () => {
+    afterEach(() => {
+      delete (globalThis as any).browser;
+      delete (globalThis as any).chrome;
+    });
+
+    it('returns true when browser.runtime.id exists (Firefox)', () => {
+      (globalThis as any).browser = { runtime: { id: 'test-extension-id' } };
+
+      const { hasExtensionRuntime } = require('./index');
+      expect(hasExtensionRuntime()).toBe(true);
+    });
+
+    it('returns true when chrome.runtime.id exists (Chrome)', () => {
+      (globalThis as any).chrome = { runtime: { id: 'test-chrome-extension-id' } };
+
+      const { hasExtensionRuntime } = require('./index');
+      expect(hasExtensionRuntime()).toBe(true);
+    });
+
+    it('returns false when the runtime reports no id', () => {
+      (globalThis as any).chrome = { runtime: {} };
+
+      const { hasExtensionRuntime } = require('./index');
+      expect(hasExtensionRuntime()).toBe(false);
+    });
+  });
+
   describe('isCapacitor', () => {
     it('returns false when Capacitor is not available', () => {
       jest.doMock('@capacitor/core', () => {

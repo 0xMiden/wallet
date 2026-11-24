@@ -4,9 +4,12 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 type AlertProps = HTMLAttributes<HTMLDivElement> & {
   type?: 'success' | 'warn' | 'error';
+  errorId?: UserErrorId | null;
   title?: ReactNode;
   description: ReactNode;
   autoFocus?: boolean;
@@ -16,6 +19,7 @@ type AlertProps = HTMLAttributes<HTMLDivElement> & {
 
 const Alert: FC<AlertProps> = ({
   type = 'warn',
+  errorId,
   title,
   description,
   autoFocus,
@@ -24,6 +28,7 @@ const Alert: FC<AlertProps> = ({
   onClose,
   ...rest
 }) => {
+  useUserVisibleError(type === 'error' && description ? errorId : null, 'inline');
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
 

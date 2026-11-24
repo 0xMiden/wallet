@@ -2,16 +2,31 @@ import {
   fetchFromStorage,
   onStorageChanged,
   putToStorage,
-  registerStorageReread,
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import type { BoundedJsonFailure } from 'lib/remote-json';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
-import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
-import { deriveBridgeConfig, type DerivedBridgeConfig, type Probe } from './derive';
+import {
+  BRIDGE_FEATURES,
+  type BridgeFeature,
+  featureAvailability,
+  geoFeatureGate,
+  type UnavailableReason
+} from './availability';
+import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
+import {
+  retainedStartupRequestFailure,
+  type FeatureEligibility,
+  type GeoLookup,
+  type StartupEligibilityDiagnostics,
+  type StartupEligibilityReason
+} from './geo';
+import { lookupFeatureEligibility } from './geo-lookup';
 import type { BridgeConfig } from './schema';
 import {
   bridgeConfigCacheKey,
@@ -31,6 +46,7 @@ export interface BridgeConfigSnapshot {
   /** Only ever the derivation of `config`. */
   derived: DerivedBridgeConfig | null;
   lastFetch: { at: number; ok: boolean; error?: string } | null;
+  geo?: GeoLookup;
 }
 
 export const HEALTHY_POLL_MS = 3_600_000;
@@ -63,14 +79,16 @@ interface NetworkState {
   snapshot: BridgeConfigSnapshot;
 }
 
-// One entry per network, so a switch never hands one network's document to another. A wipe replaces the entries; a
-// read or refresh still out lands on the forgotten entry, where nothing reads it.
+// One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
+// reset keeps each network's stored document and its derivation, so a wipe leaves the entries as they are; that reset
+// takes them and its caller reloads, which drops the entries.
 const states = new Map<string, NetworkState>();
 const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
-let rereadRegistered = false;
+let startupGeo: GeoLookup | undefined;
+let startupEligibility: Promise<GeoLookup> | undefined;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -90,7 +108,14 @@ function stateFor(network: string): NetworkState {
     failures: 0,
     logged: {},
     subscriptions: [],
-    snapshot: { network, status: 'loading', config: null, derived: null, lastFetch: null }
+    snapshot: {
+      network,
+      status: 'loading',
+      config: null,
+      derived: null,
+      lastFetch: null,
+      ...(startupGeo ? { geo: startupGeo } : {})
+    }
   };
   states.set(network, state);
   return state;
@@ -115,8 +140,12 @@ function publish(state: NetworkState): void {
     status: state.derived !== null || state.attempted ? 'ready' : 'loading',
     config: state.stored?.config ?? null,
     derived: state.derived,
-    lastFetch: state.lastFetch
+    lastFetch: state.lastFetch,
+    ...(startupGeo ? { geo: startupGeo } : {})
   };
+  // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
+  // realm already took stays.
+  if (state.stored) setDocumentGuardians(state.network, state.stored.config.guardians);
   logUnavailable(state);
   listeners.forEach(listener => listener());
   arm();
@@ -156,20 +185,8 @@ function forgetAll(): void {
   listeners.forEach(listener => listener());
 }
 
-function registerReread(): void {
-  if (rereadRegistered) return;
-  rereadRegistered = true;
-  // A wipe in this realm removed the stored copies, so the in-memory ones go too. A page reads again at once, which
-  // refetches; the service worker waits for its next use. Not awaited: a wipe must not wait on the network.
-  registerStorageReread(async () => {
-    forgetAll();
-    if (schedulerInstalled) void initBridgeConfig();
-  });
-}
-
 function hydrate(state: NetworkState): Promise<void> {
   if (state.hydration) return state.hydration;
-  registerReread();
   const reread = () => void rehydrate(state);
   state.subscriptions = [
     onStorageChanged(bridgeConfigCacheKey(state.network), reread),
@@ -208,7 +225,7 @@ async function rehydrate(state: NetworkState): Promise<void> {
     return;
   }
   state.stored = stored;
-  state.derived = keepValuesRead(derived, state.derived);
+  state.derived = keepValuesRead(derived, state.derived, sameSolver(stored.config, current?.config));
   state.failures = 0;
   state.lastFetch = { at: stored.fetchedAt, ok: true };
   state.checkedAt = Math.max(stored.fetchedAt, derived.derivedAt);
@@ -217,6 +234,9 @@ async function rehydrate(state: NetworkState): Promise<void> {
 
 const newer = (a: StoredBridgeConfig | null, b: StoredBridgeConfig | null) =>
   a && (!b || a.config.version >= b.config.version) ? a : b;
+
+const sameSolver = (next: BridgeConfig, current: BridgeConfig | undefined) =>
+  next.swap?.etaUrl !== undefined && next.swap.etaUrl === current?.swap?.etaUrl;
 
 async function derive(
   config: BridgeConfig,
@@ -235,25 +255,73 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
   next.state === 'error' && previous.state === 'ok' ? previous : next;
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
-// last read (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still clears it,
-// and liveness (allocator, indexer) always reports the latest read.
-function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
-  if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
-  const { agglayer, epoch } = next;
+// last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
+// clears it, and liveness (allocator, indexer) always reports the latest read. A first read of a faucet still has no
+// scale, so the deposit picker omits the token while a send keeps the id, and a same-version refresh keeps the last
+// scaled read of that faucet id. Across a version only the swap registry is kept, and only while the new document
+// names the same solver: it prices IETH and IBTC for the spending cap, and the solver, not the document, decides
+// what it lists.
+function keepValuesRead(
+  next: DerivedBridgeConfig,
+  previous: DerivedBridgeConfig | null,
+  solverUnchanged: boolean
+): DerivedBridgeConfig {
+  if (!previous || previous.network !== next.network) return next;
+  if (previous.version !== next.version) {
+    return solverUnchanged && next.swap && previous.swap
+      ? { ...next, swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } }
+      : next;
+  }
+  const chains: Record<number, DerivedChainConfig> = {};
+  for (const [id, chain] of Object.entries(next.chains)) {
+    const before = previous.chains[Number(id)];
+    chains[Number(id)] = before
+      ? {
+          agglayer: {
+            rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
+            tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
+            evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
+            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode),
+            depositTokens: kept(chain.agglayer.depositTokens, before.agglayer.depositTokens)
+          },
+          epoch: {
+            tokens: Object.fromEntries(
+              Object.entries(chain.epoch.tokens).map(([symbol, read]) => {
+                const earlier = before.epoch.tokens[symbol];
+                const keptRead = earlier ? kept(read, earlier) : read;
+                // Same faucet id, newly unscaled: the last scaled read of that id still stands.
+                if (
+                  earlier &&
+                  keptRead === read &&
+                  read.state === 'ok' &&
+                  read.value.midenFaucetId !== undefined &&
+                  read.value.midenDecimals === undefined &&
+                  earlier.state === 'ok' &&
+                  earlier.value.midenFaucetId === read.value.midenFaucetId &&
+                  earlier.value.midenSymbol !== undefined &&
+                  earlier.value.midenDecimals !== undefined
+                ) {
+                  return [symbol, earlier];
+                }
+                return [symbol, keptRead];
+              })
+            )
+          }
+        }
+      : chain;
+  }
   return {
     ...next,
-    agglayer: {
-      ...agglayer,
-      rollupId: kept(agglayer.rollupId, previous.agglayer.rollupId),
-      tokens: kept(agglayer.tokens, previous.agglayer.tokens),
-      evmNetworkId: kept(agglayer.evmNetworkId, previous.agglayer.evmNetworkId),
-      l1BridgeCode: kept(agglayer.l1BridgeCode, previous.agglayer.l1BridgeCode)
-    },
+    chains,
     epoch: {
-      ...epoch,
-      midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
-      evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
-    }
+      ...next.epoch,
+      market: kept(next.epoch.market, previous.epoch.market),
+      midenUsdcFaucet: kept(next.epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
+      // The Earn vault catalogue too: a positions host that is down for one check must not empty the Earn screens.
+      vaults: kept(next.epoch.vaults, previous.epoch.vaults)
+    },
+    // The swap registry too: a solver that is down for one check must not empty the token pickers.
+    ...(next.swap && previous.swap ? { swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } } : {})
   };
 }
 
@@ -286,7 +354,15 @@ async function refresh(state: NetworkState): Promise<void> {
   if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
-  const derived = result ? keepValuesRead(keepValuesRead(result.derived, storedDerived), state.derived) : null;
+  // storedDerived is the target's own version, so only the outer call can cross a version.
+  const derived =
+    result && target
+      ? keepValuesRead(
+          keepValuesRead(result.derived, storedDerived, true),
+          state.derived,
+          sameSolver(target.config, state.stored?.config)
+        )
+      : null;
   if (!superseded) {
     state.stored = target;
     state.derived = derived;
@@ -316,10 +392,21 @@ function startRefresh(state: NetworkState): Promise<void> {
 
 function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[] {
   const overrides = getE2eOverrides();
-  return BRIDGE_FEATURES.flatMap(feature => {
+  const earnGate = geoFeatureGate('earn', snapshot.geo);
+  const reasons = BRIDGE_FEATURES.flatMap(feature => {
     const availability = featureAvailability(feature, snapshot, overrides);
-    return availability.state === 'unavailable' ? [availability.reason] : [];
+    if (availability.state !== 'unavailable' || availability.reason === 'pending') return [];
+    // The startup decision is made once per page and lands on its own lookup, so no document poll can change it.
+    const fromStartupDecision =
+      feature === 'earnDeposit' && earnGate?.state === 'unavailable' && earnGate.reason === availability.reason;
+    return fromStartupDecision ? [] : [availability.reason];
   });
+  // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
+  const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];
+  // So does a failed read of the Earn vault catalogue. The Earn market comes from the same requests, but a stored
+  // catalogue that does not read back fails the catalogue alone and leaves the market readable.
+  const vaultsDown: UnavailableReason[] = snapshot.derived?.epoch.vaults.state === 'error' ? ['service-down'] : [];
+  return [...reasons, ...swapDown, ...vaultsDown];
 }
 
 function pollInterval(state: NetworkState): number {
@@ -389,7 +476,7 @@ async function hydrateCurrent(): Promise<NetworkState> {
   for (;;) {
     const state = stateFor(getEffectiveNetworkName());
     await hydrate(state);
-    // The network can change, and a wipe can forget the entry, while the read is out.
+    // The network can change, and a test reset can forget the entry, while the read is out.
     if (state.network === getEffectiveNetworkName() && states.get(state.network) === state) return state;
   }
 }
@@ -405,6 +492,78 @@ export async function initBridgeConfig(): Promise<BridgeConfigSnapshot> {
   if (isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS)) void startRefresh(state);
   ensureScheduler();
   return state.snapshot;
+}
+
+/** Wait for the first document when no document is stored. */
+export async function ensureBridgeConfig(): Promise<BridgeConfigSnapshot> {
+  for (;;) {
+    const state = await hydrateCurrent();
+    if (!state.stored) await startRefresh(state);
+    if (getEffectiveNetworkName() !== state.network) continue;
+    ensureScheduler();
+    return state.snapshot;
+  }
+}
+
+/** One eligibility decision for this page lifetime. Ordinary document refreshes never repeat it. */
+export function initFeatureEligibility(): Promise<GeoLookup> {
+  if (startupEligibility) return startupEligibility;
+  startupGeo = { state: 'loading' };
+  startupEligibility = (async (): Promise<GeoLookup> => {
+    let geo: GeoLookup;
+    const diagnostics: StartupEligibilityDiagnostics = {
+      startupEligibilityStage: 'config_initialization',
+      startupEligibilityReason: 'config_unavailable',
+      startupEligibilityRetry: 'not_attempted'
+    };
+    const onFailure = (reason: StartupEligibilityReason, requestFailure?: BoundedJsonFailure) => {
+      diagnostics.startupEligibilityReason = reason;
+      const startupEligibilityRequestFailure = retainedStartupRequestFailure(reason, requestFailure);
+      if (startupEligibilityRequestFailure)
+        diagnostics.startupEligibilityRequestFailure = startupEligibilityRequestFailure;
+      else delete diagnostics.startupEligibilityRequestFailure;
+    };
+    try {
+      const snapshot = await ensureBridgeConfig();
+      let decision: FeatureEligibility | null = null;
+      if (snapshot.config) {
+        diagnostics.startupEligibilityStage = 'eligibility_lookup';
+        diagnostics.startupEligibilityReason = 'unexpected';
+        decision = await lookupFeatureEligibility(snapshot.network, snapshot.config.version, { onFailure });
+      }
+      if (!decision && snapshot.config) {
+        const state = states.get(snapshot.network);
+        if (state) {
+          await startRefresh(state);
+          const refreshed = state.snapshot;
+          if (refreshed.config && refreshed.config.version > snapshot.config.version) {
+            diagnostics.startupEligibilityStage = 'eligibility_retry';
+            diagnostics.startupEligibilityReason = 'unexpected';
+            diagnostics.startupEligibilityRetry = 'retry_failed';
+            decision = await lookupFeatureEligibility(refreshed.network, refreshed.config.version, { onFailure });
+          } else if (refreshed.lastFetch?.ok === false) {
+            diagnostics.startupEligibilityStage = 'config_refresh';
+            diagnostics.startupEligibilityReason = 'config_unavailable';
+            diagnostics.startupEligibilityRetry = 'refresh_failed';
+            delete diagnostics.startupEligibilityRequestFailure;
+          } else {
+            diagnostics.startupEligibilityRetry = 'config_not_advanced';
+          }
+        }
+      }
+      geo = decision ? { state: 'ready', ...decision } : { state: 'failed', diagnostics: { ...diagnostics } };
+    } catch {
+      diagnostics.startupEligibilityReason =
+        diagnostics.startupEligibilityStage === 'config_initialization' ? 'config_initialization_failed' : 'unexpected';
+      delete diagnostics.startupEligibilityRequestFailure;
+      geo = { state: 'failed', diagnostics: { ...diagnostics } };
+    }
+    startupGeo = geo;
+    states.forEach(state => publish(state));
+    return geo;
+  })();
+  states.forEach(state => publish(state));
+  return startupEligibility;
 }
 
 /** Test-only: fetches and re-derives now, awaited. */
@@ -439,4 +598,6 @@ export function _resetBridgeConfigRuntimeForTest(): void {
   holds = 0;
   if (schedulerInstalled) document.removeEventListener('visibilitychange', onVisibilityChange);
   schedulerInstalled = false;
+  startupGeo = undefined;
+  startupEligibility = undefined;
 }

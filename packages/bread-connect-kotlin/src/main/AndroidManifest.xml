@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Lets the client check Bread's signing certificate before it hands Bread a request (Android 11 and later). -->
+    <queries>
+        <package android:name="com.miden.wallet" />
+    </queries>
+</manifest>

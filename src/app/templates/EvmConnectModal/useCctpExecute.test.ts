@@ -1,20 +1,48 @@
 import { renderHook } from '@testing-library/react';
 
+import 'lib/bridge/testing/fixtures';
+
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
+import { BridgedReceiveTransaction } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import { getUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { useCctpExecute } from './useCctpExecute';
 
+jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
+jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
+jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const hash = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const mockWrite = jest.fn(async () => hash);
 const mockSwitch = jest.fn();
+let mockNativeAvailable = false;
 
 jest.mock('wagmi', () => ({
   useWriteContract: () => ({ mutateAsync: mockWrite }),
   useSwitchChain: () => ({ switchChainAsync: mockSwitch })
 }));
 jest.mock('lib/miden/activity', () => ({ updateBridgedReceivePhase: jest.fn() }));
-jest.mock('lib/walletconnect/native', () => ({ isNativeReownAvailable: () => false }));
+jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
+jest.mock('lib/walletconnect/native', () => ({
+  isNativeReownAvailable: () => mockNativeAvailable,
+  NativeReown: { sendTransaction: jest.fn() },
+  NativeSessionChainNotApprovedError:
+    jest.requireActual<typeof import('lib/walletconnect/native')>('lib/walletconnect/native')
+      .NativeSessionChainNotApprovedError,
+  prepareNativeSessionChain: jest.fn(),
+  unwrapNativeResult: (value: unknown) => value
+}));
 jest.mock('lib/walletconnect/receipt', () => ({
   ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),
   waitForEvmReceipt: jest.fn()
@@ -22,8 +50,28 @@ jest.mock('lib/walletconnect/receipt', () => ({
 
 const leg = { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
+  mockNativeAvailable = false;
+  await Repo.transactions.clear();
+  const row = new BridgedReceiveTransaction(
+    '0x387149ae66116cf114eebd60bb7381',
+    1500000n,
+    '0x4cbdcaffe75f0a317482224dae6436',
+    'usdcx',
+    '0x1111111111111111111111111111111111111111',
+    '1.5',
+    'USDC'
+  );
+  row.id = 'row';
+  row.extraInputs = {
+    ...row.extraInputs,
+    phase: 'delivering',
+    sourceChainId: 84532,
+    usdcxSource: getUsdcxExecutorSource(84532),
+    cctp: structuredClone(leg)
+  };
+  await Repo.transactions.add(row);
 });
 
 // The order is recorded by both mocks and asserted after the call: an expect inside the receipt mock would throw
@@ -71,4 +119,43 @@ it('keeps the saved hash when the receipt request fails', async () => {
   expect(updateBridgedReceivePhase).toHaveBeenCalledTimes(1);
   unmount();
   warn.mockRestore();
+});
+
+describe('on native Reown', () => {
+  const { target } = getUsdcxExecutorSource(84532);
+
+  beforeEach(() => {
+    mockNativeAvailable = true;
+    jest.mocked(prepareNativeSessionChain).mockReset().mockResolvedValue(undefined);
+    jest.mocked(NativeReown.sendTransaction).mockReset().mockResolvedValue({ hash });
+  });
+
+  it('refuses before the wallet prompt when the session did not approve the target chain', async () => {
+    const refusal = new NativeSessionChainNotApprovedError(target.chain.id, target.chain.name);
+    jest.mocked(prepareNativeSessionChain).mockRejectedValueOnce(refusal);
+    const { result, unmount } = renderHook(useCctpExecute);
+
+    const outcome = await result.current('row', 84532, leg).catch((error: unknown) => error);
+
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(outcome).toBe(refusal);
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(target.chain.id);
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('prepares the target chain once, then executes on it', async () => {
+    const { result, unmount } = renderHook(useCctpExecute);
+
+    await expect(result.current('row', 84532, leg)).resolves.toBe(hash);
+
+    expect(jest.mocked(prepareNativeSessionChain).mock.calls).toEqual([[target.chain.id]]);
+    const [prepared] = jest.mocked(prepareNativeSessionChain).mock.invocationCallOrder;
+    const [sent] = jest.mocked(NativeReown.sendTransaction).mock.invocationCallOrder;
+    expect(prepared).toBeLessThan(sent!);
+    expect(NativeReown.sendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: target.chain.id, to: target.executor })
+    );
+    unmount();
+  });
 });

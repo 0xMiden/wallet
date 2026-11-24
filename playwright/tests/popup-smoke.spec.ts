@@ -1,6 +1,6 @@
 import type { BrowserContext } from '@playwright/test';
 
-import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
+import { openImportTypeScreen } from '../e2e/helpers/onboarding-entry';
 import { passImportConfirmation } from '../e2e/helpers/onboarding-confirmation';
 import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
@@ -24,6 +24,35 @@ const IGNORED_CONSOLE_ERRORS = [
 
 const isIgnoredConsoleError = (text: string) => IGNORED_CONSOLE_ERRORS.some(pattern => pattern.test(text));
 
+// Only known static routes are safe to print: never log extension IDs, query values or dynamic paths.
+const safeRequestLocation = (rawUrl: string) => {
+  try {
+    const url = new URL(rawUrl);
+    const origin =
+      url.protocol === 'chrome-extension:'
+        ? 'chrome-extension://[id]'
+        : url.origin === 'http://127.0.0.1:8551'
+          ? url.origin
+          : '[other-origin]';
+    const path = [
+      '/fullpage.html',
+      '/healthz',
+      '/v1/eligibility',
+      '/_fixture/config',
+      '/_fixture/response',
+      '/mainnet.json',
+      '/testnet.json',
+      '/devnet.json',
+      '/localnet.json'
+    ].includes(url.pathname)
+      ? url.pathname
+      : '/[other-path]';
+    return `${origin}${path}`;
+  } catch {
+    return '[unavailable]';
+  }
+};
+
 /**
  * `OpenSidePanel.tsx`'s root, and the only unambiguous hook for the side-panel
  * handoff screen: its "Your Wallet is ready!" title and its "Open wallet" button
@@ -36,16 +65,7 @@ const openSeedPhraseImport = async (extensionContext: BrowserContext, extensionI
   const page = await extensionContext.newPage();
   await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
 
-  const welcome = page.getByTestId('onboarding-welcome');
-  await welcome.waitFor({ timeout: 30000 });
-  if (page.isClosed()) {
-    throw new Error('Page closed before onboarding');
-  }
-  await page.locator('#import-link').click();
-
-  await acknowledgeNetworkNotice(page, 15000);
-  // Import now asks WHICH credential first; this flow is the seed-phrase one.
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15000 });
+  await openImportTypeScreen(page);
   await page.getByTestId('import-type-seed-phrase').click();
   const seedForm = page.getByTestId('import-seed-phrase');
   await seedForm.waitFor({ timeout: 15000 });
@@ -58,11 +78,37 @@ test.describe('Fullpage UI', () => {
   test('loads UI without console errors', async ({ extensionContext, extensionId }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const errors: string[] = [];
+    const missing: string[] = [];
+    const failedResponses: string[] = [];
+    const errorSources: string[] = [];
+    const startedAt = Date.now();
+    expect(safeRequestLocation('https://user:private@untrusted.example/note/private?token=private')).toBe(
+      '[other-origin]/[other-path]'
+    );
+    expect(safeRequestLocation('http://127.0.0.1:8551/v1/eligibility?network=testnet')).toBe(
+      'http://127.0.0.1:8551/v1/eligibility'
+    );
 
     extensionContext.on('page', page => {
+      page.on('response', response => {
+        const status = response.status();
+        if (status < 400) return;
+        const location = safeRequestLocation(response.url());
+        if (status === 404 && missing.length < 8) missing.push(location);
+        if (failedResponses.length < 8) {
+          const request = response.request();
+          failedResponses.push(
+            `${Date.now() - startedAt}ms ${status} ${request.method()} ${request.resourceType()} ${location}`
+          );
+        }
+      });
       page.on('console', message => {
         if (message.type() === 'error' && !isIgnoredConsoleError(message.text())) {
           errors.push(message.text());
+          if (errorSources.length < 8) {
+            const source = message.location();
+            errorSources.push(`${Date.now() - startedAt}ms ${safeRequestLocation(source.url)}:${source.lineNumber}`);
+          }
         }
       });
     });
@@ -74,7 +120,10 @@ test.describe('Fullpage UI', () => {
     // Wait for React to render content into #root (not just for #root to exist)
     await page.waitForSelector('#root > *', { timeout: 30000 });
 
-    expect(errors).toHaveLength(0);
+    expect(
+      errors,
+      `Missing request paths: ${JSON.stringify(missing)}; HTTP failures: ${JSON.stringify(failedResponses)}; console sources: ${JSON.stringify(errorSources)}`
+    ).toHaveLength(0);
   });
 
   // SKIPPED for the v0 UI: the create flow is now Guardian-mandatory (no "Fully
@@ -182,6 +231,8 @@ test.describe('Fullpage UI', () => {
     // Import-recovery-method step — pick "Import public account".
     await page.getByTestId('import-recovery-method').waitFor({ timeout: 15000 });
     await page.getByText(/import public account/i).click();
+    // A public import creates an account when none exists, so it waits for the reused-phrase acknowledgement.
+    await page.getByTestId('reused-phrase-acknowledge').click();
     await page.getByRole('button', { name: /continue/i }).click();
 
     // Complete onboarding. Recovery hands off to the Chrome side panel just like

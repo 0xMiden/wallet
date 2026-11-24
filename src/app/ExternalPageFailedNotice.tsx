@@ -13,7 +13,7 @@ export const ExternalPageFailedNotice: FC = () => {
   useEffect(
     () =>
       onExternalPageFailed(() => {
-        void alert({ title: t('error'), children: t('externalPageLoadFailed') });
+        void alert({ errorId: 'externalPageLoadFailed', title: t('error'), children: t('externalPageLoadFailed') });
       }),
     [alert, t]
   );

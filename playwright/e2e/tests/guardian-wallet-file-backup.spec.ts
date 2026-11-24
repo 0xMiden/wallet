@@ -10,7 +10,7 @@ import { PASSWORD } from '../helpers/wallet-page';
 
 // Primary guardian operator for the selected network (E2E_NETWORK).
 const A = getEnvironmentConfig().guardianUrl;
-const FILE_PASSWORD = 'Backup1234!';
+const FILE_PASSWORD = 'Backup1234!File';
 const RESTORED_PASSWORD = 'Restored1234!';
 const IMPORTED_ACCOUNT_NAME = 'Imported signer';
 // Vault.spawnFromHotKey names the first adopted account "Account $accountNumber$".
@@ -123,10 +123,14 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
           expect(box.x + box.width).toBeLessThanOrEqual(360);
         }
 
-        // Continue is pinned by SubPageLayout's FlowFooter, so it is always in viewport; the
-        // consent row is what a longer notice pushes below the fold.
+        // The countdown banner can move consent below the fold in the scrolling body;
+        // the exclusion notice and pinned Continue must stay visible as consent is reached.
+        await expect(popupNotice).toBeInViewport({ ratio: 1 });
+        await expect(submit).toBeInViewport({ ratio: 1 });
+        await consent.scrollIntoViewIfNeeded();
         await expect(popupNotice).toBeInViewport({ ratio: 1 });
         await expect(consent).toBeInViewport({ ratio: 1 });
+        await expect(submit).toBeInViewport({ ratio: 1 });
 
         await captureBothThemes(popupPage, popupNotice, 'popup');
       } finally {

@@ -1,5 +1,7 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { TxAssetView } from 'app/confirm/decode';
+import type { NoteFlow } from 'app/confirm/note-flow';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -12,6 +14,7 @@ import type {
   SpendingLimitDraft
 } from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
@@ -22,6 +25,7 @@ import {
   SerializedConsumableNote,
   SignEvmOperation,
   SeedPhraseStatus,
+  UsdcxBurnFeeEstimate,
   WalletAccount,
   WalletBackupMaterial,
   WalletSettings,
@@ -48,6 +52,8 @@ export interface WalletSlice {
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
+  balanceReadFailed: Record<string, boolean>;
+  balanceReadInFlight: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
   /**
    * The display faucet id each account's last landed read built its MIDEN row for. No override
@@ -82,6 +88,7 @@ export interface FiatCurrencySlice {
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
   tokenPrices: TokenPrices;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
 }
 
 /**
@@ -139,6 +146,9 @@ export interface NoteToastSlice {
   noteToastShownAt: number | null;
 }
 
+/** A refresh after an acknowledged create-account or seed removal. */
+export type PostActionRefreshOutcome = 'synced' | 'pending';
+
 /**
  * Actions for wallet mutations
  */
@@ -152,7 +162,8 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,
@@ -166,12 +177,13 @@ export interface WalletActions {
     importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
+  platformUnlock: (command: PlatformUnlockCommand) => Promise<PlatformUnlockResult>;
 
   // Account actions
-  createAccount: (walletType: WalletType, name?: string) => Promise<void>;
+  createAccount: (walletType: WalletType, name?: string) => Promise<PostActionRefreshOutcome>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  removeSeedPhrase: (password?: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<PostActionRefreshOutcome>;
   provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
   prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
@@ -198,12 +210,13 @@ export interface WalletActions {
   verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
-  signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
+  /** Installs the everyday key from a saved key pair on a recovered account that has none. */
+  importHotKeyPair: (accountPublicKey: string, keyPairPayload: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
   /**
    * Conditional rollback after the node discards a rotation. Refused unless the
@@ -217,6 +230,17 @@ export interface WalletActions {
   ) => Promise<'reverted' | 'superseded' | 'stale'>;
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey`; the backend writes it only while that is still the
+   * stored key. See `HotKeyRotatedOutVerdict`.
+   */
+  markHotKeyRotatedOut: (accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) => Promise<void>;
+  /**
+   * Make this device the account's main one: drop the rotated-out hot key and
+   * flag the account for the rotation `HotKeyRotationGate` runs.
+   */
+  retireRotatedOutHotKey: (accountPublicKey: string, expectedHotPubKey: string) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
@@ -225,7 +249,10 @@ export interface WalletActions {
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
-  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** The background's dry run of a dApp custom request, decoded there; amounts back as bigints. */
+  simulateCustomTransaction: (id: string) => Promise<{ view?: TxAssetView; noteFlow?: NoteFlow; error?: string }>;
+  /** Native-asset base units a USDCx burn needs for its cost, from a dry run, or why it was not measured. */
+  estimateUsdcxBurnFee: (accountPublicKey: string, destinationChainId: number) => Promise<UsdcxBurnFeeEstimate>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,
@@ -238,6 +265,7 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
+  confirmDAppUnlock: (id: string) => Promise<void>;
   confirmDAppTransaction: (
     id: string,
     confirmed: boolean,
@@ -259,6 +287,11 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+  /**
+   * Drops every address's balances, loading flag, last fetch, balanceReadFailed and balanceReadInFlight,
+   * so each reader waits for a new read.
+   */
+  clearBalances: () => void;
 }
 
 export interface AssetActions {

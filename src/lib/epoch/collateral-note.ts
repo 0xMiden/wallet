@@ -1,29 +1,24 @@
-import { AccountId, Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
-  accountIdStringToSdk,
+  accountRefToSdk,
   feeAwareRequestBuilder,
   randomFeeSalt,
   resolveHeldFungibleAsset
 } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { soleOwnOutputNoteId } from 'lib/miden/sdk/own-output-request';
 
 import { getCurrentMidenBlock } from './chain';
 
 /**
  * Parse a wallet account identifier into an SDK `AccountId`. Accepts the three
  * forms that reach the Epoch flows: bare bech32, composite guardian
- * `<address>_<suffix>` (only the address part is an account id), and 0x hex
- * (the form the Epoch SDK hands to the mint callback).
+ * `<address>_<suffix>` (only the address part is an account id), and hex in
+ * either prefix case (the form the Epoch SDK hands to the mint callback).
  */
-function toAccountId(id: string): AccountId {
-  const address = id.split('_')[0] ?? id;
-  if (address.startsWith('0x')) {
-    return AccountId.fromHex(address);
-  }
-  return accountIdStringToSdk(address);
-}
+const toAccountId = accountRefToSdk;
 
 export interface EpochCollateralNoteArgs {
   /** Sender's Miden account (bech32, composite, or hex). */
@@ -37,14 +32,14 @@ export interface EpochCollateralNoteArgs {
   /**
    * RELATIVE blocks-until-reclaim window, exactly as supplied by the Epoch SDK's
    * mint callback (allocator minimum + SDK drift buffer). Never recompute or
-   * hardcode it — the SDK derives it from the allocator's live config.
+   * hardcode it - the SDK derives it from the allocator's live config.
    */
   recallBlocks: number;
   /**
    * Mandate-binding attachment felts, exactly as supplied by the Epoch SDK's
    * mint callback. The allocator recomputes the same EIP-712 witness hash from
    * the submitted mandate and rejects the note unless its attachment matches
-   * ("Miden note is not bound to the intent mandate") — so the felts must be
+   * ("Miden note is not bound to the intent mandate") - so the felts must be
    * written VERBATIM: no reordering, truncation, hashing, or `number` round-trips.
    */
   bindingAttachmentFelts: bigint[];
@@ -55,19 +50,19 @@ export interface EpochCollateralRequest {
   requestBytes: Uint8Array;
   /** Absolute Miden block after which the sender can reclaim the note. */
   reclaimHeight: number;
-  /** Id of the P2IDE note the request creates. */
+  /** Id of the one P2IDE note the request creates, lowercased as the summary decode spells it. */
   noteId: string;
 }
 
 /**
  * Build (and serialize) the transaction request that mints an Epoch collateral
- * note — the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
+ * note - the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
  * addressed to the allocator, honoring the SDK-supplied `recallBlocks`, with the
  * SDK-supplied mandate-binding felts as its single attachment.
  *
  * `newSendTransactionRequest` cannot express the attachment, so the note is
  * built explicitly via `Note.createP2IDENote` and submitted as an own output
- * note — the same mechanism as the Agglayer B2AGG bridge note. The P2IDE serial
+ * note - the same mechanism as the Agglayer B2AGG bridge note. The P2IDE serial
  * number is random, so the returned bytes must be built ONCE and persisted on
  * the row (`requestBytes`); retries and the guardian propose/sign path reuse
  * the exact same bytes.
@@ -76,7 +71,8 @@ export interface EpochCollateralRequest {
  * validates the REMAINING window against its own (later) head; the blocks that
  * elapse during proving/submission (and guardian co-signing) are covered by the
  * ~1000-block buffer the SDK bakes into `recallBlocks`. The height and the note id
- * come back with the bytes so a bridged-send row can record them (#1250).
+ * come back with the bytes so a bridged-send row can record them (#1250), and so
+ * both rows can bind signing to that one note.
  */
 export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<EpochCollateralRequest> {
   // Fresh RPC head (not the local sync height) so a cold-started wallet can't
@@ -91,7 +87,7 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
   const feeSalt = randomFeeSalt();
   return withWasmClientLock(async hold => {
     // The collateral asset is REMOVED from the sender's vault, so it has to carry
-    // the vault key of the slot it is actually held in — the callback flag is part
+    // the vault key of the slot it is actually held in - the callback flag is part
     // of that key. Building it from faucet id + amount always yields the default
     // Disabled flag, so a collateral faucet issuing callback-ENABLED assets
     // addressed an empty slot and the kernel rejected the note ("failed to remove
@@ -106,7 +102,7 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
     const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
     // Before touching the returned account: an eviction during the read above
     // hands the mutex to a successor without stopping this callback, and
-    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` — a WASM call
+    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` - a WASM call
     // on an object borrowed from the client's RefCell, so continuing would be
     // the double borrow, not a stale read. Everything in this hold is write
     // PREP (the request is only built and serialized here, nothing is
@@ -123,8 +119,6 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       NoteType.Public,
       attachment
     );
-    // The browser build consumes a Note passed by value, so its id is read before the NoteArray takes it.
-    const noteId = note.id().toString();
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
     // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
     const builder = await feeAwareRequestBuilder(
@@ -133,10 +127,8 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       feeSalt
     );
     assertWasmHoldCurrent(hold, 'after the fee-aware collateral builder');
-    const requestBytes = builder
-      .withOwnOutputNotes(new NoteArray([note]))
-      .build()
-      .serialize();
-    return { requestBytes, reclaimHeight, noteId };
+    const request = builder.withOwnOutputNotes(new NoteArray([note])).build();
+    // Read from the request whose bytes are queued: a row's signing may create only this note.
+    return { requestBytes: request.serialize(), reclaimHeight, noteId: soleOwnOutputNoteId(request) };
   });
 }

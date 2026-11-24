@@ -10,6 +10,7 @@ import {
   AuthSecretKey,
   Endpoint,
   Felt,
+  FeltArray,
   FungibleAsset,
   InputNote,
   MidenClient,
@@ -24,8 +25,8 @@ import {
   NoteFile,
   NoteFilterTypes,
   NoteId,
-  NoteScript,
   NoteType,
+  Poseidon2,
   PublicKey,
   RpcClient,
   Signature,
@@ -55,40 +56,34 @@ import {
 } from '@miden-sdk/miden-wallet-adapter-miden';
 
 import { guardianRequestBuilder, previewTwinSummary } from './guardian-request-builder.js';
+import {
+  canonical,
+  ChainUnavailableError,
+  describeError,
+  field,
+  fromNode,
+  HarnessCheckError,
+  noteTypeName,
+  outcome,
+  outputNoteView,
+  signBytesCommitment,
+  withProviderSignedCommitment
+} from './page-common.js';
 import type {
   ConnectedView,
   DappCommandName,
-  DappError,
   DappHandlers,
   DappInput,
   DappOutput,
   NoteTypeName,
   NoteView,
-  Outcome,
-  OutputNoteView,
   RawArg,
   SessionEvent,
-  TestDappWindowApi
+  TestDappWindowApi,
+  MeasuredSubmitContext
 } from './protocol';
-
-/** A dApp-side failure: thrown through to the driver as a harness fault, never folded into an Outcome. */
-class HarnessCheckError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'HarnessCheckError';
-  }
-}
-/**
- * The node failed a call the page made, or the chain did not advance: the network's fault, not the page's. The driver
- * matches the name, asks again a command a repeat cannot change, and records the rest as an infrastructure failure of
- * that cell alone (callDapp).
- */
-class ChainUnavailableError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = 'ChainUnavailableError';
-  }
-}
+import { runMeasuredCustomSubmit } from './protocol.js';
+import { buildScriptRequest } from './script-request.js';
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
 interface HeldRequest {
@@ -111,20 +106,14 @@ const state = {
 };
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-// The wallet hands out its stored account key, which can carry a `_<suffix>` (dapp.ts:443-453); the SDK parses only the
-// bech32 part, so this drops the suffix the way the wallet's own canonicalWalletAccountId does (helpers.ts:72-79).
-const canonical = (address: string): string => address.split('_')[0] ?? address;
 // Ids the page computes are hex; addresses the wallet and the driver pass are bech32, possibly suffixed.
 const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
-const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
-// By script root, as the wallet's own guardian-history.ts reads a payment note.
-function scriptOf(note: Note): OutputNoteView['script'] {
-  const root = note.script().root().toHex();
-  if (root === NoteScript.p2id().root().toHex()) return 'p2id';
-  return root === NoteScript.p2ide().root().toHex() ? 'p2ide' : 'other';
-}
+const cryptoWord = (): Word => {
+  const values = crypto.getRandomValues(new BigUint64Array(4));
+  return Word.newFromFelts(Array.from(values, value => new Felt(value & 0x7fff_ffff_ffff_ffffn)));
+};
 // The note type and state are stringified as the wallet sent them, so the view stays JSON whichever form they take.
 const noteView = (note: InputNoteDetails): NoteView => ({
   noteId: note.noteId,
@@ -149,33 +138,6 @@ function record(source: SessionEvent['source'], event: string, address: string |
   if (log) log.textContent += `${source} ${event} ${address ?? ''}\n`;
 }
 
-const field = (value: unknown, key: string): string | undefined => {
-  const found: unknown = typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined;
-  return typeof found === 'string' ? found : undefined;
-};
-
-// Provider errors are MidenWalletError objects that implement Error without extending it, so read fields, not instanceof.
-function describeError(error: unknown): DappError {
-  const cause: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'error') : undefined;
-  const causeName = field(cause, 'name');
-  return {
-    name: field(error, 'name') ?? 'NonError',
-    message: field(error, 'message') ?? String(error),
-    ...(causeName === undefined ? {} : { causeName, causeMessage: field(cause, 'message') ?? '' })
-  };
-}
-
-// Wallet and adapter errors are the verdicts under test, so they come back as data with their exact class and text
-// (spec section 2.4). A HarnessCheckError is the page's own fault and a ChainUnavailableError the node's: both throw.
-async function outcome<T>(work: () => Promise<T>): Promise<Outcome<T>> {
-  try {
-    return { ok: true, value: await work() };
-  } catch (error) {
-    if (error instanceof HarnessCheckError || error instanceof ChainUnavailableError) throw error;
-    return { ok: false, error: describeError(error) };
-  }
-}
-
 // Each command is a separate call from the driver, so each checks its own preconditions; a missing one is the
 // driver's mistake and throws as a harness fault.
 function client(): MidenClient {
@@ -192,21 +154,33 @@ function provider(): MidenWallet {
   if (injected === undefined) throw new HarnessCheckError('window.midenWallet is not injected');
   return injected;
 }
+// The published adapter has neither login key method, so the page calls them on the provider by name, as `raw` does.
+async function callProvider(method: 'requestLoginKey' | 'signLoginBytes', args: unknown[]): Promise<unknown> {
+  const injected = provider();
+  const call: unknown = Reflect.get(injected, method);
+  if (typeof call !== 'function') throw new HarnessCheckError(`the provider has no ${method}`);
+  return Reflect.apply(call, injected, args);
+}
+// The provider hands login bytes over as a Uint8Array; any other answer is the wallet's failure, so it comes back as
+// Outcome data rather than a harness fault.
+function answerBytes(answer: unknown, key: 'loginKey' | 'signature'): Uint8Array {
+  const bytes: unknown = typeof answer === 'object' && answer !== null ? Reflect.get(answer, key) : undefined;
+  if (!(bytes instanceof Uint8Array)) throw new Error(`the wallet answered without ${key} bytes`);
+  return bytes;
+}
+// The login message a site checks a login signature against: Poseidon2 of `Bread login v1` in ASCII, four bytes to an
+// element, little-endian, the last zero-padded, then the word's four elements.
+function loginMessage(word: Word): Word {
+  const tag = new Uint8Array(16);
+  tag.set(new TextEncoder().encode('Bread login v1'));
+  const view = new DataView(tag.buffer);
+  const tagElements = [0, 4, 8, 12].map(at => new Felt(BigInt(view.getUint32(at, true))));
+  return Poseidon2.hashElements(new FeltArray([...tagElements, ...word.toFelts()]));
+}
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
-// Every call the page makes to the node goes through here, so the driver can tell a failed request from a page fault.
-async function fromNode<T>(what: string, work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof HarnessCheckError) throw error;
-    const { name, message } = describeError(error);
-    throw new ChainUnavailableError(`${what}: ${name}: ${message}`, { cause: error });
-  }
-}
 
-// The adapter never subscribes to the provider's accountChange (K1), so the page listens on the provider itself to
-// record what the wallet actually emitted next to what the adapter reports.
+// Record provider events independently so cells can compare them with the adapter after a switch or revoke.
 function installProviderListener(): void {
   if (state.providerListening) return;
   provider().on('accountChange', (permission: unknown) =>
@@ -302,6 +276,26 @@ function toWire(value: unknown): RawArg {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 }
 
+const syncHeight: DappHandlers['syncHeight'] = async () => {
+  const ownClient = client();
+  await fromNode('syncChain', () => ownClient.syncChain());
+  return { height: await ownClient.getSyncHeight() };
+};
+
+const submitCustom: DappHandlers['submitCustom'] = input =>
+  outcome(async () => {
+    const held = state.requests.get(input.requestId);
+    if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
+    const tx = Transaction.createCustomTransaction(
+      requireConnected().addressCanonical,
+      input.recipientAddress,
+      held.request,
+      input.inputNoteIds ?? [],
+      input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
+    );
+    return { txId: await state.adapter.requestTransaction(tx) };
+  });
+
 const handlers: Partial<DappHandlers> = {
   // `autoSync: false` keeps the dApp's height its own, so a request binds the block the dApp saw, not the wallet's
   // (spec section 2.2). The fee faucet is passed because MidenClient.create says a non-mock client must name it. A
@@ -384,7 +378,7 @@ const handlers: Partial<DappHandlers> = {
 
   consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
 
-  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned as well as by the note's own.
   privateNotes: ({ filter, noteIds }) =>
     outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
 
@@ -395,11 +389,7 @@ const handlers: Partial<DappHandlers> = {
     return runConformance([...getSurfaceCases(live), ...getBehaviorCases(live)]);
   },
 
-  syncHeight: async () => {
-    const ownClient = client();
-    await fromNode('syncChain', () => ownClient.syncChain());
-    return { height: await ownClient.getSyncHeight() };
-  },
+  syncHeight,
 
   // `reachedAtMs` is when the dApp first saw the target: the wallet's sync stamps must be later than this before the
   // request goes out (spec section 6, the "wallet synced past N" gate). A failed sync is tried again on the next lap,
@@ -460,7 +450,7 @@ const handlers: Partial<DappHandlers> = {
     }),
 
   // The declared faucet and amount go to the wallet as given and may differ from the note's on purpose (W4, W5): the
-  // wallet resolves the note itself and shows what it really holds (dapp.ts:2655-2668).
+  // wallet resolves the note itself and shows what it really holds (dapp.ts:2707-2720).
   consume: input =>
     outcome(async () => {
       const bytes = input.noteBytesB64 === undefined ? undefined : b64ToU8(input.noteBytesB64);
@@ -510,15 +500,17 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1485-1490). The spike found the wallet then refuses a consume by that
-  // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
-  // (W5b, W5c) meets that refusal.
+  // details-only file or a bare note (dapp.ts:1502-1507). A consume by that commitment (W5b, W5c) consumes the note it
+  // names once a sync has committed it (#1389); N4 lists the same note by that returned id (#1536).
   importNote: ({ noteBytesB64 }) =>
     outcome(async () => ({ noteId: await state.adapter.importPrivateNote(b64ToU8(noteBytesB64)) })),
 
   // Syncs first, so the bound block N is the dApp's own height at build time. A Guardian request takes its auth args
   // from the shape twin (spec section 4); `authArgs: 'none'` and single-sig accounts use a plain builder.
   buildCustom: async input => {
+    if (input.feeSalt === true && input.authArgs !== 'none') {
+      throw new HarnessCheckError('feeSalt requires authArgs: none');
+    }
     const me = requireConnected();
     const ownClient = client();
     await fromNode('syncChain', () => ownClient.syncChain());
@@ -560,7 +552,9 @@ const handlers: Partial<DappHandlers> = {
     const inputNoteIds = inputs.map(note => note.id().toString());
 
     const twin = input.authArgs !== 'none' && me.builder === 'guardian-twin';
-    const builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    let builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    const feeSalt = input.feeSalt === true ? cryptoWord() : undefined;
+    if (feeSalt !== undefined) builder = builder.withFeeConversionSalt(feeSalt);
     const withOutputs = builder.withOwnOutputNotes(new NoteArray(outputs));
     const request = (
       inputs.length > 0
@@ -585,7 +579,12 @@ const handlers: Partial<DappHandlers> = {
             declaresBoundBlock: request.blockNumbers().includes(height)
           }
         : {}),
-      ...(input.authArgs === 'none' ? { noAuthArg: request.authArg() === undefined } : {})
+      ...(input.authArgs === 'none'
+        ? {
+            noAuthArg: request.authArg() === undefined,
+            feeSaltMatches: request.feeConversionSalt()?.toHex() === feeSalt?.toHex()
+          }
+        : {})
     };
     const failed = Object.entries(checks)
       .filter(([, ok]) => !ok)
@@ -610,48 +609,97 @@ const handlers: Partial<DappHandlers> = {
     };
   },
 
+  // A transaction script the dApp compiles (spec section 5.1). Like buildCustom it syncs first, so N is the dApp's own
+  // height, and a Guardian request takes the twin's auth args; the script, not an own output note, makes the payment.
+  buildCustomScript: async input => {
+    const me = requireConnected();
+    const ownClient = client();
+    const [output, ...extra] = input.outputs;
+    if (
+      extra.length > 0 ||
+      (input.kind === 'fee-only') !== (output === undefined) ||
+      output?.extraAssets !== undefined
+    ) {
+      throw new HarnessCheckError(
+        `a ${input.kind} script takes ${input.kind === 'fee-only' ? 'no output' : 'one single-asset output'}`
+      );
+    }
+    await fromNode('syncChain', () => ownClient.syncChain());
+    const height = await ownClient.getSyncHeight();
+    const twin = me.builder === 'guardian-twin';
+    const builder = twin ? await guardianRequestBuilder(ownClient, height) : new TransactionRequestBuilder();
+    const built = await buildScriptRequest(
+      ownClient,
+      builder,
+      input.kind,
+      output === undefined
+        ? undefined
+        : {
+            sender: AccountId.fromHex(me.accountIdHex),
+            target: toAccountId(output.recipientAddress),
+            faucet: toAccountId(output.faucetId),
+            amount: BigInt(output.amount),
+            noteType: noteTypeOf(output.noteType)
+          }
+    );
+    const checks: Record<string, boolean> = {
+      ...built.checks,
+      ...(twin
+        ? {
+            authArgCommitted: built.request.authArg() !== undefined,
+            declaresBoundBlock: built.request.blockNumbers().includes(height)
+          }
+        : {})
+    };
+    const failed = Object.entries(checks)
+      .filter(([, ok]) => !ok)
+      .map(([name]) => name);
+    if (failed.length > 0) throw new HarnessCheckError(`request self-check failed: ${failed.join(', ')}`);
+
+    const requestId = `r${(state.nextRequest += 1)}`;
+    state.requests.set(requestId, { request: built.request, importNotes: [] });
+    return {
+      requestId,
+      requestB64: u8ToB64(built.request.serialize()),
+      boundBlockNum: height,
+      outputNoteIds: built.predicted === undefined ? [] : [built.predicted.id().toString()],
+      attachmentWordsHex: [],
+      scriptRootHex: built.scriptRootHex,
+      ...(built.scriptArgHex === undefined ? {} : { scriptArgHex: built.scriptArgHex }),
+      checks
+    };
+  },
+
   // The sender is always the connected account: a custom request from any other address is refused before any popup
   // (R3), which a test drives through `raw` instead.
-  submitCustom: input =>
-    outcome(async () => {
-      const held = state.requests.get(input.requestId);
-      if (held === undefined) throw new HarnessCheckError(`no built request ${input.requestId}`);
-      const tx = Transaction.createCustomTransaction(
-        requireConnected().addressCanonical,
-        input.recipientAddress,
-        held.request,
-        input.inputNoteIds ?? [],
-        input.importNotes ? held.importNotes.map(bytes => b64ToU8(bytes)) : []
-      );
-      return { txId: await state.adapter.requestTransaction(tx) };
-    }),
+  submitCustom,
+  // Keep the real sync samples adjacent to the request, without driver transport between them.
+  submitCustomMeasured: (input, expiresAt, measured) =>
+    runMeasuredCustomSubmit(() => syncHeight({}), () => submitCustom(input), expiresAt, measured),
 
   waitForTransaction: ({ txId }) =>
     outcome(async () => {
       const result = await state.adapter.waitForTransaction(txId);
       return {
         txHash: result.txHash,
-        outputNotes: result.outputNotes.map(note => ({
-          noteId: note.id().toString(),
-          noteType: noteTypeName(note.metadata().noteType()),
-          bytesB64: u8ToB64(note.serialize()),
-          // The adapter deserializes with the bare specifier, so one import map means one SDK instance.
-          isSameSdkNote: note instanceof Note,
-          script: scriptOf(note)
-        }))
+        outputNotes: result.outputNotes.map(outputNoteView)
       };
     }),
 
-  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); for a word the signed message is the word.
+  // The scheme tag is the serialized signature's first byte (ECDSA is 0x01); the signed message is the word under the
+  // signBytes domain, not the word.
   signWord: ({ wordHex }) =>
     outcome(async () => {
       const payload = Word.fromHex(wordHex).serialize();
-      const signature = await state.adapter.signBytes(payload, 'word');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'word')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(payload)
+        messageB64: u8ToB64(signBytesCommitment(payload, 'word').serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
       };
     }),
 
@@ -674,15 +722,41 @@ const handlers: Partial<DappHandlers> = {
                   amount: BigInt(input.amount ?? '0')
                 })
               );
-      // The key signs the SigningInputs commitment, so that is the message the driver recovers the key from.
+      // The key signs the SigningInputs commitment, or the domain commitment for Blind and Arbitrary, so that is the
+      // message the driver recovers the key from.
       const payload = inputs.serialize();
-      const message = inputs.toCommitment().serialize();
-      const signature = await state.adapter.signBytes(payload, 'signingInputs');
+      const message =
+        input.variant === 'summary' ? inputs.toCommitment() : signBytesCommitment(payload, 'signingInputs');
+      const { value: signature, signedCommitment } = await withProviderSignedCommitment(() =>
+        state.adapter.signBytes(payload, 'signingInputs')
+      );
       return {
         signatureB64: u8ToB64(signature),
         schemeTag: signature[0] ?? -1,
         payloadB64: u8ToB64(payload),
-        messageB64: u8ToB64(message)
+        messageB64: u8ToB64(message.serialize()),
+        ...(signedCommitment === undefined ? {} : { signedCommitmentB64: u8ToB64(signedCommitment) })
+      };
+    }),
+
+  // Read as afterConnect reads connect's key, so `loginKeyHex` compares with `publicKeyHex`.
+  loginKey: () =>
+    outcome(async () => {
+      const loginKey = answerBytes(await callProvider('requestLoginKey', []), 'loginKey');
+      return { loginKeyB64: u8ToB64(loginKey), loginKeyHex: Word.deserialize(loginKey).toHex() };
+    }),
+
+  // The login key signs the login message hashed from the word, never the word, so that is the message the driver
+  // recovers the key from.
+  signLoginWord: ({ wordHex }) =>
+    outcome(async () => {
+      const payload = Word.fromHex(wordHex).serialize();
+      const signature = answerBytes(await callProvider('signLoginBytes', [payload, 'word']), 'signature');
+      return {
+        signatureB64: u8ToB64(signature),
+        schemeTag: signature[0] ?? -1,
+        payloadB64: u8ToB64(payload),
+        messageB64: u8ToB64(loginMessage(Word.deserialize(payload)).serialize())
       };
     }),
 
@@ -691,10 +765,13 @@ const handlers: Partial<DappHandlers> = {
   verifySignature: async input => {
     const publicKey = PublicKey.deserialize(b64ToU8(input.publicKeyB64));
     const signature = Signature.deserialize(b64ToU8(input.signatureB64));
+    const payload = b64ToU8(input.payloadB64);
     const verifies =
-      input.kind === 'word'
-        ? publicKey.verify(Word.deserialize(b64ToU8(input.payloadB64)), signature)
-        : publicKey.verifyData(SigningInputs.deserialize(b64ToU8(input.payloadB64)), signature);
+      input.domain === 'signBytes'
+        ? publicKey.verify(signBytesCommitment(payload, input.kind), signature)
+        : input.kind === 'word'
+          ? publicKey.verify(Word.deserialize(payload), signature)
+          : publicKey.verifyData(SigningInputs.deserialize(payload), signature);
     return { verifies, commitmentHex: publicKey.toCommitment().toHex() };
   },
 
@@ -779,10 +856,15 @@ const handlers: Partial<DappHandlers> = {
     })
 };
 
-async function call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>> {
+async function call<K extends DappCommandName>(
+  command: K,
+  input: DappInput<K>,
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
+): Promise<DappOutput<K>> {
   const handler = handlers[command];
   if (handler === undefined) throw new HarnessCheckError(`command ${command} is not implemented`);
-  return handler(input);
+  return handler(input, expiresAt, command === 'submitCustomMeasured' ? measured : undefined);
 }
 
 // Published only once every handler above exists, so a driver that waits for `ready` never calls a half-loaded page.

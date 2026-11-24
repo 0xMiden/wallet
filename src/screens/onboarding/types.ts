@@ -34,6 +34,7 @@ export enum ImportType {
 
 export enum OnboardingStep {
   Welcome = 'welcome',
+  MainnetAccess = 'mainnet-access',
   NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
@@ -59,6 +60,8 @@ export enum OnboardingStep {
    */
   MeetGuardian = 'meet-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
+  /** Between "no backup found" and the create flow: the entered phrase will seed a NEW account. */
+  ReusedPhrase = 'reused-phrase',
   Confirmation = 'confirmation'
 }
 /** Every onboarding action id, derived from the action union so the two cannot drift. */
@@ -105,6 +108,17 @@ export type SelectImportTypeAction = {
 
 export type NetworkNoticeAcknowledgeAction = {
   id: 'network-notice-acknowledge';
+};
+
+/** Welcome's "I have a code": the mainnet access step, which starts the create flow. */
+export type MainnetAccessAction = {
+  id: 'mainnet-access';
+};
+
+/** The node accepted the code. It is held until account setup, and the create flow starts. */
+export type MainnetAccessGrantedAction = {
+  id: 'mainnet-access-granted';
+  payload: string;
 };
 
 export type ImportFromSeedAction = {
@@ -206,6 +220,16 @@ export type RetryGuardianProbeAction = {
   id: 'retry-guardian-probe';
 };
 
+/** From "no backup found": create a new account with the phrase already entered. */
+export type CreateWithPhraseAction = {
+  id: 'create-with-phrase';
+};
+
+/** The reused-phrase warning was acknowledged. */
+export type ReusedPhraseAcknowledgeAction = {
+  id: 'reused-phrase-acknowledge';
+};
+
 export type OnboardingAction =
   | CreateWalletAction
   | ChooseProtectionAction
@@ -218,6 +242,8 @@ export type OnboardingAction =
   | BackupSeedPhraseAction
   | SelectImportTypeAction
   | NetworkNoticeAcknowledgeAction
+  | MainnetAccessAction
+  | MainnetAccessGrantedAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction
@@ -234,6 +260,8 @@ export type OnboardingAction =
   | ImportWithKeyAction
   | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
+  | CreateWithPhraseAction
+  | ReusedPhraseAcknowledgeAction
   | SwitchToPasswordAction;
 
 // TODO: Potentially make this into what the onboarding flows use to render the

@@ -62,6 +62,7 @@ describe('ErrorBoundary — crash reporting', () => {
     );
 
     expect(jest.mocked(captureCrash)).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(captureCrash).mock.calls[0]?.[1]).toBe('react');
     expect(jest.mocked(captureCrash).mock.calls[0]?.[0]).toBeInstanceOf(Error);
     errSpy.mockRestore();
   });

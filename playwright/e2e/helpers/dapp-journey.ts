@@ -166,6 +166,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     return holder.journey;
   };
   const runner = new DappCellRunner<Partial<DappCellState>>({
+    surface: 'extension',
     part: PART,
     axis: axis.label,
     journey,
@@ -337,6 +338,7 @@ async function establishSession(
     adapterConnected: view.adapterConnected,
     adapterAddress: view.adapterAddress,
     providerAddress: view.providerAddress,
+    cachedAddress: view.connected?.addressCanonical ?? null,
     privateDataPermission: view.connected?.privateDataPermission ?? null,
     walletSessionAccounts: await dappSessionsFor(j.walletA, dapp.origin)
   };

@@ -3,7 +3,7 @@
  * implementation and the Miden Wallet PR-4 plan for the design rationale.
  */
 
-import type { OpenWebViewOptions } from './definitions';
+import type { MorphCard, MorphResult, MorphTarget, MorphVelocity, OpenWebViewOptions } from './definitions';
 
 export interface Rect {
   x: number;
@@ -12,13 +12,30 @@ export interface Rect {
   height: number;
 }
 
+export interface MorphRequest {
+  to: MorphTarget;
+  card: MorphCard | null;
+  morphId: string;
+  velocity?: MorphVelocity;
+  /** Sent only with to: 'expanded'. */
+  policyRevision?: number;
+}
+
 export declare class DappWebViewInstance {
   readonly id: string;
-  constructor(id: string);
+  readonly managedHostCloseToken?: string;
+  readonly currentVisibilitySequence: number;
+  constructor(id: string, managedHostCloseToken?: string);
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
-  setVisible(visible: boolean): Promise<void>;
+  setVisible(visible: boolean, policyRevision?: number): Promise<void>;
+  /**
+   * Run the native expand or collapse of this instance (#1817). A managed instance sends its lifetime
+   * and the next visibility sequence, the one sequence it shares with setVisible. A closed or closing
+   * wrapper resolves accepted: false without a native call.
+   */
+  morph(request: MorphRequest): Promise<MorphResult>;
   /** Take a JPEG snapshot of the current page as a base64 data URL. */
   snapshot(scale?: number, quality?: number): Promise<{ data: string }>;
   /** Inject JS into this instance's webview. */
@@ -28,6 +45,8 @@ export declare class DappWebViewInstance {
 }
 
 export interface DappWebViewManager {
+  reserveClose(id: string, token: string): void;
+  forget(id: string, token?: string): void;
   /**
    * Open a new dApp webview. If `id` is omitted, a UUID is generated.
    * If an instance with the given id already exists, the existing one is
@@ -39,6 +58,8 @@ export interface DappWebViewManager {
   get(id: string): DappWebViewInstance | undefined;
   /** Snapshot of all live JS-side instances. */
   list(): DappWebViewInstance[];
+  /** Publish the landing card a native-initiated collapse lands on (#1817); null when none is visible. */
+  setMorphTarget(card: MorphCard | null): Promise<void>;
   /** Re-sync the JS-side cache from the native registry. */
   sync(): Promise<void>;
   /** Close every live instance. */

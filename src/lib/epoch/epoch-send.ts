@@ -1,22 +1,53 @@
-import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
-import { formatUnits } from 'viem';
+import { CollateralType, type SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
+import { formatUnits, parseUnits } from 'viem';
 
+import type { QuoteValidity } from 'lib/bridge/core/quote';
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import { configKey } from 'lib/bridge/core/routes';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { captureBridgeWalletScope, findAdmittedBridgeOperation, type BridgeOperationInput } from 'lib/bridge/operation';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, getEvmChainId, getEvmUsdc } from 'lib/remote-config/values';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import {
+  BridgeConfigUnavailableError,
+  type EvmUsdc,
+  getEpochAllocatorUrl,
+  getEpochOutputToken,
+  getEvmChainId,
+  selectEpochAllocator
+} from 'lib/remote-config/values';
 
-import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
+import {
+  assertEpochReviewedOutput,
+  buildCrossChainIntent,
+  getCrossChainQuote,
+  normalizeMidenIdToHex,
+  reviewedEpochMinimum
+} from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { collateralNoteMismatch, EpochCollateralNoteMismatchError } from './collateral-guard';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
-import type { CrossChainIntentParams } from './types';
+import type { CrossChainIntentParams, EpochReviewedOutput, EpochReviewedQuote } from './types';
 
 export interface EpochQuoteOutput {
+  validity?: QuoteValidity;
   /** Estimated EVM output as an exact human decimal; the screens that show it round it down. */
   amount: string;
-  /** Output token symbol (USDC). */
+  /** Output token symbol, as its contract reports it. */
   symbol: string;
+}
+
+/**
+ * The EVM token a Fast send of `faucetId` arrives as on `destinationChainId` (else the first Epoch chain). Rejects
+ * while the route names no token for that faucet, before any SDK or note work.
+ */
+function epochOutputToken(faucetId: string, destinationChainId: number | undefined): EvmUsdc {
+  return getEpochOutputToken(destinationChainId ?? getEvmChainId(), normalizeMidenIdToHex(faucetId));
 }
 
 /**
@@ -34,8 +65,8 @@ function exactQuoteAmount(raw: string, decimals: number): string {
 /**
  * Shared forward-quote params for a Miden→EVM send. The `evmRecipient` doubles as
  * the intent sponsor (Miden collateral → solver-fulfilled EVM leg), so NO connected
- * EVM wallet is needed — only the destination address. `minTokenOut: '0'` = no
- * slippage floor (testnet); the backend computes the output from `midenAmount`.
+ * EVM wallet is needed — only the destination address. Preview quotes start with
+ * zero; execution replaces it with the mandatory positive reviewed atomic floor.
  */
 function buildEpochSendParams(
   usdc: EvmUsdc,
@@ -72,10 +103,11 @@ export async function quoteEpochSendOutput(args: {
   faucetId: string;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
+  destinationChainId?: number;
 }): Promise<EpochQuoteOutput> {
-  // Rejects while the config names no usable output token, before any SDK work.
-  const usdc = getEvmUsdc();
-  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+  const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
+  const allocatorUrl = getEpochAllocatorUrl();
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
     usdc,
@@ -90,19 +122,28 @@ export async function quoteEpochSendOutput(args: {
   const raw = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
   return {
     amount: exactQuoteAmount(raw, usdc.decimals),
-    symbol: usdc.symbol
+    symbol: usdc.symbol,
+    // The installed quote API exposes no expiry; provider validity is not a time guarantee.
+    validity: { kind: 'provider' }
   };
 }
+
+export { reviewedEpochMinimum } from './bridge';
 
 export interface EpochSendArgs {
   /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
+  minimumOutputBaseUnits: bigint;
+  reviewedQuote?: EpochReviewedQuote;
+  operation?: BridgeOperationInput;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
   /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
   faucetId: string;
   /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
   destinationAddress: `0x${string}`;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
+  destinationChainId?: number;
   deps: BridgeNoteDeps;
   /**
    * Fired once the `bridged-send` row is created (mid-solve, before it proves +
@@ -111,6 +152,45 @@ export interface EpochSendArgs {
    */
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+}
+
+function reviewedOutputOf(args: EpochSendArgs): EpochReviewedOutput | undefined {
+  let quote = args.reviewedQuote;
+  if (args.operation !== undefined) {
+    const { review } = args.operation;
+    const { route, accounts } = review;
+    const chain = route.recovery.config.supportedEvmChains[route.destination.network];
+    if (
+      route.provider !== 'epoch' ||
+      route.mode !== 'send' ||
+      route.source.kind !== 'miden' ||
+      route.destination.kind === 'miden' ||
+      !chain ||
+      !review.quote ||
+      review.quote.kind !== 'epoch' ||
+      !sameWalletAccountId(accounts.midenAccount, args.senderPublicKey) ||
+      !sameWalletAccountId(route.source.faucetId, args.faucetId) ||
+      reviewedEpochMinimum(review.amount, route.source.decimals) !== args.amount ||
+      accounts.evmAddress.toLowerCase() !== args.destinationAddress.toLowerCase() ||
+      chain.chainId !== args.destinationChainId ||
+      reviewedEpochMinimum(review.quote.received, route.destination.decimals) !== args.minimumOutputBaseUnits
+    )
+      throw new EpochReviewChangedError();
+    const token =
+      route.destination.kind === 'native' ? '0x0000000000000000000000000000000000000000' : route.destination.address;
+    const owned: EpochReviewedQuote = {
+      validity: review.quote.validity,
+      outputTokenAddress: `0x${token.slice(2).toLowerCase()}`,
+      outputTokenDecimals: route.destination.decimals
+    };
+    if (
+      quote !== undefined &&
+      configKey({ ...quote, outputTokenAddress: quote.outputTokenAddress.toLowerCase() }) !== configKey(owned)
+    )
+      throw new EpochReviewChangedError();
+    quote = owned;
+  }
+  return quote === undefined ? undefined : { ...quote, minimumOutputBaseUnits: args.minimumOutputBaseUnits.toString() };
 }
 
 /**
@@ -128,10 +208,69 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
-  // Rejects while the config names no usable output token, before any SDK or note work.
-  const usdc = getEvmUsdc();
-  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+  args = {
+    ...args,
+    operation: args.operation === undefined ? undefined : structuredClone(args.operation),
+    reviewedQuote: args.reviewedQuote === undefined ? undefined : structuredClone(args.reviewedQuote)
+  };
+  if (
+    typeof args.minimumOutputBaseUnits !== 'bigint' ||
+    args.minimumOutputBaseUnits <= 0n ||
+    args.minimumOutputBaseUnits >= 1n << 256n
+  )
+    throw new Error('Epoch requires a positive reviewed output minimum');
+  const reviewedOutput = reviewedOutputOf(args);
+  const originalScope = reviewedOutput ? captureBridgeWalletScope() : undefined;
+  if (args.operation) {
+    const original = await findAdmittedBridgeOperation(args.operation);
+    if (original) return { txId: original.id };
+  }
+  const snapshot = getBridgeConfigSnapshot();
+  const snapshotKey = configKey([snapshot.network, snapshot.status, snapshot.config, snapshot.derived]);
+  const usdc = epochOutputToken(args.faucetId, args.destinationChainId);
+  const assertCurrent = () => {
+    if (!reviewedOutput || !originalScope) return;
+    assertEpochReviewedOutput(reviewedOutput);
+    const currentScope = captureBridgeWalletScope();
+    const current = getBridgeConfigSnapshot();
+    if (
+      snapshot.status !== 'ready' ||
+      originalScope.network !== currentScope.network ||
+      originalScope.rpcUrl !== currentScope.rpcUrl ||
+      snapshotKey !== configKey([current.network, current.status, current.config, current.derived]) ||
+      usdc.address.toLowerCase() !== reviewedOutput.outputTokenAddress.toLowerCase() ||
+      usdc.decimals !== reviewedOutput.outputTokenDecimals
+    )
+      throw new EpochReviewChangedError();
+    if (args.operation) {
+      const review = args.operation.review;
+      const recovery = review.route.recovery;
+      if (
+        originalScope.network !== recovery.network ||
+        configKey([snapshot.network, snapshot.config, snapshot.derived]) !==
+          configKey([recovery.network, recovery.config, recovery.derived])
+      )
+        throw new EpochReviewChangedError();
+      assertReviewedBridge(review, review, Date.now());
+    }
+  };
+  const assertLive = async () => {
+    if (args.operation) {
+      if (!args.checks) throw new EpochReviewChangedError();
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    }
+    assertCurrent();
+  };
+  await assertLive();
+  const allocator = selectEpochAllocator(snapshot);
+  if (allocator === null) {
+    throw new BridgeConfigUnavailableError('epoch.allocatorUrl');
+  }
+  const { allocatorUrl, accountId } = allocator;
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress, allocatorUrl);
+  await assertLive();
   const currentBlock = await getCurrentMidenBlock();
+  await assertLive();
   const params = buildEpochSendParams(
     usdc,
     args.amount,
@@ -141,58 +280,99 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     currentBlock
   );
 
+  params.minTokenOut = args.minimumOutputBaseUnits.toString();
+
   // Forward quote (input → output), then solve. `createMidenP2IDENote` blocks until
   // the P2IDE `bridged-send` row is committed on Miden before the intent is
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
   // capture the row id from the callback so we can patch the EVM solve hash on it.
   let bridgeTxId: string | undefined;
-  let spendingLimitError: unknown;
+  let noteError: unknown;
+  let observerError: unknown;
+  const reportRow = (txId: string) => {
+    if (bridgeTxId !== undefined) return;
+    bridgeTxId = txId;
+    try {
+      args.onRowCreated?.(txId);
+    } catch (error) {
+      observerError ??= error;
+    }
+  };
+  let noteKey: string | undefined;
+  let noteResult: ReturnType<NonNullable<SolveIntentParams['createMidenP2IDENote']>> | undefined;
   const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
+  await assertLive();
+  const output = quote.quoteResult.tokenOut;
+  if (
+    typeof output !== 'string' ||
+    !/^(0|[1-9]\d*)(?:\.\d+)?$/.test(output) ||
+    (output.includes('.') && (output.split('.')[1]?.length ?? 0) > usdc.decimals)
+  )
+    throw new Error('Epoch returned an invalid output quote');
+  const outputBaseUnits = output.includes('.') ? parseUnits(output, usdc.decimals) : BigInt(output);
+  if (outputBaseUnits < args.minimumOutputBaseUnits) throw new Error('Epoch output is below the reviewed minimum');
   const intent = await buildCrossChainIntent(sdk, {
     ...params,
     preFetchedQuote: quote,
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
-    createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
-      try {
-        const res = await createBridgeP2IDENote({
-          senderAccountId: args.senderPublicKey,
-          faucetId: faucet,
-          amount,
-          allocatorId,
-          recallBlocks,
-          bindingAttachmentFelts,
-          destinationAddress: args.destinationAddress,
-          destinationNetwork: usdc.chainId,
-          deps: args.deps,
-          onRowCreated: args.onRowCreated,
-          spendingLimitAuthorization: args.spendingLimitAuthorization
-        });
-        bridgeTxId = res.txId;
-        return { success: res.success, noteId: res.noteId };
-      } catch (error) {
-        spendingLimitError = error;
-        return { success: false };
+    createMidenP2IDENote: (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      const key = JSON.stringify([
+        normalizeMidenIdToHex(faucet).toLowerCase(),
+        amount,
+        normalizeMidenIdToHex(allocatorId).toLowerCase(),
+        recallBlocks,
+        bindingAttachmentFelts.map(String)
+      ]);
+      if (noteResult) {
+        if (key === noteKey) return noteResult;
+        noteError ??= new EpochReviewChangedError();
+        return Promise.resolve({ success: false });
       }
+      noteKey = key;
+      try {
+        const mismatch = collateralNoteMismatch(
+          { faucetId: faucet, amount, allocatorId },
+          { faucetId: args.faucetId, amount: args.amount, allocatorAccountId: accountId }
+        );
+        if (mismatch !== null) throw new EpochCollateralNoteMismatchError(mismatch);
+        assertCurrent();
+      } catch (error) {
+        noteError ??= error;
+        noteResult = Promise.resolve({ success: false });
+        return noteResult;
+      }
+      noteResult = (async () => {
+        try {
+          const res = await createBridgeP2IDENote({
+            senderAccountId: args.senderPublicKey,
+            faucetId: faucet,
+            amount,
+            allocatorId,
+            recallBlocks,
+            bindingAttachmentFelts: [...bindingAttachmentFelts],
+            destinationAddress: args.destinationAddress,
+            destinationNetwork: usdc.chainId,
+            allocatorUrl,
+            deps: args.deps,
+            operation: args.operation,
+            reviewedOutput:
+              reviewedOutput && !args.operation ? { ...reviewedOutput, walletScope: originalScope } : reviewedOutput,
+            expectedWalletScope: originalScope,
+            checks: args.checks,
+            onRowCreated: reportRow,
+            spendingLimitAuthorization: args.spendingLimitAuthorization
+          });
+          if (res.txId) reportRow(res.txId);
+          return { success: res.success, noteId: res.noteId };
+        } catch (error) {
+          noteError ??= error;
+          return { success: false };
+        }
+      })();
+      return noteResult;
     }
   });
-  if (spendingLimitError !== undefined) throw spendingLimitError;
-  if (intent.error) {
-    // The `createMidenP2IDENote` callback already committed the P2IDE note and the
-    // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
-    // BEFORE the allocator rejected the intent here. Or the note's 5-minute wait
-    // gave up while its row was still in flight, which markBridgedSendFailed
-    // records on the row so a note that commits later can still be reclaimed.
-    // Demote that false success to Failed so the user isn't told the bridge
-    // succeeded while their funds sit in an unconsumed, recallable note. A row the
-    // note pipeline already failed for its own reason keeps that failure instead -
-    // markBridgedSendFailed leaves an already-Failed row untouched (#1250).
-    if (bridgeTxId) {
-      await markBridgedSendFailed(bridgeTxId, intent.error);
-    }
-    throw new Error(intent.error);
-  }
-
   // Persist the quote output + intent nonce so the activity view can render the
   // "you received N USDC" side and later poll `getIntentStatus` for the
   // receiving-chain fill. `updateBridgeClaimStatus` mutates extraInputs only, so
@@ -203,13 +383,17 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   const outputAmount = exactQuoteAmount(rawTokenOut, usdc.decimals);
   if (bridgeTxId) {
     await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', {
-      evmTxHash,
-      intentNonce,
+      ...(evmTxHash === undefined ? {} : { evmTxHash }),
+      ...(intentNonce === undefined ? {} : { intentNonce }),
       outputAmount,
       outputSymbol: usdc.symbol,
       epochStatus: 'pending'
     });
   }
+  if (intent.error && bridgeTxId) await markBridgedSendFailed(bridgeTxId, intent.error);
+  if (noteError !== undefined) throw noteError;
+  if (intent.error) throw new Error(intent.error);
+  if (observerError !== undefined) throw observerError;
   return { txId: bridgeTxId };
 }
 
@@ -244,11 +428,13 @@ function isEvmAddress(value: string): value is `0x${string}` {
 export async function pollEpochIntentFill(args: {
   destinationAddress: string;
   intentNonce: string;
+  destinationChainId?: number;
+  allocatorUrl?: string;
 }): Promise<EpochIntentFill | null> {
   if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
   try {
-    const sdk = await getEpochReadOnlySdk(args.destinationAddress);
-    const destinationChainId = getEvmChainId();
+    const sdk = await getEpochReadOnlySdk(args.destinationAddress, args.allocatorUrl);
+    const destinationChainId = args.destinationChainId ?? getEvmChainId();
     const results = await readEpochIntentStatus(sdk, args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 

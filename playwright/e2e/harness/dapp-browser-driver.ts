@@ -17,8 +17,17 @@
  */
 
 import { expect } from '@playwright/test';
+import { mkdir, writeFile } from 'fs/promises';
 
-import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
+import {
+  fixtureDapp,
+  FIXTURE_DAPPS,
+  GENERATION_COLORS,
+  GENERATION_MARKER_PX,
+  type DappFixtureServer,
+  type DappViewportReport
+} from './dapp-fixture-server';
+import type { BrowserMotion } from '../helpers/dapp-mobile-wallet';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
 import { resolveWalletNetwork } from './extension-network';
 import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
@@ -65,7 +74,18 @@ export interface DappBrowserState {
     isCold: boolean;
     error: string | null;
   }>;
+  /** The native morph in flight (#1817); null at rest, absent from a build without it. */
+  motion?: BrowserMotion | null;
 }
+
+/** Fixture reports of a viewport-class event (`?morphlog=1`); a load or a visibility change is not one. */
+const VIEWPORT_EVENT_REASONS: ReadonlyArray<DappViewportReport['reason']> = [
+  'resize',
+  'visual-viewport',
+  'observer',
+  'safe-area',
+  'media'
+];
 
 export interface DappDriverOpts {
   target: DappDriverTarget;
@@ -154,6 +174,16 @@ export class DappBrowserDriver {
     timeoutMs = DEFAULT_TIMEOUT_MS
   ): Promise<DappBrowserState> {
     return this.pollUntil(description, () => this.state(), predicate, timeoutMs);
+  }
+
+  /** Wait until no native morph is in flight, so the next step sees a page at rest. */
+  async waitForMotionIdle(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<DappBrowserState> {
+    return this.waitForState('the dApp morph to come to rest', s => !s.motion, timeoutMs);
+  }
+
+  /** The viewport-class events `dappId` reported after its report `seq`: a morph must cause none. */
+  viewportEventsSince(dappId: string, seq: number): DappViewportReport[] {
+    return this.server.reports(dappId).filter(r => r.seq > seq && VIEWPORT_EVENT_REASONS.includes(r.reason));
   }
 
   /** The session the wallet currently has foregrounded, if any. */
@@ -311,6 +341,7 @@ export class DappBrowserDriver {
       'the foreground dApp to become parked',
       s => s.foregroundId === null && s.sessions.some(x => x.id === before.foregroundId && x.status === 'parked')
     );
+    await this.waitForMotionIdle();
   }
 
   /** Close the foreground dApp via the capsule's close button. */
@@ -347,6 +378,7 @@ export class DappBrowserDriver {
     await this.target.waitFor(selector, { timeoutMs: DEFAULT_TIMEOUT_MS });
     await this.target.click(selector);
     await this.waitForForeground(dappId);
+    await this.waitForMotionIdle();
   }
 
   // ── Switcher ─────────────────────────────────────────────────────────────
@@ -451,7 +483,35 @@ export class DappBrowserDriver {
       async () => this.server.lastReport(dappId),
       r => !!r && Math.abs(r.width - slot.width) <= tolerancePx && Math.abs(r.height - slot.height) <= tolerancePx,
       15_000
-    ).catch(() => this.server.lastReport(dappId));
+    ).catch(async error => {
+      const selectedReport = this.server.lastReport(dappId);
+      let observedStateTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const diagnostic = {
+          capturedAt: Date.now(),
+          dappId,
+          label,
+          pollingError: String(error),
+          selectedReport: selectedReport ?? null,
+          reports: Object.fromEntries(FIXTURE_DAPPS.map(({ id }) => [id, this.server.reports(id)])),
+          expectedState: state,
+          observedState: await Promise.race([
+            this.state().catch(error => ({ error: String(error) })),
+            new Promise<{ error: string }>(resolve => {
+              observedStateTimer = setTimeout(() => resolve({ error: 'observed state timed out after 1000ms' }), 1000);
+            })
+          ]).finally(() => clearTimeout(observedStateTimer))
+        };
+        await mkdir(this.artifactDir, { recursive: true });
+        await writeFile(
+          `${this.artifactDir}/dapp-${this.label}-${label.replace(/[^a-zA-Z0-9_-]+/g, '-')}-reports.json`,
+          JSON.stringify(diagnostic, null, 2)
+        );
+      } catch {
+        // Diagnostics must not replace the geometry failure.
+      }
+      return selectedReport;
+    });
 
     expect(report, `[${label}] dApp '${dappId}' never reported its layout`).toBeTruthy();
     expect(

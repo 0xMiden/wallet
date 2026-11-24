@@ -3,6 +3,7 @@ import React from 'react';
 import clsx from 'clsx';
 
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 
 /**
@@ -18,13 +19,16 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
  * What this owns:
  *
  * - **Full bleed.** The root fills the carousel's pane edge to edge, on the app's own surface.
- * - **The horizontal gesture belongs to the carousel.** The body is `touch-action: pan-y` and
- *   `overflow-x: hidden`, so it can never become a horizontal scroll container itself and can
- *   never pan sideways. `HomeSwipeContainer` sets `touch-pan-y` on the track, but a nested element
- *   that scrolls horizontally is the gesture's handler and wins the walk up the ancestor chain —
- *   which is exactly how the Send pane lost its swipe. A pane that genuinely wants a sideways
- *   scroller (Earn's position row) opts in explicitly, with its own `touch-pan-x` and a
- *   `pointerdown` that does not reach the track.
+ * - **Horizontal pans reach the pager.** The body is `touch-action: pan-x pan-y` and
+ *   `overflow-x: hidden`. `HomeSwipeContainer` is a native scroll-snap scroller, and `touch-action`
+ *   intersects from the touch target up to that scroller, so a body that said `pan-y` alone would
+ *   swallow every sideways pan before the pager saw it. `overflow-x: hidden` keeps the body from
+ *   becoming a horizontal scroll container itself, which would take the pan from the pager (how the
+ *   Send pane once lost its swipe). A pane that genuinely wants a sideways scroller (Earn's position
+ *   row) sets `overscroll-behavior-x: contain` on it, so the end of its scroll does not chain into
+ *   the pager.
+ *   The body itself contains only vertical overscroll: both-axis containment would stop a
+ *   sideways pan or trackpad swipe at the body, so it would never chain to the pager.
  * - **The page margin**: 16px, the design system's, the same on all four, on the body and on the
  *   pinned CTA alike.
  * - **The top offset**, one per kind of pane: 36px to a titled pane's first line (Send, Earn,
@@ -98,39 +102,46 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
   top = 'root',
   footer,
   children
-}) => (
-  <>
-    <div
-      data-testid={testId}
-      data-home-pane-body="true"
-      // The vertical axis is the page's; the horizontal one is the carousel's. Declared here and
-      // nowhere else, so no pane can quietly take the swipe back.
-      style={{ touchAction: 'pan-y' }}
-      className={clsx(
-        // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
-        // animations need) would otherwise shrink to the space left and hide its overflow instead
-        // of letting the body scroll (#1291).
-        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain [&>*]:shrink-0',
-        PANE_GUTTER,
-        PANE_TOP[top],
-        // With a footer the cushion is the footer's; without one it is the body's, from the same
-        // expression, so both kinds of pane end the same distance above the bar.
-        !footer && stepFooterCushionClass()
-      )}
-    >
-      {title !== undefined && (
-        <header className="shrink-0">
-          <h1 data-testid={titleTestId} className="min-w-0 text-title-tab text-ink">
-            {title}
-          </h1>
-        </header>
-      )}
-      {children}
-    </div>
+}) => {
+  const command = useFlowPresentation() === 'command';
+  return (
+    <>
+      <div
+        data-testid={testId}
+        data-home-pane-body="true"
+        // Both axes pan: vertical scrolls this body, horizontal reaches the pager that scrolls the panes.
+        // Declared here and nowhere else, so no pane can quietly block the swipe.
+        style={{ touchAction: command ? 'pan-y' : 'pan-x pan-y' }}
+        className={clsx(
+          // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
+          // animations need) would otherwise shrink to the space left and hide its overflow instead
+          // of letting the body scroll (#1291).
+          'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain [&>*]:shrink-0',
+          PANE_GUTTER,
+          PANE_TOP[top],
+          // With a footer the cushion is the footer's; without one it is the body's, from the same
+          // expression, so both kinds of pane end the same distance above the bar.
+          !footer && (command ? 'pb-4' : stepFooterCushionClass())
+        )}
+      >
+        {title !== undefined && (
+          <header className="shrink-0">
+            <h1 data-testid={titleTestId} className="min-w-0 text-title-tab text-ink">
+              {title}
+            </h1>
+          </header>
+        )}
+        {children}
+      </div>
 
-    {footer && <FlowFooter className={PANE_GUTTER}>{footer}</FlowFooter>}
-  </>
-);
+      {footer && (
+        <FlowFooter navbarCushion={!command} className={PANE_GUTTER}>
+          {footer}
+        </FlowFooter>
+      )}
+    </>
+  );
+};
 
 export interface HomeGroupPaneProps extends HomeGroupPaneBodyProps {
   /** The pane's own test id, on the root. */

@@ -4,13 +4,18 @@
   "guardianCommitmentComparable": true,
   "summarySigningInputs": "twin-preview",
   "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "sheet": {
+    "simulatedEffects": "Simulated effects:",
+    "leaves": "Leaves this account",
+    "fee": "Network fee, ",
+    "notesConsumed": "Notes consumed, ",
+    "notesCreated": "Notes created, "
+  },
+  "notSimulatedRefusal": {
+    "text": "The transaction could not be simulated, so the wallet cannot show what it does and does not ask for approval.",
+    "reasonPrefix": "Reason: "
+  },
   "texts": {
-    "X7": {
-      "guardian": {
-        "stage": "creating-proposal",
-        "error": "component reuses the fee conversion salt as a replay guard"
-      }
-    },
     "R5": {
       "offchain": {
         "stage": "sending",
@@ -21,19 +26,14 @@
         "error": "failed to execute transaction: asset error: subtracting"
       }
     },
-    "R10": {
+    "MF3": {
       "offchain": {
-        "stage": "sending",
-        "error": "assertion failed with error code: 9127845879078954504"
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
       },
       "guardian": {
-        "stage": "creating-proposal",
-        "error": "assertion failed with error code: 9127845879078954504"
-      }
-    },
-    "G2": {
-      "guardian": {
-        "error": "Some storage item not found"
+        "error": "Error: failed to import public account: account",
+        "reason": "is private and its details cannot be retrieved from the network"
       }
     }
   }

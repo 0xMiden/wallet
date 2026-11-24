@@ -41,9 +41,20 @@ function useAvailabilityInputs(): { snapshot: BridgeConfigSnapshot; overrides: E
 export interface FeatureAvailabilityOptions {
   /**
    * Whether the caller draws the control or notice this availability greys out, and so holds the 60 s fast poll
-   * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
+   * while it reads unavailable. Defaults to true; a branch that draws neither passes false. A function is resolved
+   * against the availability just computed, and the fast poll sees only that boolean.
    */
-  hold?: boolean;
+  hold?: boolean | ((availability: FeatureAvailability) => boolean);
+  chainId?: number;
+}
+
+// A function closes over whether the caller draws this reading. Resolved here, the effect keeps a boolean hold:
+// the same cadence, and a hidden entry does not hold just because a function is truthy.
+function resolveHold(
+  hold: boolean | ((availability: FeatureAvailability) => boolean),
+  availability: FeatureAvailability
+): boolean {
+  return typeof hold === 'function' ? hold(availability) : hold;
 }
 
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers
@@ -57,28 +68,33 @@ function useFastPollWhileUnavailable(availability: FeatureAvailability, hold: bo
 /** The availability of the feature a control starts. */
 export function useFeatureAvailability(
   feature: BridgeFeature,
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
-  const availability = featureAvailability(feature, snapshot, overrides);
-  useFastPollWhileUnavailable(availability, hold);
+  const availability = featureAvailability(feature, snapshot, overrides, chainId);
+  useFastPollWhileUnavailable(availability, resolveHold(hold, availability));
   return availability;
 }
 
 /**
  * One control that opens a choice of features, such as Receive's Cross Chain (Fast or Slow bridge-in): available
- * while any is; else loading while any is; else the first one's reason.
+ * while any is; else loading while any is; else the first reason other than not configured; else not configured, so
+ * the control reads as not configured only on a network that configures none of its features.
  */
 export function useAnyFeatureAvailability(
   features: readonly [BridgeFeature, ...BridgeFeature[]],
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const [first, ...rest] = features;
-  const head = featureAvailability(first, snapshot, overrides);
-  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides))];
+  const head = featureAvailability(first, snapshot, overrides, chainId);
+  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides, chainId))];
   const available = all.some(candidate => candidate.state === 'available');
-  const availability = available ? AVAILABLE : (all.find(candidate => candidate.state === 'loading') ?? head);
-  useFastPollWhileUnavailable(availability, hold);
+  const availability = available
+    ? AVAILABLE
+    : (all.find(candidate => candidate.state === 'loading') ??
+      all.find(candidate => candidate.state === 'unavailable' && candidate.reason !== 'not-configured') ??
+      head);
+  useFastPollWhileUnavailable(availability, resolveHold(hold, availability));
   return availability;
 }

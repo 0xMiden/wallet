@@ -7,20 +7,23 @@
   set), so the release AAB that ships to Play keeps the tight production policy:
   cleartext for the Miden note transport and nothing else.
 
-  Why debug needs more: the dApp-browser E2E suite serves its fixture dApps from
-  a local HTTP server on the host, which the emulator reaches at 10.0.2.2. The
-  production config would have the WebView refuse those loads, and the suite
-  would be testing an error page instead of the dApp browser. Serving the
-  fixtures over HTTPS instead would mean shipping a trusted test CA into the
-  app — strictly worse than permitting cleartext to loopback in debug builds.
+  The dApp-browser E2E suite serves pages from the host at 10.0.2.2 over HTTP.
+  Auth Tab acceptance also uses HTTPS with a run-scoped CA installed in the
+  disposable emulator. User CAs are trusted only for that fixture host.
 -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">transport.miden.io</domain>
     </domain-config>
-    <!-- Host loopback as seen from the emulator, plus the emulator's own. -->
+    <!-- The acceptance CA is user-installed for this host in a disposable emulator. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>

@@ -4,13 +4,16 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import type { StoryHop } from 'components/tx-stage/tx-story';
+import { TxStory } from 'components/tx-stage/TxStory';
 import { Card } from 'components/ui/Card';
-import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
-import { AssetAmount, TxAssetView } from './decode';
+import { AssetAmount, NftAsset, TxAssetView } from './decode';
+import type { NoteFlow } from './note-flow';
+import { loadConfirmationTokenMetadata, TransactionNoteFlow } from './TransactionNoteFlow';
 import { Icon, IconName } from '../icons/v2';
 
 export interface TransactionAssetViewProps {
@@ -18,9 +21,10 @@ export interface TransactionAssetViewProps {
   mode: 'verified' | 'declared';
   /** Optional download handler (verified path exposes the raw summary bytes). */
   onDownload?: () => void;
+  noteFlow?: NoteFlow;
 }
 
-interface ResolvedAsset {
+export interface ResolvedAsset {
   faucetId: string;
   amount: bigint;
   // Undefined when the metadata lookup failed (see Fix D: guarded against
@@ -39,7 +43,7 @@ interface ResolvedAsset {
   scaleIsKnown: boolean;
 }
 
-function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
+export function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
   const [resolved, setResolved] = useState<ResolvedAsset[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +54,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
           // default (never native MIDEN) on failure — so an unrecognized
           // faucet is never mislabeled as native MIDEN on this security screen.
-          const md = await fetchTokenMetadata(a.faucetId).catch(() => undefined);
+          const md = await loadConfirmationTokenMetadata(a.faucetId).catch(() => undefined);
           return {
             faucetId: a.faucetId,
             amount: a.amount,
@@ -75,10 +79,43 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
  * A question mark rather than a translated phrase: the row already names the
  * asset, this slot is a number, and it sits inline with a +/- sign.
  */
-const quantityOf = (asset: ResolvedAsset): string =>
-  asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
+export const quantityOf = (asset: ResolvedAsset): string =>
+  asset.scaleIsKnown ? formatAmountDisplay(asset.amount, { decimals: asset.decimals, formatting: 'exact' }) : '?';
 
-export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload }) => {
+/**
+ * One NFT, named by what the wallet can read: a label, its short asset id and its faucet.
+ * The faucet's own name is not readable through SDK 0.17, so the address stands in for it.
+ */
+const NftRow: React.FC<{ nft: NftAsset; sign: '-' | '+'; isVerified: boolean }> = ({ nft, sign, isVerified }) => {
+  const { t } = useTranslation();
+  const tone = isVerified
+    ? sign === '-'
+      ? 'text-black-500 font-semibold'
+      : 'text-green-500 font-semibold'
+    : 'text-text-muted font-normal';
+  return (
+    <div
+      className="flex flex-col w-full my-2 text-sm"
+      data-testid="tx-nft-row"
+      data-direction={sign === '-' ? 'out' : 'in'}
+    >
+      <div className="flex flex-row items-baseline">
+        {/* eslint-disable i18next/no-literal-string -- Decorative amount sign, aria-hidden. */}
+        <span className={classNames('font-heading text-lg mr-1', tone)} aria-hidden="true">
+          {sign}
+        </span>
+        {/* eslint-enable i18next/no-literal-string */}
+        <span className={classNames('font-heading text-lg', tone)} data-verified={isVerified ? 'true' : 'false'}>
+          {`${t('nft')} ${nft.assetId}`}
+        </span>
+        {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
+      </div>
+      <span className="text-text-muted text-xs ml-4">{`${t('nftFaucet')} ${truncateAddress(nft.faucetId)}`}</span>
+    </div>
+  );
+};
+
+export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload, noteFlow }) => {
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
@@ -86,7 +123,12 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
   // during render would re-resolve, re-render and re-resolve forever.
   const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
   const [feeAsset] = useResolvedAssets(feeAssets);
-  const hasAssets = view.outgoing.length > 0 || view.incoming.length > 0;
+  const hasAssets =
+    view.outgoing.length > 0 ||
+    view.incoming.length > 0 ||
+    view.outgoingNfts.length > 0 ||
+    view.incomingNfts.length > 0 ||
+    view.unlistedAssets > 0;
   const isVerified = mode === 'verified';
 
   return (
@@ -159,11 +201,60 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                 {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
+            {view.outgoingNfts.map((a, i) => (
+              <NftRow key={`nft-out-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="-" isVerified={isVerified} />
+            ))}
+            {view.incomingNfts.map((a, i) => (
+              <NftRow key={`nft-in-${i}-${a.faucetId}-${a.assetId}`} nft={a} sign="+" isVerified={isVerified} />
+            ))}
+            {view.unlistedAssets > 0 && (
+              <div className="flex flex-row items-start gap-x-2 w-full my-2" data-testid="tx-unlisted-assets">
+                <Icon name={IconName.WarningFill} fill="orange" size="md" />
+                <span className="text-sm">{t('unlistedAssetsWarning')}</span>
+              </div>
+            )}
           </div>
         )}
       </Card>
 
-      <div className="flex flex-col w-full border-b border-gray-100 pb-4">
+      {!(mode === 'verified' && noteFlow) && (
+        <TxStory
+          hops={[
+            ...outgoing.map(
+              (asset): StoryHop => ({
+                from: { role: 'you', name: '' },
+                to: { role: 'recipient', name: '' },
+                amount: `${quantityOf(asset)} ${asset.symbol ?? ''}`.trim()
+              })
+            ),
+            ...incoming.map(
+              (asset): StoryHop => ({
+                from: { role: 'sender', name: '' },
+                to: { role: 'you', name: '' },
+                amount: `${quantityOf(asset)} ${asset.symbol ?? ''}`.trim()
+              })
+            ),
+            ...(feeAsset
+              ? [
+                  {
+                    from: { role: 'you' as const, name: '' },
+                    to: { role: 'network' as const, name: '' },
+                    amount: `${quantityOf(feeAsset)} ${feeAsset.symbol ?? ''}`.trim()
+                  }
+                ]
+              : [])
+          ]}
+        />
+      )}
+
+      <div className="tx-stage-list flex flex-col w-full border-b border-gray-100 pb-4">
+        {/* Notes the account already held are value it spends, counted in what leaves above. */}
+        {isVerified && (view.heldNotesSpent ?? 0) > 0 && (
+          <div className="flex flex-row w-full items-center justify-between pb-1">
+            <span className="text-text-muted">{t('includesUnclaimedNotes')}</span>
+            <span data-testid="tx-held-notes-spent">{view.heldNotesSpent}</span>
+          </div>
+        )}
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('inputNotesConsumed')}</span>
           <span>{view.inputNotesConsumed}</span>
@@ -190,16 +281,26 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           <div className="flex flex-row w-full items-center justify-between">
             <span className="text-text-muted">{t('storageChanged')}</span>
             {view.storageChanged ? (
-              <div className="flex flex-row items-center gap-x-2">
+              <div className="flex flex-row items-center gap-x-2" data-testid="tx-storage-changed" data-changed="true">
                 <Icon name={IconName.WarningFill} fill="orange" size="md" />
                 <span>{t('yes')}</span>
               </div>
             ) : (
-              <span>{t('no')}</span>
+              <span data-testid="tx-storage-changed" data-changed="false">
+                {t('no')}
+              </span>
             )}
           </div>
         )}
       </div>
+
+      {mode === 'verified' && noteFlow ? (
+        <TransactionNoteFlow flow={noteFlow} account={view.account} />
+      ) : (
+        <div className="w-full my-4 text-sm text-muted" data-testid="tx-note-flow-unavailable">
+          {t(mode === 'verified' ? 'verifiedNoteDetailsUnavailable' : 'declaredNoteDetailsUnavailable')}
+        </div>
+      )}
 
       {onDownload && (
         <Button

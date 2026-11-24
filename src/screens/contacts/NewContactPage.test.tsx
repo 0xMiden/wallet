@@ -4,9 +4,15 @@ import { Clipboard } from '@capacitor/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { isMobile } from 'lib/platform';
-import { isScanAvailable } from 'lib/qr';
+import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { NewContactPage } from './NewContactPage';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const addContactMock = jest.fn();
 const backMock = jest.fn();
@@ -59,14 +65,23 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
 }));
 jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
+let mockNetworkName = 'testnet';
+let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
-  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
+  defaultBridgeNetwork: () =>
+    mockNetworkName === 'mainnet'
+      ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }
+      : { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
 jest.mock('screens/send-flow/ScanQrDrawer', () => ({ ScanQrDrawer: () => null }));
-jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false) }));
+jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false), isExtension: () => false }));
 jest.mock('lib/qr', () => ({ isScanAvailable: jest.fn(() => false), scanQRCode: jest.fn() }));
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('utils/miden', () => ({
@@ -78,6 +93,8 @@ const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 
 beforeEach(() => {
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
+  mockNetworkName = 'testnet';
+  mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
   addContactMock.mockReset().mockResolvedValue(undefined);
@@ -394,4 +411,143 @@ it('consumes the mobile hardware back while the save is in flight', async () => 
     resolveSave();
   });
   expect(backMock).toHaveBeenCalledTimes(1);
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+    jest.mocked(scanQRCode).mockReset();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  const dwell = () => {
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+  };
+
+  it.each([
+    ['invalidAddress', 'invalid-private-input', []],
+    ['contactAlreadySaved', EVM, [{ name: 'private-name', address: EVM }]],
+    ['contactIsYourAccount', EVM, [{ name: 'private-name', address: EVM, accountInWallet: true }]]
+  ])('reports %s from the address field without its input or substitutions', (id, address, contacts) => {
+    contactsMock.mockReturnValue(contacts);
+    render(<NewContactPage />);
+    typeAddress(address);
+    expect(screen.getByTestId('contact-address-error')).toHaveTextContent(id);
+    dwell();
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'field']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the clipboard refusal using nothingToPaste', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    jest.mocked(Clipboard.read).mockRejectedValue(new Error('private clipboard contents'));
+    render(<NewContactPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-paste'));
+    });
+    expect(screen.getByTestId('contact-address-error')).toHaveTextContent('nothingToPaste');
+    dwell();
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['nothingToPaste', 'field']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cameraPermissionDenied', 'noQrCodeFound', 'invalidMidenAddress', 'smthWentWrong'])(
+    'reports native scanner failure with its key: %s',
+    async id => {
+      jest.mocked(isMobile).mockReturnValue(true);
+      jest.mocked(isScanAvailable).mockReturnValue(true);
+      jest.mocked(scanQRCode).mockResolvedValue({ success: false, errorKey: id });
+      render(<NewContactPage />);
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('contact-scan'));
+      });
+      expect(screen.getByTestId('contact-address-error')).toHaveTextContent(id);
+      dwell();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'field']]);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([new Error('private address 0xsecret amount 123 https://private.invalid'), 'private save rejection'])(
+    'reports a rejected new contact save by its fixed site identity: %p',
+    async failure => {
+      addContactMock.mockRejectedValueOnce(failure);
+      render(<NewContactPage />);
+      typeAddress(EVM);
+      fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Private name' } });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('address-book-add-contact'));
+      });
+      expect(screen.getByText(failure instanceof Error ? failure.message : failure)).toBeInTheDocument();
+      dwell();
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_contact_save_failed', 'inline']]);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+      expect(backMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['clear', 'unmount'])('does not report an invalid address removed before dwell: %s', mode => {
+    const view = render(<NewContactPage />);
+    typeAddress('private-invalid');
+    expect(screen.getByTestId('contact-address-error')).toHaveTextContent('invalidAddress');
+    act(() => jest.advanceTimersByTime(999));
+    if (mode === 'clear') typeAddress('mtst1goodbob');
+    else view.unmount();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps untouched input and cancelled scans silent', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    jest.mocked(isScanAvailable).mockReturnValue(true);
+    jest.mocked(scanQRCode).mockResolvedValue({ success: false, errorKey: 'scanCancelled' });
+    render(<NewContactPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-scan'));
+    });
+    fireEvent.change(screen.getByTestId('address-book-address-input'), { target: { value: 'unfinished' } });
+    expect(screen.queryByTestId('contact-address-error')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+it('offers production external chains on Mainnet without test-network choices', () => {
+  mockNetworkName = 'mainnet';
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.click(screen.getByTestId('new-contact-network-picker'));
+  expect(screen.getByTestId('new-contact-network-ethereum')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('new-contact-network-base')).toBeInTheDocument();
+  expect(screen.queryByTestId('new-contact-network-sepolia')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('new-contact-network-arc-testnet')).not.toBeInTheDocument();
+});
+
+it('uses the current-network default when a new-contact draft spans a network switch', async () => {
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  const { rerender } = render(<NewContactPage />);
+  typeAddress(EVM);
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Synthetic' } });
+  mockNetworkName = 'mainnet';
+  rerender(<NewContactPage />);
+  expect(screen.getByTestId('new-contact-network-picker')).toHaveTextContent('Ethereum');
+  await act(async () => fireEvent.click(screen.getByTestId('address-book-add-contact')));
+  expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ network: 'ethereum' }));
 });

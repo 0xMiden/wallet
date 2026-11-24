@@ -3,7 +3,21 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { animate } from 'framer-motion';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
+import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
+jest.mock('app/icons/v2', () => ({
+  Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
+  IconName: { Checkmark: 'Checkmark', ChevronRight: 'ChevronRight', Close: 'Close', Loader: 'Loader' }
+}));
+
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 
 // One motion value per test, so where the track is placed can be read back. It keeps
 // MotionValue's rule for a running animation: starting one replaces it, jump() and stop()
@@ -32,6 +46,7 @@ jest.mock('framer-motion', () => {
       };
     }),
     useMotionValue: () => mockTrackX,
+    useReducedMotion: () => false,
     motion: {
       div: React.forwardRef(
         (
@@ -115,24 +130,6 @@ describe('PromptCarousel', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it('claims pointer gestures before they reach an outer page carousel', () => {
-    const outerPointerDown = jest.fn();
-    render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
-    );
-    const outer = screen.getByTestId('outer-carousel');
-    outer.addEventListener('pointerdown', outerPointerDown);
-
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'First prompt' }));
-
-    expect(outerPointerDown).not.toHaveBeenCalled();
-  });
-
   it('does not make a lone slide a drag surface, and pages once a second slide arrives', () => {
     const { rerender } = render(
       <PromptCarousel>
@@ -154,27 +151,20 @@ describe('PromptCarousel', () => {
     expect(screen.getByTestId('motion-track').parentElement).toHaveClass('touch-pan-y');
   });
 
-  it('wires up the gesture claim when the track mounts after an empty render', () => {
-    const outerPointerDown = jest.fn();
-    const { rerender } = render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>{false}</PromptCarousel>
-      </div>
-    );
+  it('claims the sideways pan when the track mounts after an empty render', () => {
+    const { rerender } = render(<PromptCarousel>{false}</PromptCarousel>);
     expect(screen.queryByTestId('motion-track')).toBeNull();
 
     rerender(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+        <button type="button">Second prompt</button>
+      </PromptCarousel>
     );
-    screen.getByTestId('outer-carousel').addEventListener('pointerdown', outerPointerDown);
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
 
-    expect(outerPointerDown).not.toHaveBeenCalled();
+    // The pager is a native scroller, so `touch-pan-y` here is what keeps the pan for the track.
+    expect(screen.getByTestId('motion-track')).toHaveAttribute('data-drag', 'x');
+    expect(screen.getByTestId('motion-track').parentElement).toHaveClass('touch-pan-y');
   });
 
   it('keeps the selected slide on screen when a sibling before it is removed or added', () => {
@@ -403,35 +393,22 @@ describe('PromptCarousel', () => {
     });
   });
 
-  it('claims pointer gestures only once there is a second slide to page to', () => {
-    const outerPointerDown = jest.fn();
+  it('shows dots only once there is a second slide to page to', () => {
     const { rerender } = render(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+      </PromptCarousel>
     );
-    const outer = screen.getByTestId('outer-carousel');
-    outer.addEventListener('pointerdown', outerPointerDown);
-    // One slide has nothing to page: no dots, and a swipe on it still reaches the page.
     expect(screen.queryByRole('button', { name: /Show prompt/ })).toBeNull();
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'First prompt' }));
-    expect(outerPointerDown).toHaveBeenCalledTimes(1);
 
     rerender(
-      <div data-testid="outer-carousel">
-        <PromptCarousel>
-          <button type="button">First prompt</button>
-          <button type="button">Second prompt</button>
-        </PromptCarousel>
-      </div>
+      <PromptCarousel>
+        <button type="button">First prompt</button>
+        <button type="button">Second prompt</button>
+      </PromptCarousel>
     );
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
-
     expect(screen.getAllByRole('button', { name: /Show prompt/ })).toHaveLength(2);
-    expect(outerPointerDown).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -454,5 +431,61 @@ describe('PromptCarousel', () => {
     // same render (the Funding hero hides the pending-notes card) loses the user's place.
     expect(screen.getByRole('button', { name: 'second' })).toBe(second);
     expect(document.activeElement).toBe(second);
+  });
+
+  describe('user-visible error reporting', () => {
+    const showFailure = () =>
+      render(
+        <PromptCarousel>
+          <PromptCard key="first" title="First prompt" />
+          <PromptCard
+            key="failure"
+            data-testid="failed-prompt"
+            title="Recovery failed"
+            body="Visible recovery failure"
+            status="failure"
+            errorId="guardianHistoryFailed"
+          />
+        </PromptCarousel>
+      );
+
+    beforeEach(() => jest.mocked(reportUserVisibleError).mockClear());
+
+    it('waits for an inactive failure to become active and complete a fresh dwell', () => {
+      showFailure();
+      const failureCard = screen.getByTestId('failed-prompt');
+      expect(failureCard).toHaveTextContent('Visible recovery failure');
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show prompt 2 of 2' }));
+      expect(screen.getByTestId('failed-prompt')).toBe(failureCard);
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['guardianHistoryFailed', 'prompt']]);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the visible dwell when its slide leaves and restarts it on return', () => {
+      showFailure();
+      const failureCard = screen.getByTestId('failed-prompt');
+      fireEvent.click(screen.getByRole('button', { name: 'Show prompt 2 of 2' }));
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show prompt 1 of 2' }));
+      expect(screen.getByTestId('failed-prompt')).toBe(failureCard);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show prompt 2 of 2' }));
+      expect(screen.getByTestId('failed-prompt')).toBe(failureCard);
+      act(() => jest.advanceTimersByTime(999));
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['guardianHistoryFailed', 'prompt']]);
+    });
   });
 });

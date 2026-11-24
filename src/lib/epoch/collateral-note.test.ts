@@ -9,11 +9,19 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
   Felt: jest.fn((v: any) => ({ v })),
   Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
+  // As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects a hex
+  // id and an underscore (a routing suffix it cannot decode).
   AccountId: {
-    fromHex: jest.fn((hex: any) => ({ toString: () => `accountId-${hex}` }))
+    fromHex: jest.fn((hex: any) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => `accountId-${hex}` };
+    })
   },
   Address: {
-    fromBech32: jest.fn((str: any) => ({ accountId: () => ({ toString: () => `accountId-${str}` }) })),
+    fromBech32: jest.fn((str: any) => {
+      if (/^0x/i.test(str) || str.includes('_')) throw new Error(`invalid bech32 address: ${str}`);
+      return { accountId: () => ({ toString: () => `accountId-${str}` }) };
+    }),
     fromAccountId: jest.fn((id: any) => ({ toBech32: () => `bech32-${id}` }))
   },
   NetworkId: { testnet: jest.fn(() => 'testnet'), devnet: jest.fn(() => 'devnet') },
@@ -55,12 +63,19 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequestBuilder: jest.fn()
 }));
 
+// The own notes a built request reports creating: copies of the note, as the SDK hands them out, so they stay readable
+// after the builder took the note. The id is upper case to show the row records it as the summary decode spells it.
+const ownNote = (id = '0xC0FFEE') => ({ id: () => ({ toString: () => id }) });
+const builtRequest = (notes = [ownNote()]) => ({
+  serialize: () => new Uint8Array([1, 2, 3]),
+  expectedOutputOwnNotes: () => notes
+});
 // The builder `feeAwareTransactionRequestBuilder` hands back. The request has to be built
 // from THIS object, since it is the one carrying the committed fee auth args.
 const feeAwareBuilder = {
   withOwnOutputNotes: jest.fn(),
   withFeeConversionSalt: jest.fn(),
-  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+  build: jest.fn(() => builtRequest())
 };
 const mockFeeAwareTransactionRequestBuilder = jest.fn(
   async (_account: string, _options: { feeConversionSalt: unknown }) => feeAwareBuilder
@@ -77,7 +92,7 @@ const revokeWasmHold = () => {
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentWasmHold,
-  // Re-implements the real comparison against the mock's current hold — a no-op
+  // Re-implements the real comparison against the mock's current hold - a no-op
   // here would make the eviction test below vacuously green.
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;
@@ -143,7 +158,7 @@ beforeEach(() => {
 // key, and an asset rebuilt from faucet id + amount carries the default Disabled
 // flag. This path used to do precisely that, so an Epoch bridge or Earn deposit of
 // a callback-enabled collateral asset addressed an empty slot and was rejected by
-// the kernel — the whole flow failing at the first note it mints.
+// the kernel - the whole flow failing at the first note it mints.
 describe('the collateral asset is taken from the slot the sender actually holds', () => {
   it('derives it from the vault key, flag included', async () => {
     mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
@@ -175,6 +190,16 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
   });
 
+  it('builds the note for a sender id written with an uppercase 0X prefix', async () => {
+    mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
+
+    await expect(build({ senderAccountId: '0Xsender' })).resolves.toMatchObject({ noteId: '0xc0ffee' });
+
+    expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
+    const [sender] = (Note.createP2IDENote as jest.Mock).mock.calls[0]!;
+    expect(sender.toString()).toBe('accountId-0xsender');
+  });
+
   it('still builds a request when the vault shows nothing, rather than blocking the bridge', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockGetAccount.mockResolvedValue(accountHolding());
@@ -182,7 +207,7 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     await expect(build()).resolves.toEqual({
       requestBytes: new Uint8Array([1, 2, 3]),
       reclaimHeight: 3016,
-      noteId: 'note-p2ide-id'
+      noteId: '0xc0ffee'
     });
 
     expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
@@ -197,7 +222,7 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     await expect(build()).resolves.toEqual({
       requestBytes: new Uint8Array([1, 2, 3]),
       reclaimHeight: 3016,
-      noteId: 'note-p2ide-id'
+      noteId: '0xc0ffee'
     });
 
     expect(warn).toHaveBeenCalled();
@@ -213,7 +238,7 @@ describe('the collateral asset is taken from the slot the sender actually holds'
 
 // #788 follow-up: an eviction during the account read hands the mutex to a
 // successor without stopping this callback, and the very next step reads
-// `vault().fungibleAssets()` on the returned account — a WASM call on an object
+// `vault().fungibleAssets()` on the returned account - a WASM call on an object
 // borrowed from the client's RefCell, i.e. the double borrow, not a stale read.
 // Everything in this hold is write PREP (nothing is submitted), so aborting is
 // always safe.
@@ -297,8 +322,24 @@ describe('the rest of the allocator contract is unchanged', () => {
   it("returns the note's own reclaim height and id with the request bytes (#1250)", async () => {
     const result = await build();
 
-    expect(result).toEqual({ requestBytes: new Uint8Array([1, 2, 3]), reclaimHeight: 3016, noteId: 'note-p2ide-id' });
+    expect(result).toEqual({ requestBytes: new Uint8Array([1, 2, 3]), reclaimHeight: 3016, noteId: '0xc0ffee' });
     expect(result.reclaimHeight).toBe((Note.createP2IDENote as jest.Mock).mock.calls[0][3]);
+  });
+
+  // The row binds signing to this id, so it is read from the request whose bytes are queued, not from the note handed in.
+  it('takes the id from the one note the built request creates', async () => {
+    feeAwareBuilder.build.mockReturnValueOnce(builtRequest([ownNote('0xBUILT')]));
+
+    await expect(build()).resolves.toMatchObject({ noteId: '0xbuilt' });
+  });
+
+  it.each([
+    ['no note', []],
+    ['two notes', [ownNote('0xBUILT'), ownNote('0xOTHER')]]
+  ])('returns no request when the built request creates %s rather than one', async (_count, notes) => {
+    feeAwareBuilder.build.mockReturnValueOnce(builtRequest(notes));
+
+    await expect(build()).rejects.toThrow(`the request creates ${notes.length} own output notes, not one`);
   });
 
   it('writes the mandate-binding felts verbatim', async () => {

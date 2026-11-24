@@ -7,25 +7,48 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
+import { configKey } from 'lib/bridge/core/routes';
+import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
+import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
+import { getMessage } from 'lib/i18n/core';
 import {
   clearGuardianServiceFor,
   getOrCreateMultisigService,
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
-import { GUARDIAN_CANDIDATE_HOLD_MS, MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
+import {
+  ColdProposalAdoptionError,
+  GUARDIAN_CANDIDATE_HOLD_MS,
+  isProposalChainSyncError,
+  MultisigService,
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+  ProposalChainSyncError,
+  type AbandonTicket,
+  type ProposalSyncPhase
+} from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  directSwitchTriggerFor,
   GuardianWriteDiscardedError,
-  isGuardianAccountUnusable,
+  isHotKeyRotatedOutError,
   isGuardianSwitchDiscardedError,
-  isGuardianUnreachableError,
   readChainAccountCommitment,
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
+import {
+  INLINE_PROOF_BUDGET_MS,
+  isFailedReexecution,
+  isProofFreshnessUnknownError,
+  isStaleProofError,
+  markFailedReexecution,
+  type ProofPass,
+  withFreshProof
+} from 'lib/miden/guardian/proof-freshness';
+import { proposeRebased, withRequestOrder } from 'lib/miden/guardian/rebased-proposal';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
@@ -35,6 +58,7 @@ import {
   isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  isNewGuardianAnswer,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
@@ -43,23 +67,53 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import {
+  cacheScope,
+  getNativeAssetId,
+  isVerificationBaseFeeKnownAbsent,
+  refreshVerificationBaseFee
+} from 'lib/miden-chain/native-asset';
+import { beginBackgroundExecution } from 'lib/mobile/background-execution';
+import { setRunningTimeout } from 'lib/mobile/background-time';
+import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { classifyError } from 'lib/telemetry/classify';
+import {
+  annotateCrash,
+  withProposalStep,
+  type ProposalGuard,
+  type ProposalStep
+} from 'lib/telemetry/crash-diagnostics';
+import {
+  logOperationStep,
+  withOperationStep,
+  type DiagnosticStep,
+  type DiagnosticStepOutcome
+} from 'lib/telemetry/diagnostic-log';
+import { annotateGuardianProving, type GuardianProvingSubstep } from 'lib/telemetry/guardian-proving-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
+import {
+  annotateTransactionExecution,
+  unobservedTransactionExecution
+} from 'lib/telemetry/transaction-execution-diagnostics';
+import { type ConsumeDeferralCause, reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { logger } from 'shared/logger';
 
 import {
+  beginAttemptInThisRealm,
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  endAttemptInThisRealm,
   markStartedInThisRealm,
-  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -72,22 +126,30 @@ import {
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
+  landedSwapOrder,
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   isGuardianOutage,
+  isNodeOutage,
+  ProposalEffectRefusedError,
+  ProposalFeeUnknownError,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
+import { assertCustomEffectsApproved, customEffectsCheckAccess, verifyPreparedCustomRequest } from './custom-effects';
+import { withEffectCheckedSigner } from './effect-checked-signer';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   type AttemptContext,
   claimBridgeSubmit,
+  completedSwapFields,
+  countNoteDeliveryWrite,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
@@ -101,17 +163,41 @@ import {
   recordLeafEnd,
   recordSubmitCrossing,
   setTransactionStage,
+  stampPostSubmitStage,
+  swapOrderExpiresAt,
   updateTransactionStatus
 } from './helper';
-import type { CandidateRelease } from './reconcile-unconfirmed';
+import {
+  forgetLandedCompletion,
+  keptLandingFacts,
+  type LandedCompletion,
+  readLandedCompletion
+} from './landed-completion-reads';
+import { keptLandedTransactionId, readLandedResultFields } from './landed-result-fields';
+import { assertProposalEffectApproved } from './proposal-effect-guard';
+import {
+  noteQueueSighting,
+  pruneQueueAdmission,
+  recordQueueAdmission,
+  retainQueueSightings,
+  upgradedQueueSighting,
+  type QueueAdmissionMember,
+  type QueueSighting
+} from './queue-admission-diagnostics';
+import {
+  type CandidateRelease,
+  landedDeliveryTargetValues,
+  landedExecuteDeliveryValues
+} from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
-import { canAwaitVerdict } from './verdict-rules';
+import { readRowWithinTerminalBudget, writeCommittedCompleted } from './terminal-write';
+import { attemptMayHaveCrossed, canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
-import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
+import { dispatchGuardianPipeline, midenClientProxy, type SubmitGate } from '../back/miden-client-proxy';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -119,8 +205,10 @@ import {
   EarnDepositTransaction,
   hasLeftQueue,
   IBridgeProvider,
+  IConsumeGcPurchaseExtraInputs,
   IRequeueStreak,
   IRequeueStreakArm,
+  type ISwapLandedOrder,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -134,10 +222,17 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
-import { applyAfterSubmit } from '../sdk/apply-after-submit';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType, resolveSendReclaimHeight } from '../helpers';
 import {
-  accountIdStringToSdk,
+  applyAfterSubmit,
+  isLandedTailError,
+  LandedTailError,
+  landedTailErrorIn,
+  recordedSwapOrder,
+  requestOrderOf,
+  submittedSwapOrder
+} from '../sdk/apply-after-submit';
+import {
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
@@ -147,17 +242,21 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
+import { retireLandedTrap, retiringLandedTraps } from '../sdk/landed-trap-retirement';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
+  retireWasmClientForUnheldTrap,
   type WasmClientLockOptions,
   type WasmLockHold,
   withWasmClientLock,
   withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
+import { getRealmReaderClient, proveDelegated, type PswapConsumeRequestInputs } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
+import { readChainTip } from '../sdk/pswap-order-note';
 import {
   carriesIndefiniteSubmitOutcome,
   errorMessageParts,
@@ -172,11 +271,20 @@ import {
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
+  landedOrderFacts,
+  markErrorBeforeSubmit,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
+import {
+  assertTestGuardianRequestAuthorization,
+  authorizeTestGuardianRequest,
+  type TestGuardianAuthorizationKind
+} from '../sdk/test-guardian-authorization';
+import { observeTransactionExecutionRequest } from '../sdk/transaction-execution-diagnostics';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isRecoveredReturnOrder } from '../swap/recovered-order';
 
 export * from './cancel';
 export * from './complete';
@@ -185,6 +293,7 @@ export * from './get';
 export * from './helper';
 export * from './initiate';
 export * from './retry';
+export * from './terminal-write';
 export * from './verdict-rules';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
@@ -230,18 +339,18 @@ const GUARDIAN_UNREACHABLE_REQUEUEABLE: ReadonlySet<ITransactionType> = new Set<
 // result) runs after. A killed structural leaf → Failed with NO auto-requeue (the
 // slice-6a behavior; structural types are excluded from REQUEUEABLE_TYPES, so the
 // only recovery is a user-initiated re-run that builds a fresh proposal against the
-// post-change chain state — never a double-apply). Slice 7c adds the last two
+// post-change chain state - never a double-apply). Slice 7c adds the last two
 // value-moving guardian types (bridged-send / earn-deposit): both are hot-bound
 // custom-proposal sends whose `tr` reaches the leaf fully co-signed via the SAME
-// `signAndCreateTransactionRequest` (no cold co-sign — they are not structural), so
+// `signAndCreateTransactionRequest` (no cold co-sign - they are not structural), so
 // they cross the identical serializable waist as the recallable send / swap already
 // routed here. Their completion handlers already consume an offscreen-round-tripped
 // result flag-on (the non-guardian leaf moved offscreen in slice 7b feeds the same
 // completeBridgedSend / completeEarnDeposit), and a wedge-kill →
 // OperationAbortedError falls through the guardian catch to cancelTransaction →
 // Failed with NO silent auto-requeue (earn-deposit and Epoch bridged-send are both
-// excluded from REQUEUEABLE_TYPES, and bridged-send is user-tap-only — never
-// auto-requeued — so a killed-then-retried send-style write can't double-spend), and
+// excluded from REQUEUEABLE_TYPES, and bridged-send is user-tap-only - never
+// auto-requeued - so a killed-then-retried send-style write can't double-spend), and
 // a round-tripped apply-after-submit failure reaches the guardian classifier via the
 // forwarded error TEXT (`isApplyAfterSubmitError`; → both Fail, byte-identical to
 // their flag-off inline apply throw). An unknown type is not in the set, so it stays
@@ -261,6 +370,36 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
 ]);
 
 /**
+ * A zero-fill PSWAP reclaim is represented as a consume row for history,
+ * deduplication, retry/backoff, and completion, but its note is creator-owned
+ * output rather than an input note. Its fee-aware request is therefore built
+ * during settlement and persisted on the row; a Guardian row rebuilds it in
+ * each proposal's hold.
+ */
+const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | undefined =>
+  transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
+    ? transaction.requestBytes
+    : undefined;
+
+/**
+ * An Arcade GC purchase is a consume row too (`initiateGcPurchaseTransaction`), but its note is the seller's public
+ * PSWAP sale note, which this client never tracked, so the ordinary consume builder cannot resolve it. Its fee-aware
+ * fill request is built on the node's copy of the note: in the proposal's hold for a Guardian account, right before
+ * execution for a basic one, and persisted on the row either way.
+ */
+const gcPurchaseOf = (transaction: ITransaction): PswapConsumeRequestInputs | undefined => {
+  const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined =
+    transaction.type === 'consume' ? transaction.extraInputs?.gcPurchase : undefined;
+  return purchase
+    ? {
+        noteId: purchase.saleNoteId,
+        fillAmount: BigInt(purchase.fillAmount),
+        creatorAccountId: purchase.sellerAccountId
+      }
+    : undefined;
+};
+
+/**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
  * reads `resultBytes` / `outputNoteIds` back off the finished row:
  *
@@ -274,7 +413,7 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * NO `TransactionResult` to repopulate those fields from. Marking such a row
  * Completed would hand the waiter `TransactionResult.deserialize(undefined)`, which
  * throws inside the liveQuery observer AFTER `cleanup()` has already cleared the
- * timeout — the promise then never settles and the Epoch flow hangs forever while the
+ * timeout - the promise then never settles and the Epoch flow hangs forever while the
  * activity row claims success. So these rows must be marked Failed instead: the
  * caller resolves via the error branch, the flow can run its own failure handling
  * (`markBridgedSendFailed`), and the landed collateral note is recorded so the
@@ -285,7 +424,7 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * The gate is per-ROUTE, not per-type, because only ONE of the two `bridged-send`
  * routes has an awaiting caller. The Agglayer (Slow) route enters via
  * `initiateB2AggBridge` (lib/agglayer/b2agg/index.ts), which returns the txId
- * immediately and never awaits the row — it carries a self-contained pre-built
+ * immediately and never awaits the row - it carries a self-contained pre-built
  * B2AGG `requestBytes` and needs nothing read back off it. Failing an Agglayer row
  * whose note IS on chain is actively harmful: `BridgeClaimSection` gates the deposit
  * tracker and the whole Connect-wallet / Claim-Asset block on
@@ -295,7 +434,7 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * instead, exactly like a plain send.
  *
  * A `bridged-send` with no recorded `provider` (no such row is written by this
- * codebase — `IBridgedSendExtraInputs.provider` is required) is treated as NOT
+ * codebase - `IBridgedSendExtraInputs.provider` is required) is treated as NOT
  * result-awaiting, matching `isRequeueableTransaction`'s handling of the same field.
  */
 const RESULT_AWAITING_BRIDGE_PROVIDER: IBridgeProvider = 'epoch';
@@ -320,7 +459,7 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 
 // Cooldown (seconds) applied to a tx requeued after a transient remote-prover
 // outage (#419). A delegated prove step that fails at the 'proving' stage is
-// PRE-submit — nothing reached the chain — so instead of terminal-failing the
+// PRE-submit - nothing reached the chain - so instead of terminal-failing the
 // user's transfer we return it to the queue and retry, letting it complete once
 // the prover recovers. Kept a bit longer than the pending-conflict cooldown to
 // avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
@@ -336,9 +475,13 @@ const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
 // connection refusal answers in milliseconds, so a shorter wait would only hammer a dead operator.
 const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 
-// Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
-// the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
-// can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
+// Cooldown (seconds) for a tx requeued because the node stopped answering before its submit (#2060). The base of the
+// same doubling, from the failed pre-send sync's window: the next attempt starts with a sync of its own.
+const NODE_OUTAGE_REQUEUE_COOLDOWN_SEC = SYNC_FAILURE_REQUEUE_COOLDOWN_SEC;
+
+// Ceiling (seconds) on the doubling the unreachable, node, 409 and 429 arms give a row they requeue again (#1223). Four
+// times the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's
+// 429 can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
 // timeout, or three that each run to the 60 s Guardian request cut-off, so the rows between them get laps.
 const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
 
@@ -352,8 +495,8 @@ const RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 30;
 // The guardian's `retry_after_secs` is advisory and must be CLAMPED before it
 // becomes `nextEligibleAt`, in both directions:
 //   - Too small (0, or anything under the ~5s SW / 10s UI poll cadence) and the
-//     requeued row — still the oldest by initiatedAt, which requeueing does not
-//     refresh — is re-picked every single cycle, re-running syncState under the
+//     requeued row - still the oldest by initiatedAt, which requeueing does not
+//     refresh - is re-picked every single cycle, re-running syncState under the
 //     global WASM lock and re-hitting the guardian that just said back off, while
 //     head-of-line blocking every other account's tx. That is exactly the
 //     starvation PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC exists to prevent.
@@ -366,7 +509,7 @@ const RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 30;
 // `getTransactionsInProgress()` selects exactly that status, so a row left there
 // head-of-line blocks `generateTransactionsLoop` for EVERY account until
 // `cancelStuckTransactions` reaps it at MAX_WAIT_BEFORE_CANCEL (30 min desktop /
-// 2 min mobile) — the terminal note-claim failure the #313 guard exists to prevent.
+// 2 min mobile) - the terminal note-claim failure the #313 guard exists to prevent.
 // The cooldown keeps a still-locked wallet from re-attempting (and re-syncing)
 // every ~5s poll, and is short enough that the first post-unlock cycle picks the
 // tx up; MAX_QUEUED_AGE stays the terminal cap.
@@ -375,27 +518,27 @@ const LOCKED_REQUEUE_COOLDOWN_SEC = 15;
 // Cooldown (seconds) applied to a tx requeued after the guardian's co-signature
 // was rejected at execution ("transaction is unauthorized"). The bound state
 // moved between the guardian signing and the local execute, so the retry only
-// needs the account to settle — a block or two — before a fresh proposal is
+// needs the account to settle - a block or two - before a fresh proposal is
 // signed against the current state. Matched to the pending-delta cooldown: same
 // class of transient race, and the same starvation constraint applies (it must
 // stay comfortably above the loop's ~5s poll so the requeued row doesn't get
 // re-picked every cycle). Unlike that path, MAX_QUEUED_AGE is not what ends it:
 // UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC below caps it far sooner, so a
-// signature that is genuinely — rather than racily — unauthorized fails with
+// signature that is genuinely - rather than racily - unauthorized fails with
 // that reason instead of ageing out under a generic one.
 const UNAUTHORIZED_EXECUTION_REQUEUE_COOLDOWN_SEC = 15;
 
 // How long after its FIRST unauthorized failure a row stays retryable (stamped
-// on the row as `unauthorizedRetryUntil`, not measured from `initiatedAt` — see
+// on the row as `unauthorizedRetryUntil`, not measured from `initiatedAt` - see
 // that field's doc for why enqueue time is the wrong clock).
 //
-// The race this arm exists for clears once the account settles — a block or two —
+// The race this arm exists for clears once the account settles - a block or two -
 // so a row still being rejected minutes later is not racing: it is genuinely
 // unauthorized (a rotated-out hot key, a missing co-signature, a threshold that
 // no longer holds), and no number of retries will change that. Without a bound,
 // those rows would ride the cooldown all the way to MAX_QUEUED_AGE, holding the
 // user on a progress screen for 30 minutes and then reporting a generic
-// "expired" INSTEAD of the reason they actually got — strictly worse than the
+// "expired" INSTEAD of the reason they actually got - strictly worse than the
 // terminal failure this arm replaced. A handful of attempts at the cooldown
 // below, then the real error surfaces.
 const UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC = 180;
@@ -421,8 +564,8 @@ const UNAUTHORIZED_EXECUTION_JITTER_SEC = 40;
  *
  * Pure, and takes the draw as an argument, so the boundary values can be pinned
  * without a `Math.random` spy. That is not cosmetic: a constant-returning spy
- * left in place across an assertion failure makes jest's own source-map sort —
- * which uses `Math.random` to pick its pivot — degenerate, and the run dies with
+ * left in place across an assertion failure makes jest's own source-map sort -
+ * which uses `Math.random` to pick its pivot - degenerate, and the run dies with
  * `RangeError: Maximum call stack size exceeded` INSTEAD of printing which
  * expectation failed. The two tests pinning this range are the ones that would
  * report nothing, so the range moved out of them and into a unit test.
@@ -499,14 +642,14 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
  * `stage => setTransactionStage(txId, stage)`, unfailable except for one write.
  *
  * A stage stamp is telemetry for the generating-transaction screen's per-step
- * durations — never transaction state — so it must not be able to fail a
+ * durations - never transaction state - so it must not be able to fail a
  * funds-moving write. Two of the four pipelines that receive one AWAIT it mid-write
  * (`MidenClientInterface.sendTransaction`'s `await onStage?.(…)` on the flag-OFF
  * send, and `runGuardianPipeline`'s `await setStage(…)` on the flag-OFF guardian
  * leaf), so a Dexie hiccup inside `setTransactionStage` would propagate straight out
- * of the write. The other two are already safe by construction — flag-ON both
+ * of the write. The other two are already safe by construction - flag-ON both
  * pipelines post the stamp across the offscreen bus and the SW-side
- * `handleOffscreenStageEvent` swallows a throwing callback — which is exactly why
+ * `handleOffscreenStageEvent` swallows a throwing callback - which is exactly why
  * the guard belongs HERE, at the single place the callback is produced, rather than
  * at each consumer: every path then inherits it once, and the invariant no longer
  * depends on which realm the leaf happened to run in.
@@ -547,6 +690,31 @@ const stageStampFor =
     }
   };
 
+/**
+ * An offscreen leaf's submit gate (#1644), for one attempt. The leaf submits only once this answers yes, and
+ * it answers yes only after the reliable 'submitting' stamp recorded the crossing (a stamp that throws leaves it shut)
+ * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
+ * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
+ */
+const offscreenSubmitGate = (stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>) => {
+  let opened = false;
+  let settled = false;
+  const gate: SubmitGate = async evidence => {
+    if (settled) return false;
+    await stamp('submitting', { evidence });
+    if (settled) return false;
+    opened = true;
+    return true;
+  };
+  return {
+    gate,
+    opened: () => opened,
+    settle: () => {
+      settled = true;
+    }
+  };
+};
+
 /** Pending liveness wakes, keyed by transaction id, so each row has at most one. */
 const requeueWakes = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -555,8 +723,8 @@ const REQUEUE_WAKE_REARM_MS = 3000;
 
 /**
  * Absolute ceiling on how long one row's wake chain may keep re-arming, measured
- * from the first wake. NOT the functional bound — the chain normally ends when
- * the row leaves Queued — just a last resort for a row that never does, and the
+ * from the first wake. NOT the functional bound - the chain normally ends when
+ * the row leaves Queued - just a last resort for a row that never does, and the
  * only thing bounding a chain whose row read keeps failing. Sized above
  * `MAX_QUEUED_AGE` so the reaper, which needs one of these laps to run at all,
  * gets its chance first.
@@ -586,6 +754,59 @@ const requeueWakeDelayMs = (
  * `generateTransactionsLoop`'s pick and `nextQueuedWakeDelayMs`'s filter so the exclusion is decided once.
  */
 const loopCanPick = (tx: { readonly awaitingRecoverySeed?: boolean }): boolean => !tx.awaitingRecoverySeed;
+
+/**
+ * Remember the strongest way this lap looked at `row`. The write is skipped when the row already records
+ * an equal or stronger bound look for this incarnation. A captured incarnation cannot write onto its replacement;
+ * a failed write leaves the in-memory look in place.
+ */
+const persistQueueSighting = (
+  row: QueueAdmissionMember & {
+    queueSighting?: QueueSighting;
+    queueSightingAt?: number;
+    queueSightingSeq?: number | null;
+  },
+  observation: 'not_reached' | 'in_progress_gate' | 'row_ineligible' | 'selected'
+): void => {
+  const current =
+    row.queueSightingAt === row.initiatedAt && row.queueSightingSeq === (row.queuedSeq ?? null)
+      ? row.queueSighting
+      : undefined;
+  if (!row.id || !upgradedQueueSighting(current, observation)) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  void Repo.transactions
+    .where({ id: row.id })
+    .modify(stored => {
+      if (stored.initiatedAt !== initiatedAt || (stored.queuedSeq ?? null) !== queuedSeq) return false;
+      const current =
+        stored.queueSightingAt === stored.initiatedAt && stored.queueSightingSeq === (stored.queuedSeq ?? null)
+          ? stored.queueSighting
+          : undefined;
+      const next = upgradedQueueSighting(current, observation);
+      if (!next) return false;
+      stored.queueSighting = next;
+      stored.queueSightingAt = initiatedAt;
+      stored.queueSightingSeq = queuedSeq;
+      return undefined;
+    })
+    .catch(() => undefined);
+};
+
+/** Latest pre-send sync step for this queued incarnation. A failed write does not stop the sync. */
+const rememberPreflightSync = async (
+  row: Pick<ITransaction, 'id' | 'initiatedAt' | 'queuedSeq'>,
+  step: 'entered' | 'returned' | 'threw'
+): Promise<void> => {
+  if (!row.id) return;
+  const initiatedAt = row.initiatedAt;
+  const queuedSeq = row.queuedSeq ?? null;
+  await Repo.transactions.where({ id: row.id }).modify(stored => {
+    stored.preflightSync = step;
+    stored.preflightSyncAt = initiatedAt;
+    stored.preflightSyncSeq = queuedSeq;
+  });
+};
 
 /**
  * What one pass of the transaction loop did. `processed`: it ran a row that left the queue (Completed or Failed) or
@@ -651,7 +872,7 @@ export const nextQueuedWakeDelayMs = (
  * from the same overloaded guardian) and returns down an arm that schedules no
  * wake of its own.
  *
- * Re-arming stops as soon as the row leaves Queued — completed, failed, or
+ * Re-arming stops as soon as the row leaves Queued - completed, failed, or
  * cancelled by the user.
  *
  * It is NOT bounded by a count of attempts. A count is the wrong bound twice
@@ -665,7 +886,7 @@ export const nextQueuedWakeDelayMs = (
  * re-arms for as long as the row is still Queued, and the only other exit is an
  * absolute ceiling that exists so a row nothing will ever move cannot leave
  * timers running for the life of the process. That ceiling RESOLVES the row
- * rather than walking away from it — off-extension this chain is the only
+ * rather than walking away from it - off-extension this chain is the only
  * driver, so it expires the row itself when the reaper's own predicate would,
  * and hands over to a chain starting from now when the id has meanwhile been
  * retried into a younger incarnation (see the ceiling block below).
@@ -673,7 +894,7 @@ export const nextQueuedWakeDelayMs = (
  * Every time-based bound tried here was wrong, in both directions. A ceiling
  * captured at chain start expired while the row was still
  * retryable, because `requeueTransactionForRetry` pushes `unauthorizedRetryUntil`
- * out by the cooldown of any unrelated backoff — two rate limits outlive it. And
+ * out by the cooldown of any unrelated backoff - two rate limits outlive it. And
  * stopping at the row's own queue age abandoned it on exactly the lap that
  * failed to do the work, since the reaper that age refers to runs inside the
  * loop this wake drives. Both produced the same silent no-op the wake exists to
@@ -701,7 +922,7 @@ function scheduleRequeueWake(
       if (Date.now() >= hardExpiresAt) {
         // Stopping here is not enough: off-extension this chain is the ONLY thing
         // that will ever drive the row, so a ceiling that merely returns strands a
-        // row that is still Queued. The reaper cannot be relied on to have run —
+        // row that is still Queued. The reaper cannot be relied on to have run -
         // it lives inside `generateTransactionsLoop` behind an `ifAvailable` lock,
         // and one legitimate holder can keep that lock for
         // `WASM_LOCK_PAUSED_WATCHDOG_MS` (30 min) across a watchdog-paused local
@@ -710,14 +931,14 @@ function scheduleRequeueWake(
         // guaranteed window is only about a minute against that.
         //
         // So produce the terminal state directly instead of asserting it and
-        // walking away — but only for a row the reaper ITSELF would expire, by
+        // walking away - but only for a row the reaper ITSELF would expire, by
         // its own predicate rather than by this chain's clock. The two can
         // disagree: `requeueFailedTransaction` refreshes `initiatedAt` on the
         // SAME row id, and this map is keyed by id, so a user who cancels and
         // retries mid-chain gets a NEW incarnation that an old chain would
         // otherwise expire minutes into its own life, told it "expired after
         // being queued too long". Re-deriving the age keeps the claim above
-        // honest — this adds no outcome the reaper would not have produced.
+        // honest - this adds no outcome the reaper would not have produced.
         //
         // `cancelTransaction` takes no lock (Dexie plus a notifier that no-ops
         // off-extension), so it cannot block against the holder, and it refuses
@@ -731,14 +952,14 @@ function scheduleRequeueWake(
           // `>` comparison that NaN loses. Routing that row to the hand-over
           // below would re-arm a chain whose ceiling reaches this same verdict
           // every 31 minutes for the life of the process, so the ceiling ends it
-          // — the row's last chance, which is what a ceiling is for. Tested on
+          // - the row's last chance, which is what a ceiling is for. Tested on
           // the FIELD, matching the `reapsAt` calculation below, rather than on
           // the subtraction: `Date.now()/1000 - "1700000000"` coerces to a finite
           // number, so a difference-based test would silently disagree with
           // `reapsAt` on exactly the input this reasoning is about.
           //
           // A NEGATIVE age is a clock that moved backwards, not a corrupt stamp,
-          // and its MAGNITUDE is what matters — the rule `pipelineMayStillBeRunning`
+          // and its MAGNITUDE is what matters - the rule `pipelineMayStillBeRunning`
           // already states for this same arithmetic: a small skew stays live,
           // erring toward funds safety, while a wildly inconsistent stamp is
           // treated as telling us nothing. A one-second NTP correction must not
@@ -750,9 +971,9 @@ function scheduleRequeueWake(
             strandedAgeSec >= -MAX_QUEUED_AGE;
           if (stranded?.status === ITransactionStatus.Queued && !adoptable) {
             // Guarded on Queued at WRITE time, not just here. Unlike
-            // `cancelStaleQueuedTransactions` — which does the same thing from
+            // `cancelStaleQueuedTransactions` - which does the same thing from
             // inside the loop lock, where no other driver can be picking rows up
-            // — this runs outside it, and the row is long past `nextEligibleAt`
+            // - this runs outside it, and the row is long past `nextEligibleAt`
             // by now, so a concurrent lap could advance it to
             // `GeneratingTransaction` between this read and the write. Failing
             // that row would report a failure for a pipeline still running, and
@@ -773,7 +994,7 @@ function scheduleRequeueWake(
             );
             // A DECLINED expiry is not an ending. The claimant's attempt can
             // finish by requeueing rather than completing, and the arms that do
-            // that schedule no wake — so returning here would leave a Queued row
+            // that schedule no wake - so returning here would leave a Queued row
             // with no driver off-extension, the strand this ceiling was made to
             // resolve. Hand over to a chain starting from now instead: it costs
             // one timer, and if the claimant does finish the row the next lap
@@ -787,9 +1008,9 @@ function scheduleRequeueWake(
             // Younger than the reaper's cap: a fresh incarnation of this id, so
             // this chain's clock is measuring someone else's transaction. It
             // still needs a driver, and off-extension a send has no other
-            // guaranteed one — the flows that call
+            // guaranteed one - the flows that call
             // `startBackgroundTransactionProcessing` drive their own operations,
-            // not this row — so hand over to a chain that starts from now rather
+            // not this row - so hand over to a chain that starts from now rather
             // than abandoning it on an inherited deadline.
             console.warn(`[Guardian] requeue wake for ${txId} adopted a newer row; restarting its chain`);
             scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider);
@@ -805,8 +1026,8 @@ function scheduleRequeueWake(
       try {
         row = await Repo.transactions.where({ id: txId }).first();
       } catch (e) {
-        // A read failure is not a reason to abandon the row — that read is the
-        // only thing standing between it and being stranded — so come back.
+        // A read failure is not a reason to abandon the row - that read is the
+        // only thing standing between it and being stranded - so come back.
         // Bounded by the ceiling checked above, so a read that never recovers
         // cannot re-arm forever.
         console.warn(`[Guardian] requeue wake for ${txId} could not read its row; retrying`, e);
@@ -831,16 +1052,16 @@ function scheduleRequeueWake(
         return;
       }
       // Still Queued, so keep coming back. The stops are the row reaching a
-      // TERMINAL state or vanishing (checked above) and the absolute ceiling —
+      // TERMINAL state or vanishing (checked above) and the absolute ceiling -
       // deliberately not the row's own age. Age looks like the natural bound, because a row past
       // MAX_QUEUED_AGE is one `cancelStaleQueuedTransactions` will fail as
       // expired, but that reaper runs INSIDE `generateTransactionsLoop`, which
       // this wake is what drives off-extension, and the drive above takes the
-      // loop lock with `ifAvailable` — a lap that loses it to a long-running
+      // loop lock with `ifAvailable` - a lap that loses it to a long-running
       // pipeline reaps nothing. Stopping on age would then abandon the row on
       // exactly the lap that failed to do the work, leaving it Queued forever
       // with nothing to reap it. So age only paces the wait; it never ends it.
-      // Come back when the row is next eligible — or at the reap boundary if
+      // Come back when the row is next eligible - or at the reap boundary if
       // that comes first, since past it the row needs a drive to be reaped and
       // waiting out a long cooldown first would only delay that.
       // A beat past `nextEligibleAt`, as `requeueWithWake` arms it: this re-arm
@@ -852,7 +1073,7 @@ function scheduleRequeueWake(
   requeueWakes.set(txId, timer);
 }
 
-/** What a guardian arm stamps on the row it requeues, on top of the requeue itself. */
+/** What an arm stamps on the row it requeues, on top of the requeue itself. */
 type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
 
 /**
@@ -860,14 +1081,14 @@ type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRe
  * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
  * doesn't starve other accounts' queued txs. Called by the guardian arms for a
  * remote-prover outage (#419) and a rate-limit 429, by `requeueWithWake` for the
- * Guardian-backpressure (#312), unreachable-guardian (#779) and
- * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
- * locked-wallet requeues. Clearing `processingStartedAt` avoids
+ * Guardian-backpressure (#312), unreachable-guardian (#779), unreachable-node
+ * (#2060) and unauthorized-at-execution arms, and by the loop's pre-send sync
+ * failure and locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
  * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own, and
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
- * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
+ * A backing-off arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
  * other requeue clears the streak (#1223). Only the backpressure arm passes `guardianBusy`, and every other requeue
  * clears it the same way (#312). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which a wake is
  * timed from.
@@ -877,6 +1098,7 @@ async function requeueTransactionForRetry(
   txType: ITransactionType,
   stage: ITransactionStage,
   cooldownSec: number,
+  cause: ConsumeDeferralCause,
   extraValues?: RequeueExtraValues
 ): Promise<{ initiatedAt: number | undefined; nextEligibleAt: number }> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
@@ -895,7 +1117,7 @@ async function requeueTransactionForRetry(
   // byte-identical reuse.
   //
   // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
-  // requeue from proposal creation or proving), but not necessarily for the row:
+  // requeue from proposal creation, execution or proving), but not necessarily for the row:
   // a user Retry of a send that died post-submit keeps its bytes and stamps
   // `mayHaveSubmitted`, and the fresh attempt can then hit a 409 here. Clearing
   // on the strength of this attempt's stage would rebuild the note id that is
@@ -904,20 +1126,20 @@ async function requeueTransactionForRetry(
   //
   // On the unauthorized-at-execution arm that veto is ALWAYS on for a guardian
   // recallable send, and deliberately so. `generateGuardianTransaction` stamps
-  // `mayHaveSubmitted` before dispatching the leaf for any row carrying bytes —
+  // `mayHaveSubmitted` before dispatching the leaf for any row carrying bytes -
   // an over-approximation it makes because the offscreen realm cannot report
-  // where it died — so by the time an unauthorized failure lands here the flag
+  // where it died - so by the time an unauthorized failure lands here the flag
   // is set. That arm CAN prove pre-submit from its error text, unlike the stage
   // gates, but it cannot prove anything about an EARLIER attempt on the same
   // row, which is what the flag actually records. So the bytes are kept: the
-  // reused serial pins the note id, making a duplicate rejected rather than
-  // paid twice, at the cost of retrying against the reclaim height built on the
-  // first attempt. Reversing that would need the crossing tracked per attempt,
-  // not per row.
+  // reused serial pins the note id, which the node rejects as a duplicate while
+  // the first copy is in flight, and Retry asks before it reuses them, at the
+  // cost of retrying against the reclaim height built on the first attempt.
+  // Reversing that would need the crossing tracked per attempt, not per row.
   //
   // Folded into the status write rather than a second `modify`: as two writes, a
   // service-worker death between them left the row Queued with its stale bytes
-  // intact — the exact state this clear exists to prevent, and self-perpetuating
+  // intact - the exact state this clear exists to prevent, and self-perpetuating
   // once the row is picked up again. `updateTransactionStatus` Object.assigns
   // `otherValues`, so the undefined lands in the same transaction as the status.
   const row = await Repo.transactions.where({ id: txId }).first();
@@ -927,13 +1149,13 @@ async function requeueTransactionForRetry(
   // hypothetical arithmetic: a rate limit from the same overloaded guardian can
   // park a row for 300s, five minutes against a 180s budget, so a row that raced
   // once and then waited out a 429 would arrive at its next genuine race with
-  // nothing left and fail on the first attempt — while an identical send that
+  // nothing left and fail on the first attempt - while an identical send that
   // never raced gets the full three minutes. Push the deadline out by whatever
   // this cooldown costs.
   //
   // The unauthorized arm itself must NOT have its value moved, and does not:
   // `extraValues` is spread AFTER this below, so a caller that passes its own
-  // deadline overwrites what is computed here. That ordering is the guard — keep
+  // deadline overwrites what is computed here. That ordering is the guard - keep
   // the two spreads in this order.
   const carriedDeadline =
     row?.unauthorizedRetryUntil !== undefined
@@ -951,14 +1173,16 @@ async function requeueTransactionForRetry(
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     attemptId: undefined,
+    failureDiagnostics: undefined,
     stage,
+    lastDeferral: cause,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
     // the whole cooldown plus every failed attempt in the generating-transaction
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt,
-    // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
+    // Only a backing-off arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
     // Only the backpressure arm passes it, so any other requeue ends the busy state on screen (#312).
     guardianBusy: undefined,
@@ -970,8 +1194,8 @@ async function requeueTransactionForRetry(
 }
 
 /**
- * Requeue a pre-submit guardian row at 'creating-proposal' and, off the extension,
- * arm its wake. The wake fires a beat past eligibility, so the loop does not
+ * Requeue a pre-submit row at `stage` ('creating-proposal' for a guardian row) and,
+ * off the extension, arm its wake. The wake fires a beat past eligibility, so the loop does not
  * re-read the row while `nextEligibleAt` still excludes it and go straight back
  * to sleep, or at the row's reap boundary when a backed-off cooldown outlasts it.
  */
@@ -981,9 +1205,11 @@ async function requeueWithWake(
   cooldownSec: number,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
-  extraValues?: RequeueExtraValues
+  cause: ConsumeDeferralCause,
+  extraValues?: RequeueExtraValues,
+  stage: ITransactionStage = 'creating-proposal'
 ): Promise<void> {
-  const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
+  const requeued = await requeueTransactionForRetry(txId, txType, stage, cooldownSec, cause, extraValues);
   // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
   scheduleRequeueWake(
     txId,
@@ -994,29 +1220,303 @@ async function requeueWithWake(
 }
 
 /**
- * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
- * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. Which notes
+ * it owes, if any, is what its tail recorded or `appliedDeliveryValues` adds (see `landedValueRowFields`).
  */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
-  const landed = extractLanded(error);
+  const landed = landedFactsOf(error);
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
 };
 
 /**
- * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
- * still names the transaction. Guard-free like `markMayHaveSubmitted`: the cancel that follows is
- * what makes the row terminal. A failed write is logged, never thrown: the store that just failed the
- * apply can fail this one too, and the cancel is what releases the awaiting caller.
+ * What a landed failure says about its transaction: the facts an apply-after-submit error carried, or a tail's id and
+ * order, in the form `extractLanded` gives the other source's. A tail is `applied`: it runs only on a result its leaf
+ * returned, and every leaf returns one only after its local apply resolved.
  */
-const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
-  const { transactionId } = extractLanded(error);
-  if (transactionId === undefined) return;
+const landedFactsOf = (error: unknown): LandedWithoutResult => {
+  const tail = landedTailErrorIn(error);
+  if (tail === undefined) return extractLanded(error);
+  return {
+    ...landedTransactionIdFields({ transactionId: tail.transactionId }),
+    ...landedOrderFacts(tail.orderId, tail.orderNoteId),
+    applied: true
+  };
+};
+
+/**
+ * `facts` as the landing of `attemptId` knows them on `row`, the row as its write finds it: when they name no order, the
+ * one that attempt's 'submitting' stamp recorded, which a single-key swap's leaf read off its request before the
+ * submit. A single-key swap saves no request, so a landing that read nothing off the result (a trap, an offscreen
+ * result that did not serialize) has no other record of its order.
+ */
+const withSubmittedOrder = (
+  row: ITransaction,
+  facts: LandedWithoutResult,
+  attemptId: string | undefined
+): LandedWithoutResult => {
+  if (row.type !== 'swap' || facts.orderId !== undefined || attemptId === undefined) return facts;
+  const order = submittedSwapOrder(row.submitEvidence, entry => entry.attemptId === attemptId);
+  return order === undefined ? facts : { ...facts, ...order };
+};
+
+/**
+ * The order a landing holds on `row`, the row as its write finds it: the one the landed facts read or the landing
+ * attempt's stamp recorded, else, on a row holding no order of a landing yet, the one its saved request recorded beside
+ * the bytes stored with it. None for a row that already holds its own order, which the completion that stamped it read
+ * off the result.
+ */
+const landingOrderOf = (
+  row: ITransaction,
+  orderId: string | undefined,
+  orderNoteId: string | undefined
+): { orderId: string; orderNoteId?: string } | undefined => {
+  if (row.type !== 'swap' || row.status === ITransactionStatus.Completed || row.extraInputs?.orderId != null) {
+    return undefined;
+  }
+  if (orderId !== undefined) return { orderId, orderNoteId };
+  return row.extraInputs?.landedOrder == null ? recordedSwapOrder(row.extraInputs) : undefined;
+};
+
+/**
+ * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
+ * still names the transaction, and hold a swap's order beside it. Guard-free like `markMayHaveSubmitted`:
+ * the cancel that follows is what makes the row terminal, and a Cancel or the reaper that finalizes the
+ * row before its Completed write lands still leaves both. Each fact is recorded without the other, since
+ * they are separate reads. An order the facts do not name can be the one the landing attempt's stamp
+ * recorded (`withSubmittedOrder`) or the row's saved request recorded (`landingOrderOf`), anchored at this
+ * landing like a read one. A failed write is logged, never thrown: the store that just failed the apply can
+ * fail this one too, and the cancel is what releases the awaiting caller.
+ */
+const recordLandedFacts = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
+  const facts = landedFactsOf(error);
+  const { transactionId } = facts;
+  const landedAt = Math.floor(Date.now() / 1000); // seconds
+  // Facts that name nothing still reach the row: a trap leaves them empty, and the recorded order is on the row.
   try {
     await Repo.transactions.where({ id: txId }).modify(row => {
-      row.transactionId = transactionId;
+      const { orderId, orderNoteId } = withSubmittedOrder(row, facts, attemptId);
+      const order = landingOrderOf(row, orderId, orderNoteId);
+      if (transactionId === undefined && order === undefined) return false;
+      if (transactionId !== undefined) row.transactionId = transactionId;
+      if (order !== undefined) {
+        const landedOrder: ISwapLandedOrder = {
+          orderId: order.orderId,
+          expiresAt: swapOrderExpiresAt(row.extraInputs, landedAt),
+          ...(order.orderNoteId === undefined ? {} : { noteId: order.orderNoteId })
+        };
+        row.extraInputs = { ...row.extraInputs, landedOrder };
+      }
+      return undefined;
     });
   } catch (recordError) {
-    console.warn('Could not record the landed transaction id', { txId, recordError });
+    console.warn('Could not record the landed facts', { txId, recordError });
+  }
+};
+
+/**
+ * Run a landed row's post-submit tail under `retiringLandedTraps`, and reject with `LandedTailError` for whatever leaves
+ * it: the leaf resolved, so the catches record the row as landed instead of failing it, and Retry cannot submit it again
+ * (PR #2183). A structural row's tail is left as it is once it holds its id. It settles on the node's verdict itself (a
+ * discard fails it, a rotation with no verdict never completes, nothing finalizes after an eviction), and its row offers
+ * no Retry. Its id read comes before any verdict, so that read's failure leaves the tail as `LandedTailError`
+ * (`readTailTransactionId`).
+ *
+ * Each tail first reads, under the generation the wrapper recorded, what its completion reads off the result: the
+ * outgoing guardian's delta push, the commit wait and a Guardian row's sync can replace the client, and the completion
+ * then writes the values read here. A structural row's completion reads only the id, bytes and fee
+ * (`readLandedResultFields`); a value row's reads each field its completion reads, in that completion's own order
+ * (`readLandedCompletion`). Neither read throws, so the switch delta is still pushed, and a Guardian value row still
+ * synced, before a failed read leaves the tail. A value row's failure names the id and swap order its read kept, else
+ * reads the handle late.
+ */
+const runLandedTail = async (
+  transaction: ITransaction,
+  result: TransactionResult,
+  run: () => Promise<void>
+): Promise<void> => {
+  if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+    await retiringLandedTraps(transaction.id, result, () => {
+      readLandedResultFields(result, transaction.id);
+      return run();
+    });
+    return;
+  }
+  let read: LandedCompletion | undefined;
+  try {
+    await retiringLandedTraps(transaction.id, result, () => {
+      read = readLandedCompletion(transaction, result);
+      return run();
+    });
+  } catch (error) {
+    const kept = keptLandingFacts(read);
+    throw new LandedTailError(error, {
+      transactionId:
+        kept.transactionId ?? keptLandedTransactionId(result) ?? readLandedTransactionId(transaction.id, result),
+      ...(transaction.type === 'swap' ? (kept.order ?? landedSwapOrder(transaction.id, result)) : {})
+    });
+  } finally {
+    forgetLandedCompletion(result);
+  }
+};
+
+/**
+ * Report a landed row whose post-submit tail threw, once, as the `landed` outcome: the row is Completed, so it is
+ * evidence, not an error. `row` is the row as the arm read it before its write, so the stage names where the tail
+ * stopped. It names the tail's own error, since the report reads its identity and realm off the top-level message.
+ */
+const reportLandedTail = (row: ITransaction, error: unknown): void => {
+  const tail = landedTailErrorIn(error);
+  if (tail === undefined || row.restoredFromBackup) return;
+  reportTransactionFailure({
+    point: 'pipeline',
+    outcome: 'landed',
+    type: row.type,
+    stage: row.stage,
+    delegateTransaction: row.delegateTransaction,
+    diagnostics: row.failureDiagnostics,
+    entryPoint: row.consumeEntryPoint,
+    lastDeferral: row.lastDeferral,
+    feeAdmission: row.feeAdmission,
+    error: tail.cause
+  });
+};
+
+/**
+ * The delivery target of a landed row whose local apply completed before its failure (`applied`: a tail that failed,
+ * or a trap serializing the offscreen result): the store holds the notes, so a private send owes the ones the landing
+ * attempt's 'submitting' stamp recorded, as a reconciler landing bound to that transaction would, and an execute the
+ * private ones among them, to its row's recipient. `row` is the row as the write found it and `completed` the row with
+ * its landed fields. None after an apply that failed, which left the notes out of the store.
+ */
+const appliedDeliveryValues = (
+  row: ITransaction,
+  completed: ITransaction,
+  error: unknown,
+  attemptId: string | undefined
+) => {
+  if (landedFactsOf(error).applied !== true || attemptId === undefined) return undefined;
+  const entry = completed.submitEvidence?.find(candidate => candidate.attemptId === attemptId);
+  if (entry?.transactionId === undefined) return undefined;
+  return (
+    landedDeliveryTargetValues(completed, { boundTransactionId: entry.transactionId }) ??
+    landedExecuteDeliveryValues(row, entry)
+  );
+};
+
+/**
+ * Record the private notes an applied execute owes on a row that a Cancel or the reaper finalized while its pipeline
+ * ran on: neither stops the pipeline, so the leaf submitted and applied, and the landed write, which leaves a finalized
+ * row alone, recorded none. Unguarded on terminal status, as a cancelled pipeline's own relay record is
+ * (`recordNoteDelivery`), and bound to the landing attempt's stamp as `appliedDeliveryValues` binds it. It writes only
+ * the owed notes, their recipient and 'undelivered', with the relay schedule cleared, so the sweep pushes them from the
+ * completedAt the finalizing write stamped. That write's status, error, label, completedAt and root stay. Logged,
+ * never thrown, as the landed record is.
+ */
+const recordFinalizedExecuteDelivery = async (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<void> => {
+  let wrote = false;
+  try {
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      if (!hasLeftQueue(row)) return false;
+      // Only an execute's values name `relayNoteIds`; a send's target, which Retry records, is not taken here.
+      const owed = appliedDeliveryValues(row, row, error, attemptId);
+      if (owed === undefined || !('relayNoteIds' in owed) || !owed.relayNoteIds?.length) return false;
+      row.relayNoteIds = owed.relayNoteIds;
+      row.relayRecipientId = owed.relayRecipientId;
+      row.noteDelivery = 'undelivered';
+      delete row.relayAttempts;
+      delete row.nextRelayAt;
+      delete row.relayRetriesStopped;
+      wrote = true;
+      return undefined;
+    });
+  } catch (recordError) {
+    console.warn('Could not record the private notes a finalized execute owes', { txId, recordError });
+    return;
+  }
+  if (wrote) countNoteDeliveryWrite();
+};
+
+/**
+ * Write a landed row's Completed verdict from the row as stored, retried as a committed rotation's terminal write is:
+ * an IndexedDB abort under contention recurs at once and then clears, and a row left in progress is reaped into Failed,
+ * which a Retry on the offscreen route could submit again. Each attempt reads the row afresh, so a delivery the tail
+ * recorded and the order the landed record held are kept, and a row another writer finalized keeps what that write
+ * left, gaining only the private notes an applied execute owes (`recordFinalizedExecuteDelivery`). The failure's own
+ * order facts, else the order the landing attempt's stamp recorded, stand in for a landed record that did not commit,
+ * and an applied send's or execute's delivery target is recorded in the same write. Returns the row as read before the
+ * write that landed, whose stage is still the one the tail stopped at, or undefined when no write landed.
+ */
+const writeLandedCompleted = async (
+  txId: string,
+  error: unknown,
+  attemptId: string | undefined
+): Promise<ITransaction | undefined> => {
+  let delivery: ReturnType<typeof appliedDeliveryValues>;
+  const written = await writeCommittedCompleted(
+    txId,
+    row => {
+      const completedAt = Math.floor(Date.now() / 1000); // seconds
+      const landedFields = landedRowFields(row, error);
+      delivery = appliedDeliveryValues(row, { ...row, ...landedFields }, error, attemptId);
+      return {
+        ...landedFields,
+        completedAt,
+        ...(row.type === 'swap'
+          ? completedSwapFields(row, completedAt, withSubmittedOrder(row, landedFactsOf(error), attemptId))
+          : {}),
+        ...delivery
+      };
+    },
+    'landed'
+  );
+  if (written === undefined) {
+    await recordFinalizedExecuteDelivery(txId, error, attemptId);
+    return undefined;
+  }
+  // A recorded target is a delivery write, so an idle sweep looks again; an execute that owes no note records none.
+  if (delivery !== undefined && ('outputNoteIds' in delivery || 'relayNoteIds' in delivery)) {
+    countNoteDeliveryWrite();
+  }
+  return written;
+};
+
+/** What a landed arm's log says failed: the leaf's local apply, or a step of the tail after it. */
+const landedFailureText = (error: unknown): string =>
+  isLandedTailError(error) ? 'a post-submit step failed after the transaction landed' : 'local apply failed';
+
+/** The error a landed row's Failed write names: the tail's own, so its report and its copy read as they did before. */
+const landedFailureOf = (error: unknown): unknown => landedTailErrorIn(error)?.cause ?? error;
+
+/** The landed id for the row's receipt, or undefined when the result no longer reads. */
+const readLandedTransactionId = (landing: string, result: TransactionResult): string | undefined => {
+  try {
+    return result.executedTransaction().id().toHex();
+  } catch (error) {
+    // No lock sees this trap: the read runs past submit, outside any hold.
+    retireLandedTrap(error, landing, result);
+    return undefined;
+  }
+};
+
+/**
+ * The executed transaction's id a structural row's tail asks the node about, as the tail's first read kept it, else
+ * read again here, before its commit wait. A read that throws leaves the tail before any node verdict: the trap is
+ * retired once under the row and the read rejects as `LandedTailError` with no id, which the Guardian catch settles
+ * through the structural landed reconcile.
+ */
+const readTailTransactionId = (transaction: Pick<ITransaction, 'id'>, result: TransactionResult): string => {
+  const kept = keptLandedTransactionId(result);
+  if (kept !== undefined) return kept;
+  try {
+    return result.executedTransaction().id().toHex();
+  } catch (error) {
+    // No lock sees this trap: the read runs past submit, outside any hold.
+    retireLandedTrap(error, transaction.id, result);
+    throw new LandedTailError(error);
   }
 };
 
@@ -1048,6 +1548,9 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   retry instead (#1317), then rethrows that error so the caller fails the row on
  *   the node's verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
+ * Reached from either landed shape (`settleLandedStructuralRow`). After a tail's failed id read the apply had
+ *   succeeded, but with no id a rotation or threshold update is refused before any completion, and a switch only
+ *   reads the local copy before it completes unconfirmed.
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
@@ -1066,15 +1569,20 @@ async function reconcileStructuralApplyFailure(
     await requireLandedCommit(tx, guardianProvider, landed);
     // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
     // carries, and minus its re-register: the local store still holds the pre-update account.
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      ...landedTransactionIdFields(landed),
-      displayMessage: 'Account secured',
-      completedAt: Math.floor(Date.now() / 1000) // seconds
-    });
+    // Retried, never thrown: the node confirmed the update, so a failed write must not reach the cancel.
+    await writeCommittedCompleted(
+      tx.id,
+      {
+        ...landedTransactionIdFields(landed),
+        displayMessage: 'Account secured',
+        completedAt: Math.floor(Date.now() / 1000) // seconds
+      },
+      'procedure threshold update'
+    );
     return;
   }
   // A switch that ran the DIRECT fallback (old guardian unreachable) can't
-  // rebuild a MultisigService here — `getOrCreateMultisigService` loads from
+  // rebuild a MultisigService here - `getOrCreateMultisigService` loads from
   // the OLD guardian. Completion handles the undefined-service case by
   // registering on the new guardian directly.
   //
@@ -1101,14 +1609,18 @@ async function reconcileStructuralApplyFailure(
       // submitted, so a rethrow puts the caller on the "reconcile failed;
       // cancelling" path and a switch that is on chain ends Failed with the vault
       // still naming the old operator. `account_released` is the answer this very
-      // state produces — the operator saw the switch land and stood down — and it
+      // state produces - the operator saw the switch land and stood down - and it
       // arrives as a 409, so before this it was rethrown by the one branch whose
       // job is to finalize a rotation the outgoing operator can no longer help
       // with. Completion handles the undefined service by registering on the new
       // guardian directly, which is exactly what a released operator leaves us
       // needing.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
+      //
+      // A refusal (any HTTP 4xx, a 401 included) is the same condition here: the
+      // old operator cannot help, and the switch is already submitted.
+      const reconcileTrigger = directSwitchTriggerFor(error);
+      if (reconcileTrigger === undefined) throw error;
+      console.warn(`[Guardian] old guardian ${reconcileTrigger} during switch reconcile - finalizing directly`, error);
     }
   }
   // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
@@ -1131,17 +1643,25 @@ async function reconcileStructuralApplyFailure(
     // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
     // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
-    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    const switchInputs = (tx as SwitchGuardianTransaction).extraInputs;
+    const nonce = switchInputs?.switchProposalNonce;
+    const proposalId = switchInputs?.switchProposalId;
     if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
-      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce);
-      else flagCandidateForAbandon(tx.accountId, nonce);
+      if (service) {
+        await abandonDiscardedCandidate(
+          tx.accountId,
+          service,
+          nonce,
+          typeof proposalId === 'string' ? proposalId : undefined
+        );
+      } else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
 }
 
 /**
- * #260 follow-up #3a — node-verified requeue for a deadline-killed CONSUME write.
+ * #260 follow-up #3a - node-verified requeue for a deadline-killed CONSUME write.
  *
  * A wedge-killed offscreen write surfaces as a retryable `OperationAbortedError`
  * (issue #260). Today a killed consume falls through to `cancelTransaction` →
@@ -1153,19 +1673,19 @@ async function reconcileStructuralApplyFailure(
  * failing a killed consume we ask the node whether the note landed as consumed and
  * mark it Completed if so.
  *
- * Returns `true` when the caller must NOT fail the row — either because this
+ * Returns `true` when the caller must NOT fail the row - either because this
  * marked it Completed, or because the node reports the consume already in flight
  * (`'processing'`), which the stuck reaper resolves on a later cycle. Returns
  * `false` to fall through to the existing `cancelTransaction` → Failed.
  *
- * FUNDS-SAFETY — a false 'Received' is impossible. 'landed' requires a node-positive
+ * FUNDS-SAFETY - a false 'Received' is impossible. 'landed' requires a node-positive
  * consumed state, and this path completes ONLY on `'landed-local'`: a note consumed
  * by THIS client's own tracked tx, provably my consume. `'landed-external'`
- * (`ConsumedExternal`) is consumed by *someone* but NOT provably me — a reclaimable
- * P2IDE the sender may have reclaimed lands in that state — so it is NOT treated as
+ * (`ConsumedExternal`) is consumed by *someone* but NOT provably me - a reclaimable
+ * P2IDE the sender may have reclaimed lands in that state - so it is NOT treated as
  * landed here and falls through to Failed. The residual is a SAFE false-Failed: a
  * landed-but-untracked consume shows Failed while a re-consume harmlessly collides
- * on the note nullifier and the next sync reconciles the row — never a false
+ * on the note nullifier and the next sync reconciles the row - never a false
  * 'Received' telling the user they got funds a third party actually took. A missing
  * note, `'invalid'`, `'not-landed'`, or a query error (`'unknown'`) likewise return
  * `false` → the unchanged funds-safe Failed path.
@@ -1174,11 +1694,11 @@ async function reconcileStructuralApplyFailure(
  * transaction of OURS that was submitted and applied locally, so failing the row
  * would report a claim that reached the node as Failed (and count it toward the
  * per-note auto-consume backoff), while completing it would call a not-yet-committed
- * block 'Received'. It therefore returns `true` WITHOUT writing a terminal status —
+ * block 'Received'. It therefore returns `true` WITHOUT writing a terminal status -
  * the row stays in progress and `verifyStuckTransactionsFromNode` resolves it once
  * the note settles into a consumed state or reverts to `Committed`. SCOPE is CONSUME only: send / swap
  * / execute / bridged-send / earn-deposit have no node-checkable post-kill identity
- * (their tx-id/output-note are lost with the killed result) — a separate deferred
+ * (their tx-id/output-note are lost with the killed result) - a separate deferred
  * follow-up (#3b) handles them, and this helper leaves that send-style path untouched.
  */
 async function tryCompleteKilledConsume(transaction: Transaction, error: unknown): Promise<boolean> {
@@ -1191,14 +1711,14 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   const consumeTx = transaction as ConsumeTransaction;
   if (!consumeTx.noteId) return false;
 
-  // sync: true — this resolves ONE killed tx and wants the freshest possible note
+  // sync: true - this resolves ONE killed tx and wants the freshest possible note
   // state before deciding (the background reaper rides AutoSync and passes false).
   //
   // Except when the thing that just died IS the sync (#777), which the COMMITTED
   // stage says and the error shape does not. On a row this pipeline owns,
   // `'syncing'` is only written around the pre-flight sync (the locked-vault
   // requeue reuses the name, but on a `Queued` row), so reading it here means the
-  // kill landed on that sync — and a second one joins the same never-settling promise the SDK
+  // kill landed on that sync - and a second one joins the same never-settling promise the SDK
   // memoises in a module-level map the wallet cannot reach, buying nothing but
   // another full ceiling of the whole app's WASM access while the user waits on a
   // consume verdict.
@@ -1220,7 +1740,13 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // A watchdog-evicted pre-flight sync fails without a read (#1233): nothing executed in this attempt,
   // and the read would be the first hold after the eviction.
   if (committed?.stage === 'syncing' && someInCauseChain(error, isSyncWatchdogEviction)) return false;
-  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
+  let nodeRead = false;
+  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying, () => {
+    nodeRead = true;
+  });
+  if (nodeRead) {
+    annotateCrash(error, { consumeVerdict: verdict });
+  }
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
   if (verdict === 'processing') return true;
@@ -1229,7 +1755,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // funds-safe Failed, never a false 'Received'.
   if (verdict !== 'landed-local') return false;
 
-  // The node confirms the note is consumed on chain by this client's own tx — the
+  // The node confirms the note is consumed on chain by this client's own tx - the
   // consume DID land. Mirror completeConsumeTransaction's label: a self-reclaim
   // (note sender === my account) shows 'Reclaimed', a claim of someone else's note
   // shows 'Received'. NO requeue.
@@ -1244,8 +1770,8 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
 
 /**
  * Throws when `openEarnPosition` has already abandoned this earn deposit, so the
- * collateral note must NOT be submitted. Called by BOTH leaves — the Guardian one
- * and the non-Guardian one — each inside its own error handling, which is why it
+ * collateral note must NOT be submitted. Called by BOTH leaves - the Guardian one
+ * and the non-Guardian one - each inside its own error handling, which is why it
  * is a helper rather than a single check at the top of `generateTransaction`.
  *
  * `openEarnPosition` gives up on a deposit whose queued row didn't complete within
@@ -1262,7 +1788,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
  * lending".
  *
  * The row is re-read rather than trusted from memory: the in-memory copy was loaded
- * when the loop picked the row, which can be minutes earlier — exactly the window in
+ * when the loop picked the row, which can be minutes earlier - exactly the window in
  * which the caller gives up.
  *
  * The throw is terminal (→ cancelTransaction → Failed), and a Failed earn-deposit is
@@ -1274,19 +1800,50 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
   const row: ITransaction = freshRow ?? transaction;
   if (row.extraInputs?.epochStatus === 'failed') {
     throw new Error(
-      'Earn deposit was already abandoned by the caller (epochStatus=failed) — refusing to submit an orphan collateral note.'
+      'Earn deposit was already abandoned by the caller (epochStatus=failed) - refusing to submit an orphan collateral note.'
     );
   }
 };
 
 /**
- * An Earn deposit's precondition for both leaves: its intent is still live and the row carries the collateral request
- * built at initiate, which is returned. Nothing on the row can rebuild that request's mandate-binding attachment, so a
- * row without it fails here. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * An Earn deposit's precondition for both leaves: its intent is still live, the collateral request built at initiate,
+ * and the one note recorded with those bytes, which are returned. Nothing on the row can rebuild that request's
+ * mandate-binding attachment, so a row without the bytes or without that one note fails here. A failure is before fee
+ * discovery and before the guardian service load, so an unknown chain fee or a guardian outage cannot requeue it.
  */
 const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promise<Uint8Array> => {
   await assertEarnDepositIntentLive(transaction);
   if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
+  if (transaction.approvedOutputNoteIds?.length !== 1) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no recorded note of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
+  return transaction.requestBytes;
+};
+
+/**
+ * A bridged send's precondition for both leaves: the non-empty request stored on the row, and the one note recorded
+ * when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing both names
+ * the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ */
+const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Array => {
+  if (!transaction.requestBytes?.length) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no request bytes of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
+  if (transaction.approvedOutputNoteIds?.length !== 1) {
+    throw new ProposalEffectRefusedError(
+      transaction.type,
+      'the transaction has no recorded note of its own',
+      getMessage('proposalEffectRefused')
+    );
+  }
   return transaction.requestBytes;
 };
 
@@ -1303,12 +1860,148 @@ const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void
   if (!(await claimBridgeSubmit(transaction.id))) throw new Error(EPOCH_BRIDGE_ABANDONED_ERROR);
 };
 
+/**
+ * The status verdict for a structural row whose submit already resolved, from either landed shape: its local apply
+ * failed, or its tail's id read did. The reconcile runs the finalization the happy path would; when it rejects, a
+ * rotation or threshold update fails on the reconcile's verdict error, and a switch only on the node's discard, as the
+ * direct path's discard does (#1233).
+ */
+const settleLandedStructuralRow = async (
+  transaction: Transaction,
+  guardianProvider: GuardianAccountProvider,
+  error: unknown
+): Promise<void> => {
+  try {
+    await reconcileStructuralApplyFailure(transaction, guardianProvider, landedFactsOf(error));
+  } catch (reconcileError) {
+    console.error(`Structural-op landed reconcile failed; cancelling (${landedFailureText(error)})`, reconcileError);
+    await cancelTransactionAfterPipelineStopped(
+      transaction,
+      transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+        ? reconcileError
+        : landedFailureOf(error),
+      transaction.attemptId
+    );
+  }
+};
+
+/**
+ * The only status verdict for a non-structural row whose submit already resolved, shared by the Guardian catch and
+ * the loop catch: its local apply failed, or its post-submit tail threw. The landed id and a swap's order are
+ * recorded before the row is read, and that record is not gated on the row still being queued, so a Cancel or the
+ * reaper that finalized it during the tail still leaves the id on the receipt and the order on the row. A missing row
+ * and a stored structural row stop after the record. A result-awaiting row (an earn deposit, or an Epoch
+ * bridged-send) records its collateral note and is failed, so the caller waiting on `resultBytes` stops; one that has
+ * already left the queue is not failed again. Every other stored row is Completed. `attemptId` is the attempt the
+ * catch picked the row with, which is what the cancel compares. A store error leaving here would fail the landed row on
+ * the Guardian route and strand it for the reaper on the loop route, so the row is read under the terminal write's
+ * budget, and a row it cannot read stops as a missing one does.
+ */
+const settleLandedValueRow = async (txId: string, error: unknown, attemptId: string | undefined): Promise<void> => {
+  await recordLandedFacts(txId, error, attemptId);
+  const tx = await readRowWithinTerminalBudget(txId, 'landed');
+  if (tx === undefined) return;
+  // The Guardian catch settles both landed shapes of a structural row before they reach here
+  // (`settleLandedStructuralRow`). A stored structural row has no status write on this path.
+  if (STRUCTURAL_GUARDIAN_TYPES.includes(tx.type)) return;
+  if (isResultAwaitingRow(tx)) {
+    console.warn(
+      `${tx.type} submitted but ${landedFailureText(error)} - marking Failed so the awaiting caller stops waiting:`,
+      error
+    );
+    // Logged, not thrown, as the landed record is: the cancel after it is what releases the awaiting caller.
+    try {
+      await recordBridgeNoteLanded(tx.id);
+    } catch (recordError) {
+      console.warn('Could not record the landed bridge note', { txId: tx.id, recordError });
+    }
+    if (!hasLeftQueue(tx)) {
+      await cancelTransactionAfterPipelineStopped(tx, landedFailureOf(error), attemptId);
+    }
+    return;
+  }
+  console.warn(`A submit landed but ${landedFailureText(error)} - marking Completed; sync will reconcile:`, error);
+  // From the stored row, not the pick-time one: a tail that relayed its notes recorded the delivery there. A row that
+  // has left the queue keeps what its finalizing write left, the id stamped above included; an applied execute gains
+  // only the private notes it owes.
+  const written = await writeLandedCompleted(txId, error, attemptId);
+  if (written) reportLandedTail(written, error);
+  if (tx.type === 'consume') await adoptLandedConsume(tx.id);
+};
+
+const isOwnedNativeBridge = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' && hasBridgeOperation(transaction);
+
+const hasEpochReviewedOutput = (transaction: ITransaction): boolean =>
+  transaction.type === 'bridged-send' &&
+  transaction.extraInputs?.provider === 'epoch' &&
+  Object.prototype.hasOwnProperty.call(transaction.extraInputs, 'epochReviewedOutput');
+
+const isReviewedNativeBridge = (transaction: ITransaction): boolean =>
+  isOwnedNativeBridge(transaction) || hasEpochReviewedOutput(transaction);
+
+async function assertOwnedNativeBridgeSource(transaction: ITransaction, stored?: ITransaction): Promise<void> {
+  if (!isReviewedNativeBridge(transaction)) return;
+  const row = stored ?? (await Repo.transactions.where({ id: transaction.id }).first());
+  if (hasEpochReviewedOutput(transaction)) {
+    assertEpochReviewedOutput(transaction.extraInputs.epochReviewedOutput);
+    assertEpochReviewedOutput(row?.extraInputs.epochReviewedOutput);
+    if (configKey(transaction.extraInputs.epochReviewedOutput) !== configKey(row?.extraInputs.epochReviewedOutput))
+      throw new Error('Epoch reviewed output changed');
+    if (!isOwnedNativeBridge(transaction)) assertCompactEpochScope(transaction.extraInputs.epochReviewedOutput);
+  }
+  if (!isOwnedNativeBridge(transaction)) return;
+  const expected = bridgeOperationOf(transaction);
+  const operation = row && bridgeOperationOf(row);
+  if (
+    !row ||
+    !expected ||
+    !operation ||
+    expected.operationId !== operation.operationId ||
+    expected.revision !== operation.revision
+  )
+    throw new Error('Bridge operation identity changed');
+  assertBridgeOperationCurrent(transaction, expected);
+  assertBridgeOperationCurrent(row, expected);
+  assertBridgeOperationCurrent(row, operation);
+}
+
+async function mayStartOwnedNativeBridge(transaction: ITransaction): Promise<boolean> {
+  if (!isOwnedNativeBridge(transaction)) {
+    if (hasEpochReviewedOutput(transaction)) await assertOwnedNativeBridgeSource(transaction);
+    return true;
+  }
+  const row = await Repo.transactions.where({ id: transaction.id }).first();
+  if (!row) throw new Error('Bridge operation is unavailable');
+  // The existing node verdict, not a generated id or a lease, decides whether an earlier source can be retried.
+  if (
+    (row.status !== ITransactionStatus.Queued && row.status !== ITransactionStatus.GeneratingTransaction) ||
+    (row.neverCommittedAt === undefined &&
+      (row.submitEvidence?.some(isUnresolvedEntry) || (row.mayHaveSubmitted && !row.submitEvidence?.length)))
+  )
+    return false;
+  await assertOwnedNativeBridgeSource(transaction, row);
+  return true;
+}
+
+function ownedBridgeStageStamp(
+  transaction: ITransaction,
+  stamp?: ReturnType<typeof stageStampFor>
+): ReturnType<typeof stageStampFor> {
+  return async (stage, detail) => {
+    await stamp?.(stage, detail);
+    // Replayed offscreen stages are observations; only the awaited native stamp/submit gate may permit a write.
+    if (stage === 'submitting' && detail?.reliable !== false) await assertOwnedNativeBridgeSource(transaction);
+  };
+}
+
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  if (!(await mayStartOwnedNativeBridge(transaction))) return;
   let getAccounts = guardianProvider.getAccounts;
   if (guardianProvider.prepareRecoveryTransaction) {
     const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
@@ -1359,23 +2052,32 @@ const generateTransactionWithProvider = async (
   // Errors propagate to the loop, which requeues ordinary transient failures
   // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
-  await syncUnderBoundedLock();
+  await rememberPreflightSync(transaction, 'entered').catch(() => undefined);
+  try {
+    await syncUnderBoundedLock();
+  } catch (error) {
+    await rememberPreflightSync(transaction, 'threw').catch(() => undefined);
+    throw error;
+  }
+  await rememberPreflightSync(transaction, 'returned').catch(() => undefined);
+  await assertOwnedNativeBridgeSource(transaction);
 
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
   transaction.attemptId = uuid();
+  delete (transaction as ITransaction).failureDiagnostics;
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
     // Running again, so the transaction screen stops saying the Guardian is busy (#312).
     guardianBusy: undefined,
+    failureDiagnostics: undefined,
     attemptId: transaction.attemptId
   });
 
   // Route Guardian accounts through Guardian service
-  const guardianAccount = await isGuardianAccount(transaction.accountId, guardianProvider);
-  if (guardianAccount) {
+  if (await withProposalStep('service_select', () => isGuardianAccount(transaction.accountId, guardianProvider))) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1388,6 +2090,17 @@ const generateTransactionWithProvider = async (
         generateGuardianTransactionOnFreshState(transaction, signCallback, guardianProvider)
       );
     } catch (error) {
+      // A throw after the leaf resolved is a landed row (PR #2183). It is settled before the locked arm and every kill
+      // and requeue arm below, each of which would requeue or fail a write the node already holds, and never reaches
+      // them.
+      if (isLandedTailError(error)) {
+        if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
+        } else {
+          await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        }
+        return;
+      }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
       // leaves the tx Queued for retry after unlock instead of marking it Failed
@@ -1395,95 +2108,17 @@ const generateTransactionWithProvider = async (
       if (isLockedError(error)) {
         throw error;
       }
-      // A structural op whose submit landed and whose local apply then failed never ran its
-      // completion handler, so the vault hot pointer, the guardian registration or the cached
-      // threshold map is un-reconciled. Cancelling would strand the account. Run the
-      // finalization the happy path would, minus a threshold update's re-register (the local
-      // store still holds the pre-update account). The apply-after-submit error is the one
-      // landed shape (#1233): every leaf wraps a post-submit failure in it, so a canonicalization
-      // refusal here was raised before submit and must take the non-landed arms below.
-      if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) && isApplyAfterSubmitError(error)) {
-        try {
-          await reconcileStructuralApplyFailure(transaction, guardianProvider, extractLanded(error));
-        } catch (reconcileError) {
-          console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
-          // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
-          // node's discard, as the direct path's discard does (#1233).
-          await cancelTransactionAfterPipelineStopped(
-            transaction,
-            transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
-              ? reconcileError
-              : error
-          );
+      // The leaf's landed shape (#1233): every leaf wraps a failure after its submit resolved in the apply-after-submit
+      // error, so a canonicalization refusal here was raised before submit and must take the non-landed arms below.
+      // A structural op never ran its completion handler, so the vault hot pointer, the guardian registration or the
+      // cached threshold map is un-reconciled. Cancelling would strand the account. Run the finalization the happy
+      // path would, minus a threshold update's re-register (the local store still holds the pre-update account).
+      if (isApplyAfterSubmitError(error)) {
+        if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
+          await settleLandedStructuralRow(transaction, guardianProvider, error);
+          return;
         }
-        return;
-      }
-      // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
-      // chain but whose LOCAL apply failed. The tx IS live — cancelling would leave
-      // it terminally Failed while the note is spent on chain (conservation loss),
-      // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
-      // recover a Failed one. Mirror generateTransactionsLoop's generic
-      // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
-      // reconciles the note state via ConsumedExternal. (A structural op never reaches
-      // here with a post-submit error: the reconcile above returns whether it finalizes
-      // the row or fails it.)
-      //
-      // The result-awaiting exception among value-moving guardian ops
-      // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /
-      // `outputNoteIds` back off the finished row, and a post-submit failure (an
-      // apply-after-submit error) leaves no TransactionResult to repopulate them
-      // from. Marking the row Completed (as the branches below do
-      // for send/consume/swap/execute/agglayer bridged-send) would hang the awaiting
-      // Epoch flow forever; see the `isResultAwaitingRow` doc comment for the full
-      // mechanism. Fail the row instead so the caller resolves via its error branch.
-      // Mirrors generateTransactionsLoop's non-guardian guard; neither row can be
-      // blindly re-queued into a duplicate collateral note (both are excluded from
-      // `REQUEUEABLE_TYPES` — earn-deposit outright, bridged-send for the Epoch
-      // provider, which is the only provider that takes this collateral-note path).
-      // (The 409, 429, prover-outage and unreachable arms below DO requeue an
-      // earn-deposit, with its bytes, but only on a pre-submit failure; a Failed row
-      // is terminal.)
-      if (isResultAwaitingRow(transaction) && isApplyAfterSubmitError(error)) {
-        console.warn(
-          `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
-          error
-        );
-        await recordBridgeNoteLanded(transaction.id);
-        await recordLandedTransactionId(transaction.id, error);
-        await cancelTransactionAfterPipelineStopped(transaction, error);
-        return;
-      }
-      // `bridged-send` is in this list too, and by the ordering above it can only
-      // be an Agglayer (Slow) row here — an Epoch one returned from the
-      // result-awaiting branch. Its B2AGG note is on chain, so it must be marked
-      // Completed like any other landed value-moving op; leaving it to fall through
-      // to `cancelTransaction` would hide the L1 claim UI on funds that already left
-      // the account (see the `isResultAwaitingRow` doc comment).
-      if (
-        isApplyAfterSubmitError(error) &&
-        (transaction.type === 'consume' ||
-          transaction.type === 'send' ||
-          transaction.type === 'swap' ||
-          transaction.type === 'execute' ||
-          transaction.type === 'bridged-send' ||
-          // The register note is on chain. A Failed row would tell the tracker
-          // `tx-failed` for a name that the registry can still issue.
-          transaction.type === 'register-name')
-      ) {
-        console.warn(
-          '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
-          error
-        );
-        try {
-          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            ...landedRowFields(transaction, error),
-            completedAt: Math.floor(Date.now() / 1000) // seconds
-          });
-        } catch (markErr) {
-          // updateTransactionStatus throws if the tx is already finalized — fine.
-          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
-        }
-        if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
+        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
@@ -1496,20 +2131,20 @@ const generateTransactionWithProvider = async (
       // nullifier: each retry builds a FRESH proposal (new random output-note serial)
       // gated only by the account nonce, so a kill that fired AFTER the offscreen
       // submit landed on chain, then a requeue, would let the retry build and co-sign
-      // a SECOND valid send — the recipient receives a second note and the account is
+      // a SECOND valid send - the recipient receives a second note and the account is
       // debited twice, with no nullifier to reject it (the offscreen path also cannot
       // distinguish a pre-submit from a post-submit abort, so any requeue is
       // unconditional). Only `consume` re-consumes the same note (nullifier collision
       // rejects the retry), but for consistency it too Fails here, matching
       // non-guardian consume. A safe "verify submit landed on chain via node, then
       // requeue only if provably not-landed" recovery is a prerequisite for the
-      // flag-flip slice (guardian AND non-guardian alike) — not this PR.
+      // flag-flip slice (guardian AND non-guardian alike) - not this PR.
       //
       // Flag-OFF is byte-unchanged: OperationAbortedError only arises from the
       // offscreen dispatch (`dispatchGuardianPipeline`), reached only when
       // `shouldRouteGuardianLeafOffscreen` is true (MIDEN_USE_OFFSCREEN_CLIENT on).
       // The inline flag-OFF leaf (`runGuardianPipeline`) never throws it, so the
-      // (former) abort branch was unreachable with the flag off — its removal
+      // (former) abort branch was unreachable with the flag off - its removal
       // cannot change flag-OFF behavior.
       //
       // Guardian backpressure (#312): a pending-delta 409 or the settlement gate's refusal, both saying the Guardian is
@@ -1539,23 +2174,33 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
       // The indefinite outcome counts too: it proves the submit call was reached, whatever stage the row still reads
-      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081).
-      const abandonedWrite = isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error);
+      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081). So does a
+      // crossing on record, since the SDK promotes only a submit request's own lost answer: a failed connection or
+      // an unreadable answer stays a plain RPC error, and the node may hold the write (#2060).
+      const abandonedWrite =
+        isKilledPipeline(error) ||
+        isIndefiniteSubmitOutcomeError(error) ||
+        attemptMayHaveCrossed(currentRow, transaction.attemptId);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
         console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
-        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
-          requeueStreak,
-          guardianBusy: true
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'guardian_backpressure',
+          { requeueStreak, guardianBusy: true }
+        );
         return;
       }
       // A DELEGATED prove step that failed at the 'proving' stage is a PRE-submit
       // failure (submit is stamped 'submitting' and runs only AFTER prove), so
-      // nothing reached the chain — requeue for a later cycle instead of killing
+      // nothing reached the chain - requeue for a later cycle instead of killing
       // the user's transfer on a transient remote-prover outage (#419). It retries
       // (with backoff) and completes once the prover recovers. Re-read the row: the
       // in-memory `transaction` still carries the stage it was picked at, not the
@@ -1571,31 +2216,66 @@ const generateTransactionWithProvider = async (
       //
       // A lock-recovery eviction is excluded (issue #775). The stage gate's
       // safety argument is that 'proving' precedes submit, which holds for an
-      // error that STOPPED the pipeline — but an eviction only rejects the
+      // error that STOPPED the pipeline - but an eviction only rejects the
       // caller: the abandoned pipeline runs on, and can still stamp 'submitting'
       // and submit. A delegated prove is deliberately not watchdog-paused, so it
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
-      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081).
+      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081), and neither is a proof
+      // that kept going stale, whose copy tells the user to retry, an unreadable chain tip (#2193), nor a re-execution
+      // that failed before it proved (#2060).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
         !isSubmitCrossingUnrecorded(error) &&
+        !isStaleProofError(error) &&
+        !isProofFreshnessUnknownError(error) &&
+        !isFailedReexecution(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
-        console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
+        console.warn('[Guardian] remote prove failed pre-submit - requeueing for a later cycle', error);
         markConnectivityIssue('prover');
         await requeueTransactionForRetry(
           transaction.id,
           transaction.type,
           'creating-proposal',
-          PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC
+          PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC,
+          'delegated_prover_failed'
         );
         return;
       }
-      // A guardian 429 is the server explicitly telling us to come back later —
+      // The node stopped answering the execute, as the first requests after a resume often do (#2060). That is
+      // pre-submit for the prover arm's reason, with its exclusions and its cap: MAX_QUEUED_AGE runs from
+      // `initiatedAt`, which no requeue moves. The wake, the doubling and the types are the outage arm's, for its
+      // reasons. What reaches here at 'proving' is a local prove or a re-execution's sync or execute, which stays on
+      // that stage: the arm above took every delegated prove. Only the inline leaf gets here, since the offscreen one
+      // never authors `stage`.
+      if (
+        (currentRow?.stage === 'executing' || currentRow?.stage === 'proving') &&
+        !abandonedWrite &&
+        !isSubmitCrossingUnrecorded(error) &&
+        !isProofFreshnessUnknownError(error) &&
+        !isGuardianUnauthorizedExecutionError(error) &&
+        GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type) &&
+        isNodeOutage(error)
+      ) {
+        const requeueStreak = nextRequeueStreak(currentRow, 'node-unreachable');
+        const cooldown = guardianRequeueBackoffSec(NODE_OUTAGE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+        console.warn(`[Guardian] node unreachable pre-submit, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'node_unreachable',
+          { requeueStreak }
+        );
+        return;
+      }
+      // A guardian 429 is the server explicitly telling us to come back later -
       // it sets `meta.retryable` and usually `retry_after_secs` (#617). Failing a
       // value-moving tx on one loses the user's transfer to a transient limit, so
       // requeue it like the 409 and prover-outage cases above.
@@ -1614,7 +2294,7 @@ const generateTransactionWithProvider = async (
       //
       // Candidate cleanup differs per arm, and neither is a guarantee:
       // 'creating-proposal' fails before any candidate exists; 'signing-proposal'
-      // fails after the inner catch has ATTEMPTED service.abandonCandidate —
+      // fails after the inner catch has ATTEMPTED service.abandonCandidate -
       // best-effort, since that abandon can itself throw (logged, swallowed), and
       // even a successful abandon only records an intent (202) with the account
       // staying locked until the guardian worker confirms. A leftover candidate
@@ -1640,10 +2320,15 @@ const generateTransactionWithProvider = async (
           ),
           requeueStreak.count
         );
-        console.warn(`[Guardian] rate limited (429) pre-submit — requeueing in ${cooldown}s`, error);
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
-          requeueStreak
-        });
+        console.warn(`[Guardian] rate limited (429) pre-submit - requeueing in ${cooldown}s`, error);
+        await requeueTransactionForRetry(
+          transaction.id,
+          transaction.type,
+          'creating-proposal',
+          cooldown,
+          'guardian_rate_limited',
+          { requeueStreak }
+        );
         return;
       }
       // No usable answer (no HTTP response, a 5xx, or a non-JSON 2xx): the guardian, or the node the proposal stages
@@ -1656,16 +2341,22 @@ const generateTransactionWithProvider = async (
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-unreachable');
         const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
         console.warn(`[Guardian] guardian unreachable pre-submit, requeueing in ${cooldown}s`, error);
-        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
-          requeueStreak
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldown,
+          signCallback,
+          guardianProvider,
+          'guardian_unreachable',
+          { requeueStreak }
+        );
         return;
       }
       // The guardian co-signed a summary bound to state that had moved by the
       // time `executeRequest` recomputed it, so the account's auth procedure
       // rejected the signature (see `isGuardianUnauthorizedExecutionError`).
       // The transfer is untouched and a fresh proposal against fresh state
-      // succeeds, so terminal-failing here loses it to a pure race — one that
+      // succeeds, so terminal-failing here loses it to a pure race - one that
       // gets likelier the slower the guardian's round-trip is.
       //
       // This arm deliberately does NOT gate on `stage`, unlike the 429 above,
@@ -1673,13 +2364,13 @@ const generateTransactionWithProvider = async (
       // bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true', so the leaf runs
       // in the offscreen realm, whose stage stamps are replayed as `timingOnly`
       // and never author `stage` (see `stageStampFor`). A row that died in the
-      // offscreen execute still reads whichever stage the SW stamped last —
-      // 'sending' — so an 'executing' gate would never once fire in production.
+      // offscreen execute still reads whichever stage the SW stamped last -
+      // 'sending' - so an 'executing' gate would never once fire in production.
       //
       // The ERROR ITSELF carries the safety property the stage would have, and
       // carries it more strongly. `isGuardianUnauthorizedExecutionError` matches
       // only an execution-time rejection, and in BOTH leaves the execute call
-      // precedes prove and submit and throws out of the pipeline — offscreen,
+      // precedes prove and submit and throws out of the pipeline - offscreen,
       // `guardianPipeline` reaches neither postStageEvent('submitting') nor
       // `provenTx.submit()`. So the transfer provably never reached the chain
       // and the retry cannot double-spend, which is the property an op with no
@@ -1692,28 +2383,24 @@ const generateTransactionWithProvider = async (
       // rerun can register. `earn-deposit` is excluded too, as a scope choice
       // (see UNAUTHORIZED_EXECUTION_REQUEUEABLE).
       //
-      // Bounded by age so a row that is genuinely — rather than racily —
+      // Bounded by age so a row that is genuinely - rather than racily -
       // unauthorized surfaces that reason instead of ageing out as "expired";
       // see UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC. The budget runs from the
       // FIRST unauthorized failure, stamped on the row, not from `initiatedAt`:
       // enqueue time would leave a row that waited behind a deep queue with no
       // budget at all, which is precisely the sustained-load case this exists for.
       //
-      // This is a BACKSTOP, and should stay one. The window it retries across is
-      // closable rather than irreducible: since protocol 0.16 a signed summary
-      // binds the reference block commitment, and the SDK takes the proposer's
-      // anchor through `executeRequest`'s `AnchoredOptions` precisely so the
-      // signed summary reproduces on a client whose sync height has moved. The
-      // proposal already carries that anchor (`chainAnchor` in its metadata);
-      // threading it into both leaves is in review as #786, at zero extra round
-      // trips. Until it lands, every retry here costs a fresh proposal and
-      // co-signature from a guardian that is by construction already loaded —
-      // which is why this arm should shrink when #786 does land, not stay at its
-      // current width.
+      // This is a BACKSTOP, and should stay one. A block landing between the
+      // co-signature and the execute no longer changes the summary: it binds the
+      // block its auth args name (the proposal's `boundBlockNum`), the request
+      // declares that block, and both leaves execute at the tip after
+      // `prepareGuardianTipExecution`, so a client whose sync height has moved
+      // reproduces it. Every retry here still costs a fresh proposal and
+      // co-signature from a guardian that is by construction already loaded.
       const nowSec = Math.floor(Date.now() / 1000);
-      // Jittered so a fleet that all hit this at the same moment — which is the
+      // Jittered so a fleet that all hit this at the same moment - which is the
       // shape of the incident, since the trigger is guardian latency under load
-      // — does not re-converge on the guardian in lockstep every cycle and hold
+      // - does not re-converge on the guardian in lockstep every cycle and hold
       // it in the degraded state that caused the failure.
       const cooldownSec = unauthorizedRequeueCooldownSec(Math.random());
       const unauthorizedDeadline =
@@ -1726,7 +2413,7 @@ const generateTransactionWithProvider = async (
         UNAUTHORIZED_EXECUTION_REQUEUEABLE.has(transaction.type) &&
         // Room for the retry to actually RUN, not merely to be scheduled. The
         // cooldown is up to 54s against a 180s budget, so a late failure can be
-        // inside the deadline while the attempt it schedules lands outside it —
+        // inside the deadline while the attempt it schedules lands outside it -
         // the row would then sit Queued for most of a minute only to fail on
         // arrival for a reason it already had. Failing now shows the user the
         // guardian's actual error a minute sooner and costs no retry that could
@@ -1734,21 +2421,27 @@ const generateTransactionWithProvider = async (
         nowSec + cooldownSec < unauthorizedDeadline
       ) {
         console.warn(
-          '[Guardian] co-signature no longer authorized the executed tx (state moved under it) — ' +
+          '[Guardian] co-signature no longer authorized the executed tx (state moved under it) - ' +
             `requeueing ${transaction.id} (${transaction.type}) in ${cooldownSec}s, ` +
             `${unauthorizedDeadline - nowSec}s of retry budget left`,
           error
         );
-        await requeueWithWake(transaction.id, transaction.type, cooldownSec, signCallback, guardianProvider, {
-          unauthorizedRetryUntil: unauthorizedDeadline
-        });
+        await requeueWithWake(
+          transaction.id,
+          transaction.type,
+          cooldownSec,
+          signCallback,
+          guardianProvider,
+          'guardian_unauthorized',
+          { unauthorizedRetryUntil: unauthorizedDeadline }
+        );
         return;
       }
       // Same error, retries exhausted. Said out loud because the two outcomes are
       // otherwise indistinguishable downstream: the row fails through the generic
       // path below either way, so a support log would show a racing transaction
-      // that ran out of budget and a genuinely unauthorized one — a rotated-out
-      // key, a threshold that no longer holds — as the same terminal failure.
+      // that ran out of budget and a genuinely unauthorized one - a rotated-out
+      // key, a threshold that no longer holds - as the same terminal failure.
       if (isGuardianUnauthorizedExecutionError(error) && UNAUTHORIZED_EXECUTION_REQUEUEABLE.has(transaction.type)) {
         // Two ways to get here and they read differently: the budget is spent, or
         // it has less left than the cooldown a retry would have to wait out.
@@ -1758,7 +2451,7 @@ const generateTransactionWithProvider = async (
             (remaining > 0
               ? `(${remaining}s of budget left, short of the ${cooldownSec}s cooldown)`
               : `(budget ended ${-remaining}s ago)`) +
-            " — failing with the guardian's own reason",
+            " - failing with the guardian's own reason",
           error
         );
       }
@@ -1770,9 +2463,9 @@ const generateTransactionWithProvider = async (
       // awaiting commit) leaves the row in progress for the stuck reaper;
       // 'landed-external' (not provably mine) / 'invalid' / 'not-landed' /
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
-      // only — send/swap/execute have no post-kill node identity (deferred #3b).
+      // only - send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransactionAfterPipelineStopped(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
     return;
   }
@@ -1781,208 +2474,318 @@ const generateTransactionWithProvider = async (
   //
   // EVERY non-guardian value-moving write routes through `midenClientProxy` so it
   // can run WHOLE-OP inside the offscreen realm when MIDEN_USE_OFFSCREEN_CLIENT is on
-  // (issue #260) — a wedge anywhere in its execute→prove→submit→apply then becomes
+  // (issue #260) - a wedge anywhere in its execute→prove→submit→apply then becomes
   // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
   // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
-  // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
-  // `withWasmClientLock`, same `getMidenClient()` and the realm's installed signer,
-  // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
+  // flag-OFF path makes the calls the inline switch it replaced made (same
+  // `withWasmClientLock`, same `getMidenClient()`, same underlying
+  // `sendTransaction`/`newTransaction`), signing through the write's own signer for
+  // its hold (`withHoldSigner`).
   // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
-  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
+  // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op -
   // that would stall SW sync and block the reverse-IPC sign handler).
   //
-  // `bridged-send`/`earn-deposit` only wrap the SAME leaf writes (`newTransaction`
-  // for the pre-built request an Earn deposit and every current bridge row carry,
-  // send-style only for a legacy Epoch bridged-send row without one) with extra
+  // `bridged-send`/`earn-deposit` only wrap the SAME leaf write (`newTransaction`
+  // for the request an Earn deposit and every bridged send carry) with extra
   // pre/post orchestration; the pre-build (guardian
-  // requestBytes freeze) and the completion handlers are untouched — only the LEAF
+  // requestBytes freeze) and the completion handlers are untouched - only the LEAF
   // write moves offscreen. Funds-safety mirrors the moved send/execute exactly: a
   // wedge-kill → OperationAbortedError → the generateTransactionsLoop catch →
   // cancelTransaction → Failed with NO auto-requeue (earn-deposit is excluded from
-  // REQUEUEABLE_TYPES; bridged-send is user-retry-only, like send/execute — never
-  // auto-requeued — so a killed-then-retried send-style write can't silently
+  // REQUEUEABLE_TYPES; bridged-send is user-retry-only, like send/execute - never
+  // auto-requeued - so a killed-then-retried send-style write can't silently
   // double-spend), and a round-tripped `ApplyTransactionAfterSubmitFailed` reaches
   // that same classifier (→ earn-deposit Failed so its awaiting caller stops;
   // bridged-send Completed, sync reconciles).
+  //
+  // Every write signs through a signer of its own that refuses a claim or a dApp transaction moving more than its row
+  // was approved to move (#2147), the check the Guardian leaf makes before its hot key signs. Taken here, outside every
+  // WASM hold, so the fee lookup it starts with never waits on the node inside one.
   let result: TransactionResult;
-  switch (transaction.type) {
-    case 'consume': {
-      // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
-      // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
-      const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.consumeNoteId(
-          transaction as ConsumeTransaction,
-          signCallback,
-          attempt && stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
-    case 'send': {
-      // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
-      // generating-transaction screen can time the proof + submit steps (#524).
-      // Those stamps are keyed by the ROW id, which the offscreen write DTO
-      // deliberately doesn't carry — so the proxy carries them on the OP id instead:
-      // flag-OFF it hands this callback straight to the inline `sendTransaction`,
-      // flag-ON it registers it op-scoped and replays the offscreen realm's
-      // `OFFSCREEN_STAGE_EVENT`s through it. Both states therefore stamp, which
-      // matters because the SW build (`vite.background.config.ts`) is the ONE build
-      // that defaults the flag ON — a stage callback that rode the inline leaf only
-      // would silently lose the timings on Chrome, the primary platform.
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.sendTransaction(
-          transaction as SendTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
-    case 'swap': {
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.swapTransaction(
-          transaction as SwapTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
-    case 'bridged-send':
-    case 'earn-deposit':
-      // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
-      // + earn-deposit now ALSO carry pre-built request bytes — the P2IDE collateral
-      // note with the mandate-binding attachment (smallocator PR #38), built at
-      // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
-      // the proxy so it runs offscreen flag-on, inline flag-off. The bare
-      // `sendTransaction` fallback is bridged-send only, for legacy rows queued
-      // before the binding migration: an Earn deposit without its bytes fails
-      // instead, since that fallback mints a note with no binding.
-      //
-      // The abandoned-intent guard the Guardian leaf has must apply here too: this
-      // shared block had none, so a non-Guardian account still minted the orphan
-      // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
-      // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
-      if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
-      await requireBridgeSubmitClaim(transaction);
-      if (transaction.requestBytes) {
-        // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
-        // returned at the top of `generateTransaction`), and for a basic wallet miden-client
-        // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
-        // these bytes were never actually failing for want of it. The annotation is kept so both
-        // leaves take one code path, and it is safe because the client returns early rather than
-        // colliding when an auth arg is already present, and the commitment built here is the
-        // same shape it would have built. Persisted because the commitment carries a fresh salt;
-        // the annotation is idempotent.
-        // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
-        const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
-        const requestBytes = transaction.requestBytes;
-        result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-          midenClientProxy.newTransaction(
-            transaction.accountId,
-            requestBytes,
-            transaction.delegateTransaction,
-            signCallback,
-            attempt && stageStampFor(transaction.id, attempt)
-          )
-        );
-      } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+  try {
+    // Validate before fee discovery; keep the pre-write read because the intent can change during that await.
+    if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+    if (transaction.type === 'bridged-send') requireBridgedSendRecordedRequest(transaction);
+    result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
+      switch (transaction.type) {
+        case 'consume': {
+          // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
+          // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
+          const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          const gcPurchase = gcPurchaseOf(transaction);
+          // A GC purchase's request is built right before it runs, so it binds a height the node still serves and the
+          // sale note the lineage holds now; a row that failed keeps the bytes of its last attempt until this rebuild.
+          const preparedBytes = gcPurchase
+            ? await midenClientProxy.buildPswapConsumeRequest(transaction.accountId, gcPurchase)
+            : preparedPswapReclaimBytes(transaction);
+          if (gcPurchase && preparedBytes) {
+            transaction.requestBytes = preparedBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = preparedBytes;
+            });
+          }
+          // A claim's own leaf keeps its fire-and-forget stamp: only a prepared request takes the gate.
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
+            preparedBytes
+              ? midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  preparedBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  stamp,
+                  submitGate
+                )
+              : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, stamp)
+          );
+        }
+        case 'send': {
+          // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
+          // generating-transaction screen can time the proof + submit steps (#524).
+          // Those stamps are keyed by the ROW id, which the offscreen write DTO
+          // deliberately doesn't carry - so the proxy carries them on the OP id instead:
+          // flag-OFF it hands this callback straight to the inline `sendTransaction`,
+          // flag-ON it registers it op-scoped and replays the offscreen realm's
+          // `OFFSCREEN_STAGE_EVENT`s through it. Both states therefore stamp, which
+          // matters because the SW build (`vite.background.config.ts`) is the ONE build
+          // that defaults the flag ON - a stage callback that rode the inline leaf only
+          // would silently lose the timings on Chrome, the primary platform.
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stamp, submitGate)
+          );
+        }
+        case 'swap': {
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.swapTransaction(transaction as SwapTransaction, signer, stamp, submitGate)
+          );
+        }
+        case 'bridged-send':
+        case 'earn-deposit': {
+          // Both carry the request built at initiate. A bridged send without its own bytes, or without the one note
+          // those bytes recorded, was refused before this signer. So was an Earn deposit without its bytes or without
+          // that one note, since nothing can rebuild its mandate binding.
+          //
+          // The abandoned-intent guard the Guardian leaf has must apply here too: this
+          // shared block had none, so a non-Guardian account still minted the orphan
+          // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
+          // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
+          const requestBytes =
+            transaction.type === 'earn-deposit'
+              ? await requireEarnDepositRequestBytes(transaction)
+              : requireBridgedSendRecordedRequest(transaction);
+          await assertOwnedNativeBridgeSource(transaction);
+          await requireBridgeSubmitClaim(transaction);
+          // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+          // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+          // injects `one_to_one` conversion info itself when the request's auth arg is unset - so
+          // these bytes were never actually failing for want of it. The annotation is kept so both
+          // leaves take one code path, and it is safe because the client returns early rather than
+          // colliding when an auth arg is already present, and the commitment built here is the
+          // same shape it would have built. Persisted because the commitment carries a fresh salt;
+          // the annotation is idempotent.
+          // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
+          const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+          if (isReviewedNativeBridge(transaction)) {
+            const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
+            const submitGate = offscreenSubmitGate(stamp);
+            try {
+              return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+                midenClientProxy.newTransaction(
+                  transaction.accountId,
+                  requestBytes,
+                  transaction.delegateTransaction,
+                  signer,
+                  stamp,
+                  submitGate.gate
+                )
+              );
+            } catch (error) {
+              throw submitGate.opened() ? error : markErrorBeforeSubmit(error);
+            } finally {
+              submitGate.settle();
+            }
+          }
+          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
+            midenClientProxy.newTransaction(
+              transaction.accountId,
+              requestBytes,
+              transaction.delegateTransaction,
+              signer,
+              stamp,
+              submitGate
+            )
+          );
+        }
+        case 'execute':
+        default: {
+          // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
+          // carries bytes the wallet did not build, so if anything ever does need the auth arg
+          // attached post-hoc it is this one. For the wallet's own accounts the client still
+          // injects, so this pre-empts rather than repairs.
+          let executeBytes = transaction.requestBytes!;
+          // An approved execute is submitted only when a fresh preparation of these bytes still gives
+          // those effects. The check throws before `newTransaction`. A row with no approved record
+          // keeps the bytes it already carries.
+          if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+            const approvedEffects = transaction.approvedEffects;
+            executeBytes = await withWasmClientLock(async hold => {
+              const client = await getMidenClient();
+              assertWasmHoldCurrent(hold, 'after the custom request client build');
+              const prepared = await prepareCustomRequestBytes(
+                client.client,
+                transaction.accountId,
+                executeBytes,
+                hold
+              );
+              assertWasmHoldCurrent(hold, 'after custom request preparation');
+              await verifyPreparedCustomRequest(
+                customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+                approvedEffects,
+                transaction.spentAssetTotals
+              );
+              assertWasmHoldCurrent(hold, 'after the custom request effects check');
+              return prepared;
+            });
+          }
+          if (executeBytes !== transaction.requestBytes) {
+            transaction.requestBytes = executeBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = executeBytes;
+            });
+          }
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.newTransaction(
+              transaction.accountId,
+              executeBytes,
+              transaction.delegateTransaction,
+              signer,
+              stamp,
+              submitGate
+            )
+          );
+        }
+        case 'register-name': {
+          // RPC-only guard, immediately before the write: the name must still be
+          // free, the price and script allowlist unchanged, and the reclaim height
+          // not near. A throw goes to the loop catch, which marks the row Failed
+          // (no classifier there requeues these errors).
+          await assertMidenNameRegistrationLive(transaction);
+          const registerBytes = transaction.requestBytes;
+          if (!registerBytes) {
+            throw new Error('Register-name row has no request bytes');
+          }
+          return runStampedWriteLeaf(transaction.id, undefined, (stamp, submitGate) =>
+            midenClientProxy.newTransaction(
+              transaction.accountId,
+              registerBytes,
+              transaction.delegateTransaction,
+              signer,
+              stamp,
+              submitGate
+            )
+          );
+        }
       }
-      break;
-    case 'register-name': {
-      // RPC-only guard, immediately before the write: the name must still be
-      // free, the price and script allowlist unchanged, and the reclaim height
-      // not near. A throw goes to the loop catch, which marks the row Failed
-      // (no classifier there requeues these errors).
-      await assertMidenNameRegistrationLive(transaction);
-      const registerBytes = transaction.requestBytes;
-      if (!registerBytes) {
-        throw new Error('Register-name row has no request bytes');
-      }
-      result = await midenClientProxy.newTransaction(
-        transaction.accountId,
-        registerBytes,
-        transaction.delegateTransaction,
-        signCallback
-      );
-      break;
+    });
+  } catch (error) {
+    // An unknown chain fee stops the check before it reads the summary, so the write fails before its submit. The
+    // Guardian leaf requeues the same failure for the same types (`isGuardianOutage`), and so does this one, with the
+    // same doubling wait but a cause and streak of its own, since no guardian is involved.
+    if (!(error instanceof ProposalFeeUnknownError) || !GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)) {
+      throw error;
     }
-    case 'execute':
-    default: {
-      // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
-      // carries bytes the wallet did not build, so if anything ever does need the auth arg
-      // attached post-hoc it is this one. For the wallet's own accounts the client still
-      // injects, so this pre-empts rather than repairs.
-      const executeBytes = transaction.requestBytes!;
-      if (executeBytes !== transaction.requestBytes) {
-        transaction.requestBytes = executeBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = executeBytes;
-        });
-      }
-      const attempt = attemptContextOf(transaction);
-      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.newTransaction(
-          transaction.accountId,
-          executeBytes,
-          transaction.delegateTransaction,
-          signCallback,
-          stageStampFor(transaction.id, attempt)
-        )
-      );
-      break;
-    }
+    // An intent abandoned during fee discovery must fail instead of requeueing.
+    if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+    const requeueStreak = nextRequeueStreak(
+      await Repo.transactions.where({ id: transaction.id }).first(),
+      'chain-fee-unknown'
+    );
+    const cooldown = guardianRequeueBackoffSec(GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
+    console.warn(`[transaction] the chain fee is not known yet, requeueing in ${cooldown}s`, error);
+    await requeueWithWake(
+      transaction.id,
+      transaction.type,
+      cooldown,
+      signCallback,
+      guardianProvider,
+      'chain_fee_unknown',
+      { requeueStreak },
+      'syncing'
+    );
+    return;
   }
 
-  switch (transaction.type) {
-    case 'send':
-      await completeSendTransaction(transaction as SendTransaction, result);
-      break;
-    case 'consume':
-      await completeConsumeTransaction(transaction.id, result);
-      break;
-    case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, result);
-      break;
-    case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
-      break;
-    case 'earn-deposit':
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
-      break;
-    case 'register-name':
-      await completeRegisterNameTransaction(transaction, result);
-      break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, result);
-      break;
-  }
+  // No lock and no realm listener sees a trap past submit outside any hold, and the Guardian catch ends one without
+  // rethrowing, so each landed row's post-submit tail retires the client for a trap that leaves it.
+  await runLandedTail(transaction, result, async () => {
+    switch (transaction.type) {
+      case 'send':
+        await completeSendTransaction(transaction as SendTransaction, result);
+        break;
+      case 'consume':
+        await completeConsumeTransaction(transaction.id, result);
+        break;
+      case 'swap':
+        await completeSwapTransaction(transaction as SwapTransaction, result);
+        break;
+      case 'bridged-send':
+        await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+        break;
+      case 'earn-deposit':
+        await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'register-name':
+        await completeRegisterNameTransaction(transaction, result);
+        break;
+      case 'execute':
+      default:
+        await completeCustomTransaction(transaction, result);
+        break;
+    }
+  });
 };
 
 /**
  * Build a transient cold-bound MultisigService for `accountId`. Cold signing
- * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key) — used
+ * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key) - used
  * for structural ops that must be cold-signed.
  */
 const buildColdServiceForAccount = async (
   accountId: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  { forProposal = false }: { forProposal?: boolean } = {}
 ): Promise<MultisigService> => {
-  const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
+  // Only a proposal's preparation names its steps; abandoning or releasing a candidate is not one.
+  const step = forProposal ? withProposalStep : <T>(_step: ProposalStep, operation: () => Promise<T>) => operation();
+  const walletAccount = (await step('service_select', () => guardianProvider.getAccounts())).find(a =>
+    sameWalletAccountId(a.publicKey, accountId)
+  );
   if (!walletAccount) {
-    throw new Error(`Guardian account ${accountId} not found in provider`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in provider`), forProposal, {
+      proposalStep: 'service_select',
+      proposalGuard: 'account_not_guardian'
+    });
   }
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+  const sdkAccount = await step('service_account_read', () =>
+    withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+  );
   if (!sdkAccount) {
-    throw new Error(`Guardian account ${accountId} not found in local client`);
+    throw atProposalStep(new Error(`Guardian account ${accountId} not found in local client`), forProposal, {
+      proposalStep: 'service_account_read'
+    });
   }
-  return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+  return step('service_load', () =>
+    MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+  );
 };
+
+function atProposalStep(
+  error: Error,
+  forProposal: boolean,
+  diagnostics: { proposalStep: ProposalStep; proposalGuard?: ProposalGuard }
+): Error {
+  if (forProposal) annotateCrash(error, diagnostics);
+  return error;
+}
 
 /**
  * The generation-time half of the gate claim's native-only rule (#805): every note the
@@ -2040,13 +2843,14 @@ const consumeServiceFor = async (
   noteIds: string[],
   guardianProvider: GuardianAccountProvider
 ): Promise<MultisigService> => {
-  const account = (await guardianProvider.getAccounts()).find(a =>
+  const account = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
   );
   const rotationPending = account?.requiresHotKeyRotation === true && !account.hotPublicKey;
   if (transaction.rotationFunding === true) {
     await assertRotationFundingNotesNative(transaction.accountId, noteIds);
-    if (rotationPending) return buildColdServiceForAccount(transaction.accountId, guardianProvider);
+    if (rotationPending)
+      return buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
   } else if (rotationPending) {
     throw new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR);
   }
@@ -2056,19 +2860,17 @@ const consumeServiceFor = async (
 /**
  * Build (and persist for retry) the serialized P2IDE send-request bytes for a
  * Guardian recallable send. `createP2idProposal` can only mint a plain P2ID, so
- * any note that needs a reclaim height — a user "recall by" send, or an Epoch
- * bridge/allocator collateral note the solver validates on-chain — is built here
+ * a note that needs a reclaim height - a user "recall by" send - is built here
  * as a P2IDE send request and driven through `createCustomProposal` instead.
  *
  * The P2IDE note's serial number is random, so the request must be built ONCE and
  * the SAME bytes reused for both `createCustomProposal` and
- * `signAndCreateTransactionRequest` — persisted on the row so a retry after a
- * restart reuses them, which is also what makes a duplicate submit rejectable
- * (the reused serial pins the note id). A retry only rebuilds them when the row
- * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
- * blocks-until-recall offset, converted to an absolute reclaim height here
- * (`syncHeight + recallBlocks`) — the guardian-path counterpart of the
- * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
+ * `signAndCreateTransactionRequest` - persisted on the row so a retry after a
+ * restart reuses them, which is also what lets the node reject the duplicate note
+ * while the first copy is in flight (the reused serial pins the note id); Retry asks
+ * before it reuses them. A retry only rebuilds them when the row
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. Like the single-key
+ * builder, Guardian resolves the approved recall term only when building fresh bytes.
  */
 const ensureGuardianRecallableSendRequestBytes = async (
   transaction: ITransaction,
@@ -2076,13 +2878,12 @@ const ensureGuardianRecallableSendRequestBytes = async (
   faucetId: string,
   amount: bigint,
   noteType: NoteType,
-  recallBlocks: number,
+  recallBlocks: number | undefined,
   expirationDelta: number,
-  opts: { freshSync?: boolean } = {}
+  calendarRecallTarget?: string
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
-    // Pre-built bytes still need the fee auth. The Epoch (Fast) bridge route builds its request
-    // at INITIATE time (see initiate.ts), so this early return used to hand back a request with
+    // Pre-built bytes still need the fee auth. This early return used to hand back a request with
     // no conversion info and the proposal aborted with ERR_FEE_CONVERSION_INFO_MISSING -- the
     // fee auth attached below never ran for it.
     //
@@ -2092,49 +2893,23 @@ const ensureGuardianRecallableSendRequestBytes = async (
     return transaction.requestBytes;
   }
   // A fresh salt per build. miden-client derives the native 1/1 conversion info from
-  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // the block the auth args bind -- for a proposal, its `boundBlockNum` -- and commits
   // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
   // with the request, and these bytes are built once and persisted, so the co-signed
   // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
   const feeSalt = randomFeeSalt();
   const requestBytes = await withWasmClientLock(async hold => {
-    // `freshSync` (Epoch bridge collateral): the solver's allocator
-    // validates the note's REMAINING reclaim window against its own (later) chain
-    // head, so the absolute reclaim height must be measured against a CURRENT head
-    // — a stale cached height on a cold-started wallet could understate it below the
-    // allocator's minimum and get the note rejected. A network sync can fail, and
-    // that must NOT fail an otherwise-submittable request, so fall back to the
-    // last-synced height (the recall buffer absorbs mild lag). A plain recallable
-    // user send has no such validator, so it reads the cached height directly.
-    //
     // Routed through `midenClientProxy` (issue #260, slice 7a) so flag-ON the height
     // is read from the OFFSCREEN client that owns the canonical sync state; flag-OFF
-    // is byte-identical to the inline `getMidenClient().client.sync().blockNum()` /
-    // `.getSyncHeight()` this used to run (the proxy reads run under this caller lock).
-    let syncHeight: number;
-    if (opts.freshSync) {
-      try {
-        syncHeight = await midenClientProxy.getSyncHeight({ fresh: true });
-      } catch (syncError) {
-        // The failed fresh sync was itself a parking await (it runs a network
-        // sync), and the fallback below is another WASM read — if the watchdog
-        // evicted this hold while the sync parked, taking the fallback would be
-        // an unmutexed call into a client a successor now owns. The eviction
-        // outranks the sync failure as the reason to stop, so check it first.
-        assertWasmHoldCurrent(hold, 'guardian P2IDE build: before the fallback height read');
-        console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
-        syncHeight = await midenClientProxy.getSyncHeight();
-      }
-    } else {
-      syncHeight = await midenClientProxy.getSyncHeight();
-    }
-    // Every await above can park (the fresh sync by design, the plain read on the
-    // inline path), and an eviction ABANDONS this callback rather than stopping
-    // it — re-check ownership before the next WASM call. Strictly pre-submit
-    // (the bytes haven't even been built), so failing here costs one retry.
+    // is byte-identical to the inline `getMidenClient().client.getSyncHeight()` this
+    // used to run (the proxy reads run under this caller lock).
+    // The plain read can park on the inline path, and an eviction ABANDONS this callback
+    // rather than stopping it - re-check ownership before the next WASM call. Strictly
+    // pre-submit (the bytes haven't even been built), so failing here costs one retry.
+    const syncHeight = await midenClientProxy.getSyncHeight();
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the height read');
     // The sender's local account supplies the outgoing asset's vault key
-    // (callback flag included) — see `buildSendTransactionRequest`.
+    // (callback flag included) - see `buildSendTransactionRequest`.
     //
     // Read through `midenClientProxy`, like the sync height above, rather than a
     // transient `WasmWebClient.createClient(...)`. That transient client existed
@@ -2144,10 +2919,10 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // counts. Correctness: flag-ON it reads from the OFFSCREEN client that owns
     // the canonical sync state and that will EXECUTE this request, so the vault
     // key is derived from the same account snapshot the kernel will check it
-    // against — a separate client could disagree. Cost: no worker spawn and no
+    // against - a separate client could disagree. Cost: no worker spawn and no
     // second multi-MB wasm instance inside the app-wide lock, which now matters
     // per requeue cycle rather than once, since a requeued `send` rebuilds
-    // whenever its cached bytes were dropped — which is every requeue except one
+    // whenever its cached bytes were dropped - which is every requeue except one
     // on a row already flagged `mayHaveSubmitted` (see
     // `requeueTransactionForRetry`). The proxy read is unlocked by design and this
     // caller already holds `withWasmClientLock`, as its W2 contract requires.
@@ -2156,7 +2931,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // `<address>_<suffix>` form, and the SDK's `resolveAccountRef` takes `0x…`
     // directly, so neither id shape can be rejected here.
     const account = await midenClientProxy.getAccount(walletAccountIdToSdk(transaction.accountId).toString());
-    // The returned Account is a borrow of the client's RefCell — the request
+    // The returned Account is a borrow of the client's RefCell - the request
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
@@ -2177,7 +2952,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       expirationDelta,
-      syncHeight + recallBlocks,
+      resolveSendReclaimHeight(syncHeight, recallBlocks, calendarRecallTarget),
       baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
@@ -2198,38 +2973,11 @@ const ensureGuardianRecallableSendRequestBytes = async (
 };
 
 /**
- * Proposes a wallet-built guarded request, re-bound to the current sync height (see
- * `MultisigService.createRebasedCustomProposal`), and persists the bytes it was proposed from:
- * signing and execution rebuild from `transaction.requestBytes`, so it must be these.
- *
- * Proposes once. A value-moving type meets Guardian backpressure by requeueing (#312), so only
- * a caller that must wait out a 409 in process (a bridged-send) wraps this in
- * `withGuardianConflictRetry`.
- *
- * `approvalExpirationDelta` is the Guardian expiration of #1081 for the types that carry one: the rebuild drops the
- * request's own delta, so it travels here instead.
- */
-const proposeRebased = async (
-  service: MultisigService,
-  transaction: ITransaction,
-  requestBytes: Uint8Array,
-  proposalType: string,
-  approvalExpirationDelta?: number
-): Promise<Proposal> => {
-  const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
-  transaction.requestBytes = rebased.requestBytes;
-  await Repo.transactions.where({ id: transaction.id }).modify(t => {
-    t.requestBytes = rebased.requestBytes;
-  });
-  return rebased.proposal;
-};
-
-/**
  * Refuse to keep driving a guardian write whose lock hold is gone.
  *
  * An eviction rejects the holder's promise but does NOT stop its callback, so a
  * pipeline parked on a network round trip resumes and would run its next WASM call
- * with no mutex held, concurrently with whoever legitimately holds it — the
+ * with no mutex held, concurrently with whoever legitimately holds it - the
  * double-borrow the lock exists to prevent. Only ever called at points that are
  * provably pre-submit, so failing here cannot orphan a broadcast transaction.
  */
@@ -2239,7 +2987,7 @@ const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
 };
 
 /**
- * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
+ * The guardian write LEAF PIPELINE - `executeRequest → prove → submit → apply`
  * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
  * slice 6a).
  *
@@ -2248,12 +2996,12 @@ const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
  * options, same prover selection (non-delegated `newLocalProver` / mobile
  * `newCallbackProver`; delegated remote `prove({})` with local fallback), same
  * `executing`/`proving`/`submitting` stage progression. It runs entirely SW-side
- * and is byte-identical to the old inline path — the flag-OFF branch of the
+ * and is byte-identical to the old inline path - the flag-OFF branch of the
  * per-type route calls exactly this.
  *
  * When the offscreen client is enabled, the routable guardian types (value-moving
- * in slice 6a; structural — switch-guardian / replace-hot-key /
- * update-procedure-threshold — in slice 6b; bridged-send / earn-deposit in slice 7c)
+ * in slice 6a; structural - switch-guardian / replace-hot-key /
+ * update-procedure-threshold - in slice 6b; bridged-send / earn-deposit in slice 7c)
  * run the SAME leaf offscreen via
  * `dispatchGuardianPipeline` instead; everything BEFORE this (proposal creation,
  * guardian HTTP co-sign, cold co-sign, mid-flight `persistNewHotKey`,
@@ -2270,12 +3018,23 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string
+  _chainAnchorB64?: string,
+  oneClickDeadline?: string,
+  oneClickRequired = false,
+  onSubmitCallReached?: () => void,
+  onLockEvicted?: () => void,
+  testAuthorizationKind?: TestGuardianAuthorizationKind
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
-  return withWasmClientLock(async hold => {
-    const midenClient = await getMidenClient();
+  let execution = unobservedTransactionExecution('guardian_signed_request');
+  let escaped: { error: unknown; step: GuardianProvingSubstep } | undefined;
+  const observe = (error: unknown, step: GuardianProvingSubstep) => {
+    escaped = { error, step };
+    annotateGuardianProving(error, { guardianProvingSubstep: step });
+  };
+  const runPipeline = async (hold: WasmLockHold) => {
+    const midenClient = await withProposalStep('client_build', () => getMidenClient());
     // The client build can be the LONGEST parking await in this hold - a first
     // build's genesis fetch goes to the same node everything else here is waiting
     // on. The offscreen copy of this pipeline checks the hold right after its own
@@ -2285,113 +3044,169 @@ const runGuardianPipeline = async (
     //
     // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
     // `modify`, so it parks too, and a guard on its far side covers the build and
-    // the write both — an eviction is monotonic (a hold that stops being current
+    // the write both - an eviction is monotonic (a hold that stops being current
     // never becomes current again), so the later check strictly subsumes the
     // earlier one. Checked before the write, the very next statement was a WASM
     // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
     assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-    await prepareGuardianTipExecution(midenClient.client, tr, () =>
-      assertStillHoldingLock(hold, 'while preparing tip execution')
-    );
-    assertStillHoldingLock(hold, 'before executing at the tip');
-    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
-    // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
-    // during `executeRequest` (a network round trip on the normal ceiling) abandons
-    // this callback instead of stopping it, and mobile/desktop run THIS copy — the
-    // platform #777 was reported on.
-    await setStage('proving');
-    assertStillHoldingLock(hold, 'before proving');
-    let provenTx;
-    if (!delegateTransaction) {
-      // Local (non-delegated) proving. The guardian pipeline drives the raw
-      // client directly, whose default local prover is the single-threaded
-      // WASM one — which on iOS WKWebView runs on the main thread and freezes
-      // the UI for the whole multi-second prove. Route to the native Rust
-      // prover on mobile (off the main thread via @miden/native-prover),
-      // exactly like `proveWithFallback`'s localProverFactory and the
-      // delegated fallback below; WASM local prover elsewhere.
-      const localProver = isMobile()
-        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-        : TransactionProver.newLocalProver();
-      // Reported like every other prove. This is the one that runs on mobile,
-      // where there is no offscreen document and no delegation, so leaving it out
-      // would make mobile the platform whose proves are invisible.
-      // Local proving is deliberately unbounded — pause the lock watchdog for
-      // its duration, exactly like proveWithFallback's local attempts (#775).
-      const localStartedAt = performance.now();
-      try {
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
-        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
-      } catch (proveError) {
-        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
-        throw proveError;
-      }
-    } else {
-      // Delegated (remote) proving. The client's default prover is the remote
-      // gRPC prover on every platform, and its ~10s deadline is too tight for a
-      // heavyweight guardian multisig proof when the machine is under load — a
-      // single "Deadline expired" used to kill the whole co-signed transaction
-      // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-      // claim timeout), because the guardian pipeline drives the raw client
-      // directly and had none of the local fallback the non-guardian path gets
-      // for free from `proveWithFallback`. Give it that resilience: on remote
-      // failure — or on a remote that never answers at all, which is a stall the
-      // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
-      // SAME executed tx locally. Re-proving is safe
-      // because `proveTransaction` borrows the executed result (only the prover
-      // is consumed, and each attempt passes a fresh one). The local prover
-      // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-      // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-      // Reported here as well as in `proveWithFallback`, because this is a second
-      // implementation of the same fallback and shares none of that one's code.
-      // Left out, every guardian operation would contribute nothing to prover
-      // health — and this fallback exists precisely BECAUSE delegated proving was
-      // failing under load, so it is the last path that should be silent about it.
-      const proveStartedAt = performance.now();
-      try {
-        // Safe to bound here in the strongest sense available: this pipeline drives
-        // execute/prove/submit itself, so the deadline provably expires BEFORE any
-        // submit and the local re-prove cannot broadcast twice.
-        // Explicit remote prover rather than `prove({})`: the empty form selects the
-        // SDK's default-prover fallback, which "requires an initialized client" and so
-        // never dispatches from a prover-only realm — the write then hangs until the
-        // deadline below rather than proving in seconds (#718). A prove a freeze broke is
-        // re-proved remotely once, and never once this hold is gone (#473).
-        provenTx = await proveDelegated(
-          delegatedProver => executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-          'Delegated guardian prove',
-          () => assertStillHoldingLock(hold, 'before the remote re-prove')
-        );
-        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
-      } catch (proveError) {
-        // The delegated prove was the longest parking await in this hold, and the
-        // fallback below is a WASM call on `executedTx` — an object borrowed from
-        // the client's RefCell. If the watchdog evicted us while the delegated
-        // prove was parked, this catch runs on an abandoned callback and the local
-        // re-prove is a second borrow of a client a successor now owns. The
-        // eviction outranks the prove failure as the reason to stop, so it is
-        // checked before the fallback rather than only after it. Still pre-submit.
-        assertStillHoldingLock(hold, 'before the local prove fallback');
-        // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
-        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
-        console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-        // The outage the fallback is covering for. `proveWithFallback` marks this
-        // too, and without it a prover failing only on guardian operations would
-        // raise no banner and produce no `service_prover` event.
-        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
-        const fallbackProver = isMobile()
-          ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-          : TransactionProver.newLocalProver();
+    const executeAtTip = async () => {
+      await prepareGuardianTipExecution(midenClient.client, tr, () =>
+        assertStillHoldingLock(hold, 'while preparing tip execution')
+      );
+      assertStillHoldingLock(hold, 'before executing at the tip');
+      await assertTestGuardianRequestAuthorization(accountId, tr, testAuthorizationKind);
+      assertStillHoldingLock(hold, 'after exact Guardian authorization verification');
+      execution = observeTransactionExecutionRequest(tr, 'guardian_signed_request');
+      return midenClient.client.transactions.executeRequest(accountId, tr);
+    };
+    const executeAndProve = async ({ reexecuting, proveLocally, delegatedProveFailed }: ProofPass) => {
+      // Marked only here: a stage the offscreen copy posts never authors the row's stage, so it has none to misread.
+      const executedTx = await executeAtTip().catch((error: unknown) => {
+        throw reexecuting ? markFailedReexecution(error) : error;
+      });
+      // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
+      // during `executeRequest` (a network round trip on the normal ceiling) abandons
+      // this callback instead of stopping it, and mobile/desktop run THIS copy - the
+      // platform #777 was reported on. A re-execution stays on 'proving', so the row's steps never run backwards.
+      if (!reexecuting) await setStage('proving');
+      assertStillHoldingLock(hold, 'before proving');
+      let provenTx;
+      if (!delegateTransaction || proveLocally) {
+        // Local (non-delegated) proving. The guardian pipeline drives the raw
+        // client directly, whose default local prover is the single-threaded
+        // WASM one - which on iOS WKWebView runs on the main thread and freezes
+        // the UI for the whole multi-second prove. Route to the native Rust
+        // prover on mobile (off the main thread via @miden/native-prover),
+        // exactly like `proveWithFallback`'s localProverFactory and the
+        // delegated fallback below; WASM local prover elsewhere.
+        let localProver: ReturnType<typeof TransactionProver.newLocalProver>;
         try {
-          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
-          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
-        } catch (fallbackError) {
-          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
-          throw fallbackError;
+          localProver = isMobile()
+            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+            : TransactionProver.newLocalProver();
+        } catch (error) {
+          observe(error, 'local_prover_build');
+          throw error;
+        }
+        // Reported like every other prove. This is the one that runs on mobile,
+        // where there is no offscreen document and no delegation, so leaving it out
+        // would make mobile the platform whose proves are invisible.
+        // Local proving is deliberately unbounded - pause the lock watchdog for
+        // its duration, exactly like proveWithFallback's local attempts (#775).
+        const localStartedAt = performance.now();
+        let provePending = true;
+        try {
+          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+          provePending = false;
+          reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+        } catch (proveError) {
+          escaped = undefined;
+          annotateGuardianProving(proveError, undefined);
+          reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+          if (provePending) observe(proveError, 'prove_local');
+          throw proveError;
+        }
+      } else {
+        // Delegated (remote) proving. The client's default prover is the remote
+        // gRPC prover on every platform, and its ~10s deadline is too tight for a
+        // heavyweight guardian multisig proof when the machine is under load - a
+        // single "Deadline expired" used to kill the whole co-signed transaction
+        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+        // claim timeout), because the guardian pipeline drives the raw client
+        // directly and had none of the local fallback the non-guardian path gets
+        // for free from `proveWithFallback`. Give it that resilience: on remote
+        // failure - or on a remote that never answers at all, which is a stall the
+        // bare await could not see (see `withDelegatedProveTimeout`) - re-prove the
+        // SAME executed tx locally. Re-proving is safe
+        // because `proveTransaction` borrows the executed result (only the prover
+        // is consumed, and each attempt passes a fresh one). The local prover
+        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+        // Reported here as well as in `proveWithFallback`, because this is a second
+        // implementation of the same fallback and shares none of that one's code.
+        // Left out, every guardian operation would contribute nothing to prover
+        // health - and this fallback exists precisely BECAUSE delegated proving was
+        // failing under load, so it is the last path that should be silent about it.
+        const proveStartedAt = performance.now();
+        let delegatedPending = true;
+        try {
+          // Safe to bound here in the strongest sense available: this pipeline drives
+          // execute/prove/submit itself, so the deadline provably expires BEFORE any
+          // submit and the local re-prove cannot broadcast twice.
+          // Explicit remote prover rather than `prove({})`: the empty form selects the
+          // SDK's default-prover fallback, which "requires an initialized client" and so
+          // never dispatches from a prover-only realm - the write then hangs until the
+          // deadline below rather than proving in seconds (#718). A prove a freeze broke is
+          // re-proved remotely once, and never once this hold is gone (#473).
+          provenTx = await proveDelegated(
+            delegatedProver => executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+            'Delegated guardian prove',
+            () => assertStillHoldingLock(hold, 'before the remote re-prove')
+          );
+          delegatedPending = false;
+          reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+        } catch (proveError) {
+          escaped = undefined;
+          annotateGuardianProving(proveError, undefined);
+          // The delegated prove was the longest parking await in this hold, and the
+          // fallback below is a WASM call on `executedTx` - an object borrowed from
+          // the client's RefCell. If the watchdog evicted us while the delegated
+          // prove was parked, this catch runs on an abandoned callback and the local
+          // re-prove is a second borrow of a client a successor now owns. The
+          // eviction outranks the prove failure as the reason to stop, so it is
+          // checked before the fallback rather than only after it. Still pre-submit.
+          assertStillHoldingLock(hold, 'before the local prove fallback');
+          // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
+          if (proveError instanceof WebAssembly.RuntimeError) {
+            if (delegatedPending) observe(proveError, 'prove_delegate');
+            throw proveError;
+          }
+          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+          delegatedProveFailed();
+          // The outage the fallback is covering for. `proveWithFallback` marks this
+          // too, and without it a prover failing only on guardian operations would
+          // raise no banner and produce no `service_prover` event.
+          if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
+          let fallbackProver: ReturnType<typeof TransactionProver.newLocalProver>;
+          try {
+            fallbackProver = isMobile()
+              ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+              : TransactionProver.newLocalProver();
+          } catch (error) {
+            observe(error, 'fallback_prover_build');
+            throw error;
+          }
+          let fallbackPending = true;
+          try {
+            provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+            fallbackPending = false;
+            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+          } catch (fallbackError) {
+            escaped = undefined;
+            annotateGuardianProving(fallbackError, undefined);
+            reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+            if (fallbackPending) observe(fallbackError, 'prove_fallback');
+            throw fallbackError;
+          }
         }
       }
-    }
+      let evidence: ReturnType<typeof readSubmitEvidence>;
+      try {
+        evidence = readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold);
+      } catch (error) {
+        observe(error, 'proof_evidence');
+        throw error;
+      }
+      return { executedTx, provenTx, evidence };
+    };
+    const { executedTx, provenTx, evidence } = await withFreshProof({
+      executeAndProve,
+      expirationBlockOf: proven => proven.evidence.expirationBlock,
+      readTip: readChainTip,
+      assertLive: () => assertStillHoldingLock(hold, 'after reading the chain tip'),
+      budgetMs: INLINE_PROOF_BUDGET_MS
+    });
     // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
     // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
     // the abandoned callback keeps running and can still reach `submit()`, so a
@@ -2400,12 +3215,18 @@ const runGuardianPipeline = async (
     // the error shape, and exempts only the stages that are provably pre-WRITE;
     // checking before the write would drop this pipeline's own record of it.
     //
-    // Still pre-submit as to the BROADCAST — that is the next line — so throwing
+    // Still pre-submit as to the BROADCAST - that is the next line - so throwing
     // here cannot orphan a transaction the network has seen.
-    await setStage('submitting', {
-      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
-    });
+    try {
+      await setStage('submitting', { evidence });
+    } catch (error) {
+      observe(error, 'submitting_stage_write');
+      throw error;
+    }
+    escaped = undefined;
     assertStillHoldingLock(hold, 'before submit');
+    if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
+    onSubmitCallReached?.();
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
     // does, so a failed local apply is retried in this hold while that is safe, and one that
@@ -2414,17 +3235,28 @@ const runGuardianPipeline = async (
       apply: () => submittedTx.apply(),
       result: executedTx.result,
       readLocalAccount: accountId => midenClient.client.accounts.get(accountId),
-      holdIsCurrent: () => getCurrentWasmLockHold() === hold
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      retireTrap: cause => retireWasmClientForCaughtTrap(hold, cause)
     });
     return executedTx.result;
-  });
+  };
+  try {
+    return await withWasmClientLock(runPipeline, { onEvicted: onLockEvicted });
+  } catch (error) {
+    annotateGuardianProving(
+      error,
+      escaped !== undefined && escaped.error === error ? { guardianProvingSubstep: escaped.step } : undefined
+    );
+    annotateTransactionExecution(error, execution);
+    throw error;
+  }
 };
 
 // Route a value-moving guardian leaf offscreen only when the offscreen client is
 // enabled AND the offscreen document API is present (mobile hardcodes the flag
-// off — no chrome.offscreen). Read per-call (not a module const) so the route is
+// off - no chrome.offscreen). Read per-call (not a module const) so the route is
 // deterministically togglable in tests; the heavy offscreen machinery it reaches
-// lives in miden-client-proxy — already imported for syncState/getAccount — so
+// lives in miden-client-proxy - already imported for syncState/getAccount - so
 // there is no dead-code-elimination benefit to a module const here.
 const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
@@ -2470,12 +3302,32 @@ const runWriteLeaf = async <T>(
 };
 
 /**
+ * Run a single-key write leaf with its attempt's 'submitting' stamp and submit gate (#1081): the stamp is the submit's
+ * precondition on both routes, awaited by the inline leaf and through the gate by the offscreen one, which the proxy
+ * alone tells apart. Without an attempt the leaf stamps nothing and gets no gate.
+ */
+const runStampedWriteLeaf = async <T>(
+  txId: string,
+  attempt: AttemptContext | undefined,
+  leaf: (stamp?: ReturnType<typeof stageStampFor>, submitGate?: SubmitGate) => Promise<T>
+): Promise<T> => {
+  if (attempt === undefined) return runWriteLeaf(txId, undefined, writeLeafRunsOffscreen(), () => leaf());
+  const stamp = stageStampFor(txId, attempt);
+  const submitGate = offscreenSubmitGate(stamp);
+  try {
+    return await runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp, submitGate.gate));
+  } finally {
+    submitGate.settle();
+  }
+};
+
+/**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
  * guardian answering, with a message the unreachability classifier recognizes.
  *
- * Applied to the switch-guardian arms as a VERDICT — they are the only ones with
+ * Applied to the switch-guardian arms as a VERDICT - they are the only ones with
  * somewhere better to go, since every other guardian operation needs the operator,
- * so failing it sooner buys nothing — and to the post-failure `abandonCandidate`
+ * so failing it sooner buys nothing - and to the post-failure `abandonCandidate`
  * of EVERY type as a CLEANUP BOUND. The two uses read differently and must not be
  * confused: a timeout on the former is what commits the caller to the direct path,
  * whereas a timeout on the latter is swallowed by its own catch (abandonment is
@@ -2497,6 +3349,10 @@ const runWriteLeaf = async <T>(
  * and the row fails terminally with no requeue and no Retry. The deadline gives
  * the caller an unreachable verdict whatever the hold does.
  *
+ * It runs on running time, like the holds it stays ahead of: an overdue timer fires
+ * the moment a frozen WebView resumes, ahead of the answer, and on a switch that
+ * verdict is what commits the row to a unilateral on-chain rotation (#2060).
+ *
  * The deadline does not cancel the request or release the lock (`GuardianHttpClient`
  * passes no signal), so the abandoned hold runs on until the fetch boundary cuts
  * its request off a minute in. What it changes is that the CALLER gets an
@@ -2513,9 +3369,9 @@ const runWriteLeaf = async <T>(
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancelTimer = setRunningTimeout(
       () =>
-        reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
+        reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms - treating it as unreachable`)),
       OUTGOING_GUARDIAN_DEADLINE_MS
     );
     // `run()` is invoked here rather than taking a ready promise, so a SYNCHRONOUS
@@ -2525,16 +3381,16 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
     try {
       run().then(
         value => {
-          clearTimeout(timer);
+          cancelTimer();
           resolve(value);
         },
         error => {
-          clearTimeout(timer);
+          cancelTimer();
           reject(error);
         }
       );
     } catch (syncError) {
-      clearTimeout(timer);
+      cancelTimer();
       reject(syncError);
     }
   });
@@ -2544,10 +3400,24 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
  * releases the account and serves the post-switch state, which the landed reconcile and the
  * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
  * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
- * True only when the push landed inside its deadline.
+ * The outcome is recorded in memory, as the direct path marks `switchedDirectly`, and completion
+ * persists it with the row's extraInputs: the reconcile adopts only from a guardian that took the
+ * delta inside its deadline, the self-heal re-pushes one that did not, and a discard abandons the
+ * proposal's nonce.
  */
-const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<boolean> =>
-  (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
+const pushSwitchDeltaToOutgoingGuardian = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal
+): Promise<void> => {
+  const switchDeltaPushed = (await service.pushSwitchDeltaBounded(proposal.id)) === 'pushed';
+  transaction.extraInputs = {
+    ...transaction.extraInputs,
+    switchDeltaPushed,
+    switchProposalId: proposal.id,
+    switchProposalNonce: proposal.nonce
+  };
+};
 
 /**
  * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
@@ -2557,10 +3427,15 @@ const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, propo
  * The record is there to flag: every caller reaches this after the submit resolved, and `recordLeftCandidate`
  * wrote it, with its proposal's stamps, earlier in the same call stack.
  */
-const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
+const abandonDiscardedCandidate = async (
+  accountId: string,
+  service: MultisigService,
+  nonce: number,
+  proposalId: string | undefined
+): Promise<void> => {
   try {
     await withOutgoingGuardianDeadline(
-      () => service.abandonCandidate(nonce),
+      () => service.abandonCandidate(nonce, proposalId),
       'abandoning the discarded candidate on its guardian'
     );
   } catch (abandonError) {
@@ -2612,13 +3487,19 @@ const requireLandedCommit = async (
     throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
   }
   const nonce = tx.extraInputs?.proposalNonce;
+  const proposalId = tx.extraInputs?.proposalId;
   if (typeof nonce === 'number') {
     try {
       const service = await withOutgoingGuardianDeadline(
         () => buildColdServiceForAccount(tx.accountId, guardianProvider),
         'loading the cold service to abandon a discarded candidate'
       );
-      await abandonDiscardedCandidate(tx.accountId, service, nonce);
+      await abandonDiscardedCandidate(
+        tx.accountId,
+        service,
+        nonce,
+        typeof proposalId === 'string' ? proposalId : undefined
+      );
     } catch (buildError) {
       console.warn(
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
@@ -2653,7 +3534,7 @@ const pollLandedCommit = async (
 
 /**
  * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
- * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * guardian holds a candidate for `proposal` by now: the switch's pushed delta, or the co-sign's for a
  * rotation or a threshold update.
  *
  * A wait that fails without the node's own discard asks the node once. Committed: return, and the
@@ -2666,7 +3547,7 @@ const pollLandedCommit = async (
 const waitForStructuralCommit = async (
   id: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   type: ITransactionType,
   accountId: string
 ): Promise<void> => {
@@ -2684,7 +3565,7 @@ const waitForStructuralCommit = async (
       return;
     }
     if (landed === undefined) throw waitError;
-    await abandonDiscardedCandidate(accountId, service, nonce);
+    await abandonDiscardedCandidate(accountId, service, proposal.nonce, proposal.id);
     throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
       cause: waitError
     });
@@ -2695,7 +3576,7 @@ const waitForStructuralCommit = async (
  * One-line description of a classified guardian failure, for the audit field on
  * the row. Length-capped because this is persisted: a wasm trap's message can run
  * to kilobytes, and a row is not the place to keep one. The HTTP status is
- * included when present — it is what the unreachability verdict turned on, so a
+ * included when present - it is what the classified verdict turned on, so a
  * later reader can judge whether that verdict was right.
  */
 const describeError = (error: unknown): string => {
@@ -2708,7 +3589,7 @@ const describeError = (error: unknown): string => {
 };
 
 /**
- * DIRECT on-chain guardian switch — the fallback when the OUTGOING guardian is
+ * DIRECT on-chain guardian switch - the fallback when the OUTGOING guardian is
  * unreachable. The proposal flow needs the old guardian as a coordination
  * mailbox (service load, proposal push, signature accumulation), but the
  * on-chain `update_guardian` is threshold-2 over the account's OWN keys, so an
@@ -2717,8 +3598,8 @@ const describeError = (error: unknown): string => {
  * pipeline + commit-wait + completion as the proposal path. Completion gets an
  * undefined MultisigService and registers on the NEW guardian directly.
  *
- * No `abandonCandidate` on entry, and — unlike the two arms that call it after a
- * pushed proposal (cold co-sign and final co-sign) — that is a limitation rather
+ * No `abandonCandidate` on entry, and - unlike the two arms that call it after a
+ * pushed proposal (cold co-sign and final co-sign) - that is a limitation rather
  * than a judgement that there is nothing to retract.
  *
  * Most ways to get here genuinely leave nothing behind: no proposal ever reached
@@ -2734,8 +3615,8 @@ const describeError = (error: unknown): string => {
  * and the nonce was in the response the deadline fired on. The residual is a
  * later COORDINATED switch back to that same operator failing with a 409 that
  * `switch-guardian` cannot requeue through (it is excluded from
- * REQUEUEABLE_ON_PENDING_CONFLICT). Narrow — it needs the user to rotate back to
- * the operator that timed out — and strictly better than the alternative, which
+ * REQUEUEABLE_ON_PENDING_CONFLICT). Narrow - it needs the user to rotate back to
+ * the operator that timed out - and strictly better than the alternative, which
  * is letting a slow operator block the recovery path this function IS.
  */
 const generateDirectSwitchGuardianTransaction = async (
@@ -2754,7 +3635,7 @@ const generateDirectSwitchGuardianTransaction = async (
   // Mark the row BEFORE anything can fail, in both dexie and the in-memory copy
   // completion reads. The two paths leave different states behind on a partial
   // failure, and the direct one acts on a VERDICT (the outgoing operator is
-  // unreachable) that can be wrong — so a row that cannot say which path it took,
+  // unreachable) that can be wrong - so a row that cannot say which path it took,
   // or why, is not diagnosable after the fact.
   //
   // `switchedDirectly` began as pure audit but is now LOAD-BEARING:
@@ -2775,7 +3656,7 @@ const generateDirectSwitchGuardianTransaction = async (
     })
     .catch(markError => {
       // Non-fatal: never let it cost the rotation. Both consumers survive losing
-      // it — `reconcileStructuralApplyFailure` reads the in-memory copy above, and
+      // it - `reconcileStructuralApplyFailure` reads the in-memory copy above, and
       // the in-progress screen falls back to the `signing-locally` stage stamped
       // just below (`isDirectGuardianSwitch`), which is a separate write. It is
       // NOT audit-only, so do not weaken either of those.
@@ -2783,109 +3664,133 @@ const generateDirectSwitchGuardianTransaction = async (
     });
 
   // Hot + cold both sign at build time, locally. NOT `signing-proposal`, whose
-  // copy tells the user their guardian is signing — on this path no operator is
+  // copy tells the user their guardian is signing - on this path no operator is
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
-    walletAccount,
-    transaction.extraInputs.newGuardianEndpoint,
-    guardianProvider.signWord
-  );
+  let tr: TransactionRequest;
+  try {
+    tr = await createDirectSwitchGuardianRequest(
+      walletAccount,
+      transaction.extraInputs.newGuardianEndpoint,
+      guardianProvider.signWord
+    );
+  } catch (error) {
+    // The build compared this device's hot key with the chain's signer slot 0 and
+    // found another device's key there. That is a finding about the ACCOUNT, not
+    // about this switch, and the row's failure is the only place it would otherwise
+    // surface; persist it so the wallet can say that another device holds the
+    // account (`isHotKeyRotatedOut`). Best-effort, then the row fails as before.
+    if (isHotKeyRotatedOutError(error)) {
+      await guardianProvider
+        .markHotKeyRotatedOut?.(walletAccount.publicKey, error.hotPublicKey, error.onChainHotCommitment)
+        .catch(markError => {
+          console.warn(`[Guardian] could not record that ${walletAccount.publicKey} was rotated out:`, markError);
+        });
+    }
+    throw error;
+  }
 
-  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
     // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
     const requestBytes = tr.serialize();
-    result = await runWriteLeaf(transaction.id, attempt, true, () =>
-      dispatchGuardianPipeline(
-        transaction.accountId,
-        requestBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stageStampFor(transaction.id, attempt),
-        chainAnchorB64
-      )
-    );
+    const stamp = stageStampFor(transaction.id, attempt);
+    const submitGate = offscreenSubmitGate(stamp);
+    try {
+      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+        dispatchGuardianPipeline(
+          transaction.accountId,
+          requestBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stamp,
+          undefined,
+          submitGate.gate
+        )
+      );
+    } finally {
+      submitGate.settle();
+    }
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt),
-      chainAnchorB64
+      stageStampFor(transaction.id, attempt)
     );
   }
 
-  // Same commit-wait as the proposal path: the new guardian must be seeded
-  // with the POST-switch state, so registration only runs after inclusion.
-  //
-  // A DISCARD is the clean case: the node has ruled that the rotation provably
-  // did not happen, so persisting the new endpoint and reporting "Guardian
-  // switched" would be a lie the user acts on, and it would hand the account to
-  // an operator with no on-chain authority over it. Fail the row and leave the
-  // vault naming the guardian that still holds the account.
-  //
-  // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
-  // Skipping completion strands the vault on the operator this path exists
-  // because it cannot reach, and the row is terminal (`switch-guardian` is
-  // excluded from requeue and from Retry) so nothing retries. Completing anyway
-  // risks pointing the vault at an operator the chain never installed — a state
-  // with no symptom and no self-repair (see `didDirectSwitchLand`).
-  //
-  // So do not choose between them on a guess: ASK THE NODE whether it committed
-  // or discarded this transaction. Only when the node has no verdict — still
-  // pending, or no record at all — does this fall back to completing on no
-  // evidence, which is the lesser of the two harms: it at least leaves a
-  // reachable operator and a row whose audit fields say what happened. Note this
-  // asks about the TRANSACTION, not the account: `apply()` has already written
-  // the rotation into the local store, so an account read here would only ever
-  // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
-  const id = result.executedTransaction().id().toHex();
-  const discardedMessage =
-    `Direct guardian switch ${id} did not land: the node discarded it. ` +
-    'Leaving the stored guardian endpoint untouched.';
-  await setTransactionStage(transaction.id, 'confirming');
-  let commitConfirmed = true;
-  try {
-    await midenClientProxy.waitForTransactionCommit(id);
-  } catch (waitError) {
-    if (isTransactionDiscardedError(waitError)) {
-      throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+  await runLandedTail(transaction, result, async () => {
+    // Same commit-wait as the proposal path: the new guardian must be seeded
+    // with the POST-switch state, so registration only runs after inclusion.
+    //
+    // A DISCARD is the clean case: the node has ruled that the rotation provably
+    // did not happen, so persisting the new endpoint and reporting "Guardian
+    // switched" would be a lie the user acts on, and it would hand the account to
+    // an operator with no on-chain authority over it. Fail the row and leave the
+    // vault naming the guardian that still holds the account.
+    //
+    // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
+    // Skipping completion strands the vault on the operator this path exists
+    // because it cannot reach, and the row is terminal (`switch-guardian` is
+    // excluded from requeue and from Retry) so nothing retries. Completing anyway
+    // risks pointing the vault at an operator the chain never installed - a state
+    // with no symptom and no self-repair (see `didDirectSwitchLand`).
+    //
+    // So do not choose between them on a guess: ASK THE NODE whether it committed
+    // or discarded this transaction. Only when the node has no verdict - still
+    // pending, or no record at all - does this fall back to completing on no
+    // evidence, which is the lesser of the two harms: it at least leaves a
+    // reachable operator and a row whose audit fields say what happened. Note this
+    // asks about the TRANSACTION, not the account: `apply()` has already written
+    // the rotation into the local store, so an account read here would only ever
+    // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
+    const id = readTailTransactionId(transaction, result);
+    const discardedMessage =
+      `Direct guardian switch ${id} did not land: the node discarded it. ` +
+      'Leaving the stored guardian endpoint untouched.';
+    await stampPostSubmitStage(transaction.id, 'confirming');
+    let commitConfirmed = true;
+    try {
+      await midenClientProxy.waitForTransactionCommit(id);
+    } catch (waitError) {
+      if (isTransactionDiscardedError(waitError)) {
+        throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+      }
+      commitConfirmed = false;
+      console.warn(
+        `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
+          'asking the node whether the TRANSACTION committed or was discarded:',
+        waitError
+      );
     }
-    commitConfirmed = false;
-    console.warn(
-      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
-        'asking the node whether the TRANSACTION committed or was discarded:',
-      waitError
-    );
-  }
 
-  // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
-  // very often resolved by the node read below. This is the residue — submitted,
-  // and no evidence either way. It rides to the receipt so the success screen
-  // stops asserting a confirmation nothing established.
-  let commitUnconfirmed = false;
-  if (!commitConfirmed) {
-    // Asked after an evicted wait too (#1233): the wait's hold was its own, the submit already
-    // resolved, the finalize holds this node anyway, and this is the only discard check. The
-    // verdict's own sync reads nothing after a watchdog eviction of its sync (`syncBeforeVerdict`).
-    const landed = await didDirectSwitchLand(id);
-    if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
-    commitUnconfirmed = landed === undefined;
-    console.warn(
-      landed === true
-        ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
-        : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
-            'is not stranded on the unreachable operator.'
-    );
-  }
+    // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
+    // very often resolved by the node read below. This is the residue - submitted,
+    // and no evidence either way. It rides to the receipt so the success screen
+    // stops asserting a confirmation nothing established.
+    let commitUnconfirmed = false;
+    if (!commitConfirmed) {
+      // Asked after an evicted wait too (#1233): the wait's hold was its own, the submit already
+      // resolved, the finalize holds this node anyway, and this is the only discard check. The
+      // verdict's own sync reads nothing after a watchdog eviction of its sync (`syncBeforeVerdict`).
+      const landed = await didDirectSwitchLand(id);
+      if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
+      commitUnconfirmed = landed === undefined;
+      console.warn(
+        landed === true
+          ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
+          : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
+              'is not stranded on the unreachable operator.'
+      );
+    }
 
-  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
-  await setTransactionStage(transaction.id, 'complete');
+    await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
+    await stampPostSubmitStage(transaction.id, 'complete');
+  });
 };
 
 /**
@@ -2902,6 +3807,29 @@ const generateDirectSwitchGuardianTransaction = async (
  * the same verdict one step earlier and shares the one rebuild: it refuses before writing
  * a candidate, and the push runs only after the key is persisted and stamped on the row.
  */
+/** How a failed swap step is recorded, read from the error on the device; none of its text is sent. */
+const swapStepOutcome = (error: unknown): DiagnosticStepOutcome => {
+  if (isLockedError(error)) return 'locked';
+  if (isKilledPipeline(error)) return 'aborted';
+  return classifyError(error) === 'timeout' ? 'timeout' : 'failed';
+};
+
+const swapStep = <T>(step: DiagnosticStep, run: () => Promise<T>): Promise<T> =>
+  withOperationStep('swap', step, run, swapStepOutcome);
+
+// When this attempt's swap proposal was created, so the steps after it are recorded as one when the attempt ends.
+const swapProposalCreatedAt = new WeakMap<ITransaction, number>();
+
+const endSwapAttempt = (transaction: ITransaction, error?: unknown): void => {
+  if (transaction.type !== 'swap') return;
+  const createdAt = swapProposalCreatedAt.get(transaction);
+  swapProposalCreatedAt.delete(transaction);
+  if (createdAt !== undefined) {
+    const outcome = error === undefined ? 'ok' : swapStepOutcome(error);
+    logOperationStep('swap', 'proposal_execute', outcome, performance.now() - createdAt);
+  }
+};
+
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
@@ -2909,7 +3837,9 @@ const generateGuardianTransactionOnFreshState = async (
 ): Promise<void> => {
   try {
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+    endSwapAttempt(transaction);
   } catch (error) {
+    endSwapAttempt(transaction, error);
     const guardianRefused = isGuardianCommitmentMismatch(error);
     if (transaction.type !== 'replace-hot-key' || !(isStaleInitialCommitmentError(error) || guardianRefused)) {
       throw error;
@@ -2942,7 +3872,9 @@ const resolveRotationHotKey = async (
 /**
  * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
  * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
- * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does.
+ * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does,
+ * unless a freeze crosses it: that deadline is running time (#2060) and the Guardian's hold is not, so on mobile a
+ * request the platform delivers on resume can still land after the release.
  */
 const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
 
@@ -2958,7 +3890,7 @@ const proposalAgeMs = (stamps: ProposalStamps): number =>
 
 /**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
- * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
+ * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about eighteen minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
  * Guardian (a switch since) is dropped unasked. A mark whose candidate is ABANDON_RETRY_WINDOW_MS old turns plain
@@ -2981,6 +3913,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   const plain: GuardianCandidate = {
     endpoint: prior.endpoint,
     nonce: prior.nonce,
+    ...(prior.proposalId === undefined ? {} : { proposalId: prior.proposalId }),
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
@@ -2991,7 +3924,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   }
   try {
     await withTimeout(
-      service.abandonCandidate(prior.nonce),
+      service.abandonCandidate(prior.nonce, prior.proposalId),
       PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
       'retrying the abandon of a failed write on its guardian'
     );
@@ -3041,9 +3974,56 @@ const recordLeftCandidate = (
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     ...(attemptId === undefined ? {} : { attemptId })
   });
+
+/**
+ * Keep the candidate this attempt's proposal leaves on its Guardian on the row too (#1666), for the startup sweep:
+ * the record that would abandon it after a failure lives in this process, and a process killed before its submit left
+ * the account held for the Guardian's whole hold. Best-effort like a stage stamp: a lost write only waits that out.
+ */
+const persistGuardianCandidate = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  if (attemptId === undefined) return;
+  const candidate = {
+    endpoint: service.guardianEndpoint,
+    nonce: proposal.nonce,
+    proposalId: proposal.id,
+    proposedAt: proposalStamps.proposedAt,
+    attemptId
+  };
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      tx.guardianCandidate = candidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not keep candidate ${proposal.nonce} on transaction ${transaction.id}:`, error);
+  }
+};
+
+/**
+ * Drop the candidate this attempt kept on its row before its abandon goes out (#1666): once the Guardian takes it, a
+ * later process's startup sweep must not send it again, since that nonce may by then be another write's. A death
+ * between the two only waits the hold out.
+ */
+const forgetPersistedCandidate = async (transaction: ITransaction, nonce: number): Promise<void> => {
+  const attemptId = transaction.attemptId;
+  try {
+    await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+      const kept = tx.guardianCandidate;
+      if (kept !== undefined && kept.attemptId === attemptId && kept.nonce === nonce) delete tx.guardianCandidate;
+    });
+  } catch (error) {
+    console.warn(`[Guardian] could not drop candidate ${nonce} from transaction ${transaction.id}:`, error);
+  }
+};
 
 /**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
@@ -3053,15 +4033,48 @@ const recordLeftCandidate = (
 const recordUnabandonedCandidate = (
   accountId: string,
   service: MultisigService,
-  nonce: number,
+  proposal: Pick<Proposal, 'id' | 'nonce'>,
   proposalStamps: ProposalStamps
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
-    nonce,
+    nonce: proposal.nonce,
+    proposalId: proposal.id,
     ...proposalStamps,
     abandon: true
   });
+
+/**
+ * The signing-time effect check (#2147), on the summary the hot key would sign. The candidate is already on the row,
+ * written at `creating-proposal` before this check, so a process death during the fee lookup or the summary lock
+ * leaves it for the startup sweep. On any failure that candidate is forgotten and then abandoned under the outgoing
+ * deadline, as after a pre-submit failure, and flagged for the next proposal's retry when that abandon fails (#1317).
+ * The check's error is rethrown as it is.
+ */
+const assertProposalEffectBeforeSigning = async (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): Promise<void> => {
+  try {
+    await assertProposalEffectApproved(transaction, proposal.txSummary);
+  } catch (error) {
+    try {
+      // Forgotten before the abandon goes out, as on a failed submission: once the Guardian takes the nonce, a
+      // later process's startup sweep must not send it again.
+      await forgetPersistedCandidate(transaction, proposal.nonce);
+      await withOutgoingGuardianDeadline(
+        () => service.abandonCandidate(proposal.nonce, proposal.id),
+        'abandoning a guardian candidate whose effect was refused'
+      );
+    } catch (abandonError) {
+      console.error('Failed to abandon a refused Guardian candidate', { nonce: proposal.nonce, error: abandonError });
+      recordUnabandonedCandidate(transaction.accountId, service, proposal, proposalStamps);
+    }
+    throw error;
+  }
+};
 
 /**
  * Flag the record of a candidate whose abandon failed or could not even be attempted, so the account's next
@@ -3095,8 +4108,9 @@ const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
  * will before the abandon arrives, and a later write may hold the nonce. The record's identity, not its time, tells it
  * from a later write's at the same nonce: an attempt can outlive the Guardian's own discard while it proves and be kept
  * after the nonce was freed, and the next write can propose that nonce within the same second. With no such record
- * (another realm, a restart, another write's record) nothing is sent, and Retry's hold, counted from `capturedAt`,
- * outlasts the Guardian's own discard.
+ * (another realm, a restart that found the row already ended, another write's record) nothing is sent, and Retry's
+ * hold, counted from `capturedAt`, outlasts the Guardian's own discard. The startup sweep restores the record of a
+ * crossed attempt it ends (`handBackInterruptedCandidate`), so a relaunch can release that one (#2060).
  */
 export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvider): CandidateRelease => {
   const releasable = (accountId: string, nonce: number, attemptId: string): GuardianCandidate | undefined => {
@@ -3127,9 +4141,10 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       // keep leaves the candidate on another Guardian than the one this service reaches.
       const record = releasable(accountId, nonce, attemptId);
       if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      let ticket: AbandonTicket;
       try {
-        await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(nonce),
+        ticket = await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce, record.proposalId),
           'abandoning a kept candidate on its guardian'
         );
       } catch (abandonError) {
@@ -3144,7 +4159,7 @@ export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvid
       return {
         status: timeoutMs =>
           withTimeout(
-            service.abandonStatus(nonce),
+            service.abandonStatus(nonce, ticket),
             Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
             'reading the release of a kept candidate'
           )
@@ -3165,20 +4180,25 @@ const generateGuardianTransaction = async (
   // Gate ordinary guardian-signed ops while the stored endpoint is untrustworthy.
   // 'switch-guardian' is exempt: it's the deliberate, user-initiated provider
   // change (GuardianSettings) and must stay available as a manual recovery path.
-  // The primary recovery mechanisms — resolveGuardianDrift's auto-resolution and
-  // applyUserGuardianEndpoint's verified-URL apply — reconcile the vault directly
+  // The primary recovery mechanisms - resolveGuardianDrift's auto-resolution and
+  // applyUserGuardianEndpoint's verified-URL apply - reconcile the vault directly
   // and never route through this function, so exempting switch-guardian here only
   // affects the deliberate Settings-driven switch flow, not account recovery.
   if (transaction.type !== 'switch-guardian') {
-    const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+    const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
       sameWalletAccountId(a.publicKey, transaction.accountId)
     );
     if (walletAccount) {
-      assertGuardianInSync(walletAccount);
+      try {
+        assertGuardianInSync(walletAccount);
+      } catch (error) {
+        annotateCrash(error, { proposalStep: 'service_select', proposalGuard: 'guardian_out_of_sync' });
+        throw error;
+      }
     }
   }
 
-  // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
+  // Set the stage eagerly - `getOrCreateMultisigService` and the subsequent
   // `createXxxProposal` call can both hit the guardian over the network,
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
@@ -3187,6 +4207,7 @@ const generateGuardianTransaction = async (
   // write leaves measures its retry window from here (#1317).
   const proposalStamps: ProposalStamps = { proposedAt: Date.now(), proposedAtMono: monotonicNowMs() };
   let proposalResult: Proposal;
+  let switchProposalExport: string | undefined;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
   // structural ops (replace-hot-key / update-procedure-threshold) and, per
@@ -3209,11 +4230,11 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const recallBlocks = sendTx.extraInputs?.recallBlocks;
-      if (recallBlocks) {
+      const { recallBlocks, calendarRecallTarget } = sendTx.extraInputs ?? {};
+      if (recallBlocks || calendarRecallTarget !== undefined) {
         // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
         // P2ID send proposal has no reclaim support, so the expiration the
-        // user picked used to be silently dropped on Guardian accounts —
+        // user picked used to be silently dropped on Guardian accounts -
         // every guardian send went out as a plain P2ID, never recallable.
         // Route recallable sends through a custom proposal built from a P2IDE
         // send request instead; once createP2idProposal grows
@@ -3234,12 +4255,13 @@ const generateGuardianTransaction = async (
           // Private` mapped an unrecognized value to Private (safe but silent)
           // and a MISSING one to Private too, where this resolves missing to
           // Public like the SDK. That is only sound because a missing noteType
-          // can no longer reach here — the dApp send boundary rejects it with
+          // can no longer reach here - the dApp send boundary rejects it with
           // InvalidParams before the user is prompted, and the wallet's own
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+          calendarRecallTarget
         );
         proposalResult = await proposeRebased(
           service,
@@ -3253,7 +4275,7 @@ const generateGuardianTransaction = async (
         // hardcoded Private, which broke a Public guardian send two ways at
         // once: the note went out private although the review screen (and a
         // dApp's preview) said Public, and because the ROW still said 'public',
-        // `completeSendTransaction` skipped the private-note relay — so the
+        // `completeSendTransaction` skipped the private-note relay - so the
         // recipient was never handed the note file and could not see or consume
         // it, on a plain P2ID with no reclaim window for the sender either.
         proposalResult = await service.createSendProposal(
@@ -3267,11 +4289,48 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      const gcPurchase = gcPurchaseOf(transaction);
+      if (gcPurchase) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // The sale note is the seller's, read on the node inside the proposal's hold, and the request is rebuilt
+        // there on every attempt, never rebased (that rebuild drops the note it consumes). A late approval is
+        // harmless: once another buyer spends the note, the fill fails execution and nothing is paid.
+        proposalResult = await service.createPswapConsumeProposal(gcPurchase, async requestBytes => {
+          transaction.requestBytes = requestBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = requestBytes;
+          });
+        });
+      } else if (preparedPswapReclaimBytes(transaction)) {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        // Settlement's bytes are bound to the block it built them at, so the cancel is rebuilt in the proposal's hold,
+        // never rebased (that rebuild drops the tip it consumes). It gets no GUARDIAN_EXPIRATION_DELTA_BLOCKS bound:
+        // the SDK's PSWAP cancel builder takes no builder options. A late approval is harmless, since it only takes
+        // back the creator's own note, and once that tip is consumed the cancel fails execution.
+        // Only a Guardian-recovered order's tip is a note this client never tracked, read on the node (#1487).
+        const swapOrderTxId = transaction.extraInputs?.swapOrderTxId;
+        const swapOrder = swapOrderTxId ? await Repo.transactions.where({ id: swapOrderTxId }).first() : undefined;
+        proposalResult = await service.createPswapCancelProposal(
+          consumeTx.noteId,
+          async requestBytes => {
+            transaction.requestBytes = requestBytes;
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+            });
+          },
+          { allowNodeNote: swapOrder !== undefined && isRecoveredReturnOrder(swapOrder) }
+        );
+      } else {
+        const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
+        service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      }
       break;
     }
     case 'switch-guardian': {
@@ -3281,12 +4340,14 @@ const generateGuardianTransaction = async (
       // record of it. The service load touches the OUTGOING operator alone. The
       // proposal push does not: `createSwitchGuardianProposal` fetches the NEW
       // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
-      // endpoint fails there — and reporting that as "outgoing guardian
+      // endpoint fails there - and reporting that as "outgoing guardian
       // unreachable" blames the wrong operator on the one path whose entire job
-      // is saying which one is down. The two are not separable from out here
-      // (one rejection, either origin), so the message widens rather than
-      // guesses; the direct path then re-fails on the new endpoint and names it.
+      // is saying which one is down. A rejection of the new guardian's own key
+      // fetch is marked, so its origin is known and the subject is 'new guardian'.
+      // An unmarked rejection of the proposal push has either origin, so the
+      // subject stays 'outgoing or new guardian' and does not guess.
       let unreachableSubject = 'outgoing guardian';
+      let syncPhase: ProposalSyncPhase | undefined;
       try {
         service = await withOutgoingGuardianDeadline(
           () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
@@ -3294,18 +4355,31 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() =>
-          withOutgoingGuardianDeadline(
-            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
+        const { proposal, exportedProposal } = await withGuardianConflictRetry(() => {
+          const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+          syncPhase = phase;
+          return withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint, phase),
             'pushing the switch-guardian proposal'
-          )
-        );
+          );
+        });
         proposalResult = proposal;
+        switchProposalExport = exportedProposal;
       } catch (error) {
+        // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
+        if (syncPhase) syncPhase.abandoned = true;
+        // A deadline or an eviction can reject mid-sync. A kill is never the node's answer, so it keeps its own name;
+        // anything else there is the node keeping the attempt waiting, not the Guardian.
+        if (syncPhase?.syncing) {
+          if (isKilledPipeline(error)) throw error;
+          throw new ProposalChainSyncError(error);
+        }
+        // The node failed, not the Guardian: a direct switch would replace a coordinated proposal against a
+        // possibly healthy Guardian with a fresh on-chain write.
+        if (isProposalChainSyncError(error)) throw error;
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
-        // fall back to the direct on-chain switch — the whole point of
+        // fall back to the direct on-chain switch - the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
-        // Reachable-guardian errors (401/409/…) keep the normal handling.
         //
         // "It answered, and it cannot co-sign for this account" is the second
         // condition that has to route here, and leaving it out closed the escape
@@ -3316,7 +4390,7 @@ const generateGuardianTransaction = async (
         // A rotation that landed on chain while the wallet's record of it did not
         // (`endpointPersistFailed`, or a failed `apply()`) leaves the vault naming
         // an operator the chain no longer does, and that one answers
-        // `account_released` — a 409, so not a 5xx either. In both states Settings
+        // `account_released` - a 409, so not a 5xx either. In both states Settings
         // shows "Needs attention" and offers exactly one action, Rotate Guardian,
         // and that action died at the FIRST step because loading the outgoing
         // service calls the guardian's `getState`. The row then failed terminally
@@ -3325,21 +4399,37 @@ const generateGuardianTransaction = async (
         // AWAY both are exactly as unusable as one that is down, and the direct
         // path needs nothing from either: it signs locally with hot + cold and
         // submits on chain.
-        const directSwitchTrigger = isGuardianUnreachableError(error)
-          ? `${unreachableSubject} unreachable`
-          : isGuardianAccountUnusable(error)
-            ? // Attributed by PHASE, not hardcoded. Only the service load is
-              // account-scoped to the outgoing operator alone; once it has
-              // succeeded the new endpoint is in play too, and a user-typed URL
-              // answering its non-account-scoped `/pubkey` with
-              // `404 {"code":"data_unavailable"}` reaches this same branch. This
-              // reason string is the row's only record of which operator a
-              // verdict was about, so it widens rather than guessing — the same
-              // rule the block above states for unreachability.
-              `${unreachableSubject} cannot co-sign for this account`
-            : undefined;
-        if (directSwitchTrigger === undefined) throw error;
-        console.warn(`[Guardian] ${directSwitchTrigger} — switching directly on-chain:`, error);
+        //
+        // A refusal (any HTTP 4xx: a 401, a 403, a 409 that did not clear, a 429)
+        // is the third condition. The user asked to leave this operator, so its
+        // refusal of the proposal must not block the switch. A refusal is the
+        // OUTGOING Guardian's answer: a 4xx from the NEW Guardian's key fetch is
+        // marked in `createSwitchGuardianProposal`, is not a refusal, and fails the
+        // row with the Guardian's own error, which gives the status and the reason
+        // and does not name the endpoint. An error that is not a Guardian answer
+        // (a local failure, a rejected signature prompt) has no trigger and fails
+        // the row.
+        const trigger = directSwitchTriggerFor(error);
+        if (trigger === undefined) throw error;
+        // Attributed by PHASE and by MARKER, not hardcoded. Only the service load
+        // is account-scoped to the outgoing operator alone. A user-typed new URL
+        // that answers its key fetch with `404 data_unavailable` is marked and has
+        // no trigger. A marked error that reaches here is an unreachable verdict of
+        // the new Guardian, so its subject is 'new guardian'. Only the outgoing
+        // push can give an account-scoped code after the service loaded.
+        //
+        // Known limit: the multisig client fetches the new Guardian's key again
+        // inside the proposal push (`buildSwitchGuardianSummary` and
+        // `verifyGuardianEndpointCommitment` in `@openzeppelin/miden-multisig-client`,
+        // `multisig.js` lines 1295-1323 and 268-281). Its error carries no URL and
+        // is not marked, so a 4xx from that second fetch looks like an outgoing
+        // refusal and starts the direct switch. The direct switch gives the switch
+        // the user asked for. A fix needs the multisig client to mark or expose the
+        // origin of that fetch. This is why an unmarked push refusal keeps the
+        // subject 'outgoing or new guardian'.
+        const subject = isNewGuardianAnswer(error) ? 'new guardian' : unreachableSubject;
+        const directSwitchTrigger = `${subject} ${trigger}`;
+        console.warn(`[Guardian] ${directSwitchTrigger} - switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
           signCallback,
@@ -3351,17 +4441,26 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'replace-hot-key': {
-      const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+      const walletAccount = (await withProposalStep('service_select', () => guardianProvider.getAccounts())).find(a =>
         sameWalletAccountId(a.publicKey, transaction.accountId)
       );
       if (!walletAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in provider`), true, {
+          proposalStep: 'service_select',
+          proposalGuard: 'account_not_guardian'
+        });
       }
-      const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey));
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
+      );
       if (!sdkAccount) {
-        throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
+        throw atProposalStep(new Error(`Guardian account ${transaction.accountId} not found in local client`), true, {
+          proposalStep: 'service_account_read'
+        });
       }
-      service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      service = await withProposalStep('service_load', () =>
+        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+      );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
       const rTx = transaction as ReplaceHotKeyTransaction;
@@ -3389,9 +4488,9 @@ const generateGuardianTransaction = async (
       // KNOWN LEAK: if this rotation terminally fails (submit error → tx
       // cancelled, never reconciled) and the user re-initiates, a fresh hardware
       // key is minted while this one's SE/Keystore entry + ciphertext blob are
-      // left orphaned (inert). A blind delete-on-failure here is unsafe — the
+      // left orphaned (inert). A blind delete-on-failure here is unsafe - the
       // persist-before-submit design relies on this blob surviving for the
-      // reconcile path — so reaping orphaned pending keys belongs in a dedicated
+      // reconcile path - so reaping orphaned pending keys belongs in a dedicated
       // cleanup, not this hot path. Every run that starts before the key is
       // persisted mints, so any of them can orphan a key: by failing outright
       // (a non-409 proposal error, a 429, an adopt 503, a poison eviction, an
@@ -3412,55 +4511,20 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'bridged-send': {
+      await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
+      // The recorded request and its one note, before the service load, which can reach the guardian. The note id
+      // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
+      const requestBytes = requireBridgedSendRecordedRequest(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
-      // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
-      // branch persists the P2IDE bytes it builds, so a retry would otherwise be
-      // mistaken for the Agglayer (pre-built request) path.
       if (bridgeTx.extraInputs?.provider === 'epoch') {
-        // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
-        // note — it reads the note on-chain (a private note is "not found on-chain"),
-        // validates its recall window (a plain P2ID has none and is rejected,
-        // "P2IDE reclaim window too small"), AND requires the mandate-binding
-        // attachment (smallocator PR #38 — "Miden note is not bound to the intent
-        // mandate"). Rows queued by `createBridgeP2IDENote` carry the pre-built
-        // request (own output note with the attachment) in `requestBytes`, which
-        // `ensureGuardianRecallableSendRequestBytes` returns verbatim; its build
-        // path below is only a fallback for legacy attachment-less rows.
-        const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
-        if (!recallBlocks) {
-          throw new Error(
-            'Epoch bridged-send is missing recallBlocks; cannot build the recallable P2IDE collateral note the allocator requires.'
-          );
-        }
-        const requestBytes = await ensureGuardianRecallableSendRequestBytes(
-          transaction,
-          bridgeTx.secondaryAccountId!,
-          bridgeTx.faucetId,
-          BigInt(bridgeTx.amount),
-          NoteType.Public,
-          recallBlocks,
-          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-          // Allocator-validated collateral: measure the reclaim height against a
-          // fresh chain head.
-          { freshSync: true }
-        );
         proposalResult = await withGuardianConflictRetry(() =>
           proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
-        // Agglayer: preview the pre-built request into a custom multisig proposal.
-        // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
-        const aggBytes = bridgeTx.requestBytes!;
-        if (aggBytes !== bridgeTx.requestBytes) {
-          transaction.requestBytes = aggBytes;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = aggBytes;
-          });
-        }
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, aggBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          proposeRebased(service, transaction, requestBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -3485,7 +4549,8 @@ const generateGuardianTransaction = async (
       // the pre-built P2IDE collateral request (own output note with the
       // mandate-binding attachment, smallocator PR #38) in `requestBytes`, and they
       // are proposed as they are, with the fee conversion salt declared when they
-      // were built. Checked before the service load, which can reach the guardian.
+      // were built. An Earn deposit without its bytes or without that one note is refused here, before
+      // `getOrCreateMultisigService`, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
@@ -3509,10 +4574,22 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'swap': {
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
+      const swapService = await swapStep('service_prepare', async () => {
+        const prepared = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, prepared);
+        await assertPriorCandidateSettled(transaction, prepared);
+        return prepared;
+      });
+      service = swapService;
       const swapTx = transaction as SwapTransaction;
+      if (!transaction.mayHaveSubmitted) {
+        await assertSwapVaultBalance(
+          swapTx.accountId,
+          swapTx.faucetId,
+          BigInt(swapTx.amount),
+          swapTx.extraInputs.balanceScope
+        );
+      }
       // PSWAP notes carry a randomly-generated serial number, so the request
       // must be built ONCE and the exact same bytes reused for BOTH
       // `createCustomProposal` and `signAndCreateTransactionRequest` below (the
@@ -3521,65 +4598,89 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
-        // WASM module and re-entering it under the client lock traps.
-        const swapFeeSalt = randomFeeSalt();
-        const requestBytes = await withWasmClientLock(async hold => {
-          // The offered asset has to carry the vault key of the slot it is
-          // actually held in — the callback flag is part of that key, and the
-          // PSWAP builder always produces the Disabled variant. Read the vault
-          // through the proxy, like every other path that does this, so under the
-          // offscreen client the key comes from the realm that will EXECUTE the
-          // request. The proxy read is unlocked by design and this scope already
-          // holds the client lock, which is what that contract requires.
-          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
-          // An eviction during the read ABANDONS this callback without stopping
-          // it: the creator Account is a borrow of a client a successor now
-          // owns, and reaching for the realm's reader below would queue this dead
-          // flow on the reader its successor uses. Pre-proposal throughout, so
-          // stopping costs one retry.
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
-          // The realm's reader client (see `getRealmReaderClient`), not a per-call
-          // client: 0.16 can release neither, so a client per swap build leaked.
-          // Its first build is the long parking await here (a genesis fetch on a
-          // fresh store), hence the re-check after it.
-          const client = await getRealmReaderClient();
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
-          const tr = await client.newPswapCreateTransactionRequest(
-            accountIdStringToSdk(swapTx.accountId),
-            accountIdStringToSdk(swapTx.faucetId),
-            swapTx.amount,
-            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-            swapTx.extraInputs.requestedAmount,
-            NoteType.Public,
-            NoteType.Public
-          );
-          // `buildPswapCreateRequest` reads the creator Account - the SHARED
-          // client's borrow, not the reader's - so the request build needs its
-          // own re-check after the await above.
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
-          const baseBuilder = await feeAwareRequestBuilder(
-            (await getMidenClient()).client,
-            accountIdStringToSdk(swapTx.accountId).toString(),
-            swapFeeSalt
-          );
-          assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
-          // Built once and rewritten once, in the same scope: each builder call
-          // draws a fresh serial number, which IS the order id. See
-          // `buildPswapCreateRequest`.
-          return buildPswapCreateRequest(
-            creatorAccount ?? undefined,
-            tr,
-            swapTx.faucetId,
-            BigInt(swapTx.amount),
-            GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-            baseBuilder
-          ).serialize();
-        });
+        const built = await swapStep('request_build', () =>
+          withProposalStep('swap_request_build', async () => {
+            // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+            // WASM module and re-entering it under the client lock traps.
+            const swapFeeContext = await readSwapFeeContext(swapTx.extraInputs.balanceScope);
+            const swapFeeSalt = randomFeeSalt();
+            return withWasmClientLock(async hold => {
+              // The offered asset has to carry the vault key of the slot it is
+              // actually held in - the callback flag is part of that key, and the
+              // PSWAP builder always produces the Disabled variant. Read the vault
+              // through the proxy, like every other path that does this, so under the
+              // offscreen client the key comes from the realm that will EXECUTE the
+              // request. The proxy read is unlocked by design and this scope already
+              // holds the client lock, which is what that contract requires.
+              const creatorAccount = await midenClientProxy.getAccount(
+                walletAccountIdToSdk(swapTx.accountId).toString()
+              );
+              // An eviction during the read ABANDONS this callback without stopping
+              // it: the creator Account is a borrow of a client a successor now
+              // owns, and reaching for the realm's reader below would queue this dead
+              // flow on the reader its successor uses. Pre-proposal throughout, so
+              // stopping costs one retry.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
+              assertSwapAccountBalance(
+                creatorAccount,
+                swapTx.accountId,
+                swapTx.faucetId,
+                swapTx.amount,
+                swapFeeContext,
+                swapTx.extraInputs.balanceScope ?? swapFeeContext.scope
+              );
+              // The realm's reader client (see `getRealmReaderClient`), not a per-call
+              // client: 0.16 can release neither, so a client per swap build leaked.
+              // Its first build is the long parking await here (a genesis fetch on a
+              // fresh store), hence the re-check after it.
+              const client = await getRealmReaderClient();
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
+              const tr = await client.newPswapCreateTransactionRequest(
+                walletAccountIdToSdk(swapTx.accountId),
+                accountRefToSdk(swapTx.faucetId),
+                swapTx.amount,
+                accountRefToSdk(swapTx.extraInputs.requestedFaucetId),
+                swapTx.extraInputs.requestedAmount,
+                NoteType.Public,
+                NoteType.Public
+              );
+              // `buildPswapCreateRequest` reads the creator Account - the SHARED
+              // client's borrow, not the reader's - so the request build needs its
+              // own re-check after the await above.
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+              const baseBuilder = await feeAwareRequestBuilder(
+                (await getMidenClient()).client,
+                walletAccountIdToSdk(swapTx.accountId).toString(),
+                swapFeeSalt
+              );
+              assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
+              // Built once and rewritten once, in the same scope: each builder call
+              // draws a fresh serial number, which IS the order id. See
+              // `buildPswapCreateRequest`.
+              const request = buildPswapCreateRequest(
+                creatorAccount ?? undefined,
+                tr,
+                swapTx.faucetId,
+                BigInt(swapTx.amount),
+                GUARDIAN_EXPIRATION_DELTA_BLOCKS,
+                baseBuilder
+              );
+              // Off the built request, never the reference note, which moved by value into its NoteArray.
+              return { bytes: request.serialize(), order: requestOrderOf(() => request.expectedOutputOwnNotes()) };
+            });
+          })
+        );
+        const { bytes: requestBytes, order } = built;
         transaction.requestBytes = requestBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = requestBytes;
-        });
+        transaction.extraInputs = withRequestOrder(transaction.extraInputs, order);
+        await swapStep('request_persist', () =>
+          withProposalStep('swap_request_persist', () =>
+            Repo.transactions.where({ id: transaction.id }).modify(t => {
+              t.requestBytes = requestBytes;
+              t.extraInputs = withRequestOrder(t.extraInputs, order);
+            })
+          )
+        );
       }
       // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
       // run on whatever bytes they are about to use; this one used to sit inside the `if`, so a
@@ -3598,14 +4699,17 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await proposeRebased(service, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS);
+      proposalResult = await swapStep('proposal_create', () =>
+        proposeRebased(swapService, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+      );
+      swapProposalCreatedAt.set(transaction, performance.now());
       break;
     }
     case 'update-procedure-threshold': {
       // Cold-routed structural change (same class as switch-guardian /
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
-      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider, { forProposal: true });
       await releaseUnabandonedCandidate(transaction, service);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
@@ -3627,18 +4731,117 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
-      // unlike every other custom-proposal path there is no builder here to commit fee
-      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
-      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
-      // has to happen where the request is built, i.e. dApp-side.
-      proposalResult = await service.createCustomProposal(requestBytes);
+      // The dry run below and the proposal summary both tell a kernel fee note from a user note by the cached chain
+      // fee, so a note within FEE_RESERVE_MULTIPLE of that fee is the fee. Read it before the dry run, and so before
+      // a proposal takes a nonce. A null while the read failed is not an answer: refuse here, outside the
+      // post-proposal try, so nothing is proposed and no nonce is abandoned. A number, 0 included, and a null the
+      // probe found absent, both continue; both decodes refuse as an unknown fee if the cache empties or the
+      // endpoint moves after this read. The signing check still refreshes after the candidate exists, and a fresh
+      // read returns this same cache.
+      let feeScope: string | undefined;
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        const chainFee = await refreshVerificationBaseFee();
+        feeScope = cacheScope();
+        if (chainFee === null && !isVerificationBaseFeeKnownAbsent()) {
+          throw new ProposalFeeUnknownError(getMessage('chainFeeUnknown'));
+        }
+      }
+      let preparedBytes: Uint8Array;
+      let observedDiagnostics: ITransaction['failureDiagnostics'];
+      const attemptId = transaction.attemptId;
+      try {
+        preparedBytes = await withWasmClientLock(async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'after the custom request client build');
+          const prepared = await prepareCustomRequestBytes(
+            client.client,
+            transaction.accountId,
+            requestBytes,
+            hold,
+            diagnostics => {
+              observedDiagnostics = diagnostics;
+              transaction.failureDiagnostics = diagnostics;
+            }
+          );
+          assertWasmHoldCurrent(hold, 'after custom request preparation');
+          // The wallet proposes only the effects that the user approved. A dry run of the prepared bytes must give
+          // the approved effects, and its spends must be the row's `spentAssetTotals`; else this throws
+          // `CustomTransactionEffectsChangedError` and nothing is proposed. See `custom-effects.ts` for the cases
+          // that fail by design.
+          await verifyPreparedCustomRequest(
+            customEffectsCheckAccess(client.client, transaction.accountId, prepared, hold),
+            transaction.approvedEffects,
+            transaction.spentAssetTotals,
+            feeScope
+          );
+          assertWasmHoldCurrent(hold, 'after the custom request effects check');
+          return prepared;
+        });
+      } finally {
+        if (observedDiagnostics !== undefined) {
+          try {
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              if (t.attemptId !== attemptId) return false;
+              t.failureDiagnostics = observedDiagnostics;
+              return undefined;
+            });
+          } catch {
+            // A diagnostic write must not fail a transaction or hide its original error.
+          }
+        }
+      }
+      if (preparedBytes !== requestBytes) {
+        // Signing and retries must reuse the salt and bound block the proposal executes with.
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = preparedBytes;
+        });
+        transaction.requestBytes = preparedBytes;
+      }
+      proposalResult = await service.createCustomProposal(preparedBytes);
+      // The proposal summary is the execution that will be signed. It has to be the effects the user
+      // approved. No other proposal type is a dApp execution. A mismatch abandons this nonce before
+      // it is kept or signed; a failed abandon is recorded so the account's next proposal retries it.
+      if (transaction.type === 'execute' && transaction.approvedEffects !== undefined) {
+        try {
+          assertCustomEffectsApproved(
+            transaction.approvedEffects,
+            { summaryBytes: proposalResult.txSummary },
+            transaction.spentAssetTotals,
+            false,
+            feeScope
+          );
+        } catch (effectsError) {
+          // No hold covers this decode, so a trap retires through `retireWasmClientForUnheldTrap` and leaves the row
+          // id open for that row's later landed readers. Any other refusal is rethrown with no retire.
+          if (effectsError instanceof WebAssembly.RuntimeError) {
+            retireWasmClientForUnheldTrap(effectsError);
+          }
+          try {
+            await withOutgoingGuardianDeadline(
+              () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
+              'abandoning a custom proposal whose summary differs from the approved effects'
+            );
+          } catch (abandonError) {
+            console.error('Failed to request Guardian candidate abandonment', {
+              nonce: proposalResult.nonce,
+              error: abandonError
+            });
+            recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
+          }
+          throw effectsError;
+        }
+      }
       break;
     }
   }
 
-  // Sign and execute the proposal
-  await setTransactionStage(transaction.id, 'signing-proposal');
+  // Kept while the row is still at `creating-proposal`, before the effect check: a process death during the
+  // fee lookup or the summary lock leaves the candidate where the startup sweep can hand it back.
+  await persistGuardianCandidate(transaction, service, proposalResult, proposalStamps);
+  await assertProposalEffectBeforeSigning(transaction, service, proposalResult, proposalStamps);
+
+  // Sign and execute the proposal. The proposal already exists if this write fails.
+  await withProposalStep('signing_stage_write', () => setTransactionStage(transaction.id, 'signing-proposal'));
 
   // switch_guardian is on-chain threshold-2 (set at create time via
   // procedureThresholds). Hot's signAndCreateTransactionRequest below
@@ -3670,23 +4873,39 @@ const generateGuardianTransaction = async (
           ),
         'loading the cold co-signing service from the outgoing guardian'
       );
-      // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
+      // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too -
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await withGuardianConflictRetry(() =>
-        withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
+      await withGuardianConflictRetry(() => {
+        const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+        return withOutgoingGuardianDeadline(
+          // The cold service imports the export captured under the hot creation hold and signs the imported
+          // id. Without that export the SDK reads the outgoing guardian's full pending list, and one pending
+          // proposal that does not parse fails that read (#2225).
+          () =>
+            coldService.signProposal(
+              proposalResult.id,
+              outgoingGuardianHold('switch-guardian cold co-sign'),
+              switchProposalExport,
+              phase
+            ),
           'cold co-signing the switch-guardian proposal'
-        )
-      );
+        ).catch((error: unknown) => {
+          phase.abandoned = true;
+          if (phase.syncing && !isKilledPipeline(error)) throw new ProposalChainSyncError(error);
+          throw error;
+        });
+      });
     } catch (error) {
+      if (error instanceof ColdProposalAdoptionError) throw error.cause;
+      if (isProposalChainSyncError(error)) throw error;
       // Connectivity to the outgoing guardian dropped between proposal push and
       // cold co-sign, or the operator stopped being able to co-sign for this
       // account in that window: fall back to the direct on-chain switch.
       //
       // F-166 deliberately left the account-unusable verdicts off THIS catch, on
       // the reasoning that a pushed proposal proves the operator knows the
-      // account. It does — at push time. What it does not prove is that the
+      // account. It does - at push time. What it does not prove is that the
       // operator still holds it at co-sign time, and there is no exit from the
       // gap: `switch-guardian` is in neither requeue set and has no user Retry, so
       // the row fails terminally, and a fresh rotation attempt reaches an operator
@@ -3695,16 +4914,22 @@ const generateGuardianTransaction = async (
       // verdict's timing changes what it means for the direct path, which asks the
       // outgoing operator for nothing; the pushed delta is retracted best-effort
       // just below, exactly as it is for an unreachable operator.
-      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
-      console.warn('[Guardian] outgoing guardian unusable at cold co-sign — switching directly on-chain:', error);
-      // Try to retract the pushed delta first, best-effort and swallowed — the
+      //
+      // A refusal of the cold co-sign (any HTTP 4xx) goes to the direct path too.
+      const coldCoSignTrigger = directSwitchTriggerFor(error);
+      if (coldCoSignTrigger === undefined) throw error;
+      console.warn(
+        `[Guardian] outgoing guardian ${coldCoSignTrigger} at cold co-sign - switching directly on-chain:`,
+        error
+      );
+      // Try to retract the pushed delta first, best-effort and swallowed - the
       // same idiom the submission failure path below uses. It will usually fail
       // (it needs the operator we just failed to reach), but "the call may fail"
       // is not a reason to skip it: the guardian may have been down only for the
       // co-sign window, and a delta left pending outlives this switch. Because
       // `switch-guardian` is in neither `REQUEUEABLE_ON_PENDING_CONFLICT` nor the
       // Retry set, a later coordinated switch that meets that stale delta gets a
-      // 409 it cannot requeue through and is cancelled — so the leftover is not
+      // 409 it cannot requeue through and is cancelled - so the leftover is not
       // harmless whenever the operator comes back.
       //
       // Safe to retract here, unlike the poison case further down: no chain
@@ -3713,15 +4938,17 @@ const generateGuardianTransaction = async (
       // there is no co-signature the chain may be about to consume.
       //
       // Deadline-bounded like the calls above it, and for a sharper reason: one
-      // of the two verdicts that reach here is that this operator is unreachable,
-      // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. Left to the fetch boundary's minute per
+      // of the three verdicts that reach here (unreachable, cannot co-sign and
+      // refused) is that this operator is unreachable, and the shape that most
+      // often produces that verdict is one that accepts the connection and never
+      // replies. Left to the fetch boundary's minute per
       // request, a best-effort call against it holds the row at `signing-proposal`
       // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
       // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the pending delta on the outgoing guardian'
         );
       } catch (abandonError) {
@@ -3729,15 +4956,13 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${coldCoSignTrigger} at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }
@@ -3752,9 +4977,9 @@ const generateGuardianTransaction = async (
   // spans both sides of that boundary: the co-sign is guardian HTTP, but
   // everything after it is the leaf, which executes, proves, and SUBMITS. A
   // submit-time transport failure ("failed to fetch", a timeout) is
-  // indistinguishable by message from the outgoing operator going silent —
+  // indistinguishable by message from the outgoing operator going silent -
   // `isGuardianUnreachableError` falls through to a substring match on the
-  // message — so classifying the error alone would let a rotation that is
+  // message - so classifying the error alone would let a rotation that is
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
   // Did THIS attempt's inline leaf report 'submitting'? Set by the stamp only `runGuardianPipeline` is handed, once it
@@ -3768,18 +4993,36 @@ const generateGuardianTransaction = async (
   // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
-  let submitCrossed = false;
+  let inlineSubmittingStageStarted = false;
+  let inlineLockEvicted = false;
+  let submitStageRecorded = false;
+  let inlineSubmitCallReached = false;
+  let markPreSubmitAfterStageWrite = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
-  const stampStage = stageStampFor(
+  const baseStampStage = stageStampFor(
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
+  const stampStage = isReviewedNativeBridge(transaction)
+    ? ownedBridgeStageStamp(transaction, baseStampStage)
+    : baseStampStage;
   const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+    if (stage === 'submitting') inlineSubmittingStageStarted = true;
     await stampStage(stage, detail);
-    if (stage === 'submitting') submitCrossed = true;
+    if (stage === 'submitting') {
+      submitStageRecorded = true;
+      // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
+      // that has not landed yet, so retire it again after the awaited stage stamp creates it.
+      if (markPreSubmitAfterStageWrite && transaction.attemptId !== undefined) {
+        await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+      }
+    }
   };
+  // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
+  // its candidate is abandoned instead of held for the Guardian's grace (#1644).
+  const submitGate = offscreenSubmitGate(stampStage);
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
@@ -3808,8 +5051,7 @@ const generateGuardianTransaction = async (
     // worse-attributed route, and it costs a leftover pending delta on a healthy
     // operator (best-effort abandoned below). A silent operator is the case that
     // matters, and the hold's deadline ceiling evicts it at about 30s.
-    const signAndCreateRequest = () =>
-      service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    await assertOwnedNativeBridgeSource(transaction);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
@@ -3821,20 +5063,37 @@ const generateGuardianTransaction = async (
               ),
             'co-signing the switch-guardian request with the outgoing guardian'
           )
-        : await signAndCreateRequest();
+        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
     // Past the guardian round trip. Everything below can reach the chain, so the
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
+    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    const oneClickDeadline = oneClick
+      ? assertOneClickFundingDeadlineMatches(
+          oneClick.fundingDeadline,
+          oneClick.request.deadline,
+          oneClick.quote.quote.deadline
+        )
+      : undefined;
+    const oneClickRequired = oneClick !== undefined;
 
     await requireBridgeSubmitClaim(transaction);
+    const testAuthorizationKind = await authorizeTestGuardianRequest(transaction, tr, async noteId => {
+      const client = await getMidenClient();
+      return withWasmClientLock(async hold => {
+        const record = await client.getInputNote(noteId);
+        assertStillHoldingLock(hold, 'after reading the exact authorized consume note');
+        return record?.toNote() ?? null;
+      });
+    });
     await setTransactionStage(transaction.id, 'sending');
     const attempt = attemptContextOf(transaction, proposalResult.nonce);
     if (offscreenLeaf) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
-      // signed request crosses as bytes: its extended advice map — where the hot
-      // / cold / guardian co-signatures live — is preserved by
+      // signed request crosses as bytes: its extended advice map - where the hot
+      // / cold / guardian co-signatures live - is preserved by
       // `TransactionRequest.serialize()` (Rust `Serializable for TransactionRequest`
       // writes `advice_map.write_into(target)`; §4.0), so the offscreen realm
       // executes the identical request. execute→prove→submit→apply runs whole-op
@@ -3853,8 +5112,8 @@ const generateGuardianTransaction = async (
       // and the SW build defaults the flag ON, so a flag-ON-only gap here would blank
       // the step durations on the primary send flow of the primary platform.
       //
-      // The submit crossing rides that same channel — 'submitting' arrives like
-      // any other stage and `stageStampFor` records it — but a replayed stamp is
+      // The submit crossing rides that same channel - 'submitting' arrives like
+      // any other stage and `stageStampFor` records it - but a replayed stamp is
       // not a substitute for pinning the guard here, because the failure this
       // guards against is precisely the one that eats the replay: a realm killed
       // between `submit()` and the event reaching the SW leaves the row looking
@@ -3866,14 +5125,14 @@ const generateGuardianTransaction = async (
       // over-approximation affordable. The flag is sticky and vetoes the cached-
       // request clear in `requeueTransactionForRetry`, so stamping a row that
       // caches nothing would assert a crossing on a row with neither bytes nor a
-      // captured id — the exact shape `requeueFailedTransaction` refuses — and
+      // captured id - the exact shape `requeueFailedTransaction` refuses - and
       // brick every non-recallable guardian send on its FIRST failure, the
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
       // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
-      const requestBytes = tr.serialize();
+      const requestBytes = await withProposalStep('submit_serialize', async () => tr.serialize());
       if (transaction.requestBytes !== undefined) {
-        await pinGuardianCrossing(transaction.id, attempt);
+        await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
       result = await runWriteLeaf(transaction.id, attempt, true, () =>
@@ -3883,7 +5142,11 @@ const generateGuardianTransaction = async (
           transaction.delegateTransaction,
           signCallback,
           stampStage,
-          chainAnchorB64
+          chainAnchorB64,
+          submitGate.gate,
+          oneClickDeadline,
+          oneClickRequired,
+          testAuthorizationKind
         )
       );
     } else {
@@ -3892,16 +5155,26 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64
+        chainAnchorB64,
+        oneClickDeadline,
+        oneClickRequired,
+        () => {
+          inlineSubmitCallReached = true;
+        },
+        () => {
+          inlineLockEvicted = true;
+        },
+        testAuthorizationKind
       );
     }
   } catch (error) {
+    submitGate.settle();
     // The message goes in the FORMAT STRING, not only in the object. Chrome
     // truncates strings nested inside a logged object's preview (~100 chars),
     // and a guardian write's whole diagnostic value is the executor's reason,
     // which sits at the END of a long chain: "Offscreen call 'guardianPipeline'
     // failed: failed to execute transaction: transaction execution failed:
-    // <reason>". Logged only as `{ error }` it is cut mid-prefix — a CI failure
+    // <reason>". Logged only as `{ error }` it is cut mid-prefix - a CI failure
     // here reported nothing past "transaction executi…", which is the part every
     // guardian failure shares. The object stays for the stack.
     console.error(
@@ -3912,7 +5185,11 @@ const generateGuardianTransaction = async (
     );
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
-    if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
+    const gateShut = offscreenDispatched && !submitGate.opened();
+    const inlineSubmitNotReached =
+      !offscreenDispatched && !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted);
+    if ((hasErrorBeforeSubmit(error) || gateShut || inlineSubmitNotReached) && transaction.attemptId !== undefined) {
+      if (inlineSubmitNotReached) markPreSubmitAfterStageWrite = true;
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
@@ -3926,7 +5203,11 @@ const generateGuardianTransaction = async (
     const keptForVerdict =
       canAwaitVerdict(transaction) &&
       !isApplyAfterSubmitError(error) &&
-      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+      !gateShut &&
+      !inlineSubmitNotReached &&
+      (isKilledPipeline(error) ||
+        (submitStageRecorded && !hasErrorBeforeSubmit(error)) ||
+        (offscreenDispatched && !hasErrorBeforeSubmit(error)));
     if (keptForVerdict) {
       // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
       // it, and the release dates it and abandons its nonce only while the record is still this attempt's
@@ -3937,11 +5218,12 @@ const generateGuardianTransaction = async (
         await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
       }
     }
-    if (isPoisonedPipeline(error)) {
+    if (isPoisonedPipeline(error) && !inlineSubmitNotReached) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
-      // chain may be about to consume — let the next cycle's 409
-      // pending-conflict path reconcile instead (issue #775).
+      // chain may be about to consume. Let the next cycle's 409 pending-conflict
+      // path reconcile instead (issue #775). An inline leaf that never called
+      // submit is the exception: its candidate can be abandoned safely below.
       throw error;
     }
     // The landed shape proves the submit resolved (#1233): the node has the write, so this
@@ -3959,16 +5241,7 @@ const generateGuardianTransaction = async (
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
     if (submitResolved && transaction.type === 'switch-guardian') {
-      const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
-      // In memory, as the direct path marks `switchedDirectly`: completion persists them with the row's
-      // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
-      // re-pushes one that did not.
-      transaction.extraInputs = {
-        ...transaction.extraInputs,
-        switchDeltaPushed,
-        switchProposalId: proposalResult.id,
-        switchProposalNonce: proposalResult.nonce
-      };
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
     }
     // In memory too: the landed reconcile runs in this call stack and abandons this nonce's candidate
     // when the node discards the write.
@@ -3976,7 +5249,11 @@ const generateGuardianTransaction = async (
       submitResolved &&
       (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
     ) {
-      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        proposalNonce: proposalResult.nonce,
+        proposalId: proposalResult.id
+      };
     }
     // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
     if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
@@ -3989,8 +5266,9 @@ const generateGuardianTransaction = async (
         // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
         // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
         // the same loop) down with it, so the row is not even reaped.
+        await forgetPersistedCandidate(transaction, proposalResult.nonce);
         await withOutgoingGuardianDeadline(
-          () => service.abandonCandidate(proposalResult.nonce),
+          () => service.abandonCandidate(proposalResult.nonce, proposalResult.id),
           'abandoning the guardian candidate after a failed submission'
         );
       } catch (abandonError) {
@@ -4003,27 +5281,31 @@ const generateGuardianTransaction = async (
         // here surfaces as one), and so may an inline attempt that reported
         // 'submitting'; each keeps this one abandon and leaves no mark. The
         // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
-        // never marks, and the retry never adds an abandon to a write the chain
-        // may still consume.
+        // marks only when its submit gate never opened (#1644), and the retry never
+        // adds an abandon to a write the chain may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
-          recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        if (
+          gateShut ||
+          inlineSubmitNotReached ||
+          (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
+        ) {
+          recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);
         }
       }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
-    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // unreachable, cannot co-sign or refuses has no requeue and no user-facing Retry, so
     // rethrowing ends it Failed and leaves the user pointed at the very guardian
-    // they were trying to escape — the exact dead end this feature exists to
+    // they were trying to escape - the exact dead end this feature exists to
     // remove.
     //
     // `guardianCoSignReturned` is what makes it safe, and it is NOT redundant
     // with the error classifier. Unlike the other three sites, this catch also
-    // covers the leaf — execute, prove, submit, apply — so a node-side transport
+    // covers the leaf - execute, prove, submit, apply - so a node-side transport
     // failure at submit arrives here worded exactly like a silent guardian and
     // classifies as unreachable. Diverting on the classifier alone would build
     // and submit a second `update_guardian` while the first was in the mempool:
@@ -4033,159 +5315,169 @@ const generateGuardianTransaction = async (
     // provably pre-submit. Post-co-sign failures rethrow, which is what keeps
     // the outer catch's `isApplyAfterSubmitError` reconcile path reachable.
     //
-    // The poison case above is deliberately excluded and still rethrows — an
+    // The poison case above is deliberately excluded and still rethrows - an
     // evicted pipeline is abandoned rather than stopped, and may yet submit.
-    if (
-      transaction.type === 'switch-guardian' &&
-      !guardianCoSignReturned &&
-      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
-    ) {
+    //
+    // A refusal of the final co-sign (any HTTP 4xx) goes to the direct path too,
+    // under the same `guardianCoSignReturned` condition.
+    const finalCoSignTrigger =
+      transaction.type === 'switch-guardian' && !guardianCoSignReturned ? directSwitchTriggerFor(error) : undefined;
+    if (finalCoSignTrigger !== undefined) {
+      console.warn(
+        `[Guardian] outgoing guardian ${finalCoSignTrigger} at the final co-sign - switching directly on-chain:`,
+        error
+      );
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian ${
-          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
-        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${finalCoSignTrigger} at the final co-sign, after the proposal was pushed: ${describeError(
+          error
+        )}`
       );
       return;
     }
     throw error;
   }
 
-  recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
+  // From the landing on, so a client replaced by the commit wait or the Guardian sync is not retired for this result.
+  await runLandedTail(transaction, result, async () => {
+    recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
 
-  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
-  // realm holds its own `connectivity-state` module state, so this cannot reach
-  // the offscreen document's — which is why the offscreen leaf marks and clears
-  // its own, right where the prove happens.
-  //
-  // What this clears is the worker-realm mark from the inline leaf's delegated
-  // prove, on a build with the offscreen route off. The requeue path above
-  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
-  // one that only the inline leaf can reach at all, since the offscreen leaf
-  // reports no stages and leaves the row at `sending`. Unconditional here rather
-  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
-  // and the alternative is a condition that has to be kept in step with the
-  // routing predicate.
-  clearConnectivityIssue('prover');
+    // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+    // realm holds its own `connectivity-state` module state, so this cannot reach
+    // the offscreen document's - which is why the offscreen leaf marks and clears
+    // its own, right where the prove happens.
+    //
+    // What this clears is the worker-realm mark from the inline leaf's delegated
+    // prove, on a build with the offscreen route off. The requeue path above
+    // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+    // one that only the inline leaf can reach at all, since the offscreen leaf
+    // reports no stages and leaves the row at `sending`. Unconditional here rather
+    // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+    // and the alternative is a condition that has to be kept in step with the
+    // routing predicate.
+    clearConnectivityIssue('prover');
 
-  // The tx id, re-derived from the (possibly offscreen-round-tripped) result
-  // rather than a separate handle: the offscreen pipeline returns only the
-  // serialized TransactionResult, and `executedTransaction()` survives that
-  // round-trip (slice 5b). Byte-identical to the former
-  // `submittedTransaction.id.toHex()`.
-  const id = result.executedTransaction().id().toHex();
-
-  // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
-  // block lands (#1233).
-  if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
-
-  // For switch-guardian, the new guardian must be seeded with the POST-switch
-  // account state. submit() returns after submission, not after inclusion, so
-  // without this wait finalizeGuardianSwitch would serialize the pre-switch
-  // account and register that stale state with the new guardian.
-  // For replace-hot-key, we wait so the WalletAccount.hotPublicKey swap in
-  // complete only happens once the on-chain rotation is final — otherwise a
-  // resync could race with stale on-chain state and pick the wrong canonical
-  // hot pubkey.
-  // For update-procedure-threshold, we wait so the post-completion guardian
-  // re-registration serializes the COMMITTED post-threshold state — otherwise it
-  // could push a pre-threshold blob and leave the guardian diverged again.
-  if (
-    transaction.type === 'switch-guardian' ||
-    transaction.type === 'replace-hot-key' ||
-    transaction.type === 'update-procedure-threshold'
-  ) {
-    await setTransactionStage(transaction.id, 'confirming');
-    // Route the commit-wait through the proxy so it polls the SAME client that
-    // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
-    // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
-    // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
-    // through the guardian catch to cancelTransaction → Failed, and SKIP the
-    // structural completion below (e.g. leaving replace-hot-key's chain rotation done
-    // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
-    // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
-  }
-
-  // Sync the cached hot service so the next consumer sees post-tx state.
-  //
-  // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
-  // / switch-guardian): each runs on a transient/cold service and invalidates
-  // the cached hot service in its completion handler (clearGuardianServiceFor),
-  // so there's nothing useful to sync here. For switch-guardian specifically a
-  // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
-  // run finalizeGuardianSwitch (register on the new guardian) "before anything
-  // else touches the local cache or storage", and this runs before the
-  // completion switch below.
-  //
-  // Post-completion bookkeeping only: the transaction is already marked Completed
-  // and the on-chain submit succeeded, so a sync failure here must NOT propagate
-  // (it would flip a genuinely-successful transaction to Failed). The next sync
-  // tick reconciles.
-  if (
-    transaction.type !== 'replace-hot-key' &&
-    transaction.type !== 'update-procedure-threshold' &&
-    transaction.type !== 'switch-guardian'
-  ) {
-    try {
-      await setTransactionStage(transaction.id, 'guardian-syncing');
-      await service.sync();
-      await setTransactionStage(transaction.id, 'guardian-synced');
-    } catch (error) {
-      console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+    // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
+    // block lands (#1233), and before the id read, so a switch whose id cannot be read reconciles on
+    // the same facts as one whose apply failed.
+    if (transaction.type === 'switch-guardian') {
+      await pushSwitchDeltaToOutgoingGuardian(transaction, service, proposalResult);
     }
-  }
 
-  switch (transaction.type) {
-    case 'send':
-      await completeSendTransaction(transaction as SendTransaction, result);
-      break;
-    case 'consume':
-      await completeConsumeTransaction(transaction.id, result);
-      break;
-    case 'switch-guardian':
-      await completeSwitchGuardianTransaction(
-        transaction as SwitchGuardianTransaction,
-        result,
-        service,
-        guardianProvider
-      );
-      break;
-    case 'replace-hot-key':
-      await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
-      break;
-    case 'update-procedure-threshold':
-      await completeUpdateProcedureThresholdTransaction(
-        transaction as UpdateProcedureThresholdTransaction,
-        result,
-        service
-      );
-      break;
-    case 'swap':
-      await completeSwapTransaction(transaction as SwapTransaction, result);
-      break;
-    case 'bridged-send':
-      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
-      break;
-    case 'earn-deposit':
-      // Same completion as the non-Guardian path: extract the committed P2IDE
-      // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
-      // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
-      // routing this to the generic custom-tx completion would strand the deposit.
-      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
-      break;
-    case 'register-name':
-      await completeRegisterNameTransaction(transaction, result);
-      break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, result);
-      break;
-  }
+    // For switch-guardian, the new guardian must be seeded with the POST-switch
+    // account state. submit() returns after submission, not after inclusion, so
+    // without this wait finalizeGuardianSwitch would serialize the pre-switch
+    // account and register that stale state with the new guardian.
+    // For replace-hot-key, we wait so the WalletAccount.hotPublicKey swap in
+    // complete only happens once the on-chain rotation is final - otherwise a
+    // resync could race with stale on-chain state and pick the wrong canonical
+    // hot pubkey.
+    // For update-procedure-threshold, we wait so the post-completion guardian
+    // re-registration serializes the COMMITTED post-threshold state - otherwise it
+    // could push a pre-threshold blob and leave the guardian diverged again.
+    if (
+      transaction.type === 'switch-guardian' ||
+      transaction.type === 'replace-hot-key' ||
+      transaction.type === 'update-procedure-threshold'
+    ) {
+      await stampPostSubmitStage(transaction.id, 'confirming');
+      // The tx id, re-derived from the (possibly offscreen-round-tripped) result
+      // rather than a separate handle: the offscreen pipeline returns only the
+      // serialized TransactionResult, and `executedTransaction()` survives that
+      // round-trip (slice 5b). Only this wait uses it, so a value row never reads it.
+      const id = readTailTransactionId(transaction, result);
+      // Route the commit-wait through the proxy so it polls the SAME client that
+      // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
+      // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
+      // would, flag-on, poll the dormant/unsynced SW client, time out at ~60s, fall
+      // through the guardian catch to cancelTransaction → Failed, and SKIP the
+      // structural completion below (e.g. leaving replace-hot-key's chain rotation done
+      // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
+      // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
+      await waitForStructuralCommit(id, service, proposalResult, transaction.type, transaction.accountId);
+    }
 
-  await setTransactionStage(transaction.id, 'complete');
+    // Sync the cached hot service so the next consumer sees post-tx state.
+    //
+    // Skipped for the structural ops (replace-hot-key / update-procedure-threshold
+    // / switch-guardian): each runs on a transient/cold service and invalidates
+    // the cached hot service in its completion handler (clearGuardianServiceFor),
+    // so there's nothing useful to sync here. For switch-guardian specifically a
+    // sync here would also be MIS-ORDERED: completeSwitchGuardianTransaction must
+    // run finalizeGuardianSwitch (register on the new guardian) "before anything
+    // else touches the local cache or storage", and this runs before the
+    // completion switch below.
+    //
+    // The landed row's bookkeeping, before its completion writes it Completed: the on-chain submit succeeded, so a sync
+    // failure here must NOT propagate (it would fail a landed transaction). The next sync tick reconciles. The tail
+    // read what the completion reads before this sync, which can replace the client.
+    if (
+      transaction.type !== 'replace-hot-key' &&
+      transaction.type !== 'update-procedure-threshold' &&
+      transaction.type !== 'switch-guardian'
+    ) {
+      await stampPostSubmitStage(transaction.id, 'guardian-syncing');
+      let synced = false;
+      try {
+        await service.sync();
+        synced = true;
+      } catch (error) {
+        console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+      }
+      if (synced) await stampPostSubmitStage(transaction.id, 'guardian-synced');
+    }
+
+    switch (transaction.type) {
+      case 'send':
+        await completeSendTransaction(transaction as SendTransaction, result);
+        break;
+      case 'consume':
+        await completeConsumeTransaction(transaction.id, result);
+        break;
+      case 'switch-guardian':
+        await completeSwitchGuardianTransaction(
+          transaction as SwitchGuardianTransaction,
+          result,
+          service,
+          guardianProvider
+        );
+        break;
+      case 'replace-hot-key':
+        await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
+        break;
+      case 'update-procedure-threshold':
+        await completeUpdateProcedureThresholdTransaction(
+          transaction as UpdateProcedureThresholdTransaction,
+          result,
+          service
+        );
+        break;
+      case 'swap':
+        await completeSwapTransaction(transaction as SwapTransaction, result);
+        break;
+      case 'bridged-send':
+        await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+        break;
+      case 'earn-deposit':
+        // Same completion as the non-Guardian path: extract the committed P2IDE
+        // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
+        // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
+        // routing this to the generic custom-tx completion would strand the deposit.
+        await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'register-name':
+        await completeRegisterNameTransaction(transaction, result);
+        break;
+      case 'execute':
+      default:
+        await completeCustomTransaction(transaction, result);
+        break;
+    }
+
+    await stampPostSubmitStage(transaction.id, 'complete');
+  });
 };
 
 export const generateTransactionsLoop = async (
@@ -4194,12 +5486,16 @@ export const generateTransactionsLoop = async (
   guardianProvider: GuardianAccountProvider
 ): Promise<boolean | 'requeued' | void> => {
   await cancelStuckTransactions();
-  await cancelStaleQueuedTransactions();
+  let admissionMembers: readonly QueueAdmissionMember[] = [];
+  await cancelStaleQueuedTransactions(rows => {
+    admissionMembers = rows;
+    pruneQueueAdmission(rows);
+  });
 
   // Import any notes needed for queued transactions.
   //
   // Isolated from the rest of the lap by its OWN try/catch, which is the point.
-  // Unguarded — and it runs ahead of the lap's own try — a throw here aborted the
+  // Unguarded - and it runs ahead of the lap's own try - a throw here aborted the
   // whole lap into the caller's bare catch: no queued transaction picked up, no row
   // failed, nothing but a log line, for as long as the import kept failing. Every
   // driver funnels through this one loop, so that is the whole pipeline: no send,
@@ -4208,9 +5504,9 @@ export const generateTransactionsLoop = async (
   // Continuing costs the dependent row instead, and that trade is deliberate.
   // `queueNoteImport` is followed by a consume of that note, so a lap that
   // proceeds picks it up, cannot find the note, and marks it Failed. But a Failed
-  // consume is recoverable — the note stays claimable and a later auto-consume
+  // consume is recoverable - the note stays claimable and a later auto-consume
   // re-initiates it, with no double-payment risk, because nothing was ever
-  // submitted — whereas a skipped lap blocks money movement wallet-wide AND
+  // submitted - whereas a skipped lap blocks money movement wallet-wide AND
   // reaps that same consume anyway once `cancelStaleQueuedTransactions` reaches
   // MAX_QUEUED_AGE, half an hour later, under a message that points nowhere near
   // the note queue.
@@ -4218,7 +5514,7 @@ export const generateTransactionsLoop = async (
   // Skipping was tried (round 7 of the review on #777) and is strictly worse for
   // a second reason: an eviction ABANDONS the import hold mid-loop, so before the
   // banking fix in `importAllNotes` no attempt was spent and the next lap's queue
-  // was byte-identical — the skip had no exit condition at all.
+  // was byte-identical - the skip had no exit condition at all.
   try {
     await importAllNotes();
   } catch (e) {
@@ -4228,6 +5524,11 @@ export const generateTransactionsLoop = async (
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();
   if (inProgressTransactions.length > 0) {
+    for (const member of admissionMembers) {
+      recordQueueAdmission(member, 'in_progress_gate');
+      persistQueueSighting(member, 'in_progress_gate');
+    }
+    retainQueueSightings(admissionMembers);
     return;
   }
 
@@ -4244,6 +5545,7 @@ export const generateTransactionsLoop = async (
     (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
   );
   if (queuedTransactions.length === 0) {
+    pruneQueueAdmission([]);
     return;
   }
 
@@ -4254,22 +5556,47 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
+  const examined: QueueAdmissionMember[] = [];
+  const nextTransaction = queuedTransactions.find(tx => {
+    const ready = isQueuedRowReady(tx, now);
+    examined.push(tx);
+    const observation = ready ? 'selected' : 'row_ineligible';
+    recordQueueAdmission(tx, observation);
+    persistQueueSighting(tx, observation);
+    return ready;
+  });
+  pruneQueueAdmission(examined);
+  for (const tx of queuedTransactions) {
+    if (examined.includes(tx)) continue;
+    noteQueueSighting(tx, 'not_reached');
+    persistQueueSighting(tx, 'not_reached');
+  }
+  retainQueueSightings(queuedTransactions);
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
+  beginAttemptInThisRealm(nextTransaction.id);
+  // Held through the catch arm too: its writes are how a failure reaches the row.
+  const endBackgroundExecution = beginBackgroundExecution();
   try {
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
+    // A throw after the leaf resolved is a landed row (PR #2183). It is settled before the pre-send sync, locked and kill
+    // arms below, each of which would requeue or fail a write the node already holds, and a Failed row's Retry would
+    // submit it again.
+    if (isLandedTailError(e)) {
+      await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
+      return false;
+    }
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
     // offscreen bus re-attaches a forwarded code as `errorCode`). web-sdk 0.16
     // maps only a couple of account-tracking variants, so most failures arrive
-    // code-less and are classified by text instead — see `isApplyAfterSubmitError`.
+    // code-less and are classified by text instead - see `isApplyAfterSubmitError`.
     const errorCode = extractSdkErrorCode(e);
 
     // If the failure was caused by the wallet being locked mid-sign,
-    // leave the tx Queued rather than marking it Failed — the next
+    // leave the tx Queued rather than marking it Failed - the next
     // auto-consume cycle (after the wallet unlocks) will retry it.
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
@@ -4327,7 +5654,8 @@ export const generateTransactionsLoop = async (
           nextTransaction.id,
           nextTransaction.type,
           'syncing',
-          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC
+          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC,
+          'preflight_sync_failed'
         );
       } catch (requeueError) {
         logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
@@ -4339,7 +5667,7 @@ export const generateTransactionsLoop = async (
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly
-      // what `getTransactionsInProgress()` selects — so a bare `return` would pin
+      // what `getTransactionsInProgress()` selects - so a bare `return` would pin
       // the FIFO for every account until the stuck reaper Failed this row half an
       // hour later. Nothing reached the chain: the failure is a locked vault at
       // sign time, which is strictly pre-submit, so requeueing cannot double-spend.
@@ -4350,7 +5678,8 @@ export const generateTransactionsLoop = async (
           nextTransaction.id,
           nextTransaction.type,
           'syncing',
-          LOCKED_REQUEUE_COOLDOWN_SEC
+          LOCKED_REQUEUE_COOLDOWN_SEC,
+          'wallet_locked'
         );
       } catch (requeueError) {
         logger.warning('Failed to requeue locked transaction', requeueError);
@@ -4364,54 +5693,7 @@ export const generateTransactionsLoop = async (
     // ConsumedExternal. Retrying would hit the node's nullifier check
     // and produce a misleading "already consumed" error.
     if (isApplyAfterSubmitError(e)) {
-      const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-
-      // Result-awaiting rows (earn-deposit, EPOCH bridged-send) must NOT be marked
-      // Completed here: their callers read `resultBytes`/`outputNoteIds` back off
-      // the completed row and this generic post-submit path has no
-      // `TransactionResult` to repopulate them from (the apply threw before we could
-      // capture it). See the `isResultAwaitingRow` doc comment. Fail the row instead
-      // so the caller resolves via the error branch and gives up cleanly; the
-      // landed P2IDE collateral note is recorded so the activity row offers Reclaim
-      // funds at its recall height, and neither is blindly re-queued into a
-      // duplicate collateral note. An AGGLAYER `bridged-send` is deliberately NOT in
-      // this branch - nothing awaits it, its note is on chain, and failing it would
-      // hide the L1 claim UI.
-      if (tx && isResultAwaitingRow(tx)) {
-        logger.warning(
-          `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
-        );
-        await recordBridgeNoteLanded(tx.id);
-        if (!hasLeftQueue(tx)) {
-          await recordLandedTransactionId(tx.id, e);
-          await cancelTransactionAfterPipelineStopped(tx, e);
-        }
-        return false;
-      }
-
-      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
-      // Failed and Unconfirmed are excluded alongside Completed because `updateTransactionStatus`
-      // throws on all three, and this sits in the loop's own catch: a row a
-      // concurrent writer failed in the meantime would turn a handled
-      // apply-after-submit into a throw out of the catch block. Nothing is lost
-      // by skipping — the row already has a terminal state.
-      if (tx && !hasLeftQueue(tx)) {
-        // Guardian ops never reach here: they route through the guardian branch of
-        // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
-        // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
-        // value-moving ops, and `reconcileStructuralApplyFailure` for the three structural
-        // ops. This generic path covers the non-guardian ops the guard above leaves (send,
-        // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
-        // next sync reconciles via ConsumedExternal.
-        //
-        // A private send's note, or an execute's private notes, were never relayed, and the row says so
-        // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
-        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          ...landedRowFields(tx, e),
-          completedAt: Math.floor(Date.now() / 1000)
-        });
-        if (tx.type === 'consume') await adoptLandedConsume(tx.id);
-      }
+      await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
       return false;
     }
 
@@ -4419,7 +5701,7 @@ export const generateTransactionsLoop = async (
     // pre-flight nullifier check transitioned it to ConsumedExternal; the tx is
     // then marked Failed below (it never reached chain) while the note stays
     // reconciled, so subsequent cycles won't retry it. This branch logs that
-    // case when the SDK labels it — web-sdk 0.16 does not emit an
+    // case when the SDK labels it - web-sdk 0.16 does not emit an
     // `InputNoteAlreadyConsumedOnChain` code, so it is currently only reachable
     // from a code explicitly attached by a caller or a future SDK. It changes no
     // behaviour either way; the funds-critical classification is
@@ -4433,7 +5715,7 @@ export const generateTransactionsLoop = async (
     // consume whose note the node reports as consumed BY THIS CLIENT'S OWN tx
     // ('landed-local') → mark Completed (the note WAS claimed), no requeue;
     // 'processing' → leave the row in progress for the stuck reaper; otherwise
-    // (incl. 'landed-external' — consumed but not provably mine) fall through to
+    // (incl. 'landed-external' - consumed but not provably mine) fall through to
     // the funds-safe Failed path below. Send/swap/execute are untouched
     // (deferred #3b).
     if (await tryCompleteKilledConsume(nextTransaction, e)) return false;
@@ -4441,13 +5723,16 @@ export const generateTransactionsLoop = async (
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && !hasLeftQueue(tx)) {
-      await cancelTransactionAfterPipelineStopped(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
       // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
       // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
-      await markTransactionUnconfirmed(tx, e);
+      await cancelTransactionAfterPipelineStopped(tx, e, nextTransaction.attemptId);
     }
     return false;
+  } finally {
+    endAttemptInThisRealm(nextTransaction.id);
+    endBackgroundExecution();
   }
 
   // Every requeue arm leaves its row Queued with a cooldown of at least 15 s, while a row parked for its recovery seed
@@ -4497,7 +5782,7 @@ export const startBackgroundTransactionProcessing = (
     let attempts = 0;
     // Cap the number of loop passes, not wall-clock time. Each pass now runs one
     // full generate cycle whose guardian ops can spend up to the conflict-retry
-    // budget (~60s) before returning, so 60 passes is NOT "5 minutes" — it's a
+    // budget (~60s) before returning, so 60 passes is NOT "5 minutes" - it's a
     // pass ceiling that, together with the 5s inter-pass wait, just bounds how
     // long this background driver keeps polling. Terminal per-tx caps live
     // elsewhere: MAX_QUEUED_AGE (queued) and MAX_WAIT_BEFORE_CANCEL (in-flight).

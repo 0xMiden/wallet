@@ -1,25 +1,33 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { IconName } from 'app/icons/v2';
+import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
 import { earnWithdrawAmountFields, formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { EmptyState } from 'components/ui/EmptyState';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { marketUidChainId } from 'lib/epoch/market-uid';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { cn } from 'lib/ui/util';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
+import { networkName } from 'screens/earn-flow/earn-mapping';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { EarnPageLayout } from './EarnPageLayout';
 
 /**
  * An earn row's icon is the earn slate wherever it is drawn, so the arrow beside it is too; the
@@ -42,19 +50,52 @@ interface EarnWithdrawStatusProps {
  */
 export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
-  const { row, loaded } = useTransactionRow(txId);
+  const command = useFlowPresentation() === 'command';
+  const { row, loaded, readFailed } = useTransactionRow(txId);
+  const { trigger, state } = useLocation();
+  const mountedByReturn = usePageMountedByReturn();
+  const revealedByLayer = usePageRevealedByLayer();
+  const newSubmission =
+    trigger === HistoryAction.Push && state?.newSubmissionTxId === txId && !mountedByReturn && !revealedByLayer;
+  // The spinner is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedFailed = useRef<boolean>();
+  if (loaded && row && firstLoadedFailed.current === undefined) {
+    firstLoadedFailed.current = row.extraInputs.phase === 'failed';
+  }
+  useUserVisibleError(
+    loaded &&
+      !readFailed &&
+      row?.extraInputs.phase === 'failed' &&
+      (firstLoadedFailed.current === false || newSubmission)
+      ? 'raw_earn_withdraw_failed'
+      : null,
+    'status_screen'
+  );
+  // This screen does not refresh the positions: `useEarnPositions` watches the account's Earn rows while an Earn page
+  // is mounted and reads again when this row is received or fails, and a page that mounts later reads at once.
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const onDone = () => navigate('/');
 
-  if (!loaded || !row)
+  if (!readFailed && (!loaded || (!row && !command)))
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
     );
 
+  if (readFailed || !row)
+    return (
+      <EmptyState
+        icon={IconName.Earn}
+        title={t('historyDetailsLoadError')}
+        secondaryAction={{ label: t('viewInActivities'), onClick: () => navigate('/history') }}
+      />
+    );
+
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
+  const sourceChainId = typeof inputs.marketUid === 'string' ? marketUidChainId(inputs.marketUid) : undefined;
+  const sourceNetwork = sourceChainId === undefined ? t('network') : networkName(String(sourceChainId));
   const failed = inputs.phase === 'failed';
   const prepared = inputs.submissionState === 'prepared';
   const submitted =
@@ -81,6 +122,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
         headerTitle={t('success')}
         title={t('withdrawalStarted')}
         footerDescription={t('withdrawalStartedDescription')}
+        commandFooter
         accent={accentForTransactionType('earn-withdraw')}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={{
@@ -94,12 +136,15 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           lhs={amountLabel}
           rhs={destinationLabel}
           fillForArrow={EARN_ARROW_FILL}
-          className="mt-4"
+          className="mt-4 face-heading"
         />
         <ReceiptRows
+          surface="outline"
+          face="heading"
           className="mt-4"
           rows={[
-            { label: t('route'), value: 'Sepolia → Miden' },
+            // The source chain is the market's own, read from the row's market uid, never a fixed network.
+            { label: t('route'), value: `${sourceNetwork} → Miden` },
             {
               label: t('status'),
               // A status word is a `StatusBadge`, never a bare line of text: the closed set
@@ -126,7 +171,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
 
   return (
     // The shared pushed-page frame, like every other earn page: header, body, pinned action.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-withdraw-status-page"
       title={t('transactionProcessingHeader')}
       onClose={onDone}
@@ -144,19 +189,24 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
     >
       <section className="flex flex-1 flex-col items-center pt-5">
         <Hero
-          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+          visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} accent="earn" />}
           name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
         />
         <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" fillForArrow={EARN_ARROW_FILL} className="mt-4" />
         {/* The `Hero`'s own secondary line; an error takes the negative ink, as on every other
-            screen that reports one. */}
-        <p className={cn('mt-4 text-center text-body-sm', failed ? 'text-negative-ink' : 'text-muted')}>
+            screen that reports one, and wraps a raw error's unbreakable token inside the margin. */}
+        <p
+          className={cn(
+            'mt-4 w-full text-center text-body-sm wrap-anywhere select-text',
+            failed ? 'text-negative-ink' : 'text-muted'
+          )}
+        >
           {failed
             ? (inputs.error ?? t('transactionErrorDescription'))
             : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
         </p>
       </section>
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 

@@ -5,6 +5,9 @@
  * both the SW-side proxy and the offscreen dispatch table depend on.
  */
 
+import type { EndpointState } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_STAGE_EVENT,
@@ -91,17 +94,36 @@ describe('offscreen-codec — envelope + error', () => {
   // asserts the posted `{target, type, op_id, stage}` for both the send and the
   // guardian leaf, and `miden-client-proxy.test.ts` asserts the SW replays it.
 
-  it('an OffscreenCallRequest carries its op_id, method, args and deadline', () => {
+  it('an OffscreenCallRequest carries its op_id, method, args, deadline and endpoint state', () => {
+    // The offscreen realm has no extension storage, so the network it runs on is this state (#1482).
+    const endpoints: EndpointState = {
+      override: {
+        rpcUrl: 'https://rpc.example',
+        proverUrl: '',
+        noteTransportUrl: '',
+        faucetUrl: '',
+        faucetApiUrl: '',
+        explorerUrl: '',
+        guardianUrl: '',
+        allowNoGuardian: false,
+        networkName: MIDEN_NETWORK_NAME.MAINNET,
+        presetName: 'custom'
+      },
+      feeFaucetId: '0xfee'
+    };
     const req: OffscreenCallRequest = {
       target: OFFSCREEN_TARGET,
       type: OFFSCREEN_CALL,
       op_id: 'op-1',
       method: 'getAccount',
       argsB64: [encodeArg('acc')],
-      deadline_ms: 15_000
+      deadline_ms: 15_000,
+      endpoints
     };
     expect(decodeArg(req.argsB64[0]!)).toBe('acc');
     expect(req.deadline_ms).toBe(15_000);
+    // chrome.runtime messages cross as JSON.
+    expect(JSON.parse(JSON.stringify(req)).endpoints).toEqual(endpoints);
   });
 
   it('OperationAbortedError carries op_id + reason and is an Error', () => {

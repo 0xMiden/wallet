@@ -20,14 +20,6 @@ module.exports = {
   Program: {
     fromString: jest.fn()
   },
-  // No `ChainAnchor` entry on purpose (#784). Both suites that decode a
-  // proposal's anchor install their own spy, so a shared default is reached by
-  // nothing — and it would be actively harmful if it ever were: returning a
-  // truthy anchor makes a suite that forgot to stub the decode pass silently
-  // ON THE ANCHORED PATH, which is the failure the guardian suite's own
-  // `mockReset` + explicit default exists to prevent. The unstubbed
-  // "Cannot read properties of undefined (reading 'deserialize')" is the louder
-  // outcome, and it names the member to stub.
   RecordPlaintext: {
     fromString: jest.fn()
   },
@@ -56,7 +48,9 @@ module.exports = {
     Consumed: 'Consumed',
     Committed: 'Committed',
     Expected: 'Expected',
-    Processing: 'Processing'
+    Processing: 'Processing',
+    List: 'List',
+    Unverified: 'Unverified'
   },
   // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
   // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
@@ -69,6 +63,9 @@ module.exports = {
   NoteAssets: jest.fn(),
   NoteAttachment: jest.fn(),
   NoteArray: jest.fn(),
+  TransactionRequest: {
+    deserialize: jest.fn(() => ({ expectedOutputOwnNotes: () => [] }))
+  },
   TransactionRequestBuilder: jest.fn(),
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
@@ -82,11 +79,40 @@ module.exports = {
   NoteFilter: jest.fn(),
   NoteId: jest.fn(),
   Note: jest.fn(),
+  // `swapOrderOf` names an order by this root. Fixtures return the same `root()`.
+  NoteScript: {
+    pswap: () => ({ root: () => ({ toHex: () => 'pswap' }) })
+  },
   AuthSecretKey: jest.fn(),
   // The lazy entry's WASM loader. Static classes above are usable only after it
   // resolves in production; the mock has no module to load, so it resolves empty.
   getWasmOrThrow: jest.fn(async () => ({})),
-  SigningInputs: jest.fn(),
+  MidenClient: { ready: jest.fn(async () => undefined) },
+  // Every payload reads as `Arbitrary` signing inputs with a three-element preimage: the only dApp sign request
+  // that the wallet accepts (`lib/miden/dapp-sign-inputs`). Tests override `deserialize` for other variants.
+  SigningInputs: Object.assign(jest.fn(), {
+    deserialize: jest.fn(() => {
+      const elements = [1n, 2n, 3n].map(value => ({ asInt: () => value, free: () => undefined }));
+      return {
+        variantType: 1,
+        toElements: () => ({ length: () => elements.length, get: index => elements[index], free: () => undefined }),
+        toCommitment: () => ({
+          toHex: () => `0x${'00'.repeat(32)}`,
+          serialize: () => new Uint8Array(32),
+          free: () => undefined
+        }),
+        free: () => undefined
+      };
+    })
+  }),
+  SigningInputsType: { TransactionSummary: 0, Arbitrary: 1, Blind: 2 },
+  // A fixed stand-in for the Guardian lookup domain tag that `lib/miden/dapp-sign-inputs` derives with this hash.
+  Rpo256: {
+    hashElements: jest.fn(() => ({
+      toFelts: () => [91n, 92n, 93n, 94n].map(value => ({ asInt: () => value, free: () => undefined })),
+      free: () => undefined
+    }))
+  },
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),
   // Advice-map primitives used by the direct guardian-switch fallback.

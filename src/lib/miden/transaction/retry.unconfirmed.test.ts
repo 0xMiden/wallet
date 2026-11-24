@@ -1,14 +1,18 @@
-// Real Dexie, real judgement and writes; only the node reads and the old landed check are faked.
+// Real Dexie, real judgement and writes; external reads and bridge adoption are faked.
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
+import { ClaimFeeContext, getClaimFeeAhead } from './claim-fee';
 import {
   guardianHoldRetryMessage,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR
 } from './constants';
-import { NodeReads } from './reconcile-reads';
+import { ClaimFeeRefusedError } from './initiate';
+import { NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
+import { isGuardianHoldRetryError } from './retry-refusal';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 
@@ -27,6 +31,15 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('../activity/bridge-in', () => ({
+  ...jest.requireActual('../activity/bridge-in'),
+  adoptLandedConsume: jest.fn()
+}));
+const mockReadClaimFeeContext = jest.fn<Promise<ClaimFeeContext>, [string]>();
+jest.mock('./claim-fee', () => ({
+  ...jest.requireActual('./claim-fee'),
+  readClaimFeeContext: (accountId: string) => mockReadClaimFeeContext(accountId)
+}));
 
 type CopyKey = keyof typeof RETRY_REFUSAL_COPY;
 
@@ -92,6 +105,56 @@ const unconfirmedSend = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ...overrides
 });
 
+const EMPTY_FEE_CONTEXT: ClaimFeeContext = {
+  vaultFeeAsset: 0n,
+  nativeAssetId: 'native-faucet',
+  verificationBaseFee: 10000
+};
+const failedConsume = (overrides: Partial<ITransaction> = {}): ITransaction =>
+  unconfirmedSend({
+    id: 'fee-retry',
+    type: 'consume',
+    status: ITransactionStatus.Failed,
+    stage: 'executing',
+    queuedSeq: 1,
+    noteId: 'token-note',
+    noteIds: ['token-note'],
+    faucetId: 'token-faucet',
+    amount: 7n,
+    consumedNotes: [
+      { id: 'token-note', senderAddress: 'sender', faucetId: 'token-faucet', amount: 7n, carriesMoreAssets: false }
+    ],
+    submitEvidence: [entry({ verdict: 'never-committed' })],
+    neverCommittedAt: NOW - 5,
+    cancelledInFlightAt: NOW - 7200,
+    failureDiagnostics: { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' },
+    requestBytes: new Uint8Array([1, 2, 3]),
+    extraInputs: { swapOrderTxId: 'order-1', swapSettleKind: 'settle' },
+    stageTimestamps: { executing: 1000 },
+    nextEligibleAt: NOW + 100,
+    unauthorizedRetryUntil: NOW + 200,
+    requeueStreak: { arm: 'guardian-unreachable', count: 3 },
+    guardianBusy: true,
+    rawError: 'fee withdrawal failed',
+    displayMessage: 'Failed',
+    displayIcon: 'FAILED',
+    ...overrides
+  });
+const fundingClaim = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+  id: 'fee-funding',
+  type: 'consume',
+  accountId: 'mtst1acct_funding',
+  status: ITransactionStatus.Queued,
+  initiatedAt: NOW - 180,
+  noteId: 'native-note',
+  noteIds: ['native-note'],
+  consumedNotes: [
+    { id: 'native-note', senderAddress: 'sender', faucetId: 'native-faucet', amount: 10000n, carriesMoreAssets: false }
+  ],
+  displayIcon: 'RECEIVE',
+  ...overrides
+});
+
 const read = () => Repo.transactions.where({ id: 'tx-1' }).first();
 const refusal = (txId = 'tx-1', options: RetryOptions = {}): Promise<unknown> =>
   requeueFailedTransaction(txId, options).then(
@@ -103,9 +166,212 @@ beforeEach(async () => {
   jest.clearAllMocks();
   // clearAllMocks keeps an implementation a test installed, which would leak a late stamp into the next test.
   mockVerifySendLanded.mockImplementation(async () => 'unknown');
+  mockReadClaimFeeContext.mockReset();
+  mockReadClaimFeeContext.mockResolvedValue(EMPTY_FEE_CONTEXT);
   mockNode.current = UNDECIDED;
   await Repo.transactions.clear();
   Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+});
+
+describe('the manual consume Retry fee gate', () => {
+  it('consume Retry refuses a known shortage and requeues behind funding', async () => {
+    const failed = failedConsume({ feeAdmission: 'balance_unknown' });
+    await Repo.transactions.add(failed);
+    const before = await Repo.transactions.get(failed.id);
+
+    await expect(requeueFailedTransaction(failed.id)).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
+    expect(await Repo.transactions.get(failed.id)).toEqual(before);
+    expect(await refusal(failed.id)).toBeInstanceOf(ClaimFeeRefusedError);
+
+    const funding = fundingClaim();
+    await Repo.transactions.add(funding);
+    await requeueFailedTransaction(failed.id);
+    const requeued = await Repo.transactions.get(failed.id);
+    expect(requeued).toMatchObject({
+      status: ITransactionStatus.Queued,
+      feeAdmission: 'ahead_native',
+      submitEvidence: failed.submitEvidence,
+      requestBytes: failed.requestBytes,
+      extraInputs: failed.extraInputs,
+      consumedNotes: failed.consumedNotes,
+      displayIcon: 'RECEIVE'
+    });
+    expect(requeued?.queuedSeq).toBeGreaterThan(1);
+    expect(requeued).not.toHaveProperty('failureDiagnostics');
+    for (const field of [
+      'stage',
+      'stageTimestamps',
+      'processingStartedAt',
+      'attemptId',
+      'completedAt',
+      'mayHaveSubmitted',
+      'cancelledInFlightAt',
+      'neverCommittedAt',
+      'nextEligibleAt',
+      'unauthorizedRetryUntil',
+      'requeueStreak',
+      'guardianBusy',
+      'error',
+      'rawError',
+      'displayMessage'
+    ]) {
+      expect(requeued).toHaveProperty(field, undefined);
+    }
+  });
+
+  it.each([
+    { vaultFeeAsset: 10000n, admission: 'known_sufficient' },
+    { vaultFeeAsset: null, admission: 'balance_unknown' }
+  ])('consume Retry replaces the earlier admission with $admission', async ({ vaultFeeAsset, admission }) => {
+    const failed = failedConsume({ feeAdmission: 'fee_unknown' });
+    await Repo.transactions.add(failed);
+    mockReadClaimFeeContext.mockResolvedValue({ ...EMPTY_FEE_CONTEXT, vaultFeeAsset });
+
+    await requeueFailedTransaction(failed.id);
+
+    expect(await Repo.transactions.get(failed.id)).toMatchObject({
+      status: ITransactionStatus.Queued,
+      feeAdmission: admission
+    });
+  });
+
+  it('consume Retry treats legacy assets as unknown and excludes itself from ahead', async () => {
+    const knownTokenRow = failedConsume();
+    await Repo.transactions.add(knownTokenRow);
+    await expect(requeueFailedTransaction(knownTokenRow.id)).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
+    expect(await Repo.transactions.get(knownTokenRow.id)).toEqual(knownTokenRow);
+
+    // A Failed row is already absent by status; pin self-exclusion while the same id is otherwise eligible.
+    await Repo.transactions.put(fundingClaim({ id: knownTokenRow.id }));
+    expect(await getClaimFeeAhead(knownTokenRow.accountId, knownTokenRow.id)).toEqual([]);
+    await Repo.transactions.put(knownTokenRow);
+
+    const refusesWith = async (ahead: ITransaction) => {
+      await Repo.transactions.clear();
+      await Repo.transactions.add(failedConsume());
+      await Repo.transactions.add(ahead);
+      await expect(requeueFailedTransaction(knownTokenRow.id)).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
+      expect(await Repo.transactions.get(knownTokenRow.id)).toEqual(knownTokenRow);
+    };
+    await refusesWith(fundingClaim({ status: ITransactionStatus.Failed }));
+    await refusesWith(fundingClaim({ status: ITransactionStatus.Unconfirmed }));
+    await refusesWith(fundingClaim({ status: ITransactionStatus.Completed }));
+    await refusesWith(fundingClaim({ accountId: 'mtst1other_s' }));
+    await refusesWith(fundingClaim({ type: 'execute' }));
+
+    const admits = async (
+      overrides: Partial<ITransaction>,
+      context: ClaimFeeContext = EMPTY_FEE_CONTEXT,
+      ahead?: ITransaction
+    ) => {
+      await Repo.transactions.clear();
+      const legacyRow = failedConsume(overrides);
+      await Repo.transactions.add(legacyRow);
+      if (ahead !== undefined) await Repo.transactions.add(ahead);
+      mockReadClaimFeeContext.mockResolvedValue(context);
+      await requeueFailedTransaction(legacyRow.id);
+      expect(await Repo.transactions.get(legacyRow.id)).toMatchObject({ status: ITransactionStatus.Queued });
+    };
+    await admits({
+      consumedNotes: [{ id: 'token-note', senderAddress: 'sender', faucetId: 'token-faucet', amount: 7n }]
+    });
+    await admits({ consumedNotes: undefined });
+    await admits({ consumedNotes: [] });
+    await admits({ noteIds: ['token-note', 'missing-record'] });
+    await admits({}, { ...EMPTY_FEE_CONTEXT, vaultFeeAsset: null });
+    await admits({}, { ...EMPTY_FEE_CONTEXT, nativeAssetId: null });
+    await admits({}, { ...EMPTY_FEE_CONTEXT, verificationBaseFee: null });
+    await admits({}, EMPTY_FEE_CONTEXT, fundingClaim({ status: ITransactionStatus.Queued }));
+    await admits(
+      {},
+      EMPTY_FEE_CONTEXT,
+      fundingClaim({ status: ITransactionStatus.GeneratingTransaction, restoredFromBackup: true })
+    );
+    await admits({}, EMPTY_FEE_CONTEXT, fundingClaim({ consumedNotes: undefined }));
+    await admits({
+      consumedNotes: [
+        {
+          id: 'token-note',
+          senderAddress: 'sender',
+          faucetId: 'native-faucet',
+          amount: 10000n,
+          carriesMoreAssets: false
+        }
+      ]
+    });
+  });
+
+  it('consume fee refusal does not replace a landed or evidence-changed verdict', async () => {
+    const failed = failedConsume();
+    await Repo.transactions.add(failed);
+    await expect(requeueFailedTransaction(failed.id)).rejects.toMatchObject({ name: 'ClaimFeeRefusedError' });
+
+    await Repo.transactions.clear();
+    mockNode.current = LANDED;
+    const landedRow = failedConsume({ id: 'fee-landed', neverCommittedAt: undefined, submitEvidence: [entry()] });
+    await Repo.transactions.add(landedRow);
+    await requeueFailedTransaction(landedRow.id);
+    expect(await Repo.transactions.get(landedRow.id)).toMatchObject({ status: ITransactionStatus.Completed });
+
+    await Repo.transactions.clear();
+    const changedEvidenceRow = failedConsume({
+      id: 'fee-changed',
+      neverCommittedAt: undefined,
+      submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text' }]
+    });
+    const newerEvidence: ISubmitEvidence[] = [
+      { attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text', transactionId: hex(2) }
+    ];
+    await Repo.transactions.add(changedEvidenceRow);
+    mockReadClaimFeeContext.mockImplementationOnce(async () => {
+      await Repo.transactions.where({ id: changedEvidenceRow.id }).modify(row => {
+        row.submitEvidence = newerEvidence;
+      });
+      return EMPTY_FEE_CONTEXT;
+    });
+    // A fresh judgment must read the newly funded vault instead of reusing the first read's shortage.
+    mockReadClaimFeeContext.mockResolvedValueOnce({ ...EMPTY_FEE_CONTEXT, vaultFeeAsset: 10000n });
+    await requeueFailedTransaction(changedEvidenceRow.id);
+    expect(await Repo.transactions.get(changedEvidenceRow.id)).toMatchObject({
+      status: ITransactionStatus.Queued,
+      submitEvidence: newerEvidence
+    });
+
+    await Repo.transactions.put(changedEvidenceRow);
+    mockReadClaimFeeContext.mockImplementationOnce(async () => {
+      await Repo.transactions.where({ id: changedEvidenceRow.id }).modify(row => {
+        row.submitEvidence = [entry()];
+      });
+      return EMPTY_FEE_CONTEXT;
+    });
+    await requeueFailedTransaction(changedEvidenceRow.id);
+    expect(await Repo.transactions.get(changedEvidenceRow.id)).toMatchObject({ status: ITransactionStatus.Completed });
+
+    const declinesAfterRead = async (changes: Partial<ITransaction>) => {
+      await Repo.transactions.clear();
+      const movedRow = failedConsume();
+      await Repo.transactions.add(movedRow);
+      mockReadClaimFeeContext.mockImplementationOnce(async () => {
+        await Repo.transactions.where({ id: movedRow.id }).modify(row => {
+          Object.assign(row, changes);
+        });
+        return EMPTY_FEE_CONTEXT;
+      });
+      await requeueFailedTransaction(movedRow.id);
+      expect(await Repo.transactions.get(movedRow.id)).toEqual({ ...movedRow, ...changes });
+    };
+    await declinesAfterRead({ status: ITransactionStatus.Completed });
+    await declinesAfterRead({ stage: 'proving' });
+
+    await Repo.transactions.clear();
+    await Repo.transactions.add(failed);
+    mockReadClaimFeeContext.mockImplementationOnce(async () => {
+      await Repo.transactions.delete(failed.id);
+      return EMPTY_FEE_CONTEXT;
+    });
+    await requeueFailedTransaction(failed.id);
+    expect(await Repo.transactions.get(failed.id)).toBeUndefined();
+  });
 });
 
 describe('the tap-time proof (#1081)', () => {
@@ -150,6 +416,7 @@ describe('the tap-time proof (#1081)', () => {
     await Repo.transactions.put(unconfirmedSend());
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
@@ -162,6 +429,7 @@ describe('the tap-time proof (#1081)', () => {
     );
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
   });
 
@@ -190,15 +458,19 @@ describe('the safe marker (#1081)', () => {
     expect((await read())?.neverCommittedAt).toBe(NOW - 5);
   });
 
-  it.each<['execute' | 'swap', CopyKey]>([
+  it.each<['execute' | 'swap' | 'bridged-send', CopyKey]>([
     ['execute', 'executeLiveProven'],
-    ['swap', 'swapLiveProven']
+    ['swap', 'swapLiveProven'],
+    ['bridged-send', 'sendLiveProven']
   ])(
     'a proven %s still meets the liveness refusal through a recent end, with the proven copy (PN-1)',
     async (type, copy) => {
       await Repo.transactions.put(
         unconfirmedSend({
           type,
+          ...(type === 'bridged-send'
+            ? { extraInputs: { provider: 'agglayer' }, requestBytes: new Uint8Array([1]) }
+            : {}),
           status: ITransactionStatus.Failed,
           neverCommittedAt: NOW - 5,
           submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'out-of-band', endedAt: NOW - 1 })]
@@ -210,7 +482,7 @@ describe('the safe marker (#1081)', () => {
     }
   );
 
-  it('a proven Agglayer row whose pipeline may still run requeues with no refusal at all', async () => {
+  it('a proven Agglayer row whose pipeline may still run meets the liveness refusal, which no acknowledgement passes', async () => {
     await Repo.transactions.put(
       unconfirmedSend({
         type: 'bridged-send',
@@ -222,8 +494,14 @@ describe('the safe marker (#1081)', () => {
         submitEvidence: [entry({ verdict: 'never-committed', endedBy: 'kill', endedAt: NOW - 1 })]
       })
     );
-    await requeueFailedTransaction('tx-1');
-    expect((await read())?.status).toBe(ITransactionStatus.Queued);
+    const error = await refusal();
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendLiveProven);
+    expect(acknowledgementOf(error)).toBeNull();
+    expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty(
+      'message',
+      RETRY_REFUSAL_COPY.sendLiveProven
+    );
+    expect((await read())?.status).toBe(ITransactionStatus.Failed);
   });
 });
 
@@ -261,9 +539,44 @@ describe('an unproven execute is acknowledgeable (#1081)', () => {
     );
     const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
     expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('landing_pending');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
     expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+  });
+
+  describe('the account that created its attempt note (#2147)', () => {
+    /** NOTE on chain as `creator` created it: a read naming another sender gets no answer, as the real read's. */
+    const heldBy = (creator: string) => {
+      const noteInclusions = jest.fn(
+        async (
+          ...[, , sender]: Parameters<NodeReads['noteInclusions']>
+        ): Promise<ReadonlyMap<string, number> | undefined> =>
+          sender === undefined || sender === creator ? new Map([[NOTE, 140]]) : undefined
+      );
+      mockNode.current = { ...node({ blockNum: 150, commitment: OTHER }), noteInclusions };
+      return noteInclusions;
+    };
+
+    it('a note the node holds only as another account`s meets the acknowledgeable refusal, never a completion', async () => {
+      const noteInclusions = heldBy('mtst1other');
+      await Repo.transactions.put(execute());
+      const error = await refusal();
+      expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.executeChecking);
+      expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
+      const row = await read();
+      expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+      expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
+
+    it('a note its own account created completes it on the first Retry', async () => {
+      const noteInclusions = heldBy('mtst1acct_s');
+      await Repo.transactions.put(execute());
+      expect(await refusal()).toBeUndefined();
+      expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, transactionId: hex(2) });
+      expect(noteInclusions.mock.calls).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, 'mtst1acct_s']]);
+    });
   });
 
   it('one whose entry lists a nullifier requeues as today', async () => {
@@ -413,14 +726,13 @@ describe('the requeue write and evidence that moves under Retry (#1081)', () => 
   });
 
   it('two changes end the call with the being-checked refusal and queue nothing', async () => {
-    // An Agglayer row needs no acknowledgement, so both judgings reach the write (a plain send's second, unacknowledged
-    // judging refuses before it).
+    // An execute whose entry lists a nullifier needs no acknowledgement, so both judgings reach the write (a send's
+    // second, unacknowledged judging refuses before it).
     await Repo.transactions.put(
       unconfirmedSend({
-        type: 'bridged-send',
-        extraInputs: { provider: 'agglayer' },
+        type: 'execute',
         requestBytes: new Uint8Array([1]),
-        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text' }]
+        submitEvidence: [{ attemptId: 'a1', capturedAt: NOW - 60, source: 'error-text', nullifiers: [hex(30)] }]
       })
     );
     let n = 0;
@@ -436,6 +748,7 @@ describe('the requeue write and evidence that moves under Retry (#1081)', () => 
     });
     const error = await refusal();
     expect(error).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+    expect(snapshotPendingRetry(error)).toBe('verdict_busy');
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
   });
 
@@ -489,7 +802,9 @@ describe('the verdict lock (#1081)', () => {
       );
       const pending = refusal();
       await jest.advanceTimersByTimeAsync(10_001);
-      expect(await pending).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+      const error = await pending;
+      expect(error).toHaveProperty('message', TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+      expect(snapshotPendingRetry(error)).toBe('verdict_busy');
     } finally {
       // Released here, so tx-1's verdict lock is free for every later test.
       release();
@@ -534,9 +849,20 @@ describe('the refusal copy (#1081)', () => {
 describe('the Guardian hold (#1081)', () => {
   const kept = (capturedAt: number) => entry({ candidateKept: true, guardianProposalNonce: 9, capturedAt });
 
-  it('refuses while a kept candidate is under 600 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
+  it('refuses with the typed hold, carrying when it clears and keeping its English message and annotation', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
-    const expected = guardianHoldRetryMessage(NOW + 500);
+    const error = await refusal();
+    expect(isGuardianHoldRetryError(error)).toBe(true);
+    expect(error).toHaveProperty('clearsAtSec', NOW + 980);
+    expect(error).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
+    expect(snapshotPendingRetry(error)).toBe('guardian_hold');
+    expect(acknowledgementOf(error)).toBeNull();
+  });
+
+  it('refuses while a kept candidate is under 1080 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
+    const expected = guardianHoldRetryMessage(NOW + 980);
+    expect(snapshotPendingRetry(await refusal())).toBe('guardian_hold');
     expect(await refusal()).toHaveProperty('message', expected);
     expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty('message', expected);
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
@@ -547,7 +873,7 @@ describe('the Guardian hold (#1081)', () => {
   it('refuses before the tap-time proof, so a held Retry never writes the verdict the release follows', async () => {
     mockNode.current = DEAD;
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
     expect((await read())?.neverCommittedAt).toBeUndefined();
     expect((await read())?.submitEvidence?.[0]?.verdict).toBeUndefined();
   });
@@ -560,7 +886,7 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
   });
 
   it('holds a guardian Agglayer row too', async () => {
@@ -572,14 +898,14 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 980));
   });
 
-  // Hold bounds, on an injected clock: refused at capturedAt + 599 s, today's path at + 600 s.
-  it('holds until capturedAt + 600 s exactly, then takes the acknowledgeable path', async () => {
+  // Hold bounds, on an injected clock: refused at capturedAt + 1079 s, today's path at + 1080 s.
+  it('holds until capturedAt + 1080 s exactly, then takes the acknowledgeable path', async () => {
     const clock = jest.spyOn(Date, 'now');
     try {
-      await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 599)] }));
+      await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 1079)] }));
       clock.mockReturnValue(NOW * 1000);
       expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 1));
       clock.mockReturnValue((NOW + 1) * 1000);
@@ -593,7 +919,7 @@ describe('the Guardian hold (#1081)', () => {
 
   it('lets the row through once the hold has passed, and never asks for an abandon itself', async () => {
     mockNode.current = DEAD;
-    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 601)] }));
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 1081)] }));
     await requeueFailedTransaction('tx-1');
     const row = await read();
     expect(row?.status).toBe(ITransactionStatus.Queued);

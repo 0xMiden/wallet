@@ -16,10 +16,11 @@
  * RUNNING time, on the monotonic clock: `runningNow` is `performance.now()`
  * minus the stretches the platform froze our JS, and `setRunningTimeout` runs
  * on it, so a freeze cannot expire the deadlines that bound an in-flight
- * delegated prove, or the WASM lock watchdog, on resume (#473). Hidden is not
- * frozen: a hidden WebView may keep running JS (Android, Capacitor
- * KeepRunning), and there these deadlines must still fire on time, so a freeze
- * is measured rather than assumed from visibility (see `markNow`): it is a
+ * delegated prove or Guardian request, or the WASM lock watchdog, on resume
+ * (#473, #2060). Hidden is not frozen: a hidden WebView may keep running JS
+ * (Android, Capacitor KeepRunning), and there these deadlines must still fire
+ * on time, so a freeze is measured rather than assumed from visibility (see
+ * `markNow`): it is a
  * silence longer than the hidden pulse can explain, 12 s in the first 5 minutes
  * hidden and 75 s after that, once Chrome's intensive throttling may slow a
  * hidden page's timers to one wake-up a minute. Until tracking is initialised
@@ -42,6 +43,7 @@ interface HiddenInterval {
 let hiddenIntervals: HiddenInterval[] = [];
 let hiddenSince: number | null = null;
 let installed = false;
+let installedAtMs: number | null = null;
 
 // Running time, on the monotonic clock and kept apart from the epoch-ms
 // intervals above, which `Date.now()` corrections can skew: the frozen total,
@@ -109,6 +111,15 @@ export function hiddenSecondsSince(sinceSeconds: number, nowMs: number = Date.no
   markNow();
   const ms = hiddenMsWithin(hiddenIntervals, hiddenSince, sinceSeconds * 1000, nowMs);
   return Math.floor(ms / 1000);
+}
+
+/**
+ * Milliseconds the document spent hidden inside `[sinceMs, untilMs]`, both epoch milliseconds, for a window that has
+ * already closed: hidden time after `untilMs` never counts. It reads the clock first, as `hiddenSecondsSince` does.
+ */
+export function hiddenMsBetween(sinceMs: number, untilMs: number): number {
+  markNow();
+  return hiddenMsWithin(hiddenIntervals, hiddenSince, sinceMs, untilMs);
 }
 
 /** `performance.now()`, or `Date.now()` where the timing API is missing. */
@@ -188,7 +199,9 @@ export function frozenMs(): number {
  * fire never calls back on trust: it re-reads the clock, which measures the
  * freeze it woke from, and with at least 1 ms left calls `onRearm(leftMs)` and
  * re-arms for that remainder. Under 1 ms it calls back, since no timer lands
- * closer than that.
+ * closer than that. One pulse of a measured freeze stays running time (see
+ * `markNow`), so a deadline of `RUNNING_PULSE_MS` or less that a freeze crosses
+ * still expires on resume.
  */
 export function setRunningTimeout(callback: () => void, ms: number, onRearm?: (leftMs: number) => void): () => void {
   const startedAt = runningNow();
@@ -218,11 +231,22 @@ function pruneOldIntervals(): void {
  * Install the `visibilitychange` listener that records hidden intervals.
  * Idempotent — safe to call more than once. Call once at mobile startup.
  */
+/** True after mobile startup has installed the visibility listener. Desktop and extension never do. */
+export function isBackgroundTimeTrackingInstalled(): boolean {
+  return installed;
+}
+
+/** Whether this run was already recording at `sinceMs`, epoch ms; its intervals say nothing about what came before. */
+export function wasRecordingHiddenTimeAt(sinceMs: number): boolean {
+  return installedAtMs !== null && installedAtMs <= sinceMs;
+}
+
 export function initBackgroundTimeTracking(): void {
   if (installed) return;
   /* istanbul ignore next -- defensive no-DOM/SSR guard; unreachable under the jsdom test env */
   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
   installed = true;
+  installedAtMs = Date.now();
   const monoNow = markNow();
 
   // Seed the open interval if we start up already hidden (e.g. a background
@@ -260,4 +284,5 @@ export function __resetBackgroundTimeForTest(): void {
   lastMarkHidden = false;
   hiddenStartedAt = null;
   installed = false;
+  installedAtMs = null;
 }

@@ -60,10 +60,10 @@ jobs:
       STRESS_CONSERVATION_STRICT: 'true'
       STRESS_NUM_NOTES: ${{ github.event.inputs.num_notes || '20' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
@@ -85,7 +85,7 @@ jobs:
           fi
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin
@@ -141,6 +141,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension
         run: yarn test:e2e:blockchain:build
       - name: Drop apt repositories this repo never installs from
@@ -171,7 +174,7 @@ jobs:
           done
       - name: Upload stress artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stress-conservation-report
           path: test-results/

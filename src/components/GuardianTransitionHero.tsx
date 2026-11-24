@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { guardianEndpointDisplayName, guardianOptionForEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
+import { GuardianLogoTile } from 'components/GuardianLogoTile';
+import { cn } from 'lib/ui/util';
 
 interface GuardianTransitionHeroProps {
   previousEndpoint?: string;
@@ -13,53 +15,49 @@ interface GuardianTransitionHeroProps {
   className?: string;
 }
 
+interface SideProps {
+  endpoint?: string;
+  label: string;
+  selected?: boolean;
+}
+
+/** One provider as Guardian settings draws it: the 88px round brand tile, its name, then its region. */
+const Side: FC<SideProps> = ({ endpoint, label, selected }) => {
+  const { t } = useTranslation();
+  const option = guardianOptionForEndpoint(endpoint ?? '');
+
+  return (
+    <div data-testid="guardian-transition-side" className="flex min-w-0 flex-1 flex-col items-center text-center">
+      <GuardianLogoTile guardianId={option?.id} size="hero" selected={selected} className="mb-2.5" />
+      {/* The ring and the arrow carry which side is which; a screen reader hears the label instead. */}
+      <span className="sr-only">{label}: </span>
+      <p className="break-words text-row-title text-ink">{guardianEndpointDisplayName(endpoint, t('unknown'))}</p>
+      {option && <p className="text-caption-heading text-muted">{option.location}</p>}
+    </div>
+  );
+};
+
 /**
- * The vertical provider transition on the Guardian rotation review: the current provider on `fill`
- * above the one being adopted on `accent`. Activity's completed switch uses the compact, top-down
- * `GuardianChangeSummary` instead.
+ * The provider switch on the Guardian rotation review, read left to right: the provider being left, an
+ * arrow, the provider taking over, ringed in `accent` as it was on the picker the user chose it on.
+ * Activity's completed switch uses the compact `GuardianChangeSummary` instead.
  */
 export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
   previousEndpoint,
   newEndpoint,
   previousLabel,
   newLabel,
-  className = ''
-}) => {
-  const { t } = useTranslation();
-  const unknown = t('unknown');
-  const previousOption = guardianOptionForEndpoint(previousEndpoint ?? '');
-  const newOption = guardianOptionForEndpoint(newEndpoint ?? '');
-
-  return (
-    <div data-testid="guardian-transition-hero" className={`w-full ${className}`}>
-      <div className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-fill px-4 py-4">
-        {/* `text-ink`, the card's own ink like the heading and region line
-              below it, so the chip follows the theme with its `bg-white` pill. */}
-        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-ink">{previousLabel}</span>
-        <h2 className="mt-1.5 break-all text-center font-heading text-xl font-bold text-ink">
-          {guardianEndpointDisplayName(previousEndpoint, unknown)}
-        </h2>
-        {previousOption && (
-          <p className="mt-0.5 text-xs font-semibold text-ink">
-            {t('guardianProviderRegion', { provider: previousOption.operatedBy, region: previousOption.location })}
-          </p>
-        )}
-      </div>
-
-      <div className="relative mt-5 flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-primary-500 px-4 py-4 text-pure-white">
-        <div className="absolute -top-4 flex h-9 w-9 items-center justify-center rounded-xl border-4 border-app-bg bg-primary-500">
-          <Icon name={IconName.ArrowDown} fill="currentColor" size="sm" />
-        </div>
-        <span className="rounded-full bg-pure-white px-2.5 py-0.5 text-xs font-medium text-grey-700">{newLabel}</span>
-        <h2 className="mt-1.5 break-all text-center font-heading text-xl font-bold text-pure-white">
-          {guardianEndpointDisplayName(newEndpoint, unknown)}
-        </h2>
-        {newOption && (
-          <p className="mt-0.5 text-center text-xs font-semibold text-pure-white">
-            {t('guardianProviderRegion', { provider: newOption.operatedBy, region: newOption.location })}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-};
+  className
+}) => (
+  <div data-testid="guardian-transition-hero" className={cn('flex w-full items-start gap-2', className)}>
+    <Side endpoint={previousEndpoint} label={previousLabel} />
+    {/* Centred on the 88px tiles: (88 - 32) / 2. */}
+    <span
+      aria-hidden="true"
+      className="mt-7 flex size-8 shrink-0 items-center justify-center rounded-full bg-fill text-muted"
+    >
+      <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
+    </span>
+    <Side endpoint={newEndpoint} label={newLabel} selected />
+  </div>
+);

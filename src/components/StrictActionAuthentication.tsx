@@ -15,6 +15,7 @@ import {
 } from 'lib/auth/strict-action-authentication';
 import { getPlatform } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { cn } from 'lib/ui/util';
 
 export interface StrictActionAuthenticationProps {
@@ -41,6 +42,7 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<UserErrorId | null>(null);
   const challengeRef = useRef<StrictActionAuthenticationChallenge>();
   const mountedRef = useRef(false);
   const submittingRef = useRef(false);
@@ -74,6 +76,7 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
       submittingRef.current = true;
       setSubmitting(true);
       setError(null);
+      setErrorId(null);
       setPassword('');
       const result = await challenge.authenticate(credential);
       if (!mountedRef.current || challengeRef.current !== challenge) return;
@@ -83,7 +86,9 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
         onResult(result);
         return;
       }
-      setError(t(method === 'hardware' ? 'biometricFailed' : 'smthWentWrong'));
+      const failureId = method === 'hardware' ? 'biometricFailed' : 'smthWentWrong';
+      setError(t(failureId));
+      setErrorId(failureId);
       beginChallenge();
     },
     [beginChallenge, method, onResult, t]
@@ -109,18 +114,24 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
   return (
     <section className={cn('flex w-full flex-col gap-4', className)} aria-busy={submitting}>
       <p className="px-1 text-body text-muted">{reason}</p>
-      <ErrorLine>{error}</ErrorLine>
+      <ErrorLine errorId={errorId}>{error}</ErrorLine>
       {method === null && (
         <Notice variant="inline" role="status">
           {t('loading')}
         </Notice>
       )}
-      {method === 'unavailable' && <ErrorLine>{t('guardianAuthenticationUnavailable')}</ErrorLine>}
+      {method === 'unavailable' && (
+        <ErrorLine errorId="guardianAuthenticationUnavailable">{t('guardianAuthenticationUnavailable')}</ErrorLine>
+      )}
       {method === 'passcode' && (
         <PasscodeEntry
           onSubmit={credential => void authenticate(credential)}
-          onChange={() => setError(null)}
+          onChange={() => {
+            setError(null);
+            setErrorId(null);
+          }}
           error={error}
+          errorId={null}
           disabled={submitting}
           isSubmitting={submitting}
         />
@@ -138,6 +149,7 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
             onChange={event => {
               setPassword(event.target.value);
               setError(null);
+              setErrorId(null);
             }}
           />
           <Button

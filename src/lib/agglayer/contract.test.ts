@@ -1,8 +1,9 @@
 import type { EIP1193Provider } from 'viem';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
-import { claimAgglayerDeposit } from './contract';
+import { claimAgglayerDeposit, midenAddrToEvmAddr } from './contract';
 import { type AgglayerDeposit, fetchMerkleProof } from './status';
 
 const mockFrom = jest.fn();
@@ -11,8 +12,25 @@ jest.mock('ethers', () => ({
   BaseContract: { from: (...args: unknown[]) => mockFrom(...args) },
   BrowserProvider: jest.fn(() => ({ getSigner: async () => 'signer' }))
 }));
+jest.mock('lib/i18n', () => ({ ...jest.requireActual('lib/i18n'), getMessage: (key: string) => `translated:${key}` }));
 jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
-jest.mock('./status', () => ({ fetchMerkleProof: jest.fn() }));
+jest.mock('./status', () => ({ ...jest.requireActual('./status'), fetchMerkleProof: jest.fn() }));
+// As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects an
+// underscore, standing in for a routing suffix it cannot decode.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  AccountId: {
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => hex.toLowerCase() };
+    }
+  },
+  Address: {
+    fromBech32: (address: string) => {
+      if (address.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `0x${address.slice(address.indexOf('1') + 1)}` }) };
+    }
+  }
+}));
 
 const DEPOSIT: AgglayerDeposit = {
   leaf_type: 0,
@@ -34,7 +52,13 @@ const provider: EIP1193Provider = { request: mockRequest, on: jest.fn(), removeL
 /** The provider answers eth_chainId with `chains` in turn, the last one from then on. */
 const onChains = (...chains: string[]) =>
   mockRequest.mockImplementation(async ({ method }: { method: string }) =>
-    method === 'eth_chainId' ? (chains.length > 1 ? chains.shift() : chains[0]) : null
+    method === 'eth_chainId'
+      ? chains.length > 1
+        ? chains.shift()
+        : chains[0]
+      : method === 'eth_accounts'
+        ? [DEPOSIT.dest_addr]
+        : null
   );
 
 beforeEach(() => {
@@ -50,9 +74,100 @@ beforeEach(() => {
   });
 });
 
-it('claims on the L1 bridge the config names', async () => {
+it.each(['chain', 'recipient'])(
+  'refuses a changed %s after the awaited claim proof instead of sending',
+  async changed => {
+    jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+    const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
+    jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+      mockRequest.mockImplementation(async ({ method }: { method: string }) =>
+        method === 'eth_chainId'
+          ? changed === 'chain'
+            ? '0x1'
+            : '0xaa36a7'
+          : [changed === 'recipient' ? `0x${'9'.repeat(40)}` : DEPOSIT.dest_addr]
+      );
+      return proof;
+    });
+    await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow();
+    expect(mockClaimAsset).not.toHaveBeenCalled();
+  }
+);
+
+it('does not manually claim an exit the bridge already auto-claimed', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  await expect(
+    claimAgglayerDeposit({ deposit: { ...DEPOSIT, claim_tx_hash: `0x${'a'.repeat(64)}` }, provider })
+  ).rejects.toThrow();
+  expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('does not adopt a mutated saved chain while its original proof is being read', async () => {
+  const route: AgglayerRecoveryConfig = {
+    chainId: 11155111,
+    contractAddress: '0x00000000000000000000000000000000000000b2',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 86,
+    evmNetworkId: 0
+  };
+  const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
+  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+    route.chainId = 1;
+    onChains('0x1');
+    return proof;
+  });
+  await expect(claimAgglayerDeposit({ deposit: { ...DEPOSIT }, provider, route })).rejects.toThrow();
+  expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('keeps the original exit amount and global index across its proof await', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  const original = { ...DEPOSIT };
+  const proof = { main_exit_root: '0xmain', rollup_exit_root: '0xrollup', merkle_proof: [], rollup_merkle_proof: [] };
+  jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+    original.amount = '999';
+    original.global_index = '999';
+    return proof;
+  });
+  await claimAgglayerDeposit({ deposit: original, provider });
+  expect(mockClaimAsset).toHaveBeenCalledTimes(1);
+  expect(mockClaimAsset.mock.calls[0]?.[2]).toBe(365072220160n);
+  expect(mockClaimAsset.mock.calls[0]?.[9]).toBe(5n);
+});
+
+it.each(['pending', 'claimed', 'wallet'])(
+  'localizes the known %s manual-claim refusal without provider details',
+  async reason => {
+    const deposit = {
+      ...DEPOSIT,
+      ready_for_claim: reason !== 'pending',
+      claim_tx_hash: reason === 'claimed' ? `0x${'a'.repeat(64)}` : ''
+    };
+    if (reason === 'wallet') {
+      jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+      const proof = {
+        main_exit_root: '0xmain',
+        rollup_exit_root: '0xrollup',
+        merkle_proof: [],
+        rollup_merkle_proof: []
+      };
+      jest.mocked(fetchMerkleProof).mockImplementationOnce(async () => {
+        onChains('0x1');
+        return proof;
+      });
+    }
+    const key =
+      reason === 'pending' ? 'claimPending' : reason === 'claimed' ? 'claimed' : 'connectDestinationWalletToClaim';
+    await expect(claimAgglayerDeposit({ deposit, provider })).rejects.toThrow(`translated:${key}`);
+    expect(mockClaimAsset).not.toHaveBeenCalled();
+  }
+);
+
+it('claims a row saved before its route on the L1 bridge the config names for Sepolia', async () => {
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   await claimAgglayerDeposit({ deposit: DEPOSIT, provider });
+  expect(getAgglayerL1Bridge).toHaveBeenCalledWith(11155111);
   expect(mockFrom).toHaveBeenCalledWith('0x00000000000000000000000000000000000000b2', expect.any(Array), 'signer');
   expect(mockClaimAsset).toHaveBeenCalledTimes(1);
 });
@@ -64,6 +179,12 @@ it('fetches no proof and sends nothing while the config names no L1 bridge', asy
   await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('no L1 bridge');
   expect(fetchMerkleProof).not.toHaveBeenCalled();
   expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('pads the id of the address part of a composite whose routing suffix the bech32 parser rejects', () => {
+  expect(midenAddrToEvmAddr('mtst10123456789abcdef0123456789abcd_qruqqypuyph')).toBe(
+    '0x000000000123456789abcdef0123456789abcd00'
+  );
 });
 
 // A USDCx deposit can leave the wallet on Arc, where claimAsset to the L1 bridge's address would succeed against no
@@ -79,6 +200,28 @@ it('switches a wallet on another chain to Sepolia before claiming', async () => 
 it('refuses a claim on another chain without sending it', async () => {
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   onChains('0x4cef52');
-  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('Sepolia');
+  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('destination chain');
   expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('claims against the saved chain and contract after the route is removed', async () => {
+  const route: AgglayerRecoveryConfig = {
+    chainId: 84532,
+    contractAddress: '0x00000000000000000000000000000000000000b3',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 73,
+    evmNetworkId: 6
+  };
+  jest.mocked(getAgglayerL1Bridge).mockImplementation(() => {
+    throw new Error('removed route');
+  });
+  onChains('0xaa36a7', '0x14a34');
+  await claimAgglayerDeposit({ deposit: DEPOSIT, provider, route });
+  expect(getAgglayerL1Bridge).not.toHaveBeenCalled();
+  expect(mockRequest).toHaveBeenCalledWith({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x14a34' }] });
+  expect(fetchMerkleProof).toHaveBeenCalledWith(DEPOSIT.deposit_cnt, DEPOSIT.network_id, route);
+  expect(mockFrom).toHaveBeenCalledWith(route.contractAddress, expect.any(Array), 'signer');
+  expect(mockClaimAsset.mock.calls[0]?.[8]).toBe(DEPOSIT.dest_addr);
+  expect(mockClaimAsset.mock.calls[0]?.[11]).toEqual({ chainId: route.chainId });
 });

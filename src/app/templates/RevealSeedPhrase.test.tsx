@@ -6,10 +6,14 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSeedPhrase from './RevealSeedPhrase';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 let mockSeedStatus: SeedPhraseStatus = 'stored';
 jest.mock('lib/store', () => ({
@@ -32,6 +36,7 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
 const mockClipboardWrite = jest.fn();
+const mockWriteSecret = jest.fn();
 let mockIsMobile = false;
 
 // ---------------------------------------------------------------------------
@@ -49,7 +54,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
+  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 // Mirrors the real header's focus contract rather than stubbing it away: the title is
@@ -79,30 +84,47 @@ jest.mock('components/PageHeader', () => {
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock exposes onChange/onSubmit + echoes error/isSubmitting props.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    error,
-    isSubmitting
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    error?: string | null;
-    isSubmitting?: boolean;
-  }) => (
-    <div>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-      <span data-testid="passcode-error">{error ?? ''}</span>
-      <span data-testid="passcode-submitting">{String(Boolean(isSubmitting))}</span>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      error,
+      isSubmitting
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      error?: string | null;
+      isSubmitting?: boolean;
+    }) => (
+      <div>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+        <span data-testid="passcode-error">{error ?? ''}</span>
+        <span data-testid="passcode-submitting">{String(Boolean(isSubmitting))}</span>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 // Drawer stub: like vaul's portal, it renders its content only while open. It
 // exposes buttons that fire onOpenChange with both `false` (close) and `true`
@@ -140,9 +162,7 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic })
 }));
 
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: () => mockHapticLight()
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticError: jest.fn(), hapticLight: () => mockHapticLight() }));
 
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile,
@@ -169,6 +189,10 @@ jest.mock('lib/mobile/screenshot-guard', () => ({
 
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
+jest.mock('lib/ui/secret-clipboard', () => ({
+  writeSecretToClipboard: (...args: unknown[]) => mockWriteSecret(...args)
 }));
 
 // The warning's Close and back go through useBackWithFallback, which reads live
@@ -202,12 +226,14 @@ describe('RevealSeedPhrase', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     // Only read when the hardware probe REJECTS, which no other test makes it do.
     mockHasPasswordProtector.mockResolvedValue(false);
     mockSecret = null;
     mockSeedStatus = 'stored';
     mockClipboardWrite.mockResolvedValue(undefined);
+    mockWriteSecret.mockResolvedValue(undefined);
     mockIsMobile = false;
     mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -271,6 +297,13 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+  };
+
+  // Off mobile the words stay masked until Show.
+  const pressShow = async (container: HTMLElement) => {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
+    });
   };
 
   const renderAndView = async () => {
@@ -566,7 +599,17 @@ describe('RevealSeedPhrase', () => {
       expect(getByTestId<HTMLButtonElement>(container, 'protector-probe-retry').disabled).toBe(false);
       expect(getByTestId(container, 'protector-probe-error').textContent).toContain('couldNotCheckUnlockMethod');
       expect(buttonWithText(container, 'view')!.disabled).toBe(true);
-      // The deadline has fired and nothing re-armed it: the probe waits on its read alone.
+      // Only the notice's visibility dwell remains; the probe deadline must not re-arm.
+      expect(jest.getTimerCount()).toBe(1);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      await act(async () => {
+        jest.advanceTimersByTime(999);
+      });
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([]);
+      await act(async () => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['couldNotCheckUnlockMethod', 'notice']]);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
       jest.useRealTimers();
@@ -822,7 +865,7 @@ describe('RevealSeedPhrase', () => {
     });
 
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('keeps the warning on screen while the biometric prompt is pending', async () => {
@@ -904,6 +947,7 @@ describe('RevealSeedPhrase', () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
     const container = await renderAndView();
+    await pressShow(container);
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
@@ -927,7 +971,27 @@ describe('RevealSeedPhrase', () => {
       copyBtn.click();
     });
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'alpha beta gamma delta' });
+    expect(mockWriteSecret).toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(mockClipboardWrite).not.toHaveBeenCalled();
+  });
+
+  // Only a revealed private key hides itself after SECRET_REVEAL_MS; a phrase is being written down.
+  it('keeps a shown phrase on screen past SECRET_REVEAL_MS', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
+    const container = await renderAndView();
+    jest.useFakeTimers();
+    try {
+      await pressShow(container);
+      await act(async () => {
+        jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+      });
+
+      expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')!.textContent).toContain('hide');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows the "copied" state once the write lands (the shared glyph morphed to a check + the label rolled to copied)', async () => {
@@ -947,14 +1011,14 @@ describe('RevealSeedPhrase', () => {
   // 20s, and a user who read "Copied" believes they hold a backup.
   it('keeps the copy label when the clipboard write is refused', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    mockClipboardWrite.mockRejectedValue(new Error('write refused'));
+    mockWriteSecret.mockRejectedValue(new Error('write refused'));
     const container = await renderAndView();
 
     await act(async () => {
       (buttonWithText(container, 'copyToClipboard') as HTMLButtonElement).click();
     });
 
-    expect(mockClipboardWrite).toHaveBeenCalledTimes(1);
+    expect(mockWriteSecret).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-copy-label] [data-present="true"]')!.textContent).toBe('copyToClipboard');
     expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeNull();
   });
@@ -979,6 +1043,7 @@ describe('RevealSeedPhrase', () => {
   it('draws the revealed words on the shared fill surface, with copy as a shared pill', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const container = await renderAndView();
+    await pressShow(container);
 
     const grid = container.querySelector('[data-testid="seed-word-0"]')!.closest('.rounded-2xl')!;
     expect(grid).toHaveClass('bg-fill', 'rounded-2xl');
@@ -986,6 +1051,63 @@ describe('RevealSeedPhrase', () => {
     // No lone white block and no bordered one-off copy button any more.
     expect(container.querySelector('.bg-white')).toBeNull();
     expect(container.querySelector('.border-border-card')).toBeNull();
+  });
+
+  it('off mobile the phrase is not in the DOM while masked, and Show reveals it', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.textContent).not.toContain('alpha');
+    const toggle = container.querySelector('[data-testid="seed-reveal-toggle"]')!;
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle.textContent).toBe('show');
+
+    await pressShow(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle.textContent).toBe('hide');
+  });
+
+  it('off mobile the phrase hides again when the window loses focus', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'));
+    });
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('off mobile the phrase hides again when the document is hidden', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    try {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    }
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+  });
+
+  it('on mobile the phrase shows at once with no Show control', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')!.textContent).toBe('alpha');
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
   });
 
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
@@ -1024,6 +1146,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'view')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.textContent).toContain('alpha');
     const wordsTitle = container.querySelector('[data-testid="nh-title"]');
@@ -1069,6 +1192,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     // The shared negative Notice carries the message, in place of the Alert atom.
     expect(container.querySelector('[data-tone="negative"] [data-slot="body"]')!.textContent).toBe('biometric failed');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'notice');
     // BOTH at zero is the discriminating assertion. A count of 1 could not tell the
     // fix from the bug: the catch and the auto-close effect each wanted out, so
     // removing one merely promoted the other and the total stayed 1.
@@ -1093,6 +1220,7 @@ describe('RevealSeedPhrase', () => {
       buttonWithText(container, 'retry')!.click();
     });
     await flush();
+    await pressShow(container);
 
     expect(container.querySelector('[data-tone="negative"]')).toBeNull();
     expect(container.textContent).toContain('alpha');
@@ -1337,6 +1465,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('bad-password');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="error-caption"]')!.textContent).toBe('wrong password');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'field');
     // The drawer must stay open on the same auth branch - a submit error is not an exit.
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
     expect(container.querySelector('[data-testid="reveal-seed-auth"]')).toBeTruthy();
@@ -1415,6 +1547,7 @@ describe('RevealSeedPhrase', () => {
   });
 
   it('surfaces a passcode error in the numpad after a failed mobile unlock', async () => {
+    mockRenderActualPasscode = true;
     mockIsMobile = true;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockRejectedValue(new Error('wrong passcode'));
@@ -1429,6 +1562,10 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('123456');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="passcode-error"]')!.textContent).toBe('wrong passcode');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_seed_reveal_failed', 'passcode');
   });
 
   it('leaves the page exactly once when the revealed phrase auto-hides', async () => {
@@ -1448,6 +1585,25 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('starts masked again when a new secret replaces one that auto-hid', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    await pressShow(container);
+    expect(container.querySelector('[data-testid="seed-word-0"]')).not.toBeNull();
+
+    mockSecret = null;
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await clickView(container);
+
+    expect(container.querySelector('[data-testid="seed-word-0"]')).toBeNull();
+    expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toHaveAttribute('aria-pressed', 'false');
   });
 
   // -------------------------------------------------------------------------

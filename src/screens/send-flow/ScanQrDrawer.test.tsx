@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ScanQrDrawer } from './ScanQrDrawer';
 
 /**
@@ -17,6 +19,8 @@ import { ScanQrDrawer } from './ScanQrDrawer';
 // ---------------------------------------------------------------------------
 
 // i18n: identity translator so copy renders as raw keys (matches sibling tests).
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -357,5 +361,62 @@ describe('ScanQrDrawer', () => {
     expect(reactWarnings).toHaveLength(0);
 
     consoleError.mockRestore();
+  });
+});
+
+describe('ScanQrDrawer user-visible errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  const expectReport = async (id: string) => {
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  };
+
+  it('reports cameraPermissionDenied while its closeable permission failure remains visible', async () => {
+    getUserMediaMock.mockRejectedValueOnce(domError('NotAllowedError'));
+    const props = noopProps();
+    await act(async () => {
+      render(<ScanQrDrawer open {...props} />);
+    });
+
+    expect(screen.getByRole('heading', { name: 'cameraPermissionDenied' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'close' })).toBeEnabled();
+    await expectReport('cameraPermissionDenied');
+  });
+
+  it('reports noCameraFound without forwarding the failed camera request', async () => {
+    getUserMediaMock.mockRejectedValueOnce(new Error('Camera URL https://camera.invalid/private?amount=123.45'));
+    await act(async () => {
+      render(<ScanQrDrawer open {...noopProps()} />);
+    });
+
+    expect(screen.getByRole('heading', { name: 'noCameraFound' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'close' })).toBeEnabled();
+    await expectReport('noCameraFound');
+  });
+
+  it('reports invalidMidenAddress while an invalid QR remains visible and scanning continues', async () => {
+    const { stream } = makeStream();
+    getUserMediaMock.mockResolvedValueOnce(stream);
+    detectMock.mockResolvedValueOnce([{ rawValue: 'https://qr.invalid/private?amount=123.45' }]);
+    const props = noopProps();
+    await act(async () => {
+      render(<ScanQrDrawer open {...props} />);
+    });
+
+    expect(screen.getByText('invalidMidenAddress')).toBeVisible();
+    expect(screen.getByTestId('scan-qr-video')).toBeInTheDocument();
+    expect(props.onDetected).not.toHaveBeenCalled();
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    await expectReport('invalidMidenAddress');
   });
 });

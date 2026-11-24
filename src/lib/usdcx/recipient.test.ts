@@ -1,5 +1,12 @@
 import { midenAccountHexToXReserveRecipient } from './recipient';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 // Vectors from the USDCx bridging guide (2026-09-22), computed with the faucet's
 // `EthEmbeddedAccountId::to_bytes32`. The third one is the example shared with
 // Circle in the SDK examples.

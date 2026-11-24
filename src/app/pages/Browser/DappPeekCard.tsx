@@ -32,12 +32,14 @@
 
 import React, { type FC, useRef, useState } from 'react';
 
-import { type PanInfo, motion } from 'framer-motion';
+import { type PanInfo, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import type { MorphVelocity } from '@miden/dapp-browser';
 import { Icon, IconName } from 'app/icons/v2';
-import { springs } from 'lib/animation';
+import { MORPH_TIMING, springs } from 'lib/animation';
 import { type DappSession, getDappDisplayName, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
+import { prepareMorph } from 'lib/dapp-browser/morph-boost';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
 export const CARD_WIDTH = 104;
@@ -62,26 +64,20 @@ interface DappPeekCardProps {
   stackIndex: number;
   /** Overflow count rendered as "+N" on the frontmost card only. */
   overflowCount?: number;
-  /** Whether this specific card is being restored and should fade out
-   *  in-place while the ExpanderOverlay takes over. */
-  isExpanding?: boolean;
   /**
-   * Whether this card is the landing target of a minimize-shrink
-   * animation in progress. When true, the card skips its entry
-   * animation and snaps directly to its steady state — it sits
-   * invisible (covered by the shrinking overlay above it) until the
-   * overlay unmounts, at which point the user sees the card already
-   * in position with no bounce-in jank.
+   * Whether a collapsing page is landing on this card: it skips its entry animation and rests under the page, so it is
+   * already in place when the page hides.
    */
   isShrinking?: boolean;
   /**
-   * Called when a restore gesture commits (tap or swipe up). The callback
-   * receives the card's current DOM rect so the tray can render an
-   * `ExpanderOverlay` that flies from exactly the card's position to
-   * fullscreen. Also called for back-card taps (where `sourceRect` is
-   * still meaningful since the tap originates from their visible slice).
+   * Called when a restore gesture commits (tap or swipe up) with the card's current DOM rect, where the native morph
+   * starts, and the release velocity in CSS px per second (zero for a tap).
    */
-  onCommitRestore: (sourceRect: DOMRect) => void;
+  onCommitRestore: (sourceRect: DOMRect, velocity: MorphVelocity) => void;
+  /** False while the native page covers this card; its chrome fades in when this turns true. */
+  chromeVisible?: boolean;
+  /** Leave without the exit animation: the native page has already taken the card's place. */
+  exitInstantly?: boolean;
   onClose: () => void;
   onShowAll: () => void;
   /**
@@ -99,14 +95,16 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   snapshot,
   stackIndex,
   overflowCount = 0,
-  isExpanding = false,
   isShrinking = false,
+  chromeVisible = true,
+  exitInstantly = false,
   onCommitRestore,
   onClose,
   onShowAll,
   onNavigate
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion() === true;
   const [faviconBroken, setFaviconBroken] = useState(false);
   // `exitMode` drives which exit animation AnimatePresence plays when
   // this card unmounts. We set it synchronously on commit inside the
@@ -131,11 +129,25 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   // between where the user was touching and where the expand begins.
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const commitRestore = () => {
+  const commitRestore = (velocity: MorphVelocity) => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
-      onCommitRestore(rect);
+      onCommitRestore(rect, velocity);
     }
+  };
+  // The card's gradient, label, buttons and outer shadow layers; the contact shadow the native morph lands with stays.
+  const chromeStyle: React.CSSProperties = {
+    opacity: chromeVisible ? 1 : 0,
+    transition: chromeVisible && !reduceMotion ? `opacity ${MORPH_TIMING.chromeFadeMs}ms ease-out` : 'none',
+    pointerEvents: chromeVisible ? undefined : 'none'
+  };
+  // Hidden controls also leave the focus order and the accessibility tree; React 18 drops a boolean `inert`.
+  const inertWhen = (hidden: boolean) => (hidden ? { 'aria-hidden': true, inert: '' } : {});
+  const hiddenChromeControl = inertWhen(!chromeVisible);
+  // Once its page has taken its place the card takes no input until it unmounts. Under a collapse it stays live:
+  // a restore then reverses the collapse.
+  const prepareRestore = () => {
+    if (!exitInstantly) void prepareMorph(session.id);
   };
 
   const displayName = getDappDisplayName(session);
@@ -154,6 +166,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (exitInstantly) return;
     hapticLight();
     setExitMode('close');
     // Defer the parent state mutation so React has a chance to flush
@@ -164,6 +177,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 
   const handleShowAll = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (exitInstantly) return;
     hapticLight();
     onShowAll();
   };
@@ -176,8 +190,10 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       wasDraggedRef.current = false;
       return;
     }
+    if (exitInstantly) return;
+    // The restore's morph command goes to native first; the haptic does not have to precede it.
+    commitRestore({ x: 0, y: 0 });
     hapticLight();
-    commitRestore();
   };
 
   // Only the front card is draggable. Back cards are partially hidden
@@ -197,6 +213,12 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   };
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
+    if (exitInstantly) {
+      setTimeout(() => {
+        wasDraggedRef.current = false;
+      }, 100);
+      return;
+    }
     const dx = info.offset.x;
     const dy = info.offset.y;
     const vx = info.velocity.x;
@@ -207,10 +229,10 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
     // values in case the lock never triggered (extremely short drag).
     const isVerticalDrag = Math.abs(dy) >= Math.abs(dx);
     if (isVerticalDrag) {
-      // Up: restore via the ExpanderOverlay fly-out.
+      // Up: restore, handing the release velocity to the native morph.
       if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
+        commitRestore({ x: vx, y: vy });
         hapticMedium();
-        commitRestore();
         return;
       }
       // Down: close with a continuation-of-drag fade.
@@ -253,8 +275,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   // the card down a bit and fades — used when the parked-sessions
   // array shrinks from somewhere other than this card's own gesture.
   // For a swipe-down close, the card continues its downward motion.
-  const exitVariant =
-    exitMode === 'close'
+  const exitVariant = exitInstantly
+    ? { opacity: 0, transition: { duration: 0 } }
+    : exitMode === 'close'
       ? {
           opacity: 0,
           y: 180,
@@ -263,13 +286,6 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         }
       : { opacity: 0, y: 40, scale: scale * 0.9 };
 
-  // When this card is the one being restored, the tray's ExpanderOverlay
-  // is growing from its position to fullscreen. We fade the card to 0
-  // opacity in-place so it doesn't visually collide with the expander,
-  // while keeping the motion.div mounted until the parent filters it
-  // out (a tick later, once `restore()` removes it from parkedSessions).
-  const animatedOpacity = isExpanding ? 0 : opacity;
-
   return (
     <motion.div
       ref={rootRef}
@@ -277,18 +293,12 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // or removed (e.g. park a new dApp → existing cards slide left to
       // make room for the new frontmost card on the right).
       layout
-      // When this card is the landing target of a shrink animation, skip
-      // the entry animation entirely (`initial={false}` tells framer-
-      // motion to start at the animate values). The shrinking overlay
-      // sits on top of the card throughout the morph, so the card would
-      // otherwise play its bounce-in under the overlay and be caught
-      // mid-spring the moment the overlay fades out. Skipping entry
-      // means when the overlay lands the card is already at its
-      // resting pose, producing a seamless handoff.
+      // A collapsing page covers its landing card for the whole morph, so the card skips its bounce-in
+      // (`initial={false}` starts at the animate values) and is at rest when the page hides over it.
       initial={isShrinking ? false : { opacity: 0, y: 40, scale: scale * 0.9 }}
-      animate={{ opacity: animatedOpacity, x: xOffset, y: 0, scale }}
+      animate={{ opacity, x: xOffset, y: 0, scale }}
       exit={exitVariant}
-      transition={isExpanding ? { duration: 0.15 } : springs.sheetPresent}
+      transition={springs.sheetPresent}
       // Front card is draggable in 2D with direction lock:
       //   - Vertical drag: up = restore, down = close (existing behavior).
       //   - Horizontal drag: left/right = navigate the deck (rotate
@@ -297,7 +307,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // of motion so diagonal drags don't fire both handlers. Zero-
       // sized constraints + elastic pull mean the card springs back
       // to origin on release-below-threshold in either axis.
-      drag={isFront && !isExpanding && !isShrinking ? true : false}
+      drag={isFront && !isShrinking && !exitInstantly}
       dragDirectionLock
       dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
       dragElastic={0.5}
@@ -314,22 +324,28 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         // Back cards render below front cards so the front overlaps.
         zIndex: 100 - stackIndex
       }}
+      {...inertWhen(exitInstantly)}
     >
+      {/* Layered shadow: tight contact + wide soft halo with a subtle brand-color tint picked from the dApp's
+          fallback color, a faint aura that hints at identity. The middle layer is the button's own: it is the
+          shadow the native morph draws, so only these two fade in after the handoff. */}
+      <div
+        data-peek-chrome=""
+        className="pointer-events-none absolute inset-0 rounded-2xl"
+        style={{ ...chromeStyle, boxShadow: `0 1px 2px rgba(15,23,42,0.18), 0 14px 36px ${fallbackColor}40` }}
+      />
       <button
         type="button"
+        // A tap or a swipe up can restore, so the frame rate rises with the finger, and again on a slow drag's release.
+        onPointerDown={prepareRestore}
+        onPointerUp={prepareRestore}
         onClick={handleTap}
         aria-label={t('restoreDappCard', { name: displayName })}
         data-testid="dapp-peek-card"
         data-dapp-id={session.id}
         data-dapp-url={session.url}
         className="group relative block h-full w-full overflow-hidden rounded-2xl bg-white"
-        style={{
-          // Layered shadow: tight contact + wide soft halo with a subtle
-          // brand-color tint picked from the dApp's fallback color. Gives
-          // each card a faint aura that hints at identity even before
-          // the user reads the label.
-          boxShadow: `0 1px 2px rgba(15,23,42,0.18), 0 10px 28px rgba(15,23,42,0.2), 0 14px 36px ${fallbackColor}40`
-        }}
+        style={{ boxShadow: '0 10px 28px rgba(15,23,42,0.2)' }}
       >
         {/* Snapshot layer — top-anchored so the frozen preview shows
             the viewport the user was last looking at. Falls back to a
@@ -352,10 +368,18 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         {/* Subtle top highlight + bottom gradient for contrast. The
             bottom gradient is tall enough (40% of card height) to
             guarantee legible white text on any page color. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-pure-black/85 via-pure-black/40 to-transparent" />
+        <div
+          data-peek-chrome=""
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-pure-black/85 via-pure-black/40 to-transparent"
+          style={chromeStyle}
+        />
 
         {/* Label row — favicon + display name docked at the bottom-left. */}
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 px-2 pb-2">
+        <div
+          data-peek-chrome=""
+          className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 px-2 pb-2"
+          style={chromeStyle}
+        >
           <div className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-pure-white/95">
             {showFavicon ? (
               <img
@@ -384,6 +408,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleClose}
           aria-label={t('closeDappCard', { name: displayName })}
           data-testid="dapp-peek-card-close"
+          data-peek-chrome=""
+          style={chromeStyle}
+          {...hiddenChromeControl}
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
@@ -398,6 +425,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleShowAll}
           aria-label={t('showAllDapps', { count: overflowCount })}
           data-testid="dapp-peek-show-all"
+          data-peek-chrome=""
+          style={chromeStyle}
+          {...hiddenChromeControl}
           className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">

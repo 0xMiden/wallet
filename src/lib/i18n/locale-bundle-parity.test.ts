@@ -40,10 +40,10 @@ const en = loadMessages('en');
 const es = loadMessages('es');
 
 /**
- * Keys whose stored `englishSource` no longer matches en.json — the English text
- * changed and the translation still describes superseded copy. `format-locales.js`
- * omits these from the flat bundle so i18next falls back to accurate English, and
- * `translateWithDiff` re-translates exactly these on the next DeepL run.
+ * Keys whose stored `englishSource` differs from en.json: superseded copy or a
+ * rejected translation. `format-locales.js` omits both from the flat bundle for English
+ * fallback. `translateWithDiff` sends a rejected key again only when its English changes
+ * or its entry is deleted; other stale entries are queued on the next DeepL run.
  */
 const staleKeys = (locale: string): string[] =>
   Object.entries(loadMessages(locale))
@@ -83,6 +83,10 @@ const msg = (bundle: Record<string, Entry>, key: string): string => {
 };
 
 describe('runtime locale bundles (the files src/i18n.ts actually renders from)', () => {
+  it('keeps the ordinary Japanese amount label translated', () => {
+    expect(loadFlat('ja').amount).toBe('金額');
+  });
+
   it('names the Earn catalog Available Vaults (#1322)', () => {
     expect(enSource['earnVaultsTitle']).toBe('Available Vaults');
   });
@@ -146,9 +150,29 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
   it.each(RUNTIME_LOCALES)('%s translates every shipped English key it has a current translation for', locale => {
     const bundle = loadFlat(locale);
     const missing = Object.keys(en).filter(key => !(key in bundle));
-    // The only permitted gap is a key awaiting re-translation, which renders as
-    // accurate English via `fallbackLng` until the next DeepL run.
+    // Stale and rejected keys stay out of the flat bundle for English fallback. Rejected keys wait
+    // for their English to change or their entry to be deleted; other stale entries are queued.
     expect(missing.sort()).toEqual(staleKeys(locale).sort());
+  });
+
+  it.each(RUNTIME_LOCALES)('%s keeps the bridge source hint aligned with the disconnected-wallet label', locale => {
+    const flat = loadFlat(locale);
+    const messages = loadMessages(locale);
+    expect(flat.bridgeConnectSourceHint).toBe(flat.guardianNotConnectedLabel);
+    expect(msg(messages, 'bridgeConnectSourceHint')).toBe(msg(messages, 'guardianNotConnectedLabel'));
+  });
+
+  it.each([
+    ['de', 'Nach Miden'],
+    ['fr', 'Vers Miden'],
+    ['ja', 'ミデンへ'],
+    ['pl', 'Do Miden'],
+    ['pt', 'Para Miden'],
+    ['zh_CN', '转入 Miden'],
+    ['zh_TW', '轉入 Miden']
+  ])('%s translates the home deposit hint', (locale, expected) => {
+    expect(loadFlat(locale).homeDepositHint).toBe(expected);
+    expect(msg(loadMessages(locale), 'homeDepositHint')).toBe(expected);
   });
 
   it.each(['en', ...DERIVED_LOCALES])('%s uses $-delimited placeholders, never {{…}}', locale => {
@@ -172,6 +196,14 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
 
   it('renders the Spanish "Close" action as Cerrar in the bundle the UI reads (#469)', () => {
     expect(loadFlat('es').close).toBe('Cerrar');
+  });
+
+  it('renders the Turkish "Open" action of the open-link prompt as Aç in the bundle the UI reads', () => {
+    expect(loadFlat('tr').openLinkAction).toBe('Aç');
+  });
+
+  it('renders the Japanese "Continue" action as 続ける, not 続きを読む (read more), in the bundle the UI reads', () => {
+    expect(loadFlat('ja').continue).toBe('続ける');
   });
 
   it('calls the 12-word backup the recovery phrase in every English source value', () => {
@@ -265,12 +297,13 @@ describe('Chrome i18n placeholder declarations', () => {
 });
 
 describe('hand-copied English is queued for translation', () => {
-  // A non-English entry whose message is the English text is only acceptable while it is marked for
-  // the next DeepL run; `translateWithDiff` re-translates an entry whose englishSource is stale, so
-  // the explicit sentinel is what puts it in that queue. Every derived bundle, en_GB included, must
+  // A non-English entry whose message is English must carry the sentinel so the flat bundle omits it.
+  // `translateWithDiff` sends a rejected key again only when its English changes or its entry is deleted;
+  // other sentinel entries are queued on the next run. Every derived bundle, en_GB included, must
   // carry the keys: en_GB is outside the runtime parity check, so a key could otherwise vanish from it
   // unnoticed. The queued check skips English variants (en_*), whose translation can equal English.
   const COPIED_KEYS = [
+    'earnBalanceLoadError',
     'earnNoActivePositionsTitle',
     'earnNoActivePositionsBody',
     'tokenActivityEmptyTitle',
@@ -325,4 +358,28 @@ describe('locale files declare each key once', () => {
     );
     expect(repeats).toEqual([]);
   });
+});
+
+it('preserves absence and technical meaning in transaction note translations', () => {
+  expect(loadFlat('es').noOutputNotes).toBe('Sin notes de salida');
+  expect(loadMessages('es').noOutputNotes?.message).toBe('Sin notes de salida');
+  const messages = [
+    { locale: 'es', key: 'transactionOutputNotes', expected: 'notes de salida' },
+    { locale: 'es', key: 'noOutputNotes', expected: 'Sin notes de salida' },
+    { locale: 'pt', key: 'noOutputNotes', expected: 'Sem notes de saída' },
+    { locale: 'ru', key: 'otherNoteScript', expected: 'Другой скрипт note' },
+    { locale: 'uk', key: 'otherNoteScript', expected: 'Інший скрипт note' },
+    { locale: 'es', key: 'noNoteAssets', expected: 'No hay activos listados' },
+    { locale: 'ja', key: 'noNoteAssets', expected: '記載された資産なし' },
+    { locale: 'ko', key: 'noNoteAssets', expected: '나열된 자산 없음' },
+    { locale: 'zh_CN', key: 'noNoteAssets', expected: '无资产列出' }
+  ];
+  for (const { locale, key, expected } of messages) {
+    expect(loadFlat(locale)[key]).toBe(expected);
+    const entry = loadMessages(locale)[key];
+    expect(entry?.message).toBe(expected);
+    expect(entry?.englishSource).toBe(enSource[key]);
+    expect(entry?.placeholders).toEqual(en[key]?.placeholders);
+  }
+  expect(loadFlat('pt').noOutputNotes).not.toBe(loadFlat('pt').transactionOutputNotes);
 });

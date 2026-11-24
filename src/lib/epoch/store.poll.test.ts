@@ -1,3 +1,5 @@
+import type { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
+
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { useEpochStore } from './store';
@@ -68,6 +70,149 @@ const pendingDeposit = (nonce: string, pollStartedAt: number) =>
     intent: { taskTypeString: 'bridge', intentData: {}, intentNonce: nonce },
     pollStartedAt
   });
+
+it.each([
+  ['still valid', () => String(Math.floor(Date.now() / 1000) + 11_400)],
+  ['missing', () => undefined],
+  ['malformed', () => 'not-an-expiry'],
+  ['already expired', () => String(Math.floor(Date.now() / 1000) - 1)]
+])('does not claim a deposit is reclaimable after sixteen minutes when compact expiry is %s', async (name, expiry) => {
+  const intent = {
+    taskTypeString: 'bridge',
+    intentData: {},
+    intentNonce: 'long-lived',
+    compactExpires: expiry()
+  };
+  useEpochStore.setState({
+    flow: 'evm-to-miden',
+    status: 'pending',
+    intent,
+    pollStartedAt: Date.now() - 16 * 60_000
+  });
+  mockStatus.mockResolvedValue([{ chainId: MIDEN_DESTINATION_CHAIN_ID, status: 'pending' }]);
+
+  await useEpochStore.getState().poll();
+
+  expect(useEpochStore.getState()).toMatchObject({
+    status: 'pending',
+    error: null,
+    compactWatchClosed: name === 'already expired'
+  });
+});
+
+it('clears a closed compact watch when the deposit flow resets', () => {
+  useEpochStore.setState({ compactWatchClosed: true, status: 'pending' });
+  useEpochStore.getState().reset();
+  expect(useEpochStore.getState()).toMatchObject({ status: 'idle', compactWatchClosed: false });
+});
+
+it('clears an old failure message when the allocator reports that the deposit is still pending', async () => {
+  useEpochStore.setState({
+    flow: 'evm-to-miden',
+    status: 'pending',
+    error: 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.',
+    intent: { taskTypeString: 'bridge', intentData: {}, intentNonce: 'still-pending' }
+  });
+  mockStatus.mockResolvedValue([{ chainId: MIDEN_DESTINATION_CHAIN_ID, status: 'pending' }]);
+
+  await useEpochStore.getState().poll();
+
+  expect(useEpochStore.getState()).toMatchObject({ status: 'pending', error: null });
+});
+
+it('clears a closed compact watch when a new quote starts', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  useEpochStore.setState({ compactWatchClosed: true, status: 'pending', flow: 'evm-to-miden' });
+
+  await useEpochStore.getState().quoteEVMToMiden(
+    {
+      sourceChainId: 11155111,
+      destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
+      evmSourceAddress: OWNER,
+      evmTokenAddress: '0x0000000000000000000000000000000000000002',
+      midenRecipientId: '0x0123456789abcdef0123456789abcd',
+      midenFaucetId: '0x123456789abcdef0123456789abcde',
+      minTokenOut: '1'
+    },
+    OWNER
+  );
+
+  expect(useEpochStore.getState().compactWatchClosed).toBe(false);
+});
+
+it('clears a closed compact watch when the destination leg completes', async () => {
+  useEpochStore.setState({
+    flow: 'evm-to-miden',
+    status: 'pending',
+    compactWatchClosed: true,
+    intent: {
+      taskTypeString: 'bridge',
+      intentData: {},
+      intentNonce: 'done-leg',
+      compactExpires: String(Math.floor(Date.now() / 1000) - 1)
+    }
+  });
+  mockStatus.mockResolvedValue([{ chainId: MIDEN_DESTINATION_CHAIN_ID, status: 'success', midenNoteId: 'note-done' }]);
+
+  await useEpochStore.getState().poll();
+
+  expect(useEpochStore.getState()).toMatchObject({ status: 'done', error: null, compactWatchClosed: false });
+});
+
+it('stamps the solved compact expiry onto the intent', async () => {
+  const { buildEVMToMidenIntent } = jest.requireActual<typeof import('./bridge')>('./bridge');
+  const params = {
+    sourceChainId: 11155111,
+    destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
+    evmSourceAddress: OWNER,
+    evmTokenAddress: '0x0000000000000000000000000000000000000002',
+    midenRecipientId: '0x0123456789abcdef0123456789abcd',
+    midenFaucetId: '0x123456789abcdef0123456789abcde',
+    minTokenOut: '1'
+  };
+  const preFetchedQuote = {
+    taskTypeString: 'bridge',
+    intentData: {},
+    quoteResult: { success: true, resourceLockRequired: false, transactions: [] },
+    params
+  };
+  const sdk = (expires: unknown): Pick<EpochIntentSDK, 'getTaskData' | 'solveIntent'> => ({
+    getTaskData: () => Promise.reject(new Error('unused')),
+    solveIntent: () => Promise.resolve({ intentRequestData: { compact: { expires } } })
+  });
+
+  await expect(buildEVMToMidenIntent(sdk('1710000000'), { ...params, preFetchedQuote })).resolves.toMatchObject({
+    compactExpires: '1710000000'
+  });
+  await expect(buildEVMToMidenIntent(sdk(1710000001n), { ...params, preFetchedQuote })).resolves.toMatchObject({
+    compactExpires: '1710000001'
+  });
+  const missing = await buildEVMToMidenIntent(sdk(undefined), { ...params, preFetchedQuote });
+  expect(missing.compactExpires).toBeUndefined();
+});
+
+it('fails a destination leg immediately while the compact expiry is still in the future', async () => {
+  useEpochStore.setState({
+    flow: 'evm-to-miden',
+    status: 'pending',
+    intent: {
+      taskTypeString: 'bridge',
+      intentData: {},
+      intentNonce: 'failed-leg',
+      compactExpires: String(Math.floor(Date.now() / 1000) + 11_400)
+    },
+    pollStartedAt: Date.now() - 16 * 60_000
+  });
+  mockStatus.mockResolvedValue([{ chainId: MIDEN_DESTINATION_CHAIN_ID, status: 'failed' }]);
+
+  await useEpochStore.getState().poll();
+
+  expect(useEpochStore.getState()).toMatchObject({
+    status: 'failed',
+    error: 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.',
+    compactWatchClosed: false
+  });
+});
 
 describe('a poll that waits on the allocator', () => {
   beforeEach(() => {

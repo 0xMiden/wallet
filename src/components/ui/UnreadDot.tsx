@@ -11,8 +11,11 @@ import { cn } from 'lib/ui/util';
  *   move between a read row and an unread one. Mail's gutter dot.
  * - `badge` — on the top-right corner of an icon, the place a notification badge has on every
  *   platform the wallet ships on.
+ * - `corner` — on the top-right corner of an outlined card (an Activity row, a pending transfer),
+ *   seated on the card's 16px corner curve. Clear of the amount and the status under it, so
+ *   nothing in the row moves between read and unread.
  */
-export type UnreadDotPlacement = 'row' | 'badge';
+export type UnreadDotPlacement = 'row' | 'badge' | 'corner';
 
 const dotVariants = cva('pointer-events-none block rounded-full bg-notification', {
   variants: {
@@ -21,7 +24,10 @@ const dotVariants = cva('pointer-events-none block rounded-full bg-notification'
       // avatar, which is the gap Mail leaves.
       row: 'absolute left-1 top-1/2 size-2 -translate-y-1/2',
       // Ringed in `page` so the mark stays legible over the glyph it overlaps.
-      badge: 'absolute -top-0.5 -right-0.5 size-2 ring-2 ring-page'
+      badge: 'absolute -top-0.5 -right-0.5 size-2 ring-2 ring-page',
+      // 12px, centred on the curve of the card's `rounded-2xl` corner. No ring: on the white
+      // Activity page a ring in any other colour reads as a grey halo.
+      corner: 'absolute -top-px -right-px size-3'
     }
   },
   defaultVariants: { placement: 'row' }

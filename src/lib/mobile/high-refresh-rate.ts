@@ -28,10 +28,11 @@ const HighRefreshRate = registerPlugin<HighRefreshRatePlugin>('HighRefreshRate')
 /**
  * Asks iOS for the display's full refresh rate for the next `durationMs`.
  *
- * Only worth calling around an animation that runs on the web view's compositor
- * — a Web Animations API transform, or a CSS animation. Anything driven from
- * JavaScript, Framer Motion included, is capped at 60Hz by WebKit regardless
- * (WebKit bug 294338), so boosting around it costs battery and buys nothing.
+ * Only worth calling around an animation that runs on the web view's compositor:
+ * a Web Animations API transform, or a CSS animation. The cap on
+ * `requestAnimationFrame` is WebKit's `PreferPageRenderingUpdatesNear60FPSEnabled`
+ * preference (WebKit bug 294338). `AppViewController` turns it off (#1864); this
+ * boost does not.
  *
  * Unproven even in the compositor case: a blind A/B could not distinguish it, and
  * no available tool can measure the web view compositor's commit rate to settle it
@@ -52,8 +53,10 @@ export function boostRefreshRate(durationMs: number): void {
 /**
  * Reports the refresh rate the app is actually being served.
  *
- * Exists because this cannot be measured from JavaScript: `requestAnimationFrame`
- * is itself capped at 60Hz, so it can never observe anything faster than itself.
+ * Exists because this could not be measured from JavaScript before #1864:
+ * `requestAnimationFrame` was capped and could not observe a faster display.
+ * `AppViewController` turns the `PreferPageRenderingUpdatesNear60FPSEnabled`
+ * preference off (WebKit bug 294338).
  *
  * Reads Core Animation's callback rate for the app, which is not the same as the
  * web view compositor's commit rate — 120 here means the display is available at

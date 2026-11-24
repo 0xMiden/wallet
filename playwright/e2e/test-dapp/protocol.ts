@@ -1,11 +1,12 @@
 /**
- * The command surface of `window.testDapp`, imported type-only by the page and by the Playwright driver. Results are
+ * The command surface of `window.testDapp`, shared by the page and the Playwright driver. Results are
  * JSON: amounts and bigints are decimal strings, bytes are base64, ids are hex. Wallet and adapter errors come back
  * as `Outcome` data; a bad input or a failed self-check throws, because that is a dApp bug, not a wallet verdict, and a
  * call the node failed throws `ChainUnavailableError`, which the driver asks again where a repeat cannot change the
  * answer and otherwise records as an infrastructure failure of that cell alone.
  */
-import type { DappError } from '../helpers/dapp-cells';
+import type { ScriptKind } from './custom-scripts';
+import type { DappError, FailureEvidence } from '../helpers/dapp-cells';
 
 export type { DappError };
 export type NoteTypeName = 'public' | 'private';
@@ -76,6 +77,8 @@ export interface BuildCustomInput {
   carryNoteBytesB64?: string[];
   /** `none` builds with a plain builder on every kind, so a Guardian request carries no multisig auth args (X7). */
   authArgs?: 'sdk' | 'none';
+  /** A fresh fee-conversion salt on a plain missing-auth request (X7), never on the twin's authored auth. */
+  feeSalt?: boolean;
 }
 export interface BuildCustomOutput {
   /** The page keeps the built request; `submitCustom` sends it by this id. */
@@ -88,6 +91,28 @@ export interface BuildCustomOutput {
   inputNoteIds: string[];
   attachmentWordsHex: string[];
   /** The self-checks the page ran before handing the request over; any false one throws instead. */
+  checks: Record<string, boolean>;
+}
+export interface BuildCustomScriptInput {
+  /**
+   * `pay` creates one P2ID note through the basic wallet's `create_note` and `move_asset_to_note` (X8a); `pay-checked`
+   * first asserts the script argument and an advice-map value the dApp built (X8b); `fee-only` moves nothing (X8c).
+   */
+  kind: ScriptKind;
+  /** One single-asset output for `pay` and `pay-checked`, none for `fee-only`. */
+  outputs: OutputSpec[];
+}
+export interface BuildCustomScriptOutput {
+  /** The page keeps the built request; `submitCustom` sends it by this id. */
+  requestId: string;
+  requestB64: string;
+  boundBlockNum: number;
+  /** The note the script creates, predicted by the dApp; empty for `fee-only`. */
+  outputNoteIds: string[];
+  /** Always empty: `create_note` adds no attachment, so the chain must show none. */
+  attachmentWordsHex: string[];
+  scriptRootHex: string;
+  scriptArgHex?: string;
   checks: Record<string, boolean>;
 }
 export interface OutputNoteView {
@@ -104,14 +129,30 @@ export interface SignatureView {
   schemeTag: number;
   /** The signed payload as the wallet received it (word bytes, or serialized SigningInputs). */
   payloadB64: string;
-  /** The 32 word bytes the key signed: the word itself, or the SigningInputs commitment. */
+  /** The 32 word bytes the key signed: the word itself, the SigningInputs commitment, or a login message. */
   messageB64: string;
+  /** What the provider answered beside the signature; absent from an older wallet and for the summary variant's login. */
+  signedCommitmentB64?: string;
+}
+/** `domain`: verify against `signBytesCommitment(payload, kind)`; without it, against the raw value. */
+export interface VerifyInput {
+  kind: 'word' | 'signingInputs';
+  payloadB64: string;
+  signatureB64: string;
+  publicKeyB64: string;
+  domain?: 'signBytes';
 }
 export interface SelfTestView {
   publicKeyB64: string;
   signatureB64: string;
   payloadB64: string;
   messageB64: string;
+}
+export interface LoginKeyView {
+  /** The bytes `requestLoginKey` returned. */
+  loginKeyB64: string;
+  /** The commitment in the form `publicKeyHex` and `verifySignature`'s `commitmentHex` take, so the three compare. */
+  loginKeyHex: string;
 }
 export type RawArg = string | number | boolean | null | { bytesB64: string } | RawArg[] | { [key: string]: RawArg };
 export type RawCall =
@@ -121,6 +162,7 @@ export type RawCall =
   | 'requestAssets'
   | 'requestGuardianInfo'
   | 'signBytes'
+  | 'signLoginBytes'
   | 'connect'
   | 'waitForTransaction';
 
@@ -181,10 +223,15 @@ export interface DappCommands {
   noteFacts: { input: { noteBytesB64: string }; output: { noteId: string; nullifierHex: string } };
   importNote: { input: { noteBytesB64: string }; output: Outcome<{ noteId: string }> };
   buildCustom: { input: BuildCustomInput; output: BuildCustomOutput };
+  buildCustomScript: { input: BuildCustomScriptInput; output: BuildCustomScriptOutput };
   submitCustom: {
-    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1951). */
+    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1985). */
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
+  };
+  submitCustomMeasured: {
+    input: DappCommands['submitCustom']['input'];
+    output: { result: Outcome<{ txId: string }>; timing: NonNullable<FailureEvidence['refusalTiming']> };
   };
   waitForTransaction: { input: { txId: string }; output: Outcome<{ txHash: string; outputNotes: OutputNoteView[] }> };
   signWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
@@ -199,8 +246,11 @@ export interface DappCommands {
     };
     output: Outcome<SignatureView>;
   };
+  /** The two login key calls go to `window.midenWallet` directly: the published adapter has neither method. */
+  loginKey: { input: Empty; output: Outcome<LoginKeyView> };
+  signLoginWord: { input: { wordHex: string }; output: Outcome<SignatureView> };
   verifySignature: {
-    input: { kind: 'word' | 'signingInputs'; payloadB64: string; signatureB64: string; publicKeyB64: string };
+    input: VerifyInput;
     output: { verifies: boolean; commitmentHex: string };
   };
   selfTestSignature: { input: { kind: 'word' | 'signingInputs' }; output: SelfTestView };
@@ -232,9 +282,84 @@ export interface DappCommands {
 export type DappCommandName = keyof DappCommands;
 export type DappInput<K extends DappCommandName> = DappCommands[K]['input'];
 export type DappOutput<K extends DappCommandName> = DappCommands[K]['output'];
-export type DappHandlers = { [K in DappCommandName]: (input: DappInput<K>) => Promise<DappOutput<K>> };
+export interface MeasuredSubmitContext {
+  reportLeadingNode(error?: DappError): Promise<boolean>;
+  trailingCutoff?: number;
+}
+
+export type DappHandlers = {
+  [K in DappCommandName]: (input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext) => Promise<DappOutput<K>>;
+};
 
 export interface TestDappWindowApi {
   readonly ready: true;
-  call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>>;
+  call<K extends DappCommandName>(command: K, input: DappInput<K>, expiresAt?: number, measured?: MeasuredSubmitContext): Promise<DappOutput<K>>;
+}
+
+export const NODE_RETRY_MS = 2_000;
+
+async function readBefore<T>(read: () => Promise<T>, cutoff: number | undefined, timeoutError: Error): Promise<T> {
+  if (cutoff === undefined) return read();
+  const remaining = cutoff - Date.now();
+  if (remaining <= 0) throw timeoutError;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError), remaining);
+  });
+  try {
+    return await Promise.race([read(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function runMeasuredCustomSubmit(
+  sync: () => Promise<DappOutput<'syncHeight'>>,
+  submit: () => Promise<DappOutput<'submitCustom'>>,
+  expiresAt?: number,
+  measured?: MeasuredSubmitContext
+): Promise<DappOutput<'submitCustomMeasured'>> {
+  const expired = Object.assign(new Error('Measured submission expired before reaching the wallet'), {
+    name: 'CommandExpiredError'
+  });
+  let leadingError: Error | undefined;
+  const beforeStartedAt = performance.now();
+  let beforeHeight: number;
+  for (;;) {
+    const startedAt = Date.now();
+    try {
+      ({ height: beforeHeight } = await readBefore(sync, expiresAt, leadingError ?? expired));
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof Error && error.name === 'ChainUnavailableError') ||
+        expiresAt === undefined ||
+        expiresAt - Date.now() <= NODE_RETRY_MS + (Date.now() - startedAt)
+      ) throw error;
+      if (measured !== undefined && !(await measured.reportLeadingNode({ name: error.name, message: error.message }))) {
+        throw error;
+      }
+      leadingError = error;
+      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
+    }
+  }
+  if (leadingError !== undefined && measured !== undefined && !(await measured.reportLeadingNode())) throw leadingError;
+  if (expiresAt !== undefined && Date.now() >= expiresAt) throw expired;
+  const requestStartedAt = performance.now();
+  const result = await submit();
+  const afterStartedAt = performance.now();
+  const trailing = await readBefore(sync, measured?.trailingCutoff ?? expiresAt, expired).then(
+    ({ height }) => ({ afterHeight: height }),
+    () => ({ trailingReadFailed: true })
+  );
+  return {
+    result,
+    timing: {
+      beforeHeight,
+      ...trailing,
+      beforeSyncMs: Math.round(requestStartedAt - beforeStartedAt),
+      requestMs: Math.round(afterStartedAt - requestStartedAt),
+      afterSyncMs: Math.round(performance.now() - afterStartedAt)
+    }
+  };
 }

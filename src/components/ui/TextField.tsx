@@ -17,7 +17,11 @@ import { useTranslation } from 'react-i18next';
 // every screen, and the barrel's module graph evaluates ahead of a suite's own module
 // mock factories — Developer settings reads `MIDEN_NETWORK_NAME` out of one of them.
 import { ReactComponent as EyeOffIcon } from 'app/icons/v2/eye-off.svg';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { clearFieldValue } from 'lib/ui/clear-field';
+import { handleSecretCopyEvent, selectedFieldText } from 'lib/ui/secret-clipboard';
 import { cn } from 'lib/ui/util';
 
 import { ClearFieldButton } from './ClearFieldButton';
@@ -31,15 +35,19 @@ export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
 // `size` variant name collide with nothing we want to expose here.
 type SharedFieldAttrs = Omit<
   InputHTMLAttributes<HTMLInputElement> & TextareaHTMLAttributes<HTMLTextAreaElement>,
-  'onChange' | 'onFocus' | 'onBlur' | 'value' | 'defaultValue' | 'size'
+  'onChange' | 'onFocus' | 'onBlur' | 'onCopy' | 'value' | 'defaultValue' | 'size'
 >;
 
 export interface TextFieldProps extends SharedFieldAttrs {
+  /** Identifies the displayed error for reporting; null marks a display that is not an error. */
+  errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   value?: string;
   defaultValue?: string;
   onChange?: (event: React.ChangeEvent<TextFieldElement>) => void;
   onFocus?: (event: React.FocusEvent<TextFieldElement>) => void;
   onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
+  onCopy?: (event: React.ClipboardEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
   /** `md` draws the label as the 16px section label (`text-row-title`, Nunito) instead of the 13px one. */
@@ -52,6 +60,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   errorTestId?: string;
   /** 16px-radius auto-height box on `fill`, instead of the 52px pill. */
   multiline?: boolean;
+  /** Single-line only: `sm` is the compact 40px pill for a value that sits inside a detail row. */
+  size?: 'md' | 'sm';
   /** Pills (Paste, Scan, a unit, …) inside the field, on `page`. */
   trailing?: ReactNode;
   /** Single-line only: a short `muted` prefix inside the field before the text, such as a seed word's number. */
@@ -59,9 +69,15 @@ export interface TextFieldProps extends SharedFieldAttrs {
   /**
    * Key material: cover the value whenever the field is not focused, and give up focus after
    * `SECRET_REVEAL_MS` or as soon as the window loses it. A private key typed, pasted or revealed
-   * is on screen only while someone is deliberately looking at it.
+   * is on screen only while someone is deliberately looking at it. A copy out of the field goes
+   * through the secret clipboard.
    */
   secret?: boolean;
+  /**
+   * `false` keeps every other `secret` guard but drops the cover and the `SECRET_REVEAL_MS` focus
+   * timer, for a caller whose own mask decides when the value is on screen. Defaults to true.
+   */
+  secretCover?: boolean;
   /**
    * `false` keeps the clear button off a field that would otherwise offer it. A field offers one
    * while it holds a value it can edit, unless it has a `trailing` action, is a password or is `secret`.
@@ -108,7 +124,12 @@ const fieldVariants = cva('relative flex w-full bg-fill text-ink transition-shad
   variants: {
     multiline: {
       true: 'flex-col items-stretch gap-2 rounded-lg-token px-4 py-3',
-      false: 'h-[52px] items-center rounded-full px-4'
+      false: 'items-center rounded-full'
+    },
+    // Single-line only: the 52px pill, or the compact 40px one a detail row's value slot can hold.
+    size: {
+      md: '',
+      sm: ''
     },
     invalid: {
       // The error ring always shows; the quiet ring only shows once the field has focus. Both are
@@ -118,7 +139,11 @@ const fieldVariants = cva('relative flex w-full bg-fill text-ink transition-shad
       false: 'focus-within:ring-2 focus-within:ring-inset focus-within:ring-accent-primary'
     }
   },
-  defaultVariants: { multiline: false, invalid: false }
+  compoundVariants: [
+    { multiline: false, size: 'md', class: 'h-[52px] px-4' },
+    { multiline: false, size: 'sm', class: 'h-10 px-3' }
+  ],
+  defaultVariants: { multiline: false, invalid: false, size: 'md' }
 });
 
 /**
@@ -137,11 +162,15 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       labelSize = 'sm',
       hint,
       error,
+      errorId: userErrorId,
+      errorDiagnostics,
       errorTestId,
       multiline,
+      size = 'md',
       trailing,
       leading,
       secret,
+      secretCover = true,
       clearable = true,
       containerClassName,
       className,
@@ -150,6 +179,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       type,
       onFocus,
       onBlur,
+      onCopy,
       // Mirrors `FormField`, which has defaulted this since it was written. A vault secret must
       // not be offered to the browser password manager, and `off` is overridden by browsers on
       // password-TYPE inputs, so a password field needs `new-password` specifically. Callers here
@@ -165,6 +195,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     },
     forwardedRef
   ) => {
+    useUserVisibleError(error ? userErrorId : null, 'field', undefined, errorDiagnostics);
     const autoId = useId();
     const fieldId = id ?? autoId;
     const hintId = `${fieldId}-hint`;
@@ -179,7 +210,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const [focused, setFocused] = useState(false);
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
     const hasValue = value !== undefined ? value !== '' : uncontrolledValue !== '';
-    const covered = Boolean(secret) && hasValue && !focused;
+    const covered = Boolean(secret) && secretCover && hasValue && !focused;
     // One trailing action per field, and none that erases a password or key material in one tap.
     const showClear =
       clearable && hasValue && !trailing && type !== 'password' && !secret && !rest.disabled && !rest.readOnly;
@@ -208,10 +239,10 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     }, [secret]);
 
     useEffect(() => {
-      if (!secret || !focused) return undefined;
+      if (!secret || !secretCover || !focused) return undefined;
       const timer = setTimeout(() => fieldRef.current?.blur(), SECRET_REVEAL_MS);
       return () => clearTimeout(timer);
-    }, [secret, focused]);
+    }, [secret, secretCover, focused]);
 
     // Autofill, form memory, spellcheck and autocorrect would each hand key material to something
     // outside the field (a saved-form store, a dictionary, a spelling service).
@@ -228,6 +259,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
         else if (forwardedRef) forwardedRef.current = node;
       },
       [forwardedRef]
+    );
+
+    const handleCopy = useCallback(
+      (event: React.ClipboardEvent<TextFieldElement>) => {
+        onCopy?.(event);
+        if (secret) handleSecretCopyEvent(event.nativeEvent, selectedFieldText(event.currentTarget));
+      },
+      [onCopy, secret]
     );
 
     const handleChange = useCallback(
@@ -277,7 +316,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
           </label>
         )}
 
-        <div className={fieldVariants({ multiline: Boolean(multiline), invalid })}>
+        <div className={fieldVariants({ multiline: Boolean(multiline), invalid, size })}>
           {multiline ? (
             <textarea
               ref={setRef}
@@ -288,6 +327,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               onChange={handleChange}
               onFocus={handleFocus}
               onBlur={handleBlur}
+              onCopy={handleCopy}
               aria-invalid={invalid}
               aria-describedby={describedBy}
               {...textAssist}
@@ -311,6 +351,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
                 onChange={handleChange}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
+                onCopy={handleCopy}
                 aria-invalid={invalid}
                 aria-describedby={describedBy}
                 {...textAssist}

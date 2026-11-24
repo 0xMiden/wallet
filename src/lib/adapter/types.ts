@@ -14,6 +14,9 @@ import {
 import { TransactionOutput } from 'lib/miden/db/types';
 import { GuardianInfo } from 'lib/shared/types';
 
+// The adapter-base 0.17.0 InputNoteDetails lacks standardPayment; drop this alias once the wallet moves to the adapter that adds it.
+export type DAppConsumableNote = InputNoteDetails & { standardPayment: boolean };
+
 export type MidenDAppMessage = MidenDAppRequest | MidenDAppResponse;
 
 export type MidenDAppRequest =
@@ -29,7 +32,9 @@ export type MidenDAppRequest =
   | MidenDAppImportPrivateNoteRequest
   | MidenDAppConsumableNotesRequest
   | MidenDAppWaitForTxRequest
-  | MidenDAppGuardianInfoRequest;
+  | MidenDAppGuardianInfoRequest
+  | MidenDAppLoginKeyRequest
+  | MidenDAppLoginSignRequest;
 
 export type MidenDAppResponse =
   | MidenDAppGetCurrentPermissionResponse
@@ -44,7 +49,9 @@ export type MidenDAppResponse =
   | MidenDAppImportPrivateNoteResponse
   | MidenDAppConsumableNotesResponse
   | MidenDAppWaitForTxResponse
-  | MidenDAppGuardianInfoResponse;
+  | MidenDAppGuardianInfoResponse
+  | MidenDAppLoginKeyResponse
+  | MidenDAppLoginSignResponse;
 
 export interface MidenDAppMessageBase {
   type: MidenDAppMessageType;
@@ -76,7 +83,11 @@ export enum MidenDAppMessageType {
   WaitForTransactionRequest = 'WAIT_FOR_TRANSACTION_REQUEST',
   WaitForTransactionResponse = 'WAIT_FOR_TRANSACTION_RESPONSE',
   GuardianInfoRequest = 'GUARDIAN_INFO_REQUEST',
-  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE'
+  GuardianInfoResponse = 'GUARDIAN_INFO_RESPONSE',
+  LoginKeyRequest = 'LOGIN_KEY_REQUEST',
+  LoginKeyResponse = 'LOGIN_KEY_RESPONSE',
+  LoginSignRequest = 'LOGIN_SIGN_REQUEST',
+  LoginSignResponse = 'LOGIN_SIGN_RESPONSE'
 }
 
 /**
@@ -174,6 +185,34 @@ export interface MidenDAppSignRequest extends MidenDAppMessageBase {
 export interface MidenDAppSignResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.SignResponse;
   signature: string;
+  // Base64 of the word the key signed. Absent from wallets before domain-separated signing.
+  signedCommitment?: string;
+}
+
+export interface MidenDAppLoginKeyRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyRequest;
+  sourceAccountId: string;
+}
+
+export interface MidenDAppLoginKeyResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginKeyResponse;
+  // Base64 of the 32-byte commitment to the account's login key for the page's domain.
+  loginKey: string;
+}
+
+export interface MidenDAppLoginSignRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignRequest;
+  sourceAccountId: string;
+  // Base64 of 32 bytes holding four little-endian u64 field elements, each strictly below 0xffffffff00000001.
+  // The login key signs the login message hashed from the word, never the word.
+  payload: string;
+  kind: 'word';
+}
+
+export interface MidenDAppLoginSignResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.LoginSignResponse;
+  // Base64 of the 66-byte signature.
+  signature: string;
 }
 
 export interface MidenDAppAssetsRequest extends MidenDAppMessageBase {
@@ -214,7 +253,7 @@ export interface MidenDAppConsumableNotesRequest extends MidenDAppMessageBase {
 
 export interface MidenDAppConsumableNotesResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.ConsumableNotesResponse;
-  consumableNotes: any[];
+  consumableNotes: DAppConsumableNote[];
 }
 
 export interface MidenDAppWaitForTxRequest extends MidenDAppMessageBase {
@@ -234,7 +273,9 @@ export enum MidenDAppErrorType {
   NotGranted = 'NOT_GRANTED',
   NotFound = 'NOT_FOUND',
   InvalidParams = 'INVALID_PARAMS',
-  NetworkNotGranted = 'NETWORK_NOT_GRANTED'
+  OutcomeUnknown = 'OUTCOME_UNKNOWN',
+  NetworkNotGranted = 'NETWORK_NOT_GRANTED',
+  LoginKeyUnavailable = 'LOGIN_KEY_UNAVAILABLE'
 }
 
 /**

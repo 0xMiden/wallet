@@ -163,7 +163,7 @@ function writeCells(
     'W3-wire': {
       budget: 'write',
       run: async ctx => {
-        // The same recallable send through the wallet's own requestTransaction routing (spec W3, dapp.ts:1761-1775).
+        // The same recallable send through the wallet's own requestTransaction routing (spec W3, dapp.ts:1795-1809).
         await dappSendToTheEnd(j, dapp, { amount: tst(2.5), noteType: 'public', via: 'wire', recallBlocks: 500 }, ctx);
       }
     },
@@ -212,7 +212,7 @@ function writeCells(
             decision: 'approve',
             origin: dapp.origin,
             whileOpen: async popup => {
-              // The popup shows the resolved note, not the declared 1 TST (dapp.ts:2655-2668).
+              // The popup shows the resolved note, not the declared 1 TST (dapp.ts:2707-2720).
               await expect(popup.getByTestId('confirm-tx-value-amount')).toContainText('7.25');
               await popupBlock(dapp, ctx);
             }
@@ -275,7 +275,7 @@ function writeCells(
           );
         const listsEvery = (notes: { noteId: string }[]) =>
           real.every(id => notes.some(note => normalizeHex(note.noteId) === id));
-        // Committed first, asked by each note's own id, so a miss below is the lookup by the returned id alone (K10).
+        // Committed first, asked by each note's own id, so a miss below is the lookup by the returned id alone.
         await pollUntil(() => list(own), listsEvery, 'every imported note listed by its own id once committed', ctx);
         // a, b and c are A's only consumable private notes here, so a wallet that ignored the ids would answer the
         // three-id query right; asked one returned id at a time (spec N4's [id]) it would answer all three to each.
@@ -285,7 +285,6 @@ function writeCells(
         ];
         const got: string[][] = [];
         for (const { noteIds } of asks) got.push((await list(noteIds)).map(note => normalizeHex(note.noteId)).sort());
-        ctx.evidence.returnedIdUnlisted = asks.some(({ want }, index) => want.some(id => !got[index]?.includes(id)));
         expect(got).toEqual(asks.map(({ want }) => want));
       }
     },
@@ -296,7 +295,7 @@ function writeCells(
     W6: {
       budget: 'write',
       run: async ctx => {
-        // noteBytes of a note the wallet does not hold yet; K2 predicts INVALID_PARAMS ... not found after approval.
+        // noteBytes of a note the wallet does not hold yet: the approval imports it, then consumes it.
         const side = await sideOf(j, dapp);
         const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
         const { result } = await answerPrompt(

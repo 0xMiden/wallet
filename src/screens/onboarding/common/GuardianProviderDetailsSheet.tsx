@@ -7,7 +7,7 @@ import { AcknowledgeSheet } from 'components/AcknowledgeSheet';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 
-import { guardianOperatorCopy } from './GuardianProviderSheet';
+import { useGuardianOperatorText } from './GuardianProviderSheet';
 
 export interface GuardianProviderDetailsSheetProps {
   open: boolean;
@@ -26,7 +26,7 @@ export const GuardianProviderDetailsSheet: React.FC<GuardianProviderDetailsSheet
   option
 }) => {
   const { t } = useTranslation();
-  const copy = guardianOperatorCopy(option.id);
+  const operatorText = useGuardianOperatorText();
 
   return (
     <AcknowledgeSheet
@@ -35,7 +35,7 @@ export const GuardianProviderDetailsSheet: React.FC<GuardianProviderDetailsSheet
       screenKey="guardian-provider-details"
       testId="meet-guardian-provider-details"
       title={option.name}
-      description={copy ? t(copy.aboutKey) : option.operatedBy}
+      description={operatorText(option).about}
     >
       <DetailCard surface="outline" className="mx-4 mt-2">
         <DetailRow label={t('guardianProvider')}>{option.operatedBy}</DetailRow>

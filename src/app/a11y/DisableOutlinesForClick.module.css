@@ -1,4 +1,5 @@
-.focus-disabled :focus {
+/* A selected radio card draws its selection as a ring (box-shadow), so a tapped, still-focused one keeps it. */
+.focus-disabled :focus:not([role='radio'][aria-checked='true']) {
   outline: 0 !important;
   box-shadow: none !important;
 }

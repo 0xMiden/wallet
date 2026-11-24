@@ -47,8 +47,8 @@ export function useDesktopDappHandler(): void {
             // which DesktopDappConfirmationModal will pick up and show UI for
             const response = await handleWebViewMessage(webViewMessage, origin);
 
-            // Send response back to dApp window
-            await sendDappWalletResponse(response);
+            // Bound to the origin that asked: the window drops an answer once it shows another site (#1416).
+            await sendDappWalletResponse(response, origin);
           } catch (error) {
             // Send error response
             const errorResponse = {
@@ -56,7 +56,7 @@ export function useDesktopDappHandler(): void {
               reqId: request.reqId,
               error: error instanceof Error ? error.message : 'Unknown error'
             };
-            await sendDappWalletResponse(errorResponse);
+            await sendDappWalletResponse(errorResponse, origin);
           }
         });
       } catch (error) {

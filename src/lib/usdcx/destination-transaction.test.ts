@@ -1,5 +1,12 @@
 import { findUsdcxDestinationTransaction } from './destination-transaction';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const mockGetLogs = jest.fn();
 jest.mock('viem', () => ({
   ...jest.requireActual<typeof import('viem')>('viem'),

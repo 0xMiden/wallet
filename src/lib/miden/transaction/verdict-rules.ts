@@ -21,8 +21,8 @@ const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'bridged-send'
 ]);
 
-/** The Guardian's production grace for a pending candidate. */
-export const GUARDIAN_PENDING_HOLD_SEC = 600;
+/** How long the production Guardian holds a pending candidate: its 600 s grace plus 48 checks 10 s apart (#1644). */
+export const GUARDIAN_PENDING_HOLD_SEC = 1080;
 /** How long an entry recorded on another network stays checkable. */
 export const OTHER_NETWORK_GIVE_UP_SEC = 24 * 60 * 60;
 
@@ -162,6 +162,47 @@ export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfir
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;
 
+/** Block `block` can include this attempt: after its reference block and at or before its expiration, where recorded. */
+export const admitsInclusionAt = (
+  entry: Pick<ISubmitEvidence, 'refBlock' | 'expirationBlock'>,
+  block: number
+): boolean =>
+  (entry.refBlock === undefined || block > entry.refBlock) &&
+  (entry.expirationBlock === undefined || block <= entry.expirationBlock);
+
+/**
+ * This attempt may have reached its submit call: a crossing is on record for it, and its leaf did not prove it ended
+ * before that call. The row's `stage` cannot say so alone, because the stamp swallows a stage write that fails after
+ * the crossing write landed (#2060).
+ */
+export const attemptMayHaveCrossed = (
+  row: Pick<ITransaction, 'submitEvidence'> | undefined,
+  attemptId: string | undefined
+): boolean => row?.submitEvidence?.some(entry => entry.attemptId === attemptId && entry.preSubmitEnd !== true) === true;
+
+/**
+ * The nonce of the candidate an end from outside this row's pipeline leaves on its Guardian (#2060): only an attempt
+ * that may have crossed, on a row that can await a verdict, and only a nonce known to be this attempt's. Nothing
+ * outside the leaf abandons, so such a candidate stays until the node's verdict or the Guardian's own discard.
+ */
+export const crossedCandidateNonce = (
+  row: Pick<
+    ITransaction,
+    | 'type'
+    | 'extraInputs'
+    | 'restoredFromBackup'
+    | 'rotationFunding'
+    | 'attemptId'
+    | 'submitEvidence'
+    | 'guardianCandidate'
+  >
+): number | undefined => {
+  if (!canAwaitVerdict(row) || !attemptMayHaveCrossed(row, row.attemptId)) return undefined;
+  const recorded = row.submitEvidence?.find(entry => entry.attemptId === row.attemptId)?.guardianProposalNonce;
+  if (recorded !== undefined) return recorded;
+  return row.guardianCandidate?.attemptId === row.attemptId ? row.guardianCandidate?.nonce : undefined;
+};
+
 /** The row's latest attempt entry; entries are appended in attempt order. */
 export const latestEntry = (row: Pick<ITransaction, 'submitEvidence'>): ISubmitEvidence | undefined => {
   const entries = row.submitEvidence ?? [];
@@ -199,10 +240,12 @@ export interface EvidencePatch {
 }
 
 /**
- * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks; an id never changes once set, because
- * an attempt submits at most one transaction and its stamp precedes any error text about it, so evidence naming
- * another id is a contradiction: logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are
- * sticky. `raisedFlag` is honoured only when the pin creates the entry.
+ * Upsert the entry of `attemptId` (#1081). Evidence fills what the entry lacks, a swap's order as a pair, and the
+ * private notes only with the note list they narrow; an id never changes once set, because an attempt submits at most
+ * one transaction and its stamp precedes any error text about it, so evidence naming another id is a contradiction:
+ * logged, not recorded. The first end wins, and `fromExecute` and `preSubmitEnd` are sticky. `raisedFlag` is honoured
+ * only when the pin creates the entry. A pre-submit end drops a kept mark an outside end left, since the leaf that
+ * proves it abandons that candidate itself; a keep that follows records it again.
  */
 export function upsertEvidenceEntry(
   entries: readonly ISubmitEvidence[] | undefined,
@@ -238,6 +281,8 @@ export function upsertEvidenceEntry(
   if (next.initialNonce === undefined && evidence.initialNonce !== undefined) next.initialNonce = evidence.initialNonce;
   if (next.outputNoteIds === undefined && evidence.outputNoteIds !== undefined) {
     next.outputNoteIds = evidence.outputNoteIds;
+    // Only with the list it narrows, so both come from one stamp's read.
+    if (evidence.privateOutputNoteIds !== undefined) next.privateOutputNoteIds = evidence.privateOutputNoteIds;
   }
   if (next.nullifiers === undefined && evidence.nullifiers !== undefined) next.nullifiers = evidence.nullifiers;
   if (next.refBlock === undefined && evidence.refBlock !== undefined) next.refBlock = evidence.refBlock;
@@ -246,6 +291,16 @@ export function upsertEvidenceEntry(
   }
   if (next.expirationBlock === undefined && evidence.expirationBlock !== undefined) {
     next.expirationBlock = evidence.expirationBlock;
+  }
+  // Both or neither, so an order and a note never come from two stamps.
+  if (
+    next.orderId === undefined &&
+    next.orderNoteId === undefined &&
+    evidence.orderId !== undefined &&
+    evidence.orderNoteId !== undefined
+  ) {
+    next.orderId = evidence.orderId;
+    next.orderNoteId = evidence.orderNoteId;
   }
   if (next.guardianProposalNonce === undefined && patch.guardianProposalNonce !== undefined) {
     next.guardianProposalNonce = patch.guardianProposalNonce;
@@ -257,7 +312,10 @@ export function upsertEvidenceEntry(
   }
   if (patch.raisedFlag === true && current === undefined) next.raisedFlag = true;
   if (patch.candidateKept === true) next.candidateKept = true;
-  if (patch.preSubmitEnd === true) next.preSubmitEnd = true;
+  if (patch.preSubmitEnd === true) {
+    next.preSubmitEnd = true;
+    delete next.candidateKept;
+  }
   if (index === -1) list.push(next);
   else list[index] = next;
   return list;
@@ -266,6 +324,7 @@ export function upsertEvidenceEntry(
 // Fixed field order, so two writers that built the same entry in different key orders still compare equal.
 const canonicalEntry = (entry: ISubmitEvidence): unknown[] => [
   entry.attemptId,
+  entry.submitContext ?? null,
   entry.capturedAt,
   entry.source,
   entry.transactionId ?? null,
@@ -291,7 +350,7 @@ const canonicalEntry = (entry: ISubmitEvidence): unknown[] => [
 /**
  * The entries' evidence as one comparable string, the seen fields aside (`initialSeenAtBlock`, `landingSeenAtBlock`,
  * `landingSeenBy`): only the verdict lock's holder writes those, so recording a seen block never voids its own next
- * write (#1081).
+ * write (#1081). `neverCommittedBy` is aside too: it only names why a verdict the key already holds was reached.
  */
 export const evidenceKey = (entries: readonly ISubmitEvidence[] | undefined): string =>
   JSON.stringify((entries ?? []).map(canonicalEntry));

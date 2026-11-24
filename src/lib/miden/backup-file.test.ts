@@ -3,6 +3,10 @@ import { WalletType } from 'screens/onboarding/types';
 import {
   MalformedBackupFileError,
   UnsupportedBackupVersionError,
+  WrongNetworkBackupError,
+  assertBackupNetwork,
+  assertSameGenesis,
+  backupGenesisHeader,
   importedAccountBackupFailure,
   isExcludedFromWalletFile,
   parseDecryptedWalletFile,
@@ -213,6 +217,17 @@ describe('parseDecryptedWalletFile', () => {
     ).toThrow(MalformedBackupFileError);
   });
 
+  it('keeps the network a file records', () => {
+    expect(parseDecryptedWalletFile({ ...versionTwoPayload, network: 'mainnet' }).network).toBe('mainnet');
+  });
+
+  it.each<[string, unknown]>([
+    ['a number', 1],
+    ['null', null]
+  ])('rejects a recorded network that is %s', (_label, network) => {
+    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, network })).toThrow(MalformedBackupFileError);
+  });
+
   // The v2 discriminator promises the imported-secret block is present and is a
   // list. Without this the `.map` below it would throw a TypeError instead.
   it.each([
@@ -276,5 +291,75 @@ describe('isExcludedFromWalletFile (#1114)', () => {
     { label: 'a seed-derived on-chain account', type: WalletType.OnChain, hdIndex: 0, excluded: false }
   ])('$label is excluded: $excluded (#1114)', ({ type, hdIndex, excluded }) => {
     expect(isExcludedFromWalletFile({ type, hdIndex })).toBe(excluded);
+  });
+});
+
+// A store dump as the SDK's `exportStore` writes it: one list of rows per table,
+// binary fields as tagged base64. Only the block header table matters here.
+const storeDump = (blockHeaders: unknown[]) => JSON.stringify({ accountCodes: [], blockHeaders, settings: [] });
+
+const headerRow = (blockNum: number, bytes: number[]) => ({
+  blockNum,
+  header: { __type: 'Uint8Array', data: Buffer.from(bytes).toString('base64') },
+  hasClientNotes: 'false'
+});
+
+describe('backupGenesisHeader', () => {
+  it('reads the genesis header bytes the import would write', () => {
+    const dump = storeDump([headerRow(7, [9, 9]), headerRow(0, [1, 2, 3])]);
+    expect(backupGenesisHeader(dump)).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('reads a dump encoded twice, which the SDK importer also accepts', () => {
+    expect(backupGenesisHeader(JSON.stringify(storeDump([headerRow(0, [4])])))).toEqual(new Uint8Array([4]));
+  });
+
+  it.each<[string, string]>([
+    ['is not JSON', 'miden-db'],
+    ['is not an object', '42'],
+    ['has no block header table', JSON.stringify({ accountCodes: [] })],
+    ['has no genesis row', storeDump([headerRow(7, [9])])],
+    ['has two genesis rows', storeDump([headerRow(0, [1]), headerRow(0, [2])])],
+    ['stores the genesis header untagged', storeDump([{ blockNum: 0, header: 'AQID', hasClientNotes: 'false' }])],
+    [
+      'tags the genesis header as another type',
+      storeDump([{ blockNum: 0, header: { __type: 'Blob', data: 'AQID' }, hasClientNotes: 'false' }])
+    ],
+    [
+      'carries a genesis header that is not base64',
+      storeDump([{ blockNum: 0, header: { __type: 'Uint8Array', data: '%%' }, hasClientNotes: 'false' }])
+    ]
+  ])('refuses a dump that %s as malformed', (_label, dump) => {
+    expect(() => backupGenesisHeader(dump)).toThrow(MalformedBackupFileError);
+  });
+});
+
+describe('assertBackupNetwork', () => {
+  const file = parseDecryptedWalletFile(versionTwoPayload);
+
+  it('passes a file recorded on the effective network', () => {
+    expect(() => assertBackupNetwork({ ...file, network: 'testnet' }, 'testnet')).not.toThrow();
+  });
+
+  it('passes a file written before the network was recorded', () => {
+    expect(() => assertBackupNetwork(file, 'mainnet')).not.toThrow();
+  });
+
+  it.each(['mainnet', 'a-network-this-wallet-does-not-know'])('refuses a file recorded on %p', network => {
+    expect(() => assertBackupNetwork({ ...file, network }, 'testnet')).toThrow(WrongNetworkBackupError);
+  });
+});
+
+describe('assertSameGenesis', () => {
+  it('passes the same genesis header', () => {
+    expect(() => assertSameGenesis(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3]))).not.toThrow();
+  });
+
+  it.each<[string, number[]]>([
+    ['one byte differs', [1, 2, 4]],
+    ['it is a prefix of the active one', [1, 2]],
+    ['it is longer than the active one', [1, 2, 3, 4]]
+  ])('refuses a file genesis where %s', (_label, bytes) => {
+    expect(() => assertSameGenesis(new Uint8Array(bytes), new Uint8Array([1, 2, 3]))).toThrow(WrongNetworkBackupError);
   });
 });

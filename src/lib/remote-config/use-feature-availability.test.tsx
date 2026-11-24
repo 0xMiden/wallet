@@ -7,6 +7,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import type { BridgeFeature, FeatureAvailability } from './availability';
 import type { E2eOverrides } from './e2e-overrides';
 import type { BridgeConfigSnapshot } from './runtime';
+import type { FeatureAvailabilityOptions } from './use-feature-availability';
 import { useAnyFeatureAvailability, useBridgeConfigSnapshot, useFeatureAvailability } from './use-feature-availability';
 
 const snapshotOn = (network: string): BridgeConfigSnapshot => ({
@@ -51,6 +52,11 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const OFF: FeatureAvailability = { state: 'unavailable', reason: 'off', detail: 'features.earn is off' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
+const UNCONFIGURED: FeatureAvailability = {
+  state: 'unavailable',
+  reason: 'not-configured',
+  detail: 'no accepted document'
+};
 
 const mockFeatureAvailability = jest.fn(
   (_feature: BridgeFeature, _snapshot: unknown, _overrides: unknown): FeatureAvailability => AVAILABLE
@@ -182,6 +188,25 @@ describe('useFeatureAvailability', () => {
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves a hold function against the feature availability', () => {
+    answer({ earnDeposit: DOWN });
+    let shouldHold = false;
+    const hold = jest.fn((_availability: FeatureAvailability) => shouldHold);
+    const options: FeatureAvailabilityOptions = { hold };
+    const { rerender } = renderHook(() => useFeatureAvailability('earnDeposit', options), { wrapper: Wrapper });
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).not.toHaveBeenCalled();
+
+    shouldHold = true;
+    rerender();
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).toHaveBeenCalledTimes(1);
+
+    shouldHold = false;
+    rerender();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
   it('holds by default', () => {
     answer({ earnDeposit: DOWN });
     renderHook(() => useFeatureAvailability('earnDeposit', {}), { wrapper: Wrapper });
@@ -210,10 +235,40 @@ describe('useAnyFeatureAvailability', () => {
     expect(mockHold).toHaveBeenCalledTimes(1);
   });
 
+  // One configured route makes the control the network's, so its failure is the reason, wherever it is listed.
+  it.each<[string, Partial<Record<BridgeFeature, FeatureAvailability>>, FeatureAvailability]>([
+    ['the first route is not configured and the second is down', { fastBridgeIn: UNCONFIGURED, bridgeIn: DOWN }, DOWN],
+    ['the first route is down and the second is not configured', { fastBridgeIn: DOWN, bridgeIn: UNCONFIGURED }, DOWN],
+    ['no route is configured', { fastBridgeIn: UNCONFIGURED, bridgeIn: UNCONFIGURED }, UNCONFIGURED]
+  ])('reads not configured only when no listed route is: %s', (_case, byFeature, expected) => {
+    answer(byFeature);
+    const { result } = renderHook(() => useAnyFeatureAvailability(both), { wrapper: Wrapper });
+    expect(result.current).toEqual(expected);
+  });
+
   it('holds nothing for a caller that asks for no hold', () => {
     answer({ fastBridgeIn: OFF, bridgeIn: DOWN });
     const { result } = renderHook(() => useAnyFeatureAvailability(both, { hold: false }), { wrapper: Wrapper });
     expect(result.current).toEqual(OFF);
     expect(mockHold).not.toHaveBeenCalled();
+  });
+
+  it('resolves a hold function against the combined availability', () => {
+    answer({ fastBridgeIn: DOWN, bridgeIn: UNCONFIGURED });
+    let shouldHold = false;
+    const hold = jest.fn((_availability: FeatureAvailability) => shouldHold);
+    const options: FeatureAvailabilityOptions = { hold };
+    const { result, rerender } = renderHook(() => useAnyFeatureAvailability(both, options), { wrapper: Wrapper });
+    expect(result.current).toEqual(DOWN);
+    expect(hold).toHaveBeenLastCalledWith(DOWN);
+    expect(mockHold).not.toHaveBeenCalled();
+
+    shouldHold = true;
+    rerender();
+    expect(mockHold).toHaveBeenCalledTimes(1);
+
+    shouldHold = false;
+    rerender();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
   });
 });

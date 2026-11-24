@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import ExportFilePassword, { ExportFilePasswordProps } from './ExportFileSetNamePassword';
 
@@ -45,9 +47,8 @@ jest.mock('screens/onboarding/common/CreatePassword', () => ({
   )
 }));
 
-// A strong, mutually-consistent password: len 9 (>= MIN 8, < STRONG 12),
-// mixed case, letters+numbers, special char => 4 validation checks (> 1).
-const VALID_PASSWORD = 'Abcdef12!';
+// len 12 (the new-password floor), mixed case, letters+numbers, special char => all 5 checks.
+const VALID_PASSWORD = 'Abcdef12345!';
 
 // A harness that owns `passwordValue` and `fileName` (which the SUT treats as
 // controlled props) so typing actually round-trips through the component.
@@ -103,6 +104,24 @@ const renderHarness = (overrides: Partial<React.ComponentProps<typeof Harness>> 
   };
 };
 
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
+
 describe('ExportFilePassword', () => {
   afterEach(() => jest.clearAllMocks());
 
@@ -147,8 +166,7 @@ describe('ExportFilePassword', () => {
     setPassword(VALID_PASSWORD);
     const strength = screen.getByTestId('password-strength');
     expect(strength).toHaveAttribute('data-password', VALID_PASSWORD);
-    // minChar + cases + number + specialChar = 4 (strongPasswordLength is false at len 9).
-    expect(strength).toHaveAttribute('data-valid-count', '4');
+    expect(strength).toHaveAttribute('data-valid-count', '5');
   });
 
   it('toggles password field visibility and swaps the eye icon', () => {
@@ -302,6 +320,14 @@ describe('ExportFilePassword', () => {
     expect(continueBtn).toBeDisabled();
   });
 
+  it('keeps Continue disabled for an 11-character file password', () => {
+    const { setName, setPassword, setVerify, continueBtn } = renderHarness();
+    setName('My Wallet');
+    setPassword('Abcdef1234!');
+    setVerify('Abcdef1234!');
+    expect(continueBtn).toBeDisabled();
+  });
+
   it('accepts initial props for password and file name', () => {
     const { passwordInput, nameInput } = renderHarness({
       initialPassword: VALID_PASSWORD,
@@ -309,7 +335,32 @@ describe('ExportFilePassword', () => {
     });
     expect(passwordInput).toHaveValue(VALID_PASSWORD);
     expect(nameInput).toHaveValue('Preset');
-    // strongPasswordLength branch: seed a >=12 char password to flip it true.
-    expect(screen.getByTestId('password-strength')).toHaveAttribute('data-valid-count', '4');
+    expect(screen.getByTestId('password-strength')).toHaveAttribute('data-valid-count', '5');
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports export password mismatch without sending the filename or password', () => {
+    render(<Harness initialPassword={VALID_PASSWORD} initialFileName={privateErrorFixture} />);
+    fireEvent.change(screen.getByPlaceholderText('enterPasswordAgain'), { target: { value: privateErrorFixture } });
+    expect(screen.getByText('passwordsDoNotMatch')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('passwordsDoNotMatch', 'inline');
+  });
+  it('does not report an empty export form or its hidden mismatch paragraph', () => {
+    render(<Harness />);
+    expect(screen.getByText('passwordsDoNotMatch')).toHaveClass('hidden');
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

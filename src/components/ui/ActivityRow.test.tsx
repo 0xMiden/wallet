@@ -178,6 +178,22 @@ describe('ActivityRow', () => {
       expect(screen.getByText('MIDEN')).toBeTruthy();
     });
 
+    it('rounds negative amounts up and positive amounts down', () => {
+      const { rerender } = renderRow({ amount: { value: '1.2345', direction: 'negative' } });
+
+      expect(screen.getByText('1.235')).toBeTruthy();
+      rerender(
+        <ActivityRow
+          icon={<svg data-testid="glyph" />}
+          title="Sent MIDEN"
+          status={baseStatus}
+          amount={{ value: '1.2345', direction: 'positive' }}
+        />
+      );
+
+      expect(screen.getByText('1.234')).toBeTruthy();
+    });
+
     it('expands precision instead of truncating a small non-zero amount to zero', () => {
       renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
 
@@ -201,16 +217,16 @@ describe('ActivityRow', () => {
       expect(screen.getByText('+50.5')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim (sign absent)', () => {
+    it('shows a placeholder for an invalid value', () => {
       renderRow({ amount: { value: 'not-a-number' } });
 
-      expect(screen.getByText('not-a-number')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
-    it('returns non-finite values verbatim even with a leading + sign', () => {
+    it('shows a placeholder for an invalid signed value', () => {
       renderRow({ amount: { value: '+abc' } });
 
-      expect(screen.getByText('+abc')).toBeTruthy();
+      expect(screen.getByText('—')).toBeTruthy();
     });
 
     it('omits the symbol span when no symbol is provided', () => {
@@ -447,6 +463,36 @@ describe('ActivityRow', () => {
 
     expect(screen.getByTestId('row-title')).toHaveClass('truncate');
     expect(screen.getByTestId('row-subtitle')).toHaveClass('truncate');
+  });
+
+  // jsdom does not lay out, so these pin the classes that keep a long amount line inside the row (#1490):
+  // the amount column never shrinks and is capped at half the row, so a short amount or badge keeps its
+  // width, and a long line clips to one line inside the cap with an ellipsis drawn in ink (a button's
+  // default text colour is near-black on the dark card).
+  it.each<[string, NonNullable<React.ComponentProps<typeof ActivityRow>['amount']>]>([
+    ['a 30-digit amount', { value: '+123456789012345678901234567890', symbol: 'MIDEN', direction: 'positive' }],
+    ['a 40-character token symbol', { value: '+5', symbol: 'T'.repeat(40), direction: 'positive' }],
+    [
+      'a batch claim of many assets',
+      {
+        value: '+20',
+        symbol: 'AAA',
+        direction: 'positive',
+        extra: Array.from({ length: 6 }, (_, i) => ({ key: `faucet-${i}`, value: `+${i + 1}`, symbol: `T${i}` }))
+      }
+    ]
+  ])('keeps %s inside the row, beside its title and status', (_, amount) => {
+    renderRow({ testId: 'row', status: 'pending', amount });
+
+    expect(screen.getByTestId('row-title')).toHaveTextContent('Sent MIDEN');
+    const line = screen.getByTestId('row-amount');
+    const status = screen.getByTestId('row-status');
+    expect(line).toHaveClass('truncate', 'max-w-full', 'text-ink');
+    expect(line).not.toContainElement(status);
+    const column = line.parentElement;
+    expect(column).toContainElement(status);
+    expect(column).toHaveClass('shrink-0', 'max-w-1/2');
+    expect(column).not.toHaveClass('min-w-0');
   });
 });
 

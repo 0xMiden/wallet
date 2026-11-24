@@ -42,6 +42,41 @@ describe('network name copy', () => {
   it.each(keys)('protects "Miden $network$" as one DeepL span in %s', key => {
     expect(toDeepLXml(english[key])).toContain(`<x>${NAME}</x>`);
   });
+
+  it.each([
+    ['de', 'oneClickNetworkBase'],
+    ['ja', 'oneClickNetworkBase'],
+    ['ko', 'oneClickNetworkBase'],
+    ['pl', 'oneClickNetworkBase'],
+    ['ru', 'oneClickNetworkBase'],
+    ['tr', 'oneClickNetworkBase'],
+    ['uk', 'oneClickNetworkBase'],
+    ['zh_CN', 'oneClickNetworkBase'],
+    ['zh_TW', 'oneClickNetworkBase'],
+    ['de', 'oneClickNetworkOptimism'],
+    ['es', 'oneClickNetworkOptimism'],
+    ['fr', 'oneClickNetworkOptimism'],
+    ['ja', 'oneClickNetworkOptimism'],
+    ['pl', 'oneClickNetworkOptimism'],
+    ['pt', 'oneClickNetworkOptimism'],
+    ['ru', 'oneClickNetworkOptimism'],
+    ['uk', 'oneClickNetworkOptimism']
+  ])('keeps the network proper name in %s %s', (locale, key) => {
+    const expected = key === 'oneClickNetworkBase' ? 'Base' : 'Optimism';
+    expect(read(locale)[key]).toBe(expected);
+  });
+
+  it('protects Base as one DeepL span', () => {
+    expect(toDeepLXml(english.oneClickNetworkBase, 'oneClickNetworkBase')).toContain('<x>Base</x>');
+  });
+
+  it('protects Optimism as one DeepL span', () => {
+    expect(toDeepLXml(english.oneClickNetworkOptimism, 'oneClickNetworkOptimism')).toContain('<x>Optimism</x>');
+  });
+
+  it('translates oneClickAmount in Japanese', () => {
+    expect(read('ja').oneClickAmount).toBe('金額');
+  });
 });
 
 // #875's titles, labels and CTAs end without punctuation in English. Machine translation has added a full

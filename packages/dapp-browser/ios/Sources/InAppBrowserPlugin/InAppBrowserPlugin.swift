@@ -51,12 +51,16 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "show", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "completeManagedClose", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "executeScript", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "postMessage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateDimensions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
         // Miden patch (PR-4 chunk 4): multi-instance management methods.
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "morph", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setMorphTarget", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareMorph", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
         // Miden patch: retained native navbar overlay API. A caller can render a
@@ -196,10 +200,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func openWebView(_ call: CAPPluginCall) {
+        if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+            call.reject("A managed instance already owns this id")
+            return
+        }
+
         if !self.isSetupDone {
             self.setup()
         }
-        self.currentPluginCall = call
 
         guard let urlString = call.getString("url") else {
             call.reject("Must provide a URL to open")
@@ -426,6 +434,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         DispatchQueue.main.async {
+            if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+                call.reject("A managed instance already owns this id")
+                return
+            }
+            self.currentPluginCall = call
             guard let url = URL(string: urlString) else {
                 call.reject("Invalid URL format")
                 return
@@ -451,7 +464,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 enabledSafeBottomMargin: enabledSafeBottomMargin,
                 blockedHosts: blockedHosts,
                 authorizedAppLinks: authorizedAppLinks,
-                enabledSafeTopMargin: !positioned
+                enabledSafeTopMargin: !positioned,
+                breadPresentation: positioned ? call.getObject("breadPresentation") : nil,
+                initiallyVisible: positioned ? call.getBool("initiallyVisible", true) : true
                 )
 
             guard let webViewController = self.webViewController else {
@@ -790,6 +805,20 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                         height: CGFloat(h)
                     )
                 }
+                instance.managedClose = ManagedHostClose(options: call.getObject("managedHostClose"), instance: instance,
+                    host: { [weak self] in self?.bridge?.webView },
+                    notify: { [weak self] data in self?.notifyListeners("hostCloseRequested", data: data) },
+                    finish: { [weak self, weak instance] in
+                        guard let instance else { return }
+                        if let self { self.finishCloseInstance(instance, animated: false) }
+                        else {
+                            if WebViewRegistry.shared.get(id: instance.id) === instance { WebViewRegistry.shared.remove(id: instance.id) }
+                            if let window = instance.containerWindow { Self.releaseContainerWindow(window) }
+                            instance.controller.cleanupWebView()
+                            instance.containerWindow = nil
+                        }
+                    })
+                wvc.managedClose = instance.managedClose
                 WebViewRegistry.shared.register(instance)
                 registeredInstance = instance
             }
@@ -843,17 +872,12 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 // so iOS handles both visual compositing and
                 // hit-testing natively. The wallet frontend does not
                 // currently call it; its navigation is React BottomNav.
-                let window = UIWindow(windowScene: scene)
-                window.frame = CGRect(x: x, y: y, width: w, height: h)
-                window.windowLevel = UIWindow.Level.normal + 100
-                window.backgroundColor = .clear
-                window.rootViewController = instance.navigationController
-                window.isHidden = false
-                instance.containerWindow = window
+                let window = Self.makeContainerWindow(scene: scene, rect: CGRect(x: x, y: y, width: w, height: h), instance: instance)
+                instance.installContainerWindow(window, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
             }
 
-            if !self.isPresentAfterPageLoad && !presentedInWindow {
+            if !self.isPresentAfterPageLoad && !presentedInWindow && registeredInstance?.isVisible != false {
                 self.presentView(isAnimated: isAnimated)
             }
             call.resolve()
@@ -879,7 +903,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // Miden patch (PR-4 chunk 7): id-aware routing.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
-        controller?.reload()
+        if controller?.managedClose?.closing != true { controller?.reload() }
         call.resolve()
     }
 
@@ -897,7 +921,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // Miden patch (PR-4 chunk 7): id-aware routing.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
-        controller?.load(remote: url)
+        if controller?.managedClose?.closing != true { controller?.load(remote: url) }
         call.resolve()
     }
 
@@ -957,6 +981,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func open(_ call: CAPPluginCall) {
+        if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+            call.reject("A managed instance already owns this id")
+            return
+        }
+
         if !self.isSetupDone {
             self.setup()
         }
@@ -965,7 +994,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let preventDeeplink = call.getBool("preventDeeplink", false)
         self.isPresentAfterPageLoad = call.getBool("isPresentAfterPageLoad", false)
 
-        self.currentPluginCall = call
 
         guard let urlString = call.getString("url") else {
             call.reject("Must provide a URL to open")
@@ -981,6 +1009,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let credentials = self.readCredentials(call)
 
         DispatchQueue.main.async {
+            if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+                call.reject("A managed instance already owns this id")
+                return
+            }
+            self.currentPluginCall = call
             guard let url = URL(string: urlString) else {
                 call.reject("Invalid URL format")
                 return
@@ -1014,6 +1047,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             webViewController.hasDynamicTitle = true
 
             self.navigationWebViewController = UINavigationController.init(rootViewController: webViewController)
+            if let navigation = self.navigationWebViewController {
+                WebViewRegistry.shared.register(WKWebViewInstance(id: webViewController.instanceId,
+                    controller: webViewController, navigationController: navigation))
+            }
             self.navigationWebViewController?.navigationBar.isTranslucent = false
 
             // Ensure no lines or borders appear by default
@@ -1048,69 +1085,67 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func close(_ call: CAPPluginCall) {
-        let isAnimated = call.getBool("isAnimated", true)
-        // Miden patch (PR-4 chunk 2): read the optional id parameter so a
-        // multi-instance caller can target a specific instance. Defaults to
-        // "default" for legacy single-instance callers.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
-
+        let animated = call.getBool("isAnimated", true)
         DispatchQueue.main.async {
-            let currentUrl = self.webViewController?.url?.absoluteString ?? ""
+            guard let instance = WebViewRegistry.shared.get(id: instanceId) else { call.resolve(); return }
+            if let token = call.getString("managedHostCloseToken"), instance.managedClose?.token != token { call.resolve(); return }
+            if call.getBool("force", false), let managed = instance.managedClose { managed.force(); call.resolve(); return }
+            self.closeInstance(id: instanceId, animated: animated) { call.resolve() }
+        }
+    }
 
-            self.webViewController?.cleanupWebView()
+    func closeInstance(id: String, animated: Bool, completion: @escaping () -> Void = {}) {
+        guard let instance = WebViewRegistry.shared.get(id: id) else { completion(); return }
+        if let managed = instance.managedClose { managed.request(completion: completion); return }
+        finishCloseInstance(instance, animated: animated, completion: completion)
+    }
 
-            // Miden patch (PR-4 chunk 3): if this instance was presented in
-            // its own UIWindow (Architecture A), tear the window down. This
-            // releases the navController + WKWebView since UIWindow holds
-            // them via rootViewController. The closeEvent listeners + call
-            // resolve happen here, NOT in a dismiss completion handler,
-            // because windows aren't presented modally.
-            if let instance = WebViewRegistry.shared.get(id: instanceId),
-               let window = instance.containerWindow {
-                Self.releaseContainerWindow(window)
-                instance.containerWindow = nil
-                self.webViewController = nil
-                self.navigationWebViewController = nil
-                WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                call.resolve()
-                return
-            }
+    @objc func completeManagedClose(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let id = call.getString("id"), let token = call.getString("token"),
+                  let requestID = call.getString("requestId"), let commit = call.getInt("hostCommitGeneration"),
+                  let managed = WebViewRegistry.shared.get(id: id)?.managedClose,
+                  managed.complete(token: token, requestID: requestID, commit: commit) else { call.reject("Stale close receipt"); return }
+            call.resolve()
+        }
+    }
 
-            // Legacy modal presentation path (non-positioned webviews like
-            // faucet-webview). Resolve only after dismissal completes so the
-            // JS caller can safely call openWebView immediately after close
-            // — see the PR-1 part 2 patch comment for the race that fixed.
-            if let navController = self.navigationWebViewController {
-                let dismiss = {
-                    navController.dismiss(animated: isAnimated) {
-                        self.webViewController = nil
-                        self.navigationWebViewController = nil
-                        WebViewRegistry.shared.remove(id: instanceId)
-                        self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                        call.resolve()
-                    }
-                }
-                // Miden patch: UIKit drops a dismiss requested while the
-                // present animation is still running and never calls its
-                // completion, so a close for a page that failed during
-                // presentation would never settle. Wait for the transition.
-                let deferred = navController.transitionCoordinator?.animate(alongsideTransition: nil) { _ in
-                    DispatchQueue.main.async(execute: dismiss)
-                } ?? false
-                if !deferred {
-                    dismiss()
-                }
-            } else {
-                self.webViewController = nil
-                WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                call.resolve()
-            }
+    private func finishCloseInstance(_ instance: WKWebViewInstance, animated: Bool, completion: @escaping () -> Void = {}) {
+        let id = instance.id
+        if WebViewRegistry.shared.get(id: id) === instance { WebViewRegistry.shared.remove(id: id) }
+        let currentUrl = instance.controller.url?.absoluteString ?? ""
+        instance.controller.cleanupWebView()
+        if self.webViewController === instance.controller {
+            self.webViewController = nil
+            self.navigationWebViewController = nil
+        }
+        let finish = {
+            var data: [String: Any] = ["id": id, "url": currentUrl]
+            if let token = instance.managedClose?.token { data["managedHostCloseToken"] = token }
+            self.notifyListeners("closeEvent", data: data)
+            completion()
+        }
+        if let window = instance.containerWindow {
+            Self.releaseContainerWindow(window)
+            instance.containerWindow = nil
+            finish()
+        } else {
+            let nav = instance.navigationController
+            let dismiss = { nav.dismiss(animated: animated, completion: finish) }
+            let deferred = nav.transitionCoordinator?.animate(alongsideTransition: nil) { _ in
+                DispatchQueue.main.async(execute: dismiss)
+            } ?? false
+            if !deferred { dismiss() }
         }
     }
 
     private func showPrivacyScreen() {
+        if let owner = navigationWebViewController?.topViewController as? WKWebViewController,
+           owner.breadPresentation?.preparePrivacyCover() == true {
+            hidePrivacyScreen()
+            return
+        }
         if privacyScreen == nil {
             let newPrivacyScreen = UIImageView()
             self.privacyScreen = newPrivacyScreen
@@ -1182,6 +1217,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            if (call.getString("managedHostCloseToken") != nil || webViewController.breadPresentation != nil),
+               call.getString("managedHostCloseToken") != webViewController.managedClose?.token {
+                call.resolve(); return
+            }
+            if webViewController.managedClose?.closing == true { call.resolve(); return }
             // Miden patch (PR-6/7 polish): for Architecture A instances
             // (with a containerWindow), resize the UIWindow itself to
             // the new slot rect. This is load-bearing for:
@@ -1200,12 +1240,16 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // worst.
             if let instance = WebViewRegistry.shared.get(id: instanceId),
                let window = instance.containerWindow {
-                let w = CGFloat(width ?? Float(window.frame.width))
-                let h = CGFloat(height ?? Float(window.frame.height))
-                let x = CGFloat(xPos ?? Float(window.frame.minX))
-                let y = CGFloat(yPos ?? Float(window.frame.minY))
-                window.frame = CGRect(x: x, y: y, width: w, height: h)
-                instance.rect = window.frame
+                let w = CGFloat(width ?? Float(instance.rect.width))
+                let h = CGFloat(height ?? Float(instance.rect.height))
+                let x = CGFloat(xPos ?? Float(instance.rect.minX))
+                let y = CGFloat(yPos ?? Float(instance.rect.minY))
+                instance.rect = CGRect(x: x, y: y, width: w, height: h)
+                if let presentation = instance.controller.breadPresentation {
+                    presentation.updateSlot()
+                } else {
+                    window.frame = instance.rect
+                }
             } else {
                 // Legacy modal path: forward to the controller's own
                 // dimension logic.
@@ -1266,6 +1310,18 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("instance not found: \(instanceId)")
                 return
             }
+            if (call.getString("managedHostCloseToken") != nil || instance.controller.breadPresentation != nil),
+               call.getString("managedHostCloseToken") != instance.managedClose?.token {
+                call.resolve(); return
+            }
+            if instance.managedClose?.closing == true { call.resolve(); return }
+            if let presentation = instance.controller.breadPresentation {
+                if instance.managedClose != nil && call.getInt("visibilitySequence") == nil { call.resolve(); return }
+                presentation.setVisible(visible, policyRevision: call.getInt("policyRevision"), sequence: call.getInt("visibilitySequence"))
+                instance.isVisible = presentation.state.desiredVisibility
+                call.resolve()
+                return
+            }
             instance.isVisible = visible
             // Architecture A path: just toggle the UIWindow.
             if let window = instance.containerWindow {
@@ -1276,6 +1332,76 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 // but no caller exercises this branch — multi-instance is only
                 // used by the Architecture A code path.
                 instance.navigationController.view.isHidden = !visible
+            }
+            call.resolve()
+        }
+    }
+
+    /// Miden plugin method (#1817): run one native minimize or maximize morph on an
+    /// instance's live page. Resolves `{ accepted }`; progress arrives as
+    /// `presentationMorph` events carrying the caller's `morphId`.
+    @objc func morph(_ call: CAPPluginCall) {
+        // Guards and the morph run in this one main-queue hop, so the frame-rate link starts on arrival.
+        DispatchQueue.main.async { call.resolve(["accepted": self.acceptMorph(call)]) }
+    }
+
+    private func acceptMorph(_ call: CAPPluginCall) -> Bool {
+        guard let id = call.getString("id"), let instance = WebViewRegistry.shared.get(id: id),
+              let presentation = instance.controller.breadPresentation, let window = instance.containerWindow,
+              instance.morphContainer != nil, let target = call.getString("to").flatMap(BreadMorphTarget.init(rawValue:)),
+              let morphId = call.getString("morphId"), !morphId.isEmpty,
+              call.getString("managedHostCloseToken") == instance.managedClose?.token,
+              instance.managedClose?.closing != true,
+              instance.managedClose == nil || call.getInt("visibilitySequence") != nil else { return false }
+        let origin = presentation.slotFrame()?.origin ?? window.frame.origin
+        let card = Self.morphCard(from: call.options["card"]).map {
+            BreadMorphCard(rect: $0.rect.offsetBy(dx: -origin.x, dy: -origin.y), cornerRadius: $0.cornerRadius)
+        }
+        let velocity = call.options["velocity"] as? [String: Any]
+        let accepted = presentation.morph(to: target, card: card,
+            velocity: CGPoint(x: Self.morphNumber(velocity?["x"]) ?? 0, y: Self.morphNumber(velocity?["y"]) ?? 0),
+            morphId: morphId, policyRevision: target == .expanded ? call.getInt("policyRevision") : nil,
+            sequence: call.getInt("visibilitySequence"))
+        instance.isVisible = presentation.state.desiredVisibility
+        return accepted
+    }
+
+    static func morphCard(from value: Any?) -> BreadMorphCard? {
+        guard let values = value as? [String: Any], let x = morphNumber(values["x"]), let y = morphNumber(values["y"]),
+              let width = morphNumber(values["width"]), let height = morphNumber(values["height"]),
+              let radius = morphNumber(values["cornerRadius"]), width > 0, height > 0, radius >= 0 else { return nil }
+        // The shadow renderer sizes a bitmap from the radius, so no corner may exceed the card it rounds.
+        return BreadMorphCard(rect: CGRect(x: x, y: y, width: width, height: height),
+                              cornerRadius: CGFloat(min(radius, min(width, height) / 2)))
+    }
+
+    private static func morphNumber(_ value: Any?) -> Double? {
+        guard let number = (value as? NSNumber)?.doubleValue, number.isFinite else { return nil }
+        return number
+    }
+
+    /// Miden plugin method (#1817): publish the landing card, in host viewport
+    /// points, that the native Bread button collapses toward. `card: null` clears it.
+    @objc func setMorphTarget(_ call: CAPPluginCall) {
+        let card = Self.morphCard(from: call.options["card"])
+        DispatchQueue.main.async {
+            WebViewRegistry.shared.morphCard = card
+            call.resolve()
+        }
+    }
+
+    /// Miden plugin method (#1817): hold the full frame rate from a touch-down on a
+    /// control that can start a morph, so the display is at speed when it moves.
+    /// A morph that starts takes the request over; without one it lapses after `durationMs`.
+    /// A shown page also takes its collapse proxy here, off the collapse's frames; the parked page named by `id`
+    /// shows its window unseen, so its expand's first frame is not the unhide.
+    @objc func prepareMorph(_ call: CAPPluginCall) {
+        let duration = min(2, max(0, Double(call.getInt("durationMs") ?? 600) / 1000))
+        let named = call.getString("id")
+        DispatchQueue.main.async {
+            BreadFrameRateBoost.shared.hold(for: duration)
+            for id in WebViewRegistry.shared.allIds() {
+                WebViewRegistry.shared.get(id: id)?.controller.breadPresentation?.prepareMorph(warm: id == named)
             }
             call.resolve()
         }
@@ -1313,6 +1439,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             WebViewRegistry.shared.removeAll()
             for instance in snapshot {
+                if let managed = instance.managedClose { managed.force(); continue }
                 if let window = instance.containerWindow {
                     Self.releaseContainerWindow(window)
                 }
@@ -1434,6 +1561,17 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         navbarOverlay = nil
     }
 
+    static func makeContainerWindow(scene: UIWindowScene, rect: CGRect, instance: WKWebViewInstance) -> UIWindow {
+        let window = UIWindow(windowScene: scene)
+        window.frame = rect
+        window.windowLevel = UIWindow.Level.normal + 100
+        window.backgroundColor = .clear
+        let container = BreadMorphContainerViewController(child: instance.navigationController)
+        instance.morphContainer = container
+        window.rootViewController = container
+        return window
+    }
+
     /// Shared teardown for Architecture A dApp container windows.
     /// Same pathology as the navbar overlay: on iOS 15-17 a UIWindow
     /// is kept alive by the scene's internal window list if you only
@@ -1445,6 +1583,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     static func releaseContainerWindow(_ window: UIWindow) {
         window.isHidden = true
         window.resignKey()
+        window.rootViewController = nil
         if #available(iOS 13.0, *) {
             window.windowScene = nil
         }

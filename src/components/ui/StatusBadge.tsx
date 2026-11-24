@@ -19,10 +19,22 @@ export type Status =
   | 'burnConsuming'
   | 'burnConfirmed'
   | 'burnDiscarded'
+  // A confirmed burn Circle has not paid out after 2 hours
+  | 'payoutDelayed'
+  | 'stoppedBeforeSource'
+  // An Epoch deposit in The Compact that has no allocation, and the same deposit after it went back to its sender
+  | 'depositLocked'
+  | 'depositWithdrawn'
+  | 'awaitingReturn'
+  | 'readyToClaim'
+  | 'returningFunds'
+  | 'fundsReturned'
   | 'failed'
   | 'cancelled'
   | 'unconfirmed'
   | 'reclaimed'
+  // A NEAR Intents deposit that got no funds before its quote deadline
+  | 'expired'
   // A pending transfer the wallet has claimed
   | 'claimed'
   // A Smart Withdraw's phases
@@ -36,6 +48,9 @@ export type Status =
   | 'partiallyFilledReclaimed'
   // Its own word, not `reclaimed`: several locales translate the order's state differently
   | 'orderReclaimed'
+  | 'reclaiming'
+  // A swap whose payout claim keeps failing
+  | 'paybackStuck'
   | 'loading'
   | 'unavailable'
   // A guardian switch whose commit was submitted but never confirmed
@@ -77,10 +92,19 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
+  payoutDelayed: { labelKey: 'usdcxPayoutDelayed', tone: 'pending' },
+  stoppedBeforeSource: { labelKey: 'bridgeStoppedBeforeSending', tone: 'neutral' },
+  depositLocked: { labelKey: 'epochDepositLocked', tone: 'negative' },
+  depositWithdrawn: { labelKey: 'epochDepositWithdrawn', tone: 'neutral' },
+  awaitingReturn: { labelKey: 'epochAwaitingReturn', tone: 'neutral' },
+  readyToClaim: { labelKey: 'epochReadyToClaim', tone: 'neutral' },
+  returningFunds: { labelKey: 'epochReturningFunds', tone: 'neutral' },
+  fundsReturned: { labelKey: 'epochFundsReturned', tone: 'neutral' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
+  expired: { labelKey: 'statusExpired', tone: 'neutral' },
   claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },
   delivering: { labelKey: 'earnWithdrawStatusDelivering', tone: 'pending' },
@@ -91,6 +115,8 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   partiallyFilled: { labelKey: 'orderStatusPartiallyFilled', tone: 'pending' },
   partiallyFilledReclaimed: { labelKey: 'orderStatusPartiallyFilledReclaimed', tone: 'neutral' },
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
+  reclaiming: { labelKey: 'swapReclaiming', tone: 'pending' },
+  paybackStuck: { labelKey: 'swapPaybackStuck', tone: 'negative' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
   guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },

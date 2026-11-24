@@ -1,9 +1,9 @@
-import type { Hex } from 'viem';
+import { formatUnits, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import type { ArcKey } from './arc-usdcx';
 import type { JsonValue } from './history';
-import { CLAIM_COST_FEE_MULTIPLE, isWorthClaiming } from './usdcx-constants';
+import { CLAIM_COST_FEE_MULTIPLE, GRANT_MARGIN_UNITS, isWorthClaiming, USDCX_DECIMALS } from './usdcx-constants';
 
 const ARC_PRIVATE_KEY = /^(0x)?[0-9a-f]{64}$/i;
 const POSITIVE_UNITS = /^[1-9]\d*$/;
@@ -445,6 +445,17 @@ export function depositClaimProblem(units: bigint, baseFee: number): string | un
     `a deposit of ${units} does not exceed the wallet's claim floor ${floor} (base fee ${baseFee} x ` +
     `${CLAIM_COST_FEE_MULTIPLE}), so the wallet would leave its mint unclaimed: raise DEPOSIT_UNITS`
   );
+}
+
+/**
+ * Why a vault of `vault` after its faucet grant cannot fund a burn of `burnUnits`, or undefined: the burn must leave
+ * GRANT_MARGIN_UNITS for its own fees.
+ */
+export function grantFundingProblem(vault: bigint, burnUnits: bigint): string | undefined {
+  const need = burnUnits + GRANT_MARGIN_UNITS;
+  if (vault >= need) return undefined;
+  const usdcx = (units: bigint) => formatUnits(units, USDCX_DECIMALS);
+  return `the vault holds ${usdcx(vault)} USDCx, under the ${usdcx(need)} a ${usdcx(burnUnits)} USDCx burn and its fees need`;
 }
 
 /** Matches exactly one of `texts`, as a pill reads it. */

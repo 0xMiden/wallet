@@ -1,16 +1,18 @@
-import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import { WIRE_KEYS } from './serialize';
 import { sendEvent, dropQueue, __setTransportForTest, __getQueueLengthForTest } from './sink';
 import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
 
 jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
+  isCrashReportingEnabledAsync: jest.fn(),
   isTelemetryEnabledAsync: jest.fn()
 }));
 
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 
-const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension' };
+const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension', network: 'mainnet' };
 const started: TelemetryEvent = { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' };
 
 describe('telemetry sink', () => {
@@ -31,14 +33,16 @@ describe('telemetry sink', () => {
     jest.resetAllMocks();
   });
 
-  it('sends nothing when consent is off', async () => {
+  it('sends no usage events when only crash reporting is enabled', async () => {
+    jest.mocked(isCrashReportingEnabledAsync).mockResolvedValue(true);
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
     await sendEvent(started, context);
     expect(sent).toEqual([]);
+    expect(isCrashReportingEnabledAsync).not.toHaveBeenCalled();
   });
 
   it('sends nothing when consent has never been given', async () => {
-    // Read-miss resolves false — a fresh install must be silent.
+    // Read-miss resolves false, so a fresh install sends no usage events.
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
     await sendEvent(started, context);
     expect(sent).toEqual([]);
@@ -93,7 +97,8 @@ describe('telemetry sink', () => {
       flowId: 'f1',
       runId: 'r1',
       appVersion: '1.15.21',
-      platform: 'extension'
+      platform: 'extension',
+      network: 'mainnet'
     });
   });
 
@@ -238,7 +243,7 @@ describe('the real Aptabase transport', () => {
       appVersion: '1.15.21',
       sdkVersion: 'miden-wallet-aptabase@1.0.0'
     });
-    expect(envelope.props).toEqual({ flowId: 'f1' });
+    expect(envelope.props).toEqual({ flowId: 'f1', network: 'mainnet' });
     expect(Object.keys(envelope).sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);
   });
 

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ErrorDetails } from 'components/ui/ErrorDetails';
+import type { SubmissionMessageKey } from 'lib/miden/transaction/submission-feedback';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 import { DetailSection } from './DetailSection';
@@ -13,7 +14,7 @@ import { DetailSection } from './DetailSection';
  * revealed on demand. Shared by the generic detail body and the swap receipt so
  * a failed or cancelled swap explains itself the way every other type does.
  *
- * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over `isCancelled`: the row's outcome is
+ * `isUnconfirmed` (`readsAsNotConfirmed`) wins over `isCancelled`: the row's outcome is
  * unknown rather than a completed failure, so it is titled like the not-confirmed status and
  * its body is the hint that the wallet cannot yet rule the transfer out. The row's reason is
  * not shown there, since classifier copy can claim a failure ("No funds moved"); its own text
@@ -25,7 +26,7 @@ export const TransactionFailureCard: FC<{
   rawErrorMessage?: string;
   isCancelled?: boolean;
   isUnconfirmed?: boolean;
-  hintKey?: NotConfirmedHintKey;
+  hintKey?: NotConfirmedHintKey | SubmissionMessageKey;
 }> = ({ errorMessage, rawErrorMessage, isCancelled, isUnconfirmed, hintKey = 'transactionNotConfirmedHint' }) => {
   const { t } = useTranslation();
 

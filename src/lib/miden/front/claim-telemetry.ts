@@ -1,3 +1,4 @@
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { beginFlow, classifyError } from 'lib/telemetry';
 
 /**
@@ -26,7 +27,8 @@ export async function reportNoteClaim<T>(attempt: () => Promise<T>): Promise<T> 
     flow.complete();
     return result;
   } catch (err) {
-    flow.fail(classifyError(err));
+    if (err instanceof ClaimFeeRefusedError) flow.cancel();
+    else flow.fail(classifyError(err));
     throw err;
   }
 }

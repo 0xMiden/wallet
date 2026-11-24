@@ -49,16 +49,32 @@ describe('GuardianRecoveryProvider', () => {
     jest.useRealTimers();
   });
 
-  it('does nothing when no account is eligible', () => {
-    setAccounts([
-      account('not-recovered'),
-      account('rotation-required', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: true })
-    ]);
+  it('does nothing when no account is flagged', () => {
+    setAccounts([account('not-recovered'), account('rotation-only', { requiresHotKeyRotation: true })]);
 
     const { container } = render(<GuardianRecoveryProvider />);
 
     expect(container).toBeEmptyDOMElement();
     expect(startGuardianRecovery).not.toHaveBeenCalled();
+  });
+
+  // The backend runs the notes pass for it only while the rotation waits for funds (#805).
+  it('offers a rotation-pending account, and offers it again at once when its rotation lands', () => {
+    startGuardianRecovery.mockResolvedValue(false);
+    setAccounts([account('account-a', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: true })]);
+
+    const { rerender } = render(<GuardianRecoveryProvider />);
+    expect(startGuardianRecovery).toHaveBeenCalledWith('account-a');
+
+    // Refusals back the offers off to 60s.
+    act(() => jest.advanceTimersByTime(5_000 + 10_000 + 20_000 + 40_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(5);
+
+    setAccounts([account('account-a', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: false })]);
+    rerender(<GuardianRecoveryProvider />);
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(6);
+    act(() => jest.advanceTimersByTime(5_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(7);
   });
 
   it('starts eligible recoveries immediately and retries them while pending', () => {

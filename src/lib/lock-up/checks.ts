@@ -1,10 +1,10 @@
 import browser from 'webextension-polyfill';
 
 import { CHECK_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
-import { assertResponse, request } from 'lib/miden/front';
-import { WalletMessageType } from 'lib/shared/types';
+import { hasExtensionRuntime, reloadInPlace } from 'lib/platform';
 
 import { getIsLockUpEnabled } from './index';
+import { requestLock } from './lock-request';
 
 const CLOSURE_STORAGE_KEY = 'last-page-closure-timestamp';
 
@@ -27,8 +27,30 @@ const needsLocking = async () => {
  * they render.
  */
 export async function runLockUpChecks(): Promise<void> {
+  // An extension reload or update orphans this page: every extension API throws from then on, and only a reload
+  // brings it back as a page of the extension that replaced it (#1592, #1593). Start-up, the port and the timer can
+  // each be the first to see it, so the page reloads once.
+  let reloaded = false;
+  const reloadIfOrphaned = (): boolean => {
+    if (hasExtensionRuntime()) return false;
+    if (!reloaded) {
+      reloaded = true;
+      reloadInPlace();
+    }
+    return true;
+  };
+
+  try {
+    await startLockUpChecks(reloadIfOrphaned);
+  } catch (error) {
+    if (reloadIfOrphaned()) return;
+    throw error;
+  }
+}
+
+async function startLockUpChecks(reloadIfOrphaned: () => boolean): Promise<void> {
   if (await needsLocking()) {
-    lock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
+    requestLock().catch(err => console.warn('[lock-up] Auto-lock request failed:', err));
   }
 
   // Establish background connection. sw.js will update timestamp on close
@@ -41,14 +63,24 @@ export async function runLockUpChecks(): Promise<void> {
   // disconnect to timestamp closure - so there is nothing to retry here.
   popupPort.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;
+    // A service-worker restart disconnects it too, with the runtime still live.
+    reloadIfOrphaned();
   });
 
   // Set immediately, and then every x seconds
   if (getOpenedMidenPagesN() > 0) {
     await updateClosureTimestamp();
   }
-  setInterval(async () => {
-    if (getOpenedMidenPagesN() > 0) {
+  const interval = setInterval(async () => {
+    let openPages: number;
+    try {
+      openPages = getOpenedMidenPagesN();
+    } catch {
+      clearInterval(interval);
+      reloadIfOrphaned();
+      return;
+    }
+    if (openPages > 0) {
       try {
         // Waking the service worker is best-effort. Unguarded, a reject here
         // (worker still starting, or context orphaned by a reload) became an
@@ -85,11 +117,4 @@ async function updateClosureTimestamp() {
   } catch {
     // the next tick writes it again
   }
-}
-
-async function lock() {
-  const res = await request({
-    type: WalletMessageType.LockRequest
-  });
-  assertResponse(res.type === WalletMessageType.LockResponse);
 }

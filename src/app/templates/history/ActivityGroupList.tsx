@@ -22,6 +22,7 @@ import {
   groupActivityEntries
 } from './activityGroups';
 import { isActivityGroupUnread } from './activityUnread';
+import { historyEntryActionTitle } from './guardianHistoryLabels';
 import { historyEntryMatchesSearch } from './History';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -53,12 +54,15 @@ function latestEvent(group: ActivityGroup, t: Translate): string {
   if (entry.isCancelled) return t('cancelled');
   if (group.kind === 'faucet') return t('faucetRequestTitle');
   if (group.kind === 'swap' && entry.token && entry.requestedToken) {
-    return `${t('swap')} ${entry.token} → ${entry.requestedToken}`;
+    const pair = `${t('swap')} ${entry.token} → ${entry.requestedToken}`;
+    if (entry.swapFillProgress !== undefined) {
+      return `${pair} · ${t('amountFilled')}: ${t('swapProgressPercent', { percentage: entry.swapFillProgress })}`;
+    }
+    return pair;
   }
   const amount = amountLabel(entry);
-  const message = entry.message.trim();
-  if (!message) return amount ?? t('activity');
-  return amount ? `${message} ${amount}` : message;
+  const label = historyEntryActionTitle(entry, t);
+  return amount ? `${label} ${amount}` : label;
 }
 
 function amountLabel(entry: IHistoryEntry): string | undefined {
@@ -99,7 +103,7 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
   const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
-  return group.entries.some(entry => historyEntryMatchesSearch(entry, query));
+  return group.entries.some(entry => historyEntryMatchesSearch(entry, query, t));
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   type GuardianIdentity
 } from './usdcx-guardian';
 
-const HOSTED_GUARDIAN = 'https://guardian.openzeppelin.com';
+const HOSTED_GUARDIAN = 'https://guardian-testnet.openzeppelin.com';
 // The hosted Guardian's answers on 2026-10-10.
 const STATUS = {
   status: 'ok',

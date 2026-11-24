@@ -8,15 +8,17 @@ import { bundledExploreCatalog } from './source';
 
 const ICON_DIR = path.join(__dirname, '../../app/misc/dapp-icons');
 
-it('bundles the testnet catalog: both faucets, the Faucet featured, both as helper tools', () => {
+it('bundles both testnet faucets and port0 in their published sections', () => {
   const catalog = bundledExploreCatalog('testnet');
   expect(catalog?.items.map(item => [item.id, item.url, item.brandColor])).toEqual([
     ['faucet', 'https://faucet.testnet.miden.io/', '#778C72'],
-    ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB']
+    ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB'],
+    ['port0', 'https://testnet.port0.sh/', '#F200B9']
   ]);
   expect(catalog?.sections.map(section => [section.id, section.kind, section.itemIds])).toEqual([
     ['featured', 'featured', ['faucet']],
-    ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']]
+    ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']],
+    ['defi', 'list', ['port0']]
   ]);
 });
 
@@ -35,9 +37,10 @@ it('ships a file for exactly the icon paths the bundled documents name', () => {
   for (const iconPath of named) expect(fs.existsSync(path.join(ICON_DIR, path.basename(iconPath)))).toBe(true);
 });
 
-it('carries the translations the wallet shipped for the section titles and the swap faucet tagline', () => {
+it('carries the published translations for section titles and the swap faucet tagline', () => {
   const catalog = bundledExploreCatalog('testnet');
-  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme']);
+  // The published DeFi title is English only.
+  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme', undefined]);
   expect(catalog?.items[1]?.tagline).toMatchObject({
     en: 'Get testnet tokens for swap',
     ja: 'スワップ用のテストネットトークンを入手'

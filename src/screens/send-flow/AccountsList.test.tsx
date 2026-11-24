@@ -56,7 +56,7 @@ jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/woozie', () => ({ Link: () => null }));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
 }));
 jest.mock('utils/miden', () => ({
   detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')

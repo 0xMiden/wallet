@@ -11,6 +11,25 @@ import { DialogsProvider } from 'lib/ui/dialog';
 import { ExternalPageFailedNotice } from './ExternalPageFailedNotice';
 import en from '../../public/_locales/en/en.json';
 
+const mockAlert = jest.fn();
+jest.mock('lib/ui/dialog', () => {
+  const actual = jest.requireActual<typeof import('lib/ui/dialog')>('lib/ui/dialog');
+  return {
+    ...actual,
+    useAlert: () => {
+      const alert = actual.useAlert();
+      const { useCallback } = jest.requireActual<typeof import('react')>('react');
+      return useCallback(
+        (options: Parameters<typeof alert>[0]) => {
+          mockAlert(options);
+          return alert(options);
+        },
+        [alert]
+      );
+    }
+  };
+});
+
 // Native back plumbing is irrelevant here; the notice is shown through the real dialog store and sheet.
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
@@ -20,6 +39,7 @@ describe('ExternalPageFailedNotice', () => {
   let testI18n: typeof i18n;
 
   beforeEach(async () => {
+    mockAlert.mockClear();
     testI18n = i18n.createInstance();
     await testI18n.use(initReactI18next).init({
       lng: 'en',
@@ -47,6 +67,19 @@ describe('ExternalPageFailedNotice', () => {
     expect(screen.getByRole('alertdialog', { name: en.error })).toHaveAccessibleDescription(
       "Couldn't open this page. Check your connection and try again."
     );
+  });
+
+  it('forwards externalPageLoadFailed from the actual external-page failure callback', () => {
+    render(<Tree />);
+
+    act(() => externalPageFailed());
+
+    expect(screen.getByRole('alertdialog', { name: en.error })).toHaveAccessibleDescription(
+      "Couldn't open this page. Check your connection and try again."
+    );
+    expect(mockAlert.mock.calls).toEqual([
+      [{ title: en.error, children: en.externalPageLoadFailed, errorId: 'externalPageLoadFailed' }]
+    ]);
   });
 
   it('stops listening once unmounted', () => {

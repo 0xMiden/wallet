@@ -1,5 +1,6 @@
 import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { SimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { MidenDAppMetadata } from 'lib/adapter/types';
 import type { SerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { ReadyWalletState, WalletMessageBase, WalletNetwork, WalletState } from 'lib/shared/types';
@@ -38,6 +39,8 @@ export interface ConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /** Assets beyond the listed one; the queue treats absence as unknown full asset knowledge. */
+  carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   /**
@@ -57,6 +60,11 @@ export interface SwapOrderNoteMetadata {
   expiresAt: number;
   expiryTriggeredAt?: number;
   autoConsume: boolean;
+  /**
+   * A payback whose order's paybacks do not account for its fill, kept on its order by a read that may not drop it (the
+   * claim list's): the list shows it for a manual claim, and settlement may still claim it on its own read of notes and lineages.
+   */
+  coverageShort?: true;
 }
 
 export enum MidenSharedStorageKey {
@@ -96,6 +104,8 @@ export interface MidenDAppPayloadBase {
 
 export interface MidenDAppConnectPayload extends MidenDAppPayloadBase {
   type: 'connect';
+  // The network the dApp claimed; the request runs on the wallet's own whatever it says.
+  network?: string;
   privateDataPermission: PrivateDataPermission;
   existingPermission: boolean;
   allowedPrivateData: AllowedPrivateData;
@@ -109,7 +119,7 @@ export interface MidenDAppTransactionPayload extends MidenDAppPayloadBase {
   // Custom-transaction decode support. Undefined for the `send` sub-flow, which
   // keeps rendering via `transactionMessages`. For `custom`, the confirm UI
   // decodes `requestBytes` client-side for an instant "declared" view, then
-  // requests a verified summary via `simulateCustomTransaction`.
+  // requests the verified view via `simulateCustomTransaction`.
   txKind?: 'send' | 'custom';
   requestBytes?: string; // base64 serialized Miden-SDK TransactionRequest
   importNotes?: string[]; // base64 serialized notes carried by the request
@@ -137,6 +147,19 @@ export interface MidenDAppSignPayload extends MidenDAppPayloadBase {
   payload: string;
   preview: any;
   kind: SignKind;
+  // The background's one measure of a transaction summary, taken after its fee read. Absent for any other payload;
+  // the popup never measures a summary itself.
+  signingEffects?: SimulatedEffectsWire;
+  // Set only for a Guardian account, which signs just a message of field elements (`DAPP_SIGN_RULE`): the elements, as
+  // decimal strings. Absent for a single-key account.
+  messageElements?: string[];
+}
+
+// A sign-in with `accountId`'s login key for `domain`, the registrable domain read from `origin`.
+export interface MidenDAppLoginSignPayload extends MidenDAppPayloadBase {
+  type: 'loginSign';
+  domain: string;
+  accountId: string;
 }
 
 export interface MidenDAppAssetsPayload extends MidenDAppPayloadBase {
@@ -160,15 +183,22 @@ export interface MidenDAppConsumableNotesPayload extends MidenDAppPayloadBase {
   preview: any;
 }
 
+// A request that never prompts while unlocked met a locked wallet: the popup only unlocks (#1414).
+export interface MidenDAppUnlockPayload extends MidenDAppPayloadBase {
+  type: 'unlock';
+}
+
 export type MidenDAppPayload =
   | MidenDAppConnectPayload
   | MidenDAppTransactionPayload
   | MidenDAppConsumePayload
   | MidenDAppPrivateNotesPayload
   | MidenDAppSignPayload
+  | MidenDAppLoginSignPayload
   | MidenDAppAssetsPayload
   | MidenDAppImportPrivateNotePayload
-  | MidenDAppConsumableNotesPayload;
+  | MidenDAppConsumableNotesPayload
+  | MidenDAppUnlockPayload;
 
 /**
  * Messages
@@ -199,7 +229,9 @@ export enum MidenMessageType {
   DAppConsumableNotesConfirmationRequest = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_REQUEST',
   DAppConsumableNotesConfirmationResponse = 'MIDEN_DAPP_CONSUMABLE_NOTES_CONFIRMATION_RESPONSE',
   DAppSimulateTransactionRequest = 'MIDEN_DAPP_SIMULATE_TRANSACTION_REQUEST',
-  DAppSimulateTransactionResponse = 'MIDEN_DAPP_SIMULATE_TRANSACTION_RESPONSE'
+  DAppSimulateTransactionResponse = 'MIDEN_DAPP_SIMULATE_TRANSACTION_RESPONSE',
+  DAppUnlockConfirmationRequest = 'MIDEN_DAPP_UNLOCK_CONFIRMATION_REQUEST',
+  DAppUnlockConfirmationResponse = 'MIDEN_DAPP_UNLOCK_CONFIRMATION_RESPONSE'
 }
 
 export type MidenRequest =
@@ -215,7 +247,8 @@ export type MidenRequest =
   | MidenDAppAssetsConfirmationRequest
   | MidenDAppImportPrivateNoteConfirmationRequest
   | MidenDAppConsumableNotesConfirmationRequest
-  | MidenDAppSimulateTransactionRequest;
+  | MidenDAppSimulateTransactionRequest
+  | MidenDAppUnlockConfirmationRequest;
 
 export type MidenResponse =
   | MidenPageResponse
@@ -230,7 +263,8 @@ export type MidenResponse =
   | MidenDAppAssetsConfirmationResponse
   | MidenDAppImportPrivateNoteConfirmationResponse
   | MidenDAppConsumableNotesConfirmationResponse
-  | MidenDAppSimulateTransactionResponse;
+  | MidenDAppSimulateTransactionResponse
+  | MidenDAppUnlockConfirmationResponse;
 
 export interface MidenPageRequest extends WalletMessageBase {
   type: MidenMessageType.PageRequest;
@@ -265,8 +299,7 @@ export interface MidenDAppSimulateTransactionRequest extends WalletMessageBase {
 
 export interface MidenDAppSimulateTransactionResponse extends WalletMessageBase {
   type: MidenMessageType.DAppSimulateTransactionResponse;
-  summaryBytes?: string; // base64 serialized TransactionSummary (authorization pending)
-  executedBytes?: string; // base64 serialized TransactionResult (already fully authorized)
+  effects?: SimulatedEffectsWire;
   error?: string;
 }
 
@@ -372,4 +405,13 @@ export interface MidenDAppConsumableNotesConfirmationRequest extends WalletMessa
 
 export interface MidenDAppConsumableNotesConfirmationResponse extends WalletMessageBase {
   type: MidenMessageType.DAppConsumableNotesConfirmationResponse;
+}
+
+export interface MidenDAppUnlockConfirmationRequest extends WalletMessageBase {
+  type: MidenMessageType.DAppUnlockConfirmationRequest;
+  id: string;
+}
+
+export interface MidenDAppUnlockConfirmationResponse extends WalletMessageBase {
+  type: MidenMessageType.DAppUnlockConfirmationResponse;
 }

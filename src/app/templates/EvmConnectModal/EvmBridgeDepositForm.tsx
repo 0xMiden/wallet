@@ -2,45 +2,65 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
+import { Button } from 'components/Button';
+import { NetworkLogo } from 'components/NetworkChip';
+import { TokenAmountInput } from 'components/TokenAmountInput';
+import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
-import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
-import { SelectAmount } from 'screens/send-flow/SelectAmount';
-import { UIToken } from 'screens/send-flow/types';
-
-import { EvmWalletHeader } from './EvmWalletHeader';
+import { Pill } from 'components/ui/Pill';
+import { SectionHeader } from 'components/ui/SectionHeader';
+import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { evmQuote } from 'lib/prices/evm';
+import { useWalletStore } from 'lib/store';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
+import { AmountShortcuts } from 'screens/send-flow/AmountShortcuts';
+import { BridgeNetwork } from 'screens/send-flow/bridge-networks';
+import { UITokenWithPendingBalance } from 'screens/send-flow/types';
+import { truncateAddress } from 'utils/string';
 
 interface EvmBridgeDepositFormProps {
-  token: UIToken;
-  /** The source network. Defaults to Sepolia; the USDCx route passes the chosen source chain. */
+  token: UITokenWithPendingBalance;
+  /** The Miden faucet the deposit arrives in, which keys the token's logo; undefined while that faucet does not exist. */
+  logoFaucetId: string | undefined;
   network?: BridgeNetwork;
-  /** The token's name, such as the testnet label (`evmUsdcLabel`). */
   tokenLabel: string;
-  /** What the deposit arrives on Miden as on the route chosen (`arrivingTokenName`), as the Review names it. */
   arrivingName: string;
+  destinationName?: string;
   amount: string;
   isValidAmount: boolean;
+  balanceUnreadable?: boolean;
   error?: string;
-  /** Connected EVM address, shown in the wallet header row. */
+  errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   evmAddress: string;
   onAmountChange: (value: string) => void;
-  /** Opens the ETH/USDC token picker drawer. */
   onSelectToken: () => void;
-  /** Opens the source-network picker drawer; routes with one source pass nothing. */
   onSelectNetwork?: () => void;
-  /** Switch/disconnect the connected EVM wallet from the header. */
   onSwitch: () => void;
   onContinue: () => void;
 }
 
+/** Bridge funding uses Send's amount field and the shared flow body; the manager owns navigation. */
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
-  network = DEFAULT_BRIDGE_NETWORK,
+  logoFaucetId,
+  network,
   tokenLabel,
   arrivingName,
+  destinationName,
   amount,
   isValidAmount,
+  balanceUnreadable = false,
   error,
+  errorId,
+  errorDiagnostics,
   evmAddress,
   onAmountChange,
   onSelectToken,
@@ -49,35 +69,131 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
-  const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
+  const [shortcutSelection, setShortcutSelection] = React.useState(0);
+  const prices = useWalletStore(state => state.tokenPrices);
+  const balanceReady = !balanceUnreadable && token.balance !== null;
+  const canProceed = token.scaleIsKnown && balanceReady && !!network && isValidAmount;
+  const visibleError = error && (amount || error !== 'invalidAmount') ? error : undefined;
+  const amountError =
+    visibleError === 'amountMustBeLessThanBalance' || visibleError === 'invalidAmount' ? t(visibleError) : visibleError;
+  const amountErrorId =
+    visibleError && visibleError !== 'invalidAmount'
+      ? errorId === undefined
+        ? visibleError === 'amountMustBeLessThanBalance'
+          ? 'amountMustBeLessThanBalance'
+          : 'raw_bridge_balance_failed'
+        : errorId
+      : null;
 
   return (
-    <SelectAmount
-      token={token}
-      tokenLabel={tokenLabel}
-      amount={amount}
-      isValidAmount={isValidAmount}
-      error={error}
-      isBridge
-      network={network}
-      outputSymbol={arrivingName}
-      title={title}
-      onAmountChange={onAmountChange}
-      onSelectToken={onSelectToken}
-      onSelectNetwork={onSelectNetwork}
-      onConfirm={onContinue}
+    <HomeGroupPaneBody
+      top="header"
+      footer={
+        <Button
+          title={t('continue')}
+          accent="receive"
+          onClick={onContinue}
+          disabled={!canProceed}
+          className="w-full max-w-none"
+          data-testid="send-amount-confirm"
+        />
+      }
     >
-      {/* Funding decision point (#875): a wallet that was already connected
-          skips the connect-step warning, so the form carries its own. */}
-      <Notice
-        tone="warning"
-        icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
-        title={t('bridgeTestFundsTitle')}
-        className="mt-4"
-        data-testid="bridge-test-funds-warning"
+      <SectionHeader
+        size="lg"
+        action={
+          <Pill
+            onClick={onSwitch}
+            aria-label={t('switchWallet')}
+            aria-haspopup="dialog"
+            className="text-accent-receive-ink"
+            data-testid="bridge-source-wallet"
+          >
+            {truncateAddress(evmAddress, false, 6, 4)}
+          </Pill>
+        }
       >
-        {t('bridgeTestFundsBody')}
-      </Notice>
-    </SelectAmount>
+        {t('enterAmount')}
+      </SectionHeader>
+      <TokenAmountInput
+        assetId={`${network?.chainId}:${token.id}`}
+        symbol={token.name}
+        decimals={token.decimals}
+        scaleIsKnown={token.scaleIsKnown}
+        externalAsset
+        quote={evmQuote(
+          prices,
+          network?.chainId,
+          token.id === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ? '0x0000000000000000000000000000000000000000' : token.id
+        )}
+        value={amount}
+        tokenIntentKey={shortcutSelection}
+        onValueChange={value => onAmountChange(value || '')}
+        invalid={!!amountError}
+        error={amountError}
+        errorId={amountErrorId}
+        errorDiagnostics={amountErrorId === 'raw_bridge_balance_failed' ? errorDiagnostics : undefined}
+        accent="receive"
+        showDivider={false}
+        data-testid="send-amount-input"
+      />
+      <AmountShortcuts
+        balance={token.balance}
+        decimals={token.decimals}
+        scaleIsKnown={token.scaleIsKnown}
+        onAmountChange={value => {
+          setShortcutSelection(selection => selection + 1);
+          onAmountChange(value);
+        }}
+        className="text-accent-receive-ink"
+      />
+
+      <DetailCard surface="outline" face="heading" className="mt-8">
+        <ListRow
+          title={tokenLabel}
+          avatar={<TokenLogo faucetId={logoFaucetId} size="md" />}
+          subtitle={
+            token.scaleIsKnown ? (
+              balanceUnreadable ? (
+                t('unavailable')
+              ) : balanceReady ? (
+                <TokenAmount
+                  amount={token.balance}
+                  minimumFractionDigits={4}
+                  rounding="down"
+                  prefix={`${t('available')} `}
+                />
+              ) : (
+                <Skeleton className="h-4 w-20" />
+              )
+            ) : (
+              t('unknownTokenScale')
+            )
+          }
+          accent="receive"
+          onClick={onSelectToken}
+          chevron
+          className="min-w-0 flex-1"
+          data-testid="send-token-selector"
+        />
+        <DetailRow
+          label={t('from')}
+          onClick={onSelectNetwork}
+          aria-haspopup={onSelectNetwork ? 'dialog' : undefined}
+          data-testid="bridge-source-network"
+        >
+          {network && <NetworkLogo kind="ethereum" network={network.id} />}
+          {network?.name ?? t('selectNetwork')}
+        </DetailRow>
+        <DetailRow label={t('to')} sub={destinationName} data-testid="bridge-destination">
+          {`${t('miden')} · ${arrivingName}`}
+        </DetailRow>
+      </DetailCard>
+      {getTestNetworkNameKey() !== null && (
+        <Notice tone="warning" variant="inline" className="mt-4" data-testid="bridge-test-funds-warning">
+          {t('bridgeTestFundsBody')}
+        </Notice>
+      )}
+    </HomeGroupPaneBody>
   );
 };

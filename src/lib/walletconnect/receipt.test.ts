@@ -6,6 +6,7 @@ import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 import {
   EvmTransactionRevertedError,
   readEvmReceiptOutcome,
+  readEvmErc20Allowance,
   readSepoliaErc20Allowance,
   waitForEvmReceipt
 } from './receipt';
@@ -14,7 +15,7 @@ const mockReadContract = jest.fn();
 const mockWaitForReceipt = jest.fn();
 const mockGetReceipt = jest.fn();
 const mockHttp = jest.fn();
-const mockCreatePublicClient = jest.fn(() => ({
+const mockCreatePublicClient = jest.fn((_options?: object) => ({
   readContract: mockReadContract,
   waitForTransactionReceipt: mockWaitForReceipt,
   getTransactionReceipt: mockGetReceipt
@@ -22,11 +23,12 @@ const mockCreatePublicClient = jest.fn(() => ({
 
 jest.mock('viem', () => ({
   ...jest.requireActual<typeof import('viem')>('viem'),
-  createPublicClient: () => mockCreatePublicClient(),
+  createPublicClient: (options: object) => mockCreatePublicClient(options),
   http: (...args: Parameters<typeof mockHttp>) => mockHttp(...args)
 }));
 
 jest.mock('./config', () => ({
+  ...jest.requireActual<typeof import('./config')>('./config'),
   DEFAULT_CHAIN_ID: 11155111,
   getChain: () => ({ rpcUrl: 'https://rpc.test' })
 }));
@@ -90,12 +92,12 @@ describe('readSepoliaErc20Allowance', () => {
 const hash: `0x${string}` = `0x${'1'.repeat(64)}`;
 
 it('accepts a successful receipt', async () => {
-  mockWaitForReceipt.mockResolvedValueOnce({ status: 'success' });
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: hash, status: 'success' });
   await expect(waitForEvmReceipt(hash, sepolia)).resolves.toBeUndefined();
 });
 
 it('identifies a reverted receipt', async () => {
-  mockWaitForReceipt.mockResolvedValueOnce({ status: 'reverted' });
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: hash, status: 'reverted' });
   await expect(waitForEvmReceipt(hash, sepolia)).rejects.toBeInstanceOf(EvmTransactionRevertedError);
 });
 
@@ -107,8 +109,8 @@ it('preserves a receipt request error without classifying it as a revert', async
 
 describe('readEvmReceiptOutcome', () => {
   it.each([
-    ['success', { status: 'success' }],
-    ['reverted', { status: 'reverted' }]
+    ['success', { transactionHash: hash, status: 'success' }],
+    ['reverted', { transactionHash: hash, status: 'reverted' }]
   ])('reads a %s receipt', async (outcome, receipt) => {
     mockGetReceipt.mockResolvedValueOnce(receipt);
     await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe(outcome);
@@ -125,4 +127,46 @@ describe('readEvmReceiptOutcome', () => {
     mockGetReceipt.mockRejectedValueOnce(error);
     await expect(readEvmReceiptOutcome(hash, sepolia)).rejects.toBe(error);
   });
+});
+
+describe.each(['foreground', 'passive'])('%s receipt identity', boundary => {
+  it.each([
+    { label: 'another successful transaction', receipt: { transactionHash: `0x${'2'.repeat(64)}`, status: 'success' } },
+    { label: 'another reverted transaction', receipt: { transactionHash: `0x${'2'.repeat(64)}`, status: 'reverted' } },
+    { label: 'missing successful hash', receipt: { status: 'success' } },
+    { label: 'missing reverted hash', receipt: { status: 'reverted' } },
+    { label: 'malformed hash', receipt: { transactionHash: 123, status: 'reverted' } },
+    { label: 'malformed status', receipt: { transactionHash: hash, status: 'unknown' } }
+  ])('refuses $label before classifying an outcome', async ({ receipt }) => {
+    (boundary === 'foreground' ? mockWaitForReceipt : mockGetReceipt).mockResolvedValueOnce(receipt);
+    const outcome: unknown = await (
+      boundary === 'foreground'
+        ? waitForEvmReceipt(hash, sepolia, true)
+        : readEvmReceiptOutcome(hash, sepolia, () => undefined)
+    ).catch((error: unknown) => error);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(outcome).not.toBeInstanceOf(EvmTransactionRevertedError);
+  });
+});
+
+it.each(['success', 'reverted'])('preserves a legacy waiter replacement receipt with %s status', async status => {
+  mockWaitForReceipt.mockResolvedValueOnce({ transactionHash: `0x${'2'.repeat(64)}`, status });
+  const outcome: unknown = await waitForEvmReceipt(hash, sepolia).catch((error: unknown) => error);
+  expect(status === 'success' ? outcome === undefined : outcome instanceof EvmTransactionRevertedError).toBe(true);
+});
+
+it.each(['success', 'reverted'])('preserves the legacy unverified status read for %s', async status => {
+  mockGetReceipt.mockResolvedValueOnce({ transactionHash: `0x${'2'.repeat(64)}`, status });
+  await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe(status);
+});
+
+it('reads allowance on the selected chain rather than the old Sepolia default', async () => {
+  mockReadContract.mockResolvedValueOnce(12n);
+  await expect(readEvmErc20Allowance(TOKEN, OWNER, SPENDER, 84532)).resolves.toBe(12n);
+  expect(mockCreatePublicClient).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chain: expect.objectContaining({ id: 84532 })
+    })
+  );
+  await expect(readEvmErc20Allowance(TOKEN, OWNER, SPENDER, 999999999)).rejects.toThrow('RPC is not configured');
 });

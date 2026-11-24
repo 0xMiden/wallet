@@ -48,3 +48,17 @@ describe('remoteConfigRuntimeMock', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('remoteConfigValuesMock', () => {
+  it('selects from its snapshot argument and does not expose the removed account finder', () => {
+    const { remoteConfigValuesMock, TEST_ALLOCATOR_URL, TEST_ALLOCATOR_ACCOUNT } =
+      jest.requireActual<typeof import('./bridge-config')>('./bridge-config');
+    const values = remoteConfigValuesMock(() => ({ ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null }));
+
+    expect(values.selectEpochAllocator(TEST_BRIDGE_CONFIG_SNAPSHOT)).toEqual({
+      allocatorUrl: TEST_ALLOCATOR_URL,
+      accountId: TEST_ALLOCATOR_ACCOUNT
+    });
+    expect(values).not.toHaveProperty('findEpochAllocatorAccount');
+  });
+});

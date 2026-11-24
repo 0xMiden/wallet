@@ -5,14 +5,16 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
-import { sheetMotionVars } from 'lib/animation';
+import { installSheetKeyframes, sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
+import { HOST_MODAL_LAYER, useImperativeModalFocus } from './host-modal';
 import { cn } from './util';
 
 interface DrawerContextValue {
@@ -23,6 +25,8 @@ interface DrawerContextValue {
 const DrawerContext = createContext<DrawerContextValue>({ open: false, onClose: () => {} });
 
 interface DrawerProps {
+  /** A sheet opened inside an existing Drawer uses Vaul's coordinated nested root. */
+  nested?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
@@ -60,7 +64,10 @@ function CloseOnBack({ close }: { close: () => void }) {
   return null;
 }
 
+export const useIsInDrawer = () => useContext(DrawerContext).open;
+
 function Drawer({
+  nested = false,
   open = false,
   onOpenChange,
   children,
@@ -69,15 +76,19 @@ function Drawer({
   noBodyStyles,
   closeOnBack = true
 }: DrawerProps) {
+  const Root = nested ? VaulDrawer.NestedRoot : VaulDrawer.Root;
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
+  // Layout, not passive: the sheet's animation must find its @keyframes on the first style pass.
+  useLayoutEffect(() => installSheetKeyframes(), []);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
-      <VaulDrawer.Root
+      <Root
         open={open}
+        autoFocus
         onOpenChange={onOpenChange}
         shouldScaleBackground={isExtension()}
         direction="bottom"
@@ -85,7 +96,7 @@ function Drawer({
         noBodyStyles={noBodyStyles}
       >
         {children}
-      </VaulDrawer.Root>
+      </Root>
     </DrawerContext.Provider>
   );
 }
@@ -131,9 +142,13 @@ function DrawerContent({
   forceMount,
   style,
   onPointerDownOutside,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
+  const command = useFlowPresentation() === 'command';
+  const focus = useImperativeModalFocus();
   // Radix holds a press outside the sheet until its click, and a closing sheet still holds one: when
   // that click reopens this sheet (the swap's two pills share one picker), the held dismissal closes it
   // again. A press that began while the sheet was closed is never a press outside the open sheet.
@@ -150,13 +165,21 @@ function DrawerContent({
           blur over it only smears whatever is underneath. */}
       <VaulDrawer.Overlay
         style={{ ...sheetMotionVars, ...inertWhileClosing }}
-        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
+        className={cn('fixed inset-0 bg-scrim', HOST_MODAL_LAYER, overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
-        // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
+        // The tab-bar springs: the durations and easings `main.css` reads off these elements.
         style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
+        onOpenAutoFocus={event => {
+          focus.remember();
+          onOpenAutoFocus?.(event);
+        }}
+        onCloseAutoFocus={event => {
+          onCloseAutoFocus?.(event);
+          if (!event.defaultPrevented) focus.restore(event);
+        }}
         onPointerDownOutside={event => {
           onPointerDownOutside?.(event);
           if (event.detail.originalEvent === closingPress.current) event.preventDefault();
@@ -169,8 +192,10 @@ function DrawerContent({
           // (env() and the var are 0 on extension/Android). The padding snaps:
           // only the transform transitions, so main.css's sheet spring, which
           // lands on every transitioned property, never animates the inset.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'fixed inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
+          HOST_MODAL_LAYER,
+          command && 'dark text-ink',
           className
         )}
         {...props}

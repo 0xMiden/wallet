@@ -1,66 +1,107 @@
-import React, { useRef } from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { TextAction } from 'components/ui/TextAction';
 import { navigate } from 'lib/woozie';
+
+import { NoCodeSheet } from './NoCodeSheet';
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
+  /** The invite-only way in, as the host decided it (OnboardingNetwork). */
+  inviteOnly?: boolean;
+  /** Seven logo taps call it while the general Welcome shows; without it they open Developer Settings. */
+  onUnlockInviteOnly?: () => void;
+  /** Recovery is the only way in: a new wallet needs a code the host cannot take. */
+  recoverOnly?: boolean;
 }
 
-export type Actions = 'select-wallet-type' | 'select-import-type';
+/**
+ * `select-wallet-type` and `select-import-type` are the general ways in: the create and recover
+ * flows behind the test-network notice. `mainnet-access` is the invite-only way in: the access-code
+ * step.
+ */
+export type Actions = 'mainnet-access' | 'select-wallet-type' | 'select-import-type';
 
-export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({
+  onSubmit,
+  inviteOnly = false,
+  onUnlockInviteOnly,
+  recoverOnly = false
+}: WelcomeScreenProps) => {
   const { t } = useTranslation();
-  const tapCount = useRef(0);
-  const lastTap = useRef(0);
+  const [noCodeOpen, setNoCodeOpen] = useState(false);
 
-  const handleLogoTap = (e: React.MouseEvent) => {
-    e.preventDefault();
-    window.getSelection()?.removeAllRanges();
-    const now = e.timeStamp;
-    tapCount.current = now - lastTap.current > 2000 ? 1 : tapCount.current + 1;
-    lastTap.current = now;
-    if (tapCount.current >= 4 && tapCount.current < 7) hapticLight();
-    if (tapCount.current >= 7) {
-      tapCount.current = 0;
-      hapticMedium();
+  // Seven logo taps unlock the invite-only Welcome, or open Developer Settings.
+  const handleLogoTap = useTapUnlock(() => {
+    if (inviteOnly || !onUnlockInviteOnly) {
       navigate('/developer-settings');
+      return;
     }
-  };
+    onUnlockInviteOnly();
+  });
+
+  const actions = inviteOnly ? (
+    <>
+      <Button
+        tabIndex={0}
+        className="max-w-none"
+        data-testid="onboarding-have-code"
+        title={t('iHaveACode')}
+        onClick={() => onSubmit?.('mainnet-access')}
+      />
+      <Button
+        id="import-link"
+        className="max-w-none"
+        variant={ButtonVariant.Secondary}
+        data-testid="onboarding-recover-account"
+        title={t('recoverYourAccount')}
+        onClick={() => onSubmit?.('select-import-type')}
+      />
+      <TextAction
+        className="self-center underline decoration-1 underline-offset-[3px]"
+        data-testid="onboarding-no-code"
+        onClick={() => setNoCodeOpen(true)}
+      >
+        {t('iDontHaveACode')}
+      </TextAction>
+    </>
+  ) : (
+    <>
+      {!recoverOnly && (
+        <Button
+          tabIndex={0}
+          className="max-w-none"
+          data-testid="onboarding-get-started"
+          title={t('getStarted')}
+          onClick={() => onSubmit?.('select-wallet-type')}
+        />
+      )}
+      {/* Recover: secondary under Get started, or the primary when it is alone (Button brings the haptic). */}
+      <Button
+        id="import-link"
+        className="max-w-none"
+        variant={recoverOnly ? ButtonVariant.Primary : ButtonVariant.Secondary}
+        data-testid="onboarding-recover-account"
+        title={t('recoverYourAccount')}
+        onClick={() => onSubmit?.('select-import-type')}
+      />
+    </>
+  );
+
+  const footer = <div className="flex flex-col gap-2.5">{actions}</div>;
 
   return (
-    <SubPageLayout
-      data-testid="onboarding-welcome"
-      footerLayout="stack"
-      footer={
-        <>
-          <Button
-            tabIndex={0}
-            className="max-w-none"
-            data-testid="onboarding-get-started"
-            title={t('getStarted')}
-            onClick={() => onSubmit?.('select-wallet-type')}
-          />
-          {/* The second way in, as the secondary action under the primary one (Button brings the haptic). */}
-          <Button
-            id="import-link"
-            className="max-w-none"
-            variant={ButtonVariant.Secondary}
-            data-testid="onboarding-recover-account"
-            title={t('recoverYourAccount')}
-            onClick={() => onSubmit?.('select-import-type')}
-          />
-        </>
-      }
-    >
+    <SubPageLayout data-testid="onboarding-welcome" footerLayout="stack" footer={footer}>
       <div className="my-auto flex flex-col items-center py-8 text-center">
         <div
           data-testid="onboarding-bread-logo"
+          data-invite-onboarding={inviteOnly ? 'true' : undefined}
           onClick={handleLogoTap}
           className="cursor-default select-none [-webkit-touch-callout:none]"
         >
@@ -76,6 +117,7 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           {t('breadWalletDescription')}
         </p>
       </div>
+      <NoCodeSheet open={noCodeOpen} onOpenChange={setNoCodeOpen} />
     </SubPageLayout>
   );
 };

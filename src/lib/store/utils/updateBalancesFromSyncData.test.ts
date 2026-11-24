@@ -1,10 +1,20 @@
 import '../../../../test/jest-mocks';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { isBalanceReflected, readBalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
 import { __resetFaucetAssetsMetadataForTest, faucetMetadataOf, useWalletStore } from 'lib/store';
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
+
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => new Map([['mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0', 'ETH']])
+}));
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 const MOCK_MIDEN_FAUCET_ID = 'miden-faucet-123';
 let mockNativeAssetId: string | null = null;
@@ -38,6 +48,50 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('updateBalancesFromSyncData', () => {
+  it('does not turn an old RPC or cached worker payload into a current portfolio proof on landing', async () => {
+    const scope = { accountId: 'account-1', network: 'testnet', rpcUrl: 'https://new-node' };
+    const assets = [
+      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
+    ];
+    await updateBalancesFromSyncData(scope.accountId, assets, {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://old-node',
+      capturedAt: Date.now(),
+      accountNonce: '3'
+    });
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toBeNull();
+    await updateBalancesFromSyncData(scope.accountId, assets, {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: scope.rpcUrl,
+      capturedAt: Date.now(),
+      accountNonce: '3'
+    });
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toMatchObject({
+      rpcUrl: scope.rpcUrl
+    });
+    await updateBalancesFromSyncData(scope.accountId, assets);
+    expect(readBalanceSnapshot(useWalletStore.getState().balances[scope.accountId]!, scope)).toBeNull();
+  });
+  it('tags only landed balances with the original worker nonce/network, never a fresh arrival time', async () => {
+    const assets = [
+      { faucetId: 'coin', amountBaseUnits: '100', metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 } }
+    ];
+    const required = { accountId: 'account-1', faucetId: 'coin', minimumNonce: '5' };
+    const reflected = () => isBalanceReflected(required, useWalletStore.getState().balances);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'mainnet', accountNonce: '4' });
+    expect(reflected()).toBe(false);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'testnet', accountNonce: '5' });
+    expect(reflected()).toBe(false);
+    await updateBalancesFromSyncData('account-1', assets, { network: 'mainnet', accountNonce: '5' });
+    expect(reflected()).toBe(true);
+    // An older worker's cached payload replaces the actual display, so it must replace the proof too.
+    await updateBalancesFromSyncData('account-1', assets);
+    expect(reflected()).toBe(false);
+    useWalletStore.getState().clearBalances();
+    expect(reflected()).toBe(false);
+  });
   beforeEach(() => {
     useWalletStore.setState({
       balances: {},
@@ -219,6 +273,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(state.balancesLastFetched['account-1']).toBeGreaterThan(0);
   });
 
+  it('preserves serialized base units alongside the display balance', async () => {
+    const faucetId = 'large-sync-faucet';
+    const amountBaseUnits = '12345678901234567890';
+    await updateBalancesFromSyncData('large-sync-account', [
+      { faucetId, amountBaseUnits, metadata: { name: 'Large', symbol: 'LARGE', decimals: 0 } }
+    ]);
+
+    const row = useWalletStore
+      .getState()
+      .balances['large-sync-account']!.find(balance => balance.tokenId === faucetId)!;
+
+    expect(row).toMatchObject({ balanceBaseUnits: amountBaseUnits });
+    expect(row.balance).toBe(Number(amountBaseUnits));
+  });
+
   it('always includes MIDEN token even when vault is empty', async () => {
     await updateBalancesFromSyncData('account-1', []);
 
@@ -296,7 +365,7 @@ describe('updateBalancesFromSyncData', () => {
 
   it('uses existing tokenPrices from store (non-nullish tokenPrices branch)', async () => {
     useWalletStore.setState({
-      tokenPrices: { MIDEN: { price: 2.5, change24h: 0.1, percentageChange24h: 5 } }
+      tokenPrices: { MIDEN: { price: 2.5, change24h: 0.1, percentageChange24h: 5, kind: 'market' as const } }
     });
 
     const vaultAssets: SerializedVaultAsset[] = [{ faucetId: MOCK_MIDEN_FAUCET_ID, amountBaseUnits: '1000000' }];
@@ -311,11 +380,11 @@ describe('updateBalancesFromSyncData', () => {
 
   it('stores the quote of the price symbol, and no price for a token the feed does not quote', async () => {
     useWalletStore.setState({
-      tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } }
+      tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2, kind: 'market' as const } }
     });
     const vaultAssets: SerializedVaultAsset[] = [
       {
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         amountBaseUnits: '38000000',
         metadata: { name: 'IETH', symbol: 'IETH', decimals: 8 }
       },
@@ -333,7 +402,7 @@ describe('updateBalancesFromSyncData', () => {
       const { fiatPrice, change24h } = balances.find(b => b.tokenId === tokenId)!;
       return { fiatPrice, change24h };
     };
-    expect(priceOf(TOKEN_IETH.faucetId)).toEqual({ fiatPrice: 3000, change24h: 40 });
+    expect(priceOf(TEST_TOKEN_IETH.faucetId)).toEqual({ fiatPrice: 3000, change24h: 40 });
     expect(priceOf('custom-faucet-456')).toEqual({ fiatPrice: 0, change24h: 0 });
     // The fabricated native row has no quote either: MIDEN is not on the feed.
     expect(priceOf(MOCK_MIDEN_FAUCET_ID)).toEqual({ fiatPrice: 0, change24h: 0 });

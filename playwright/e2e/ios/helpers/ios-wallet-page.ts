@@ -5,31 +5,57 @@ import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
-import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { toBaseUnits } from '../../helpers/balance-truth';
 import {
   bridgedSendRowOf,
+  burnSubmitFailure,
   enText,
-  isArcSnapshotFailure,
   reviewQueryParam,
   USDCX_DESTINATION_CHIPS,
-  usdcxChipsProblem,
   usdcxPayoutRowsText,
   type BridgedSendRow,
   type NetworkChipState
 } from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
+import {
+  CONFIRMATION_SUBMIT,
+  CREATED_WALLET_STATE_JS,
+  pollCreatedWalletReady
+} from '../../helpers/created-wallet-ready';
 import {
   readTransactionRowsInPage,
   TxStatus,
   type TransactionRowSnapshot,
   type TransactionRowsQuery
 } from '../../helpers/history';
+import {
+  CURRENT_ACCOUNT_ROWS_JS,
+  NATIVE_ASSET_CACHE_EXPR,
+  nativeAssetOf,
+  ridingOut,
+  stashAndPoll,
+  TX_DB,
+  TX_STORE,
+  type CurrentAccountRows,
+  type MobileNativeAsset
+} from '../../helpers/mobile-store-reads';
+import {
+  BRIDGE_DEPOSIT_LAYER,
+  BRIDGE_SOURCE_NETWORK_JS,
+  OPEN_SHEET,
+  scopedJs,
+  SEND_FLOW,
+  SEND_NETWORK_JS,
+  selectSendNetworkByScript,
+  USDCX_ROUTE_JS,
+  type SendNetworkView,
+  type UsdcxRouteView
+} from '../../helpers/send-flow-scripts';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
-import { ARC_CHAIN_ID } from '../../helpers/usdcx-constants';
+import { ARC_PAYOUT, type PayoutChain } from '../../helpers/usdcx-constants';
 import { burnFailureMessage } from '../../helpers/usdcx-guardian';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
@@ -57,82 +83,17 @@ const UNLOCKED_CONDITION_JS =
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
 
-/** `readTransactionRowsInPage`'s database and store (src/lib/miden/repo.ts), the same on every platform. */
-const TX_DB = 'TridentMain';
-const TX_STORE = 'transactions';
-
-// The Capacitor Preferences entries lib/miden-chain/native-asset writes, one per (RPC URL, network) scope; the
-// extension harness reads the same entries from chrome.storage (balance-truth.ts walletCacheEntry).
-const NATIVE_ASSET_CACHE_EXPR =
-  `(async function () { var P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences; ` +
-  `if (!P) throw new Error('no Capacitor Preferences plugin'); var keys = (await P.keys()).keys || []; var out = {}; ` +
-  `for (var i = 0; i < keys.length; i++) { var k = keys[i]; ` +
-  `if (k.indexOf(${JSON.stringify(`${NATIVE_ASSET_ID_CACHE}:`)}) === 0 || ` +
-  `k.indexOf(${JSON.stringify(`${NATIVE_ASSET_FEE_CACHE}:`)}) === 0) out[k] = (await P.get({ key: k })).value; } ` +
-  `return out; })()`;
-
-// `balances` is keyed by the account's public key, so another account's rows cannot leak into the current one's.
-const CURRENT_ACCOUNT_ROWS_JS =
-  `var s = window.__TEST_STORE__; if (!s) return null; var st = s.getState(); ` +
-  `var pk = st.currentAccount && st.currentAccount.publicKey; if (!pk) return null; var meta = st.assetsMetadata || {}; ` +
-  `return { account: pk, displayFaucetId: (st.balancesDisplayFaucetId && st.balancesDisplayFaucetId[pk]) || null, ` +
-  `rows: ((st.balances && st.balances[pk]) || []).map(function (r) { var m = r.metadata || meta[r.tokenId] || {}; ` +
-  `return { tokenId: String(r.tokenId), symbol: m.symbol || '', decimals: m.decimals, balance: r.balance }; }) };`;
-
-interface CurrentAccountRows {
-  account: string;
-  displayFaucetId: string | null;
-  rows: Array<{ tokenId: string; symbol: string; decimals: number; balance: number }>;
-}
-
-/** The chain's native (fee) asset as the wallet discovered it and as the current account's balance row shows it. */
-export interface IosNativeAsset {
-  /** The composite id (`<bech32>_<suffix>`) the store keys the balance row by. */
-  tokenId: string;
-  symbol: string;
-  decimals: number;
-  /** The chain's `verification_base_fee`, which bounds a landed path's fee. */
-  baseFee: number;
-}
-
-/** The one Preferences value under `prefix`; a cache that has seen two chains would let key order pick one. */
-function onePreference(entries: Record<string, string | null>, prefix: string): string {
-  const keys = Object.keys(entries).filter(key => key.startsWith(`${prefix}:`));
-  const [key] = keys;
-  const value = key === undefined ? undefined : entries[key];
-  if (keys.length !== 1 || typeof value !== 'string') {
-    throw new Error(
-      `the wallet's ${prefix} cache has ${keys.length} entries (${keys.join(', ') || 'none'}), expected one`
-    );
-  }
-  return value;
-}
-
-function nativeAssetOf(entries: Record<string, string | null>, view: CurrentAccountRows | null): IosNativeAsset {
-  const tokenId = onePreference(entries, NATIVE_ASSET_ID_CACHE);
-  const fee: unknown = JSON.parse(onePreference(entries, NATIVE_ASSET_FEE_CACHE));
-  const feeFaucetId = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'faucetId') : undefined;
-  const baseFee = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'baseFee') : undefined;
-  if (feeFaucetId !== tokenId || typeof baseFee !== 'number' || !Number.isInteger(baseFee) || baseFee < 0) {
-    throw new Error(
-      `the wallet's ${NATIVE_ASSET_FEE_CACHE} entry ${JSON.stringify(fee)} has no base fee for ${tokenId}`
-    );
-  }
-  if (view?.displayFaucetId && view.displayFaucetId !== tokenId) {
-    throw new Error(`the store shows ${view.displayFaucetId} as the native token; the wallet discovered ${tokenId}`);
-  }
-  const row = view?.rows.find(candidate => candidate.tokenId === tokenId);
-  if (!row || row.symbol === '' || !Number.isInteger(row.decimals)) {
-    throw new Error(
-      `no balance row with a symbol and decimals for the native token ${tokenId}: ${JSON.stringify(view)}`
-    );
-  }
-  return { tokenId, symbol: row.symbol, decimals: row.decimals, baseFee };
-}
+/** The chain's native (fee) asset as the wallet discovered it; the mobile dApp harness reads it the same way. */
+export type IosNativeAsset = MobileNativeAsset;
 
 /** A page route without its search: the onboarding bypass keeps `?password=` in `location.href` all session. */
 export function routeOf(href: string): string {
   return new URL(href).hash;
+}
+
+/** Whether the bridge From row's value names `name` exactly: "Sepolia" is part of "Base Sepolia". */
+export function networkRowNames(value: string | null, name: string): boolean {
+  return value === name;
 }
 
 /** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
@@ -140,56 +101,28 @@ function withoutUrlQueries(text: string): string {
   return text.replace(/\?[^\s#"]+/g, '');
 }
 
-const READ_ATTEMPTS = 3;
-const READ_RETRY_MS = 1_000;
+interface EvalTally {
+  returned: number;
+  lastError?: unknown;
+}
 
 /**
- * `read`, asked again after a failed CDP eval: an inspector reattach, or the bridge's 30 s eval cap while a local
- * prove holds the WebView's JS thread. The live spec's polls run for minutes and `pollUntil` fails on one failed read,
- * so only the third failure in a row counts.
+ * A poll none of whose evals returned never checked anything: a CDP session that died at attach failed this way as
+ * "did not appear", which sent the diagnosis to the app.
  */
-async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await read();
-    } catch (error) {
-      if (attempt >= READ_ATTEMPTS) throw error;
-      await sleep(READ_RETRY_MS);
-    }
-  }
+function noEvalReturned(poll: string, target: string, timeoutMs: number, tally: EvalTally): Error {
+  const { lastError } = tally;
+  const last =
+    lastError === undefined
+      ? 'none'
+      : withoutUrlQueries(lastError instanceof Error ? lastError.message : String(lastError)).slice(0, 500);
+  return new Error(`${poll}: could not check ${target}: no CDP eval returned in ${timeoutMs}ms (last error: ${last})`);
 }
 
-const SEND_FLOW = '[data-testid="send-flow"]';
-// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+// The review slides over the retained Send layer, whose route step holds the same payout row and burn notice.
 const SEND_REVIEW = '[data-page-layer="/send/review"]';
-const ARC_CHIP = 'send-network-arc-testnet';
 // Mobile mounts the app as a full page, so the in-progress route is the -full variant.
 const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
-
-/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div. */
-function scopedJs(scope: string, body: string): string {
-  return (
-    `var root = document.querySelector(${JSON.stringify(scope)}); if (!root) return null; ` +
-    `function text(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
-    `return e ? (e.textContent || '').trim() : null; } ` +
-    `function val(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
-    `var d = e && e.querySelector(':scope > div'); return d ? (d.textContent || '').trim() : null; } ` +
-    body
-  );
-}
-
-const SEND_CHIPS_JS = scopedJs(
-  SEND_FLOW,
-  `return Array.from(root.querySelectorAll('[data-testid^="send-network-"]:not([data-testid="send-network-options"])'))` +
-    `.map(function (e) { return { testId: e.getAttribute('data-testid') || '', pressed: e.getAttribute('aria-pressed') }; });`
-);
-
-const USDCX_ROUTE_JS = scopedJs(
-  SEND_FLOW,
-  `var card = root.querySelector('[data-testid="bridge-route-usdcx"]'); if (!card) return null; ` +
-    `return { checked: card.getAttribute('aria-checked'), cardText: (card.textContent || '').trim(), ` +
-    `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
-);
 
 // The href drops its search: the onboarding bypass's ?password= stays there all session, and a timed-out poll prints
 // its last read.
@@ -205,7 +138,7 @@ function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
       `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
       `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
       `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
-      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+      `fee: val('usdcx-payout-fee'), notice: text('usdcx-burn-notice') };`
   );
 }
 
@@ -225,19 +158,10 @@ const SUBMIT_OUTCOME_JS =
   `return { hash: location.hash, error: e ? (e.textContent || '').trim() : null, ` +
   `loading: !!(b && (b.disabled || b.getAttribute('aria-busy') === 'true')) };`;
 
-interface UsdcxRouteView {
-  checked: string | null;
-  cardText: string;
-  fee: string | null;
-  net: string | null;
-  notice: string | null;
-}
-
 interface UsdcxReviewView {
   network: string | null;
   networkFee: string | null;
   fee: string | null;
-  net: string | null;
   notice: string | null;
 }
 
@@ -256,12 +180,14 @@ function detailsLayer(rowId: string): string {
 }
 
 export interface UsdcxBurnViaSendOptions {
-  /** The Arc address Circle pays. Never a private key: appium-remote-debugger logs every eval body. */
+  /** The address Circle pays on the payout chain. Never a private key: appium-remote-debugger logs every eval body. */
   destAddress: `0x${string}`;
   /** As typed: a whole number, since the amount field follows the simulator's locale for decimals. */
   amount: string;
   nativeTokenId: string;
   nativeSymbol: string;
+  /** The chain Circle pays on; Arc Testnet when absent. */
+  payout?: PayoutChain;
   /** Where usdcx-route.png and the two review screenshots go. */
   screenshotDir: string;
   /** The step's abort signal (`namedSteps`): once it has fired, the driver never clicks submit. */
@@ -274,7 +200,7 @@ export interface UsdcxBurnSubmission {
   /** `location.hash` only (routeOf). */
   reviewRoute: string;
   generatingRoute: string;
-  /** Chips pressed when the address validated, before the Arc click (R16 evidence). */
+  /** Network sheet rows pressed when the address validated, before the payout chain's pick (R16 evidence). */
   defaultPressed: string[];
 }
 
@@ -327,7 +253,6 @@ export class IosWalletPage implements WalletPage {
   private beforeCapture?: () => Promise<void>;
   private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
-  private stashSeq = 0;
 
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
@@ -408,22 +333,6 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Create a `bridged-receive` tracking row; returns its txId. */
-  async createBridgeReceive(args: {
-    accountId: string;
-    amount: string;
-    faucetId: string;
-    provider: 'epoch' | 'agglayer';
-    sourceAddress: string;
-    sourceAmount: string;
-    sourceSymbol: string;
-    outputAmount?: string;
-    outputSymbol?: string;
-    evmTxHash: string;
-  }): Promise<string> {
-    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
-  }
-
   /** Read a `bridged-receive` row's current phase/displayMessage for assertions. */
   async getBridgeReceiveState(txId: string): Promise<{
     found: boolean;
@@ -456,6 +365,7 @@ export class IosWalletPage implements WalletPage {
     faucetId: string;
     phase?: string;
     displayMessage?: string;
+    error?: string;
   } | null> {
     const arg = provider ? JSON.stringify(provider) : '';
     return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
@@ -471,20 +381,15 @@ export class IosWalletPage implements WalletPage {
    * DOM, and their Swap pane reuses the form's send-token-selector and send-amount-* test ids: an unscoped lookup
    * finds the hidden Swap controls first. The token drawer portals to <body>, so its rows stay unscoped.
    */
-  private static readonly BRIDGE_PAGE = '[data-page-layer="/bridge/deposit"]';
+  private static readonly BRIDGE_PAGE = BRIDGE_DEPOSIT_LAYER;
 
   /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
   async openBridgeDeposit(): Promise<void> {
     await this.navigateTo('/receive');
     await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
     await this.click('[data-testid="receive-cross-chain"]');
-    // The cross-chain tap reads the EVM `connected` state at click time. The
-    // native WC session is established (getState() reports connected), but that
-    // propagates to React via useNativeReown's async on-mount refresh — so a tap
-    // fired before it lands opens the (un-tappable native) connect modal instead
-    // of navigating. Fall back to the real /bridge/deposit route, which renders
-    // the deposit screen reactively once `connected` propagates: same
-    // destination, no tap-timing race.
+    // Cross Chain navigates to /bridge/deposit. Should the tap not land, navigating there directly reaches the same
+    // screen.
     try {
       await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
       return;
@@ -494,14 +399,27 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /**
-   * Open the bridge token drawer and pick a source token: ETH, the bridge's own
-   * USDC (`USDC`, Fast or Slow), or Circle's USDC (`CIRCLE_USDC`, xReserve only).
-   */
-  async selectBridgeToken(symbol: 'ETH' | 'USDC' | 'CIRCLE_USDC'): Promise<void> {
+  /** Open the bridge token drawer and pick a source token: ETH (AggLayer) or Circle's USDC (xReserve). */
+  async selectBridgeToken(symbol: 'ETH' | 'CIRCLE_USDC'): Promise<void> {
     await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`);
     await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
+  }
+
+  /**
+   * Open the network drawer from the amount step's From row and pick the source chain `slug` (bridge-networks.ts), then
+   * wait until the row names it: a Reown session that approves that chain alone refuses any other chain's prompt.
+   */
+  async selectBridgeNetwork(slug: string, name: string): Promise<void> {
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="bridge-source-network"]`);
+    await this.waitFor(`[data-testid="bridge-network-${slug}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-network-${slug}"]`);
+    await this.pollEval<string | null>(
+      `the bridge From row naming ${name}`,
+      BRIDGE_SOURCE_NETWORK_JS,
+      value => networkRowNames(value, name),
+      10_000
+    );
   }
 
   /** Type the deposit amount and confirm to advance to the route step. */
@@ -518,22 +436,13 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Pick the Epoch "Fast" route (USDC) and continue to review. The route-confirm
-   * button is gated on the Epoch quote landing (epochStatus === 'quoted'), so the
-   * wider clickWhenEnabled window absorbs the allocator round-trip.
+   * Confirm the Circle USDC route and continue to review. The route step shows one card, already selected, so the step
+   * only confirms; Continue waits for the balance read and stays disabled while the amount, with any fee Circle has
+   * quoted, exceeds the balance.
    */
-  async selectBridgeRouteFast(): Promise<void> {
-    await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
-    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
-  }
-
-  /**
-   * Confirm the Circle xReserve route (USDC) and continue to review. The route
-   * step shows one card, already selected, so the step only confirms.
-   */
-  async confirmBridgeRouteUsdcx(): Promise<void> {
+  async confirmBridgeRouteUsdcx(timeoutMs = 15_000): Promise<void> {
     await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
-    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', timeoutMs);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
@@ -543,29 +452,7 @@ export class IosWalletPage implements WalletPage {
 
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
-    // The sequence keeps two reads started in the same millisecond apart.
-    const key = `${prefix}_${Date.now()}_${++this.stashSeq}`;
-    const k = JSON.stringify(key);
-    await this.cdp.eval(
-      `window[${k}] = undefined; ` +
-        `Promise.resolve(${promiseExpr})` +
-        `.then(function (v) { window[${k}] = { ok: true, v: v }; })` +
-        `.catch(function (e) { window[${k}] = { ok: false, e: String((e && e.message) || e) }; }); ` +
-        `return null;`
-    );
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      // Deleted once read: a burn row's stash holds about 0.5 MB of result bytes.
-      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(
-        `var r = window[${k}]; if (r) { delete window[${k}]; } return r || null;`
-      );
-      if (r) {
-        if (r.ok) return r.v as T;
-        throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
-      }
-      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
-      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
-    }
+    return stashAndPoll<T>(js => this.cdp.eval(js), prefix, promiseExpr, timeoutMs);
   }
 
   // ── Row, native-asset and vault reads (the live USDCx spec) ─────────────
@@ -615,9 +502,13 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Exact spendable base units of `faucetId` in the current account, as the store last fetched them. Read it through
-   * `homeVaultBaseUnits`: the balance poll runs only on Home.
+   * `homeVaultBaseUnits`: the balance poll runs only on Home. `faucetId` is the store's bech32 key, so a CLI hex id goes
+   * through `hexToBech32Faucet` first.
    */
   async readVaultBaseUnits(faucetId: string): Promise<bigint> {
+    if (faucetId.startsWith('0x')) {
+      throw new Error(`readVaultBaseUnits: ${faucetId} keys no store row; convert it with hexToBech32Faucet`);
+    }
     const view = await ridingOut(() => this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
     if (!view) throw new Error('readVaultBaseUnits: the store has no current account');
     let total = 0n;
@@ -650,22 +541,43 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
+  // ── App switching ───────────────────────────────────────────────────────
+
+  /** Leaves the app the way an app switch does. Its WebView notes going hidden, which `returnToForeground` reports. */
+  async leaveForeground(): Promise<void> {
+    await ridingOut(() =>
+      this.cdp.eval(
+        `window.__E2E_WENT_HIDDEN__ = false; ` +
+          `document.addEventListener('visibilitychange', function () { ` +
+          `if (document.hidden) window.__E2E_WENT_HIDDEN__ = true; }); return null;`
+      )
+    );
+    await this.sim.background(this.udid);
+  }
+
+  /** Returns to the running app and answers whether its document went hidden meanwhile. */
+  async returnToForeground(): Promise<boolean> {
+    await this.sim.foreground(this.udid, this.bundleId);
+    return ridingOut(() => this.cdp.eval<boolean>('return window.__E2E_WENT_HIDDEN__ === true;'));
+  }
+
   // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
 
   /**
-   * Burns the native USDCx to an Arc Testnet address through the real Send UI and returns once the wallet is on the
-   * generating page. Every read is scoped (SEND_FLOW, SEND_REVIEW). Checks on the way: exactly the four USDCx chips
-   * with Arc alone pressed, the route card, the payout rows and the notice on the route and the review, and the
-   * review's network and fee rows; a refusal is named from `review-error`, never left to a timeout. Nothing is
-   * submitted once `signal` has aborted (R26).
+   * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
+   * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
+   * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
+   * route card, the payout fee row and the notice on the route and the review, and the review's network and fee rows; a
+   * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
   async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
+    const chain = opts.payout ?? ARC_PAYOUT;
     const symbol = opts.nativeSymbol.trim();
     if (symbol === '' || symbol.toUpperCase() === 'MIDEN') {
       throw new Error(`burnUsdcxViaSendFlow: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
     }
-    // Throws before any UI when the amount does not exceed Arc's payout fee allowance (R14a).
-    const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+    // Throws before any UI when the amount does not exceed the payout chain's fee allowance (R14a).
+    const payout = usdcxPayoutRowsText(chain.chainId, opts.amount);
     const routeFees = enText('usdcxMidenFees', { symbol });
     const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol });
     const notice = enText('usdcxWithdrawalNotice');
@@ -674,26 +586,29 @@ export class IosWalletPage implements WalletPage {
 
     await this.navigateTo(`/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`);
     await this.waitFor(SEND_FLOW, { timeoutMs: 15_000 });
-    // The carousel keeps Send mounted with its step and chip; only the recipient step has no back button.
+    // The carousel keeps Send mounted with its step and network; only the recipient step has no back button.
     for (let pop = 0; pop < 3 && (await this.exists(`${SEND_FLOW} [data-testid="flow-back"]`)); pop++) {
       await this.click(`${SEND_FLOW} [data-testid="flow-back"]`);
       await sleep(1_000);
     }
     await this.waitFor(`${SEND_FLOW} [data-testid="send-recipient-input"]`, { timeoutMs: 15_000 });
     await this.fillInput(`${SEND_FLOW} [data-testid="send-recipient-input"]`, opts.destAddress);
-    const offered = await this.pollEval<NetworkChipState[] | null>(
-      'the four USDCx destination chips',
-      SEND_CHIPS_JS,
-      chips => chips !== null && sameChipSet(chips),
+    const picker = `${SEND_FLOW} [data-testid="send-network-picker"]`;
+    await this.waitFor(picker, { timeoutMs: 15_000 });
+    await this.click(picker);
+    const offered = await this.pollEval<SendNetworkView | null>(
+      'the four USDCx destinations in the network sheet',
+      SEND_NETWORK_JS,
+      view => view !== null && sameChipSet(view.rows),
       15_000
     );
-    const defaultPressed = (offered ?? []).filter(chip => chip.pressed === 'true').map(chip => chip.testId);
-    // A chip kept from an earlier attempt overrides the default, so Arc is pressed explicitly every time.
-    await this.click(`${SEND_FLOW} [data-testid="${ARC_CHIP}"]`);
-    await this.pollEval<NetworkChipState[] | null>(
-      'Arc Testnet alone pressed among the four USDCx chips',
-      SEND_CHIPS_JS,
-      chips => chips !== null && usdcxChipsProblem(chips, ARC_CHIP) === undefined,
+    const defaultPressed = (offered?.rows ?? []).filter(row => row.pressed === 'true').map(row => row.testId);
+    // A network kept from an earlier attempt overrides the default, so the payout chain is picked every time.
+    await this.click(`${OPEN_SHEET} [data-testid="send-network-${chain.reviewNetwork}"]`);
+    await this.pollEval<SendNetworkView | null>(
+      `the closed network field naming ${chain.networkName}`,
+      SEND_NETWORK_JS,
+      view => view !== null && view.rows.length === 0 && view.summary === chain.networkName,
       15_000
     );
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-recipient-confirm"]`, 30_000);
@@ -704,14 +619,13 @@ export class IosWalletPage implements WalletPage {
     await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
 
     await this.pollEval<UsdcxRouteView | null>(
-      'the USDCx route card, payout rows and burn notice',
+      'the USDCx route card, payout fee row and burn notice',
       USDCX_ROUTE_JS,
       view =>
         view !== null &&
-        view.checked === 'true' &&
+        view.pressed === 'true' &&
         view.cardText.includes(routeFees) &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       30_000
     );
@@ -724,7 +638,11 @@ export class IosWalletPage implements WalletPage {
       view => view.hash.startsWith('#/send/review?') && view.submit,
       30_000
     );
-    const wanted: Record<string, string> = { network: 'arc-testnet', route: 'usdcx', tokenId: opts.nativeTokenId };
+    const wanted: Record<string, string> = {
+      network: chain.reviewNetwork,
+      route: 'usdcx',
+      tokenId: opts.nativeTokenId
+    };
     for (const [name, value] of Object.entries(wanted)) {
       const actual = reviewQueryParam(landing.href, name);
       if (actual !== value) {
@@ -733,13 +651,12 @@ export class IosWalletPage implements WalletPage {
     }
     await this.pollEval<UsdcxReviewView | null>(
       'the burn review rows',
-      usdcxReviewJs(enText('network'), enText('networkFee')),
+      usdcxReviewJs(enText('network'), enText('networkFeeMax')),
       view =>
         view !== null &&
-        view.network === ARC_TESTNET.name &&
-        view.networkFee === sponsorshipFee &&
+        view.network === chain.networkName &&
+        view.networkFee?.endsWith(sponsorshipFee) === true &&
         view.fee === payout.fee &&
-        view.net === payout.net &&
         view.notice === notice,
       15_000
     );
@@ -778,12 +695,7 @@ export class IosWalletPage implements WalletPage {
       const fresh = (await this.readBridgedSendRows()).filter(
         row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
       );
-      const error = outcome.error ?? '';
-      throw new Error(
-        isArcSnapshotFailure(error, fresh.length)
-          ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "${error}"`
-          : `the review refused the burn: review-error "${error}", ${fresh.length} new usdcx rows`
-      );
+      throw new Error(burnSubmitFailure(chain, outcome.error ?? '', fresh.length));
     }
     return {
       rowId: decodeURIComponent(rowId),
@@ -837,19 +749,22 @@ export class IosWalletPage implements WalletPage {
     await this.waitFor(`${detailsLayer(rowId)} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
   }
 
-  /** The open details page's status pill and every Arc explorer transaction link it renders. */
-  async transactionDetailsView(rowId: string): Promise<{ pill: string | null; arcTxLinks: string[] }> {
-    const prefix = `${ARC_TESTNET.blockExplorers.default.url}/tx/`;
+  /** The open details page's status pill and every transaction link it renders to `explorer`, Arc Testnet's by default. */
+  async transactionDetailsView(
+    rowId: string,
+    explorer: string = ARC_PAYOUT.explorer
+  ): Promise<{ pill: string | null; txLinks: string[] }> {
+    const prefix = `${explorer}/tx/`;
     const view = await ridingOut(() =>
-      this.cdp.eval<{ pill: string | null; arcTxLinks: string[] } | null>(
+      this.cdp.eval<{ pill: string | null; txLinks: string[] } | null>(
         `var root = document.querySelector(${JSON.stringify(detailsLayer(rowId))}); if (!root) return null; ` +
           `var pill = root.querySelector('[data-testid="history-status-pill"]'); ` +
           `return { pill: pill ? (pill.textContent || '').trim() : null, ` +
-          `arcTxLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
+          `txLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
           `.filter(function (h) { return h.indexOf(${JSON.stringify(prefix)}) === 0; }) };`
       )
     );
-    return view ?? { pill: null, arcTxLinks: [] };
+    return view ?? { pill: null, txLinks: [] };
   }
 
   /**
@@ -1011,16 +926,10 @@ export class IosWalletPage implements WalletPage {
 
     // Click "Open wallet" — this triggers register() which creates the vault.
     // The old "Get started" text is gone; the button is now keyed by testid.
-    await this.click('[data-testid="onboarding-confirmation-submit"]');
+    await this.click(CONFIRMATION_SUBMIT);
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
-    await this.pollForCondition(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return false; ` +
-        `var st = s.getState(); ` +
-        `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      readyTimeoutMs
-    );
+    await this.waitForCreatedWalletReady(`IosWalletPage.createWalletViaBypass(${recovery})`, readyTimeoutMs);
 
     // Onboarding's last screen is now the one-time telemetry consent prompt, not
     // the wallet home — decline it so the caller gets a wallet it can navigate.
@@ -1043,6 +952,16 @@ export class IosWalletPage implements WalletPage {
     // For created wallets the bypass synthesizes the seed phrase internally
     // (we don't read it back); for imported wallets the caller already has it.
     return { address, seedPhrase: seed ?? [] };
+  }
+
+  /** Waits for a created wallet to read Ready, pressing Confirmation's Retry once (see `pollCreatedWalletReady`). */
+  private async waitForCreatedWalletReady(label: string, timeoutMs: number): Promise<void> {
+    await pollCreatedWalletReady({
+      label,
+      timeoutMs,
+      poll: (ms, accept) => this.pollForCondition(CREATED_WALLET_STATE_JS, ms, accept),
+      pressRetry: () => this.click(CONFIRMATION_SUBMIT)
+    });
   }
 
   /**
@@ -1279,8 +1198,7 @@ export class IosWalletPage implements WalletPage {
     // Confirm is gated on a valid address, so wait for it to enable.
     await this.fillInput(`${sendFlow} [data-testid="send-recipient-input"]`, params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
-      await this.click('[data-testid="send-network-sepolia"]');
+      await selectSendNetworkByScript(this, SEPOLIA_NETWORK, 15_000, POLL_INTERVAL_MS);
     }
     await this.clickWhenEnabled(`${sendFlow} [data-testid="send-recipient-confirm"]`, 30_000);
 
@@ -1379,10 +1297,16 @@ export class IosWalletPage implements WalletPage {
     tokenSymbol?: string
   ): Promise<number> {
     const intervalMs = 5_000;
-    const maxAttempts = Math.ceil(timeoutMs / intervalMs);
+    const deadline = Date.now() + timeoutMs;
     let lastBalance = 0;
+    let attempt = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    while (true) {
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+
+      attempt += 1;
       await this.triggerSync();
       lastBalance = await this.getBalance(tokenSymbol);
 
@@ -1390,16 +1314,19 @@ export class IosWalletPage implements WalletPage {
         timeline.emit({
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
-          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
+          message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}`,
+          data: { balance: lastBalance, minBalance, attempt }
         });
       }
 
       if (lastBalance > minBalance) return lastBalance;
-      if (attempt < maxAttempts) await sleep(intervalMs);
-    }
 
-    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      const remainingAfter = deadline - Date.now();
+      if (remainingAfter <= 0) {
+        throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
+      }
+      await sleep(Math.min(intervalMs, remainingAfter));
+    }
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -1557,17 +1484,20 @@ export class IosWalletPage implements WalletPage {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
         // Catch eval errors (page reload mid-poll, inspector reattach race).
-        const found = await this.cdp
-          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-          .catch(() => false);
-        if (found) return;
+        const found = await this.tallied<boolean>(
+          `return !!document.querySelector(${JSON.stringify(selector)});`,
+          tally
+        );
+        if (found?.value) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForSelector', selector, timeoutMs, tally);
       throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
     } finally {
       this.pollStats.pollCount++;
@@ -1577,24 +1507,42 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
+  private async pollForCondition<T = boolean>(
+    jsBody: string,
+    timeoutMs: number,
+    accept: (value: T) => boolean | Promise<boolean> = Boolean
+  ): Promise<void> {
     const wallStart = Date.now();
     let iterations = 0;
     let totalSleepMs = 0;
+    const tally: EvalTally = { returned: 0 };
     try {
       while (Date.now() - wallStart < timeoutMs) {
         iterations++;
-        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-        if (ok) return;
+        const read = await this.tallied<T>(jsBody, tally);
+        if (read && (await accept(read.value))) return;
         await sleep(POLL_INTERVAL_MS);
         totalSleepMs += POLL_INTERVAL_MS;
       }
+      if (tally.returned === 0) throw noEvalReturned('pollForCondition', jsBody.slice(0, 80), timeoutMs, tally);
       throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
     } finally {
       this.pollStats.pollCount++;
       this.pollStats.pollIterations += iterations;
       this.pollStats.pollMs += Date.now() - wallStart;
       this.pollStats.pollSleepMs += totalSleepMs;
+    }
+  }
+
+  /** One poll read: a failed eval counts as not yet, and the tally keeps what a timeout must say about the session. */
+  private async tallied<T>(js: string, tally: EvalTally): Promise<{ value: T } | undefined> {
+    try {
+      const value = await this.cdp.eval<T>(js);
+      tally.returned++;
+      return { value };
+    } catch (error) {
+      tally.lastError = error;
+      return undefined;
     }
   }
 

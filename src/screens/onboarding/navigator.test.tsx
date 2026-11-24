@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
+import { pageSlideCovered, pageSlideDim, pageSlideEntrance, presets, reducedMotionTransition } from 'lib/animation';
 
 import { OnboardingFlow } from './navigator';
 import { ImportType, NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from './types';
@@ -106,6 +106,7 @@ jest.mock('./common/ChooseProtection', () => ({
 }));
 jest.mock('./common/Confirmation', () => ({ ConfirmationScreen: (p: any) => mockScreen('confirmation')(p) }));
 jest.mock('./common/NetworkNotice', () => ({ NetworkNoticeScreen: (p: any) => mockScreen('network-notice')(p) }));
+jest.mock('./common/MainnetAccess', () => ({ MainnetAccessScreen: (p: any) => mockScreen('mainnet-access')(p) }));
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
@@ -172,6 +173,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
   // Every step after Welcome carries the header's back button: steps whose own footer used to hold
   // a Back button and steps (protection, passcode, guardian) that had no way back at all.
   const headerWithBack: Array<[OnboardingStep, string]> = [
+    [OnboardingStep.MainnetAccess, 'screen-mainnet-access'],
     [OnboardingStep.NetworkNotice, 'screen-network-notice'],
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
@@ -216,9 +218,12 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
 });
 
 describe('OnboardingFlow — action wiring per screen', () => {
-  it('Welcome: routes select-wallet-type / select-import-type and ignores unknown', () => {
+  it('Welcome: routes mainnet-access / select-wallet-type / select-import-type and ignores unknown', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.Welcome, onAction });
+
+    act(() => mockCaptured.welcome.onSubmit('mainnet-access'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access' });
 
     act(() => mockCaptured.welcome.onSubmit('select-wallet-type'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-protection' });
@@ -229,6 +234,25 @@ describe('OnboardingFlow — action wiring per screen', () => {
     onAction.mockClear();
     act(() => mockCaptured.welcome.onSubmit('nonsense'));
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("Welcome: hands the host's variant, unlock and recover-only choice to the screen", () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderFlow({ step: OnboardingStep.Welcome, inviteOnly: true, onUnlockInviteOnly, recoverOnly: true });
+    expect(mockCaptured.welcome).toMatchObject({ inviteOnly: true, onUnlockInviteOnly, recoverOnly: true });
+  });
+
+  it('MainnetAccess: an accepted code dispatches mainnet-access-granted', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.MainnetAccess, onAction });
+    act(() => mockCaptured['mainnet-access'].onSubmit('8gKIgL0O6HcU'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    expect(mockCaptured['mainnet-access'].onSkip).toBeUndefined();
+  });
+
+  it("MainnetAccess: shows the node's refusal of the code a registration carried", () => {
+    renderFlow({ step: OnboardingStep.MainnetAccess, mainnetAccessRejected: true });
+    expect(mockCaptured['mainnet-access'].rejected).toBe(true);
   });
 
   it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
@@ -696,8 +720,10 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     expect(mockMotion.step.transition).toEqual(presets.page.transition);
     const enter = mockMotion.step.variants.enter as (d: string) => object;
     const exit = mockMotion.step.variants.exit as (d: string) => object;
-    expect(enter('forward')).toEqual({ x: presets.page.initial?.x });
-    expect(exit('forward')).toEqual({ x: pageSlideParallax });
+    const center = mockMotion.step.variants.center;
+    expect(enter('forward')).toEqual(presets.page.initial);
+    expect(exit('forward')).toEqual(pageSlideCovered);
+    expect(center).toEqual(presets.page.animate);
     const dimExit = mockMotion.dim.variants.exit as (d: string) => object;
     expect(dimExit('forward')).toEqual({ opacity: pageSlideDim });
   });
@@ -711,8 +737,8 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     const enter = mockMotion.step.variants.enter as (d: string) => object;
     const exit = mockMotion.step.variants.exit as (d: string) => object;
     const dimEnter = mockMotion.dim.variants.enter as (d: string) => object;
-    expect(enter('backward')).toEqual({ x: pageSlideParallax });
-    expect(exit('backward')).toEqual({ x: presets.page.exit?.x });
+    expect(enter('backward')).toEqual(pageSlideCovered);
+    expect(exit('backward')).toEqual(presets.page.exit);
     expect(dimEnter('backward')).toEqual({ opacity: pageSlideDim });
   });
 

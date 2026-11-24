@@ -81,11 +81,7 @@ describe('MobileBackBridge', () => {
     renderAt('/settings/security', 3);
 
     expect(typeof mockBack.handler).toBe('function');
-    // [pathname, historyPosition, inHome, isSettingsSubpage, isTabPage].
-    // '/settings/security' is both a settings subpage AND a tab page (it
-    // startsWith '/settings/'), so isTabPage is true too — the subpage branch
-    // just wins first inside the handler.
-    expect(mockBack.deps).toEqual(['/settings/security', 3, false, true, true]);
+    expect(mockBack.deps).toEqual(['/settings/security', 3, false, true, false, false]);
   });
 
   it('on a settings subpage with history: pops one level, like the header chevron', () => {
@@ -101,15 +97,22 @@ describe('MobileBackBridge', () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('on a cold-opened settings subpage: replaces to /settings and consumes the event', () => {
+  it('on a cold-opened settings subpage: replaces to /me and consumes the event', () => {
     const { handler } = renderAt('/settings/security', 0);
 
     const result = handler();
 
     expect(result).toBe(true);
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith('/settings', HistoryAction.Replace);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
     expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('on a cold-opened lock of the recovery page: replaces to the recovery page, like the header chevron', () => {
+    const { handler } = renderAt('/settings/recover-funds/11155111/42', 0);
+
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/settings/recover-funds', HistoryAction.Replace);
   });
 
   it('on a tab page matched exactly (/history): replaces to home and consumes', () => {
@@ -133,30 +136,42 @@ describe('MobileBackBridge', () => {
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
-  it('treats the bare /settings tab as a tab page (not a settings subpage)', () => {
+  it('returns from a cold-opened Settings root to Me', () => {
     const { handler } = renderAt('/settings', 0);
 
-    // /settings does NOT start with '/settings/', so it falls through to the
-    // tab-page branch and goes home rather than replacing to itself. Settings
-    // is a bottom-nav destination now, so this is the same back behaviour the
-    // other tab roots (/history, /browser) get.
     const result = handler();
 
     expect(result).toBe(true);
-    expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
   });
 
-  it('leaves the /settings tab root on the tab-page branch even with history behind it', () => {
-    // Regression guard for the fourth-tab change: a user who reached Settings
-    // by tapping the tab still lands on Home, not one step back into whatever
-    // tab they came from.
+  it('pops a Settings root with history behind it', () => {
     const { handler } = renderAt('/settings', 3);
 
     const result = handler();
 
     expect(result).toBe(true);
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes the Me tab home regardless of its tab history', () => {
+    const { handler } = renderAt('/me', 3);
+    expect(handler()).toBe(true);
     expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
-    expect(goBackMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a cold-opened badge collection to Me', () => {
+    const { handler } = renderAt('/me/badges', 0);
+    expect(handler()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/me', HistoryAction.Replace);
+  });
+
+  it('pops the badge collection when it was opened from Me', () => {
+    const { handler } = renderAt('/me/badges', 2);
+    expect(handler()).toBe(true);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('on a non-tab page with history: goes back and consumes', () => {

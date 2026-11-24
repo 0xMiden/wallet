@@ -13,13 +13,15 @@ export interface EvmBridgeNetworkDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** The chains the deposit can start from on the chosen route. */
   networks: readonly BridgeNetwork[];
-  selected: BridgeNetwork;
+  /** The chain the route is on, or none while the route has no chain: no row is then checked. */
+  selected?: BridgeNetwork;
   onSelect: (network: BridgeNetwork) => void;
 }
 
 /**
- * Bottom-sheet picker for the source network of a deposit. The USDCx route lists every chain of the
- * source table with a local xReserve; the other routes have one source and never open it.
+ * Bottom-sheet picker for the source network of a deposit. It lists every chain any deposit route starts from (a
+ * Circle source, an Epoch route that takes a token, an AggLayer chain), whatever the token; the token drawer then
+ * offers what the picked chain bridges.
  */
 export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
   open,
@@ -40,10 +42,12 @@ export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
         <ListGroup className="mx-4">
           {networks.map(network => (
             <ListRow
+              variant="choice"
+              accent="receive"
               key={network.id}
               title={network.name}
-              avatar={<NetworkLogo kind="ethereum" />}
-              checked={network.id === selected.id}
+              avatar={<NetworkLogo kind="ethereum" network={network.id} size="md" />}
+              checked={network.id === selected?.id}
               onClick={() => onSelect(network)}
               data-testid={`bridge-network-${network.id}`}
             />

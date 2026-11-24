@@ -1,50 +1,90 @@
+import { BADGE_STORAGE_KEY } from 'lib/badges/types';
+import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
+import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
-import { rereadStorageCache } from 'lib/miden/front/storage';
+import { preparePlatformCredentialWipeInTurn } from 'lib/miden/back/platform-unlock-store';
+import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
-import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
-import { BRIDGE_CONFIG_FLOOR_KEY } from 'lib/remote-config/source';
+import { PLATFORM_CREDENTIALS_STORAGE_KEY, PLATFORM_RESET_STORAGE_KEY } from 'lib/platform-auth/types';
+import { bridgeConfigDerivedKey } from 'lib/remote-config/derived-snapshot';
+import { BRIDGE_CONFIG_FLOOR_KEY, bridgeConfigCacheKey } from 'lib/remote-config/source';
 import { storageCleared } from 'lib/storage-cleared';
+
+const BRIDGE_CONFIG_DOCUMENT_KEYS: readonly string[] = Object.values(MIDEN_NETWORK_NAME).flatMap(network => [
+  bridgeConfigCacheKey(network),
+  bridgeConfigDerivedKey(network)
+]);
 
 // Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
 // account on one network while the client resolves another. Developer Settings' reset takes it
 // with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards. The
 // bridge config and Explore catalog floors are the highest document versions each network has
-// accepted; losing one would let a reset wallet accept an older, superseded document.
+// accepted; losing one would let a reset wallet accept an older, superseded document. Each
+// network's accepted bridge config document and its derivation are network configuration too,
+// kept by every wipe but Developer Settings' reset: the service worker has no scheduler, so a wipe
+// that took them would leave its synchronous readers with no document after every create or import.
 export const PRESERVED_STORAGE_KEYS: readonly string[] = [
   ENDPOINT_OVERRIDE_STORAGE_KEY,
   BRIDGE_CONFIG_FLOOR_KEY,
-  EXPLORE_CONFIG_FLOOR_KEY
+  EXPLORE_CONFIG_FLOOR_KEY,
+  PLATFORM_CREDENTIALS_STORAGE_KEY,
+  PLATFORM_RESET_STORAGE_KEY,
+  ...BRIDGE_CONFIG_DOCUMENT_KEYS
 ];
 
+// The accounts of a mainnet setup not yet published, never its code or secrets: its presence at init means the
+// realm stopped before the setup published, perhaps before the node admitted an account.
+export const PENDING_ADMISSION_STORAGE_KEY = 'pending_mainnet_admission';
+
+// A setup spawn's wipe, which runs after the setup wrote its marker: a realm that stops inside the spawn leaves the
+// marker for init. Every other wipe removes it.
+export const SETUP_WIPE_KEPT_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, PENDING_ADMISSION_STORAGE_KEY];
+
+// Developer Settings' reset. A derivation was read from the override's node, so it goes with the override, and its
+// document with it: the wallet re-derives against the default node, and a stored document that differs from the
+// published one at its version can be replaced. The floors stay.
+const DEVELOPER_RESET_KEPT_KEYS: readonly string[] = PRESERVED_STORAGE_KEYS.filter(
+  key => key !== ENDPOINT_OVERRIDE_STORAGE_KEY && !BRIDGE_CONFIG_DOCUMENT_KEYS.includes(key)
+);
+
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
-// failure can lose it, and a failure rejects the reset rather than being swallowed.
+// failure can lose it, and a failure rejects the reset rather than being swallowed. Badge writers
+// hold this same turn until their seen-key write settles, so the snapshot, the removal of exactly
+// those keys, the cache re-read and, off the extension, this realm's clear announcement stay in one
+// hold: an in-flight seen write is in the snapshot, and a writer queued behind the turn observes
+// the clear before it can write.
 async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<void> {
-  try {
-    if (isMobile()) {
-      const { Preferences } = await import('@capacitor/preferences');
-      const { keys } = await Preferences.keys();
-      for (const key of keys) {
-        if (!keep.includes(key)) await Preferences.remove({ key });
+  await inStorageTurn(BADGE_STORAGE_KEY, async () => {
+    try {
+      if (isExtension()) await preparePlatformCredentialWipeInTurn();
+      if (isMobile()) {
+        const { Preferences } = await import('@capacitor/preferences');
+        const { keys } = await Preferences.keys();
+        for (const key of keys) {
+          if (!keep.includes(key)) await Preferences.remove({ key });
+        }
+      } else if (isDesktop()) {
+        removeLocalStorageExcept(keep);
+      } else if (isExtension()) {
+        const browser = await import('webextension-polyfill');
+        const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+        if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
       }
-    } else if (isDesktop()) {
-      removeLocalStorageExcept(keep);
-    } else if (isExtension()) {
-      const browser = await import('webextension-polyfill');
-      const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
-      if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
+    } finally {
+      // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
+      // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
+      await rereadStorageCache();
+      // No storage event fires in the document that wipes, so off the extension this announces it to every
+      // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
+      if (isMobile() || isDesktop()) storageCleared();
     }
-  } finally {
-    // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
-    // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
-    await rereadStorageCache();
-    // No storage event fires in the document that wipes, so off the extension this announces it to every
-    // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
-    if (isMobile() || isDesktop()) storageCleared();
-  }
+  });
 }
 
 // Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
@@ -52,6 +92,12 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
   const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
   for (const key of Object.keys(localStorage)) {
     if (!kept.has(key)) localStorage.removeItem(key);
+  }
+}
+
+function removeSessionStorageExcept(keep: readonly string[]): void {
+  for (const key of Object.keys(sessionStorage)) {
+    if (!keep.includes(key)) sessionStorage.removeItem(key);
   }
 }
 
@@ -77,6 +123,7 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
  */
 export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = PRESERVED_STORAGE_KEYS) {
   await clearPlatformKeyValueStorage(keep);
+  await Repo.portfolioObservations.clear();
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -99,7 +146,8 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
  * creation flows use `clearStorage` above instead.
  *
  * The endpoint override survives the key-value clear unless `keepEndpointOverride` is false,
- * which takes it with the wipe instead of leaving it to a separate step that can fail after it.
+ * which takes it with the wipe instead of leaving it to a separate step that can fail after it, and
+ * takes every network's bridge config document and derivation with it; the floors stay either way.
  *
  * The key-value clear comes first, so a partial wipe leaves no vault. The delete closes every storage handle;
  * this realm reopens its own at once, and a reload reopens the other realms' handles (and this realm's, when
@@ -118,11 +166,13 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
 export async function resetStorageDestructive({
   keepEndpointOverride = true
 }: { keepEndpointOverride?: boolean } = {}) {
-  await clearPlatformKeyValueStorage(
-    keepEndpointOverride
-      ? PRESERVED_STORAGE_KEYS
-      : PRESERVED_STORAGE_KEYS.filter(key => key !== ENDPOINT_OVERRIDE_STORAGE_KEY)
-  );
+  // A reset wallet must not stay on the developer's network choice, so the kept override loses it before anything
+  // is wiped: a failure here leaves the wallet as it was, and no later failure can leave the choice behind.
+  if (keepEndpointOverride) await forgetDeveloperNetworkChoice();
+  // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
+  // key-value clear empties localStorage, and the extension's service worker has none.
+  if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
+  await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
   try {
     await Repo.db.delete();
     await Repo.db.open();
@@ -130,6 +180,7 @@ export async function resetStorageDestructive({
     await Repo.db.open().catch(() => {});
     await Repo.transactions.clear().catch(() => {});
     await Repo.spendingLimits.clear().catch(() => {});
+    await Repo.portfolioObservations.clear().catch(() => {});
     throw err;
   }
   await resetNativeAssetCache();
@@ -137,14 +188,20 @@ export async function resetStorageDestructive({
 
 // The recovery page's own wipe. On desktop localStorage is also the key-value store, so it keeps
 // what a wallet-setup reset keeps, and re-reads the cache as every other wipe does; on the extension
-// and mobile those names are not in it, and the re-read finds nothing changed.
+// and mobile those names are not in it, and the re-read finds nothing changed. sessionStorage keeps
+// open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
+// app session. The badge storage turn stays held across that localStorage snapshot and removal, the
+// session-storage removal, the cache re-read and the clear announcement.
 export async function clearClientStorage(): Promise<void> {
-  try {
-    removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
-    sessionStorage.clear();
-  } finally {
-    await rereadStorageCache();
-    // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
-    storageCleared();
-  }
+  await inStorageTurn(BADGE_STORAGE_KEY, async () => {
+    try {
+      removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
+      removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
+    } finally {
+      await rereadStorageCache();
+      // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
+      storageCleared();
+    }
+  });
+  await Repo.portfolioObservations.clear();
 }

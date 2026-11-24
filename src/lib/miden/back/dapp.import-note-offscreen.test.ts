@@ -53,7 +53,11 @@ jest.mock('./miden-client-proxy', () => ({
 }));
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
-  fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+  fn({
+    vault: {
+      signData: jest.fn(async () => ({ signature: 'fake-signature-base64', signedCommitment: 'fake-commitment-b64' }))
+    }
+  })
 );
 jest.mock('lib/miden/back/store', () => ({
   store: { getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' }) },
@@ -186,7 +190,7 @@ jest.mock('webextension-polyfill', () => {
       get: jest.fn(async () => ({ id: 999 })),
       remove: jest.fn(async () => {}),
       update: jest.fn(async () => {}),
-      getLastFocused: jest.fn(async () => ({ left: 0, top: 0, width: 1024, height: 768 })),
+      getLastFocused: jest.fn(async () => ({ type: 'normal', left: 0, top: 0, width: 1024, height: 768 })),
       onRemoved: {
         addListener: (cb: any) => removedListeners.push(cb),
         removeListener: (cb: any) => {

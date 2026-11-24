@@ -4,9 +4,6 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 // Apart from the swap registry, which reaches the metadata modules: the metadata overrides read the token labels,
 // and the labels read these, so a label module importing the registry would close an import cycle.
 
-/** The swap registry's iETH faucet (`TOKEN_IETH`). */
-export const IETH_FAUCET_ID = 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h';
-
 // Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
 // stringify. Only a parsed id is stored, so a failed parse is retried once the SDK can parse the id.
 const normalizedFaucetIds = new Map<string, string>();

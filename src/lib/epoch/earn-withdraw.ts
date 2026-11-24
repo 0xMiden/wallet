@@ -1,7 +1,6 @@
-import { EpochIntentSDK, TaskType, ActionType } from '@epoch-protocol/epoch-intents-sdk';
+import { EpochIntentSDK, TaskType, ActionType, type IntentTransactionStatus } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 } from 'uuid';
-import { type Address, parseUnits } from 'viem';
-import { sepolia } from 'viem/chains';
+import { type Address, getAddress } from 'viem';
 
 import {
   findPendingBridgeInByEarnWithdrawTxId,
@@ -16,17 +15,19 @@ import {
 import {
   ITransactionStatus,
   type IBridgeInInfo,
+  type IEarnWithdrawExtraInputs,
   type IEarnWithdrawPreparedExecution,
   type ITransaction
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc, getEvmUsdcAddress } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
+import { epochChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { resolveEarnIntentOutcome } from './earn';
-import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
+import { type EarnSubmissionContext, tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
 import {
   earnWithdrawalRetryKind,
   earnWithdrawExecutionIdentity,
@@ -34,7 +35,15 @@ import {
   selectEarnWithdrawPreparedExecution,
   validateEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
-import { buildVaultEvmWalletClient } from './evm-account';
+import {
+  assertWithdrawalReviewCurrent,
+  assertWithdrawalReviewContext,
+  extendWithdrawalReview,
+  assertWithdrawalAllocations,
+  quoteEarnWithdrawal,
+  type EarnWithdrawalQuote
+} from './earn-withdraw-quote';
+import { buildVaultEvmWalletClient, assertVaultEvmAccountCurrent } from './evm-account';
 import { isEvmAddress } from './evm-address';
 import {
   earnWithdrawPollKey,
@@ -45,7 +54,9 @@ import {
 } from './intent-key';
 import { readEpochIntentStatus } from './intent-status';
 import { startIntentPoll } from './poll-registry';
+import { fetchEarnPositions } from './positions';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
+import { withdrawalAmount } from './withdraw-amount';
 
 /** Non-terminal `earn-withdraw` phases the reconciler resumes; terminal ones are skipped. */
 const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
@@ -53,18 +64,40 @@ const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
 /** Shown when a restored row is refused: its EVM owner and amount are unverified. */
 const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup - this withdrawal could not be verified.';
 
+/** The review screen translates these refusal keys; a saved row error and an Activity retry show the sentence. */
+const REFUSAL_SENTENCES = new Map([
+  ['earnWithdrawRefresh', 'The balance or quote changed - start a new withdrawal to review it again.'],
+  ['earnPositionsUnavailable', "Couldn't check your balance with Epoch - try again."],
+  ['earnWithdrawQuoteUnavailable', 'A withdrawal quote is unavailable for this amount - try again later.'],
+  ['earnWithdrawAboveAvailable', 'The withdrawal amount is above the available balance - start a new withdrawal.'],
+  ['earnWithdrawPositive', 'The withdrawal amount must be greater than zero.'],
+  ['earnWithdrawPrecision', 'The withdrawal amount has more decimal places than the token supports.'],
+  ['earnWithdrawInProgress', 'Another withdrawal from this position is still in progress - wait for it to finish.']
+]);
+
 export interface GaslessEarnWithdrawalArgs {
   midenAccountPublicKey: string;
   evmAddress: string;
   marketUid: string;
   underlyingAddress: string;
+  underlyingSymbol: string;
   /** Human-decimal withdrawable amount returned by the positions API. */
   amount: string;
   underlyingDecimals: number;
+  allocatorUrl?: string;
+  /** Required by the amount-entry UI; legacy persisted retries retain their original execution. */
+  review?: EarnWithdrawalQuote;
   /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
    * so the caller can navigate to the generating-transaction screen, matching
    * `openEarnPosition`'s callback. */
   onRowCreated?: (txId: string) => void;
+  /**
+   * The protocol string a deposit hashes. Unresolved (no listing, catalogue field, or local deposit)
+   * the withdrawal is refused before a row, a smart-account setup, or a signature.
+   */
+  protocol?: '1delta' | 'dummy-lending';
+  /** Source chain. Omitted, it is the chain in `marketUid`. */
+  chainId?: number;
 }
 
 export interface GaslessEarnWithdrawalResult {
@@ -81,6 +114,7 @@ interface GaslessEarnWithdrawalDeps {
   markNotSent?: typeof markEarnWithdrawNotSent;
   markAccepted?: typeof markEarnWithdrawAccepted;
   ensureSmartAccount?: typeof ensureEpochSmartAccount;
+  extendReview?: typeof extendWithdrawalReview;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   initiateRow?: typeof initiateEarnWithdrawTransaction;
   updatePhase?: typeof updateEarnWithdrawPhase;
@@ -94,11 +128,13 @@ function asAddress(value: string, label: string): Address {
   return value;
 }
 
-function parseWithdrawAmount(value: string, decimals: number): bigint {
-  const match = value.trim().match(/^(\d+)(?:\.(\d+))?$/);
-  if (!match) throw new Error('Withdraw amount is invalid.');
-  const fraction = (match[2] ?? '').slice(0, decimals);
-  return parseUnits(fraction ? `${match[1]}.${fraction}` : match[1]!, decimals);
+/** A persisted retry keeps the old parser's reading of its saved amount: trimmed, with digits past the scale cut. */
+function parseWithdrawAmount(value: string, decimals: number, persisted: boolean): bigint {
+  const legacy = persisted ? /^(\d+)(?:\.(\d+))?$/.exec(value.trim()) : null;
+  const fraction = legacy?.[2]?.slice(0, decimals);
+  const amount = withdrawalAmount(legacy ? `${legacy[1]}${fraction ? `.${fraction}` : ''}` : value, decimals);
+  if (amount === null) throw new Error('Withdraw amount is invalid or exceeds token precision.');
+  return amount;
 }
 
 /** Read the untyped `midenNoteId` field the allocator includes on EVM→Miden status entries. */
@@ -143,44 +179,115 @@ export function buildEarnWithdrawTaskDataParams(args: {
   };
 }
 
-/** Submit one withdrawal attempt while recovery can observe its active ownership. */
-export async function gaslessEarnWithdrawalToMiden(
+const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
+
+const isEpochProtocol = (value: unknown): value is '1delta' | 'dummy-lending' =>
+  value === '1delta' || value === 'dummy-lending';
+
+const positionLockKey = (owner: string, marketUid: string): string =>
+  `position:${owner.toLowerCase()}:${marketUid.toLowerCase()}`;
+
+/** Read under the position lock: a withdrawal waits until every earlier one from its position is terminal. */
+async function withdrawalInFlight(owner: string, marketUid: string): Promise<boolean> {
+  const rows = await Repo.transactions
+    .filter(tx => {
+      const inputs: IEarnWithdrawExtraInputs | undefined = tx.extraInputs;
+      return (
+        tx.type === 'earn-withdraw' &&
+        NON_TERMINAL_WITHDRAW_PHASES.has(inputs?.phase ?? '') &&
+        typeof inputs?.evmOwner === 'string' &&
+        inputs.evmOwner.toLowerCase() === owner.toLowerCase() &&
+        typeof inputs.marketUid === 'string' &&
+        inputs.marketUid.toLowerCase() === marketUid.toLowerCase()
+      );
+    })
+    .toArray();
+  return rows.length > 0;
+}
+
+/**
+ * Submit one withdrawal attempt while recovery can observe its active ownership. A new withdrawal proceeds only
+ * when its token is the token of its market uid.
+ */
+export function gaslessEarnWithdrawalToMiden(
   args: GaslessEarnWithdrawalArgs,
   deps: GaslessEarnWithdrawalDeps = {}
 ): Promise<GaslessEarnWithdrawalResult> {
+  return submitEarnWithdrawal(args, deps, true);
+}
+
+/** `verifyMarket` is false for a retry: its row's market and token were checked when the row was created. */
+async function submitEarnWithdrawal(
+  args: GaslessEarnWithdrawalArgs,
+  deps: GaslessEarnWithdrawalDeps,
+  verifyMarket: boolean
+): Promise<GaslessEarnWithdrawalResult> {
   const sponsorAddress = asAddress(args.evmAddress, 'Position owner');
-  const underlyingAddress = asAddress(args.underlyingAddress, 'Underlying token');
+  const underlyingAddress = getAddress(asAddress(args.underlyingAddress, 'Underlying token'));
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
-  // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
-  // are checked when that read is known; otherwise the position's own stand.
-  const usdc = findEvmUsdc();
-  if (
-    underlyingAddress.toLowerCase() !== getEvmUsdcAddress().toLowerCase() ||
-    (usdc !== null && args.underlyingDecimals !== usdc.decimals)
-  ) {
-    throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
-  }
+  // Withdraw is a recovery action. The market's own uid gives its chain and token. The position (or the row) gives
+  // the token's decimals. The Epoch bridge routes do not limit the market.
   const chainId = Number(args.marketUid.split(':')[1]);
-  if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
-  const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
+  if (args.chainId !== undefined && args.chainId !== chainId) throw new Error(UNSUPPORTED_MARKET);
+  if (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) {
+    throw new Error(UNSUPPORTED_MARKET);
+  }
+  // The lender key is not a protocol. An unresolved one, or a chain this wallet cannot sign on, refuses
+  // before a row exists.
+  if (!isEpochProtocol(args.protocol)) throw new Error(UNSUPPORTED_MARKET);
+  const protocol = args.protocol;
+  const executionChain = epochChain(args.chainId ?? chainId);
+  const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals, !verifyMarket);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
-  const apiBaseUrl = getEpochAllocatorUrl();
+  const apiBaseUrl = args.allocatorUrl ?? getEpochAllocatorUrl();
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
+  // The review signing is checked against: `args.review`, until the smart-account setup outlasts it and a fresh quote
+  // with at least the reviewed floor extends it (`extendWithdrawalReview`).
+  let currentReview = args.review;
+  const assertReviewedContext = () => {
+    if (!currentReview) return;
+    assertWithdrawalReviewContext(currentReview);
+    // Persisted recovery remains bound to its saved owner, independently of the currently viewed account.
+    if (verifyMarket) assertVaultEvmAccountCurrent(args.midenAccountPublicKey, sponsorAddress);
+  };
+  if (args.review) {
+    const review = args.review;
+    if (
+      review.amount !== args.amount ||
+      review.amountAtomic !== amountAtomic.toString() ||
+      normalizeMidenIdToHex(review.accountId) !== midenRecipientHex ||
+      review.position.owner.toLowerCase() !== sponsorAddress.toLowerCase() ||
+      review.position.marketUid.toLowerCase() !== args.marketUid.toLowerCase() ||
+      review.position.underlyingAddress.toLowerCase() !== underlyingAddress.toLowerCase() ||
+      review.position.decimals !== args.underlyingDecimals ||
+      review.allocatorUrl !== apiBaseUrl ||
+      normalizeMidenIdToHex(review.destinationFaucetId) !== normalizeMidenIdToHex(destinationFaucetId)
+    ) {
+      throw new Error('earnWithdrawRefresh');
+    }
+    await assertWithdrawalReviewCurrent(review);
+    assertReviewedContext();
+  }
   const attemptId = v4();
   const attemptStartedAt = Math.floor(Date.now() / 1000);
 
-  return withSubmissionLock(attemptId, async context => {
+  const submit = async (context: EarnSubmissionContext): Promise<GaslessEarnWithdrawalResult> => {
     const assertCurrent = () => {
       if (!context.isCurrent()) throw new Error('Withdrawal submission was interrupted.');
     };
-    assertCurrent();
+    const assertBeforeSigning = () => {
+      assertCurrent();
+      assertReviewedContext();
+    };
+    if (await withdrawalInFlight(sponsorAddress, args.marketUid)) throw new Error('earnWithdrawInProgress');
+    assertBeforeSigning();
     const txId = await initiateRow(
       args.midenAccountPublicKey,
       amountAtomic,
@@ -188,12 +295,24 @@ export async function gaslessEarnWithdrawalToMiden(
       args.marketUid,
       destinationFaucetId,
       args.amount,
-      'USDC',
+      args.underlyingSymbol,
       attemptId,
       attemptStartedAt,
-      args.underlyingDecimals
+      args.underlyingDecimals,
+      protocol,
+      executionChain.id
     );
     assertCurrent();
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      row.extraInputs = {
+        ...row.extraInputs,
+        epochAllocatorUrl: apiBaseUrl,
+        underlyingAddress,
+        protocol,
+        chainId: executionChain.id,
+        ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
+      };
+    });
     args.onRowCreated?.(txId);
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
     let preparedExecution: IEarnWithdrawPreparedExecution | undefined;
@@ -201,11 +320,12 @@ export async function gaslessEarnWithdrawalToMiden(
     const bridgeInfo = (nonce: string): IBridgeInInfo => ({
       provider: 'epoch',
       sourceAmount: args.amount,
-      sourceSymbol: 'USDC',
+      sourceSymbol: args.underlyingSymbol,
       intentOwner: sponsorAddress,
       intentNonce: nonce,
       earnWithdrawTxId: txId,
-      earnWithdrawAttemptId: attemptId
+      earnWithdrawAttemptId: attemptId,
+      epochAllocatorUrl: apiBaseUrl
     });
     const startRecovery = () => {
       if (!context.isCurrent() || !preparedExecution) return;
@@ -219,24 +339,34 @@ export async function gaslessEarnWithdrawalToMiden(
       });
     };
     try {
-      const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
-      await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
-      assertCurrent();
-      const walletClient = buildVaultEvmWalletClient(args.midenAccountPublicKey, sponsorAddress);
+      assertBeforeSigning();
+      const walletClient = buildVaultEvmWalletClient(
+        args.midenAccountPublicKey,
+        sponsorAddress,
+        args.review ? assertBeforeSigning : undefined,
+        executionChain
+      );
       const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
-      const status = await sdk.getWalletGaslessStatus(chainId);
+      const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
+      await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress, sdk, executionChain.id);
       assertCurrent();
+      if (currentReview) currentReview = await (deps.extendReview ?? extendWithdrawalReview)(currentReview);
+      assertBeforeSigning();
+      const status = await sdk.getWalletGaslessStatus(executionChain.id);
+      assertBeforeSigning();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
       if (status.needsSetup) {
-        const setup = await sdk.convertToSmartAccount({ chainId });
-        assertCurrent();
+        const setup = await sdk.convertToSmartAccount({ chainId: executionChain.id });
+        assertBeforeSigning();
         if (!setup.ok) throw new Error('Smart-account conversion failed for the gasless withdrawal.');
       }
       await sdk.helpers.executeActions({
         action: ActionType.Withdraw,
         underlying: underlyingAddress,
         amount: amountAtomic.toString(),
-        protocol: 'dummy-lending',
+        protocol,
+        chainId: executionChain.id,
+        marketUid: args.marketUid,
         swapAndBridge: {
           toToken: normalizeMidenIdToHex(destinationFaucetId),
           toChainId: MIDEN_DESTINATION_CHAIN_ID,
@@ -244,25 +374,37 @@ export async function gaslessEarnWithdrawalToMiden(
         },
         gasless: true,
         onBeforeExecute: async execution => {
-          assertCurrent();
+          assertBeforeSigning();
           if (executionPermitted) throw new Error('Withdrawal execution was already permitted.');
           const identity = {
             owner: sponsorAddress,
             attemptId,
-            sourceChainId: chainId,
+            sourceChainId: executionChain.id,
             destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
             recipientAccountId: args.midenAccountPublicKey,
             destinationFaucetId
           };
           const selected = selectEarnWithdrawPreparedExecution(execution, identity);
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
+          const review = currentReview;
+          if (review) {
+            await assertWithdrawalReviewCurrent(review);
+            assertBeforeSigning();
+            const validated = validateEarnWithdrawPreparedExecution(selected, identity);
+            if (!validated) throw new Error('earnWithdrawRefresh');
+            assertWithdrawalAllocations(
+              review,
+              validated.allocationRequests.map(request => request.compact.mandate),
+              selected.delivery.allocationIndex
+            );
+          }
           preparedExecution = selected;
           const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;
           if (!(await prepareExecution(txId, selected, expected, context.isCurrent)))
             throw new Error('The withdrawal preparation could not be saved.');
-          assertCurrent();
+          assertBeforeSigning();
           const fresh = await Repo.transactions.where({ id: txId }).first();
-          assertCurrent();
+          assertBeforeSigning();
           if (
             !fresh ||
             fresh.restoredFromBackup ||
@@ -291,9 +433,10 @@ export async function gaslessEarnWithdrawalToMiden(
     } catch (error) {
       if (!executionPermitted && context.isCurrent()) {
         const markNotSent = deps.markNotSent ?? markEarnWithdrawNotSent;
+        const message = error instanceof Error ? error.message : String(error);
         await markNotSent(
           txId,
-          error instanceof Error ? error.message : String(error),
+          REFUSAL_SENTENCES.get(message) ?? message,
           expected,
           preparedExecution,
           () => context.isCurrent() && !executionPermitted
@@ -308,7 +451,11 @@ export async function gaslessEarnWithdrawalToMiden(
     // The poll owns metadata repair independently from status checking.
     startRecovery();
     return { txId, nonce: nonceString, gaslessUsed: true };
-  });
+  };
+  // Held until the durability writes end, so a second submission for the position sees this row; the poll runs outside.
+  return withSubmissionLock(positionLockKey(sponsorAddress, args.marketUid), () =>
+    withSubmissionLock(attemptId, submit)
+  );
 }
 
 interface DeliveryPollDeps {
@@ -340,19 +487,21 @@ function matchesPreparedExecution(row: ITransaction, captured: IEarnWithdrawPrep
 
 const allocationLockKey = (attemptId: string, nonce: string): string => `allocation:${attemptId}:${nonce}`;
 
-function positiveStatus(value: unknown): value is { chainId: number; status: string; transactionHash: string }[] {
+// A leg the chain has not recorded yet carries a null transaction hash.
+function positiveStatus(value: unknown): value is IntentTransactionStatus[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every(
-      entry =>
-        entry !== null &&
-        typeof entry === 'object' &&
+    value.every(entry => {
+      if (entry === null || typeof entry !== 'object') return false;
+      const transactionHash: unknown = Reflect.get(entry, 'transactionHash');
+      return (
         Number.isSafeInteger(Reflect.get(entry, 'chainId')) &&
         typeof Reflect.get(entry, 'status') === 'string' &&
         Reflect.get(entry, 'status').length > 0 &&
-        typeof Reflect.get(entry, 'transactionHash') === 'string'
-    )
+        (transactionHash === null || typeof transactionHash === 'string')
+      );
+    })
   );
 }
 
@@ -420,7 +569,7 @@ export function pollEarnWithdrawDelivery(args: {
             registrationBackoff = Math.min(registrationBackoff * 2, 300_000);
           });
       }
-      const applyDelivery = async (results: { chainId: number; status: string; transactionHash: string }[]) => {
+      const applyDelivery = async (results: IntentTransactionStatus[]) => {
         if (!context.isCurrent()) return;
         const fresh = await liveWithdrawal(txId, expected);
         if (!context.isCurrent()) return;
@@ -450,7 +599,7 @@ export function pollEarnWithdrawDelivery(args: {
         }
       };
       if (!execution) {
-        const sdk = await getSdk(sponsorAddress);
+        const sdk = await getSdk(sponsorAddress, row.extraInputs.epochAllocatorUrl);
         if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
         const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
         if (!context.isCurrent()) return;
@@ -513,7 +662,7 @@ export function pollEarnWithdrawDelivery(args: {
         void (async () => {
           const repairAttempted = !state.accepted && Date.now() >= state.repairDue;
           try {
-            const sdk = await getSdk(sponsorAddress);
+            const sdk = await getSdk(sponsorAddress, row.extraInputs.epochAllocatorUrl);
             if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
             let results: unknown;
             try {
@@ -653,7 +802,8 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
         intentOwner: ei.evmOwner,
         intentNonce: nonce,
         earnWithdrawTxId: txId,
-        earnWithdrawAttemptId: expected.attemptId
+        earnWithdrawAttemptId: expected.attemptId,
+        epochAllocatorUrl: ei.epochAllocatorUrl
       },
       deps
     });
@@ -673,8 +823,28 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
 type ResubmitDeps = Omit<GaslessEarnWithdrawalDeps, 'initiateRow'>;
 
+const MISSING_RETRY_DETAILS = 'This withdrawal is missing the market details needed to retry - start a new withdrawal.';
+
+/**
+ * A retry recovers funds, so it uses the decimals that the row recorded for its token. It does not read them again.
+ * A row from before the wallet recorded them refuses.
+ */
+function retryDecimals(sourceDecimals: number | undefined): number {
+  if (sourceDecimals === undefined) throw new Error(MISSING_RETRY_DETAILS);
+  return sourceDecimals;
+}
+
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
+  try {
+    await resubmitSource(txId, deps);
+  } catch (error) {
+    const sentence = error instanceof Error ? REFUSAL_SENTENCES.get(error.message) : undefined;
+    throw sentence === undefined ? error : new Error(sentence, { cause: error });
+  }
+}
+
+async function resubmitSource(txId: string, deps: ResubmitDeps): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
   if (row?.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   if (row.restoredFromBackup) throw new Error(RESTORED_WITHDRAW_UNVERIFIABLE);
@@ -683,25 +853,54 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   if (!isEvmAddress(ei.evmOwner)) {
     throw new Error('This withdrawal has no valid position owner recorded - start a new withdrawal.');
   }
-  if (!ei.marketUid || !ei.sourceAmount) {
-    throw new Error('This withdrawal is missing the market details needed to retry - start a new withdrawal.');
-  }
+  if (!ei.marketUid || !ei.sourceAmount) throw new Error(MISSING_RETRY_DETAILS);
+  // A legacy row has no stored protocol. Refuse it before a quote, account setup, or another execution.
+  // The chain may be derived from the saved market uid only once that protocol is present.
+  if (!isEpochProtocol(ei.protocol)) throw new Error(UNSUPPORTED_MARKET);
+  const protocol = ei.protocol;
   const previous: ExpectedEarnWithdrawIntent = {
     owner: ei.evmOwner,
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
-  // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
-  // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
-  const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
-  await gaslessEarnWithdrawalToMiden(
+  const [, marketChain, marketUnderlying] = ei.marketUid.split(':');
+  const marketChainId = Number(marketChain);
+  const chainId = ei.chainId ?? marketChainId;
+  const underlyingAddress = ei.underlyingAddress ?? marketUnderlying;
+  if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
+  const underlyingDecimals = retryDecimals(ei.sourceDecimals);
+  let review: EarnWithdrawalQuote | undefined;
+  if (ei.reviewedMinimumReceivedAtomic !== undefined) {
+    // Source retries get fresh availability and a fresh quote for the saved selected amount.
+    // Retain the original floor; a worse route requires the user to start another review.
+    if (!/^\d+$/.test(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
+    const fresh = await fetchEarnPositions({
+      accountId: row.accountId,
+      owners: [ei.evmOwner],
+      markets: [ei.marketUid]
+    });
+    if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
+    const position = fresh.positions.find(
+      p =>
+        p.owner.toLowerCase() === ei.evmOwner.toLowerCase() && p.marketUid.toLowerCase() === ei.marketUid.toLowerCase()
+    );
+    if (!position) throw new Error('earnWithdrawRefresh');
+    review = await quoteEarnWithdrawal({ position, amount: ei.sourceAmount, accountId: row.accountId });
+    if (BigInt(review.minimumAtomic) < BigInt(ei.reviewedMinimumReceivedAtomic)) throw new Error('earnWithdrawRefresh');
+  }
+  await submitEarnWithdrawal(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: getEvmUsdcAddress(),
+      underlyingAddress,
+      underlyingSymbol: ei.sourceSymbol,
+      allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
-      underlyingDecimals
+      underlyingDecimals,
+      protocol,
+      chainId,
+      ...(review ? { review } : {})
     },
     {
       ...deps,
@@ -747,7 +946,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
         if (!claimed) throw new Error('This withdrawal attempt is no longer available to retry.');
         return txId;
       }
-    }
+    },
+    false
   );
 }
 
@@ -789,7 +989,7 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
     const request = execution.allocationRequests[execution.preparedExecution.delivery.allocationIndex];
     if (!request) return;
     try {
-      const sdk = await (deps.getSdk ?? getEpochReadOnlySdk)(expected.owner);
+      const sdk = await (deps.getSdk ?? getEpochReadOnlySdk)(expected.owner, row.extraInputs.epochAllocatorUrl);
       if (!context.isCurrent()) return;
       const fresh = await liveWithdrawal(txId, expected);
       if (!context.isCurrent() || !fresh || !matchesPreparedExecution(fresh, execution.preparedExecution)) return;
@@ -829,7 +1029,8 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
             intentOwner: expected.owner,
             intentNonce: expected.nonce,
             earnWithdrawTxId: txId,
-            earnWithdrawAttemptId: expected.attemptId
+            earnWithdrawAttemptId: expected.attemptId,
+            epochAllocatorUrl: claimed.extraInputs.epochAllocatorUrl
           },
           deps
         });

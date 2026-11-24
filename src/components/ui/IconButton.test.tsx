@@ -120,12 +120,24 @@ it('forwards a data-testid', () => {
 });
 
 describe('IconButton filled', () => {
-  it('draws a page header back button: a 44px fill circle with an ink, medium glyph', () => {
+  it('draws a tab root header action: a 44px fill circle with an ink, medium glyph', () => {
     render(<IconButton icon={IconName.Close} appearance="filled" label="Back" />);
     const button = screen.getByRole('button', { name: 'Back' });
     expect(button).toHaveClass('bg-fill', 'h-11', 'w-11', 'text-ink');
     expect(button).not.toHaveClass('text-muted');
     expect(screen.getByTestId('icon-close')).toHaveAttribute('data-size', 'md');
+  });
+
+  it('paints a pushed-page back button with text-back-glyph, not text-ink', () => {
+    const { rerender } = render(<IconButton icon={IconName.ChevronLeft} appearance="back" label="Back" />);
+    const button = screen.getByRole('button', { name: 'Back' });
+    expect(button).toHaveClass('bg-fill', 'h-11', 'w-11', 'text-back-glyph');
+    expect(button).not.toHaveClass('text-ink');
+    expect(screen.getByTestId('icon-chevron-left')).toHaveAttribute('data-size', 'md');
+
+    rerender(<IconButton icon={IconName.ChevronLeft} appearance="back" label="Back" active />);
+    expect(button).toHaveClass('text-back-glyph');
+    expect(button).not.toHaveClass('text-pure-white', 'bg-accent-primary');
   });
 
   it.each(['32', '36'] as const)('keeps a %spx circle muted with the small glyph', size => {

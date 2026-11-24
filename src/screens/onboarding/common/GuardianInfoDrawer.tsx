@@ -24,7 +24,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent className="max-h-[78vh] pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <DrawerContent className="max-h-[calc(100dvh-env(safe-area-inset-top)-1.5rem)] pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
         </DrawerHeader>
@@ -34,39 +34,42 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
         <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4 face-heading">
           <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
-          <p className="text-body text-ink">
-            <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="text-body-strong" /> }} />
+          <p className="text-body font-semibold text-ink">
+            <Trans
+              i18nKey="guardianInfoDescription"
+              components={{ b: <span className="text-body-strong font-extrabold" /> }}
+            />
           </p>
 
-          <ListGroup surface="plain" insetHairlines className="shrink-0">
+          <ListGroup surface="plain" insetHairlines className="-mt-4 shrink-0">
             <FactRow
               titleAs="h3"
               leading={
-                <IconCircle className="bg-positive-tint text-positive-tint-ink">
-                  <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
+                <IconCircle className="bg-positive-tint-ink text-positive-tint">
+                  <Icon name={IconName.FactCheck} size="xs" fill="currentColor" />
                 </IconCircle>
               }
-              title={t('guardianInfoWhatItDoesTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoWhatItDoesTitle')}</span>}
               description={t('guardianInfoWhatItDoesDescription')}
             />
             <FactRow
               titleAs="h3"
               leading={
-                <IconCircle className="bg-accent-tint text-accent-tint-ink">
-                  <span className="text-row-title">!</span>
+                <IconCircle className="bg-accent-tint-ink text-accent-tint">
+                  <Icon name={IconName.FactAlert} size="xs" fill="currentColor" />
                 </IconCircle>
               }
-              title={t('guardianInfoSwitchingIsEasyTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoSwitchingIsEasyTitle')}</span>}
               description={t('guardianInfoSwitchingIsEasyDescription')}
             />
             <FactRow
               titleAs="h3"
               leading={
-                <IconCircle className="bg-negative-tint text-negative-tint-ink">
-                  <Icon name={IconName.Close} size="xs" fill="currentColor" />
+                <IconCircle className="bg-negative-tint-ink text-negative-tint">
+                  <Icon name={IconName.FactCross} size="xs" fill="currentColor" />
                 </IconCircle>
               }
-              title={t('guardianInfoWhatItCannotDoTitle')}
+              title={<span className="font-extrabold">{t('guardianInfoWhatItCannotDoTitle')}</span>}
               description={t('guardianInfoWhatItCannotDoDescription')}
             />
           </ListGroup>

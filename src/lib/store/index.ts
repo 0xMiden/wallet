@@ -3,10 +3,13 @@ import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
@@ -29,14 +32,16 @@ import {
 } from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
+import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
 
 import { WalletStore } from './types';
 import { balancePrice } from './utils/balancePrice';
-import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
+import { balanceReadStateForTest, fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
 let intercom: IIntercomClient | null = null;
@@ -48,8 +53,8 @@ function getIntercom(): IIntercomClient {
 }
 
 // Helper to make requests to backend
-async function request<T extends WalletRequest>(req: T): Promise<WalletResponse> {
-  const res = await getIntercom().request(req);
+async function request<T extends WalletRequest>(req: T, options?: { signal: AbortSignal }): Promise<WalletResponse> {
+  const res = options ? await getIntercom().request(req, { signal: options.signal }) : await getIntercom().request(req);
   // An adapter that has no `case` for this message type falls through to its
   // `default:` arm and resolves `undefined`. Name the unhandled type instead of
   // letting `'type' in undefined` throw a bare TypeError — that TypeError used to
@@ -69,6 +74,68 @@ async function request<T extends WalletRequest>(req: T): Promise<WalletResponse>
 function assertResponse(condition: boolean): asserts condition {
   if (!condition) {
     throw new Error('Invalid response received.');
+  }
+}
+
+type PostActionStateAttempt = { kind: 'response'; response: WalletResponse } | { kind: 'error'; error: unknown };
+type PostActionStateWinner = PostActionStateAttempt | { kind: 'deadline' };
+
+const POST_ACTION_STATE_ATTEMPT_MS = 3_000;
+const POST_ACTION_STATE_DEADLINE_ATTEMPTS = 2;
+const POST_ACTION_STATE_UNINITIALIZED_ATTEMPTS = 8;
+
+async function refreshStateAfterAction(): Promise<{ outcome: 'synced'; state: MidenState } | { outcome: 'pending' }> {
+  let backoffMs = 250;
+  let deadlineAttempts = 0;
+  let uninitializedAttempts = 0;
+
+  for (;;) {
+    const controller = new AbortController();
+    let deadlineRecorded = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Convert to a result before the race so a late rejection is consumed and a late resolution cannot sync.
+    const attempt: Promise<PostActionStateAttempt> = request(
+      { type: WalletMessageType.GetStateRequest },
+      { signal: controller.signal }
+    ).then(
+      (response): PostActionStateAttempt => ({ kind: 'response', response }),
+      (error: unknown): PostActionStateAttempt => ({ kind: 'error', error })
+    );
+    const winner = await new Promise<PostActionStateWinner>(resolve => {
+      timer = setTimeout(() => {
+        // Record the deadline while the request is still pending, and only then abort.
+        deadlineRecorded = true;
+        try {
+          controller.abort();
+        } catch {
+          // A synchronous Error('Aborted') must not clear the deadline or reject the action.
+        }
+        resolve({ kind: 'deadline' });
+      }, POST_ACTION_STATE_ATTEMPT_MS);
+      void attempt.then(result => {
+        if (deadlineRecorded) return;
+        if (timer !== undefined) clearTimeout(timer);
+        resolve(result);
+      });
+    });
+
+    if (winner.kind === 'deadline') {
+      deadlineAttempts += 1;
+      if (deadlineAttempts >= POST_ACTION_STATE_DEADLINE_ATTEMPTS) return { outcome: 'pending' };
+    } else if (winner.kind === 'error') {
+      return { outcome: 'pending' };
+    } else if (winner.response.type !== WalletMessageType.GetStateResponse) {
+      return { outcome: 'pending' };
+    } else if (winner.response.state.backendInitialized !== false) {
+      return { outcome: 'synced', state: winner.response.state };
+    } else {
+      uninitializedAttempts += 1;
+      if (uninitializedAttempts >= POST_ACTION_STATE_UNINITIALIZED_ATTEMPTS) return { outcome: 'pending' };
+    }
+
+    const delayMs = backoffMs;
+    backoffMs = Math.min(backoffMs * 2, 3_000);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 }
 
@@ -163,7 +230,8 @@ export function withLandedBalances(
   accountAddress: string,
   rows: WalletStore['balances'][string],
   midenFaucetId: string | null,
-  overriddenFaucetIds: ReadonlySet<string>
+  overriddenFaucetIds: ReadonlySet<string>,
+  snapshot?: BalanceSnapshot
 ): Pick<
   WalletStore,
   | 'tokenMetadataOverrides'
@@ -185,12 +253,15 @@ export function withLandedBalances(
         state.tokenMetadataOverrides[id] !== undefined ||
         faucetMetadataFor(state, id) !== undefined
     );
-  return {
+  const result = {
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
+  const finalRows = result.balances[accountAddress];
+  if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
+  return result;
 }
 
 function withTokenMetadataOverride(
@@ -253,6 +324,8 @@ export const useWalletStore = create<WalletStore>()(
     // Initial balance state
     balances: {},
     balancesLoading: {},
+    balanceReadFailed: {},
+    balanceReadInFlight: {},
     balancesLastFetched: {},
     balancesDisplayFaucetId: {},
 
@@ -269,6 +342,7 @@ export const useWalletStore = create<WalletStore>()(
     fiatRates: null,
     fiatRatesLoading: false,
     tokenPrices: {},
+    tokenPricesStatus: 'loading',
 
     // Initial sync state
     isInitialized: false,
@@ -326,7 +400,7 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
@@ -334,7 +408,8 @@ export const useWalletStore = create<WalletStore>()(
         password,
         mnemonic,
         ownMnemonic,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
@@ -370,6 +445,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.UnlockResponse);
     },
 
+    platformUnlock: async command => {
+      const res = await request({ type: WalletMessageType.PlatformUnlockRequest, command });
+      assertResponse(res.type === WalletMessageType.PlatformUnlockResponse);
+      return res.result;
+    },
+
     // Account actions
     createAccount: async (walletType, name) => {
       const res = await request({
@@ -381,11 +462,11 @@ export const useWalletStore = create<WalletStore>()(
 
       // Pull fresh state right away. The StateUpdated broadcast is advisory and can
       // race the CreateAccount response (extension port reconnect, SW waking, etc.),
-      // leaving consumers that await createAccount — notably CreateAccount.tsx's
-      // length-diff effect — looking at a stale accounts array.
-      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
-      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
-      get().syncFromBackend(stateRes.state);
+      // leaving consumers that await createAccount looking at a stale accounts array.
+      const refresh = await refreshStateAfterAction();
+      if (refresh.outcome === 'pending') return 'pending';
+      get().syncFromBackend(refresh.state);
+      return 'synced';
     },
 
     updateCurrentAccount: async accountPublicKey => {
@@ -440,9 +521,13 @@ export const useWalletStore = create<WalletStore>()(
     removeSeedPhrase: async password => {
       const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
       assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
-      const state = await request({ type: WalletMessageType.GetStateRequest });
-      assertResponse(state.type === WalletMessageType.GetStateResponse);
-      get().syncFromBackend(state.state);
+      const refresh = await refreshStateAfterAction();
+      if (refresh.outcome === 'synced') {
+        get().syncFromBackend(refresh.state);
+        return 'synced';
+      }
+      set({ seedPhraseStatus: 'removed' });
+      return 'pending';
     },
     provideRecoverySeed: async (transactionId, mnemonic, action) => {
       const res = await request({
@@ -595,16 +680,6 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Signing actions
-    signData: async (publicKey, signingInputs) => {
-      const res = await request({
-        type: WalletMessageType.SignDataRequest,
-        publicKey,
-        signingInputs
-      });
-      assertResponse(res.type === WalletMessageType.SignDataResponse);
-      return res.signature;
-    },
-
     signTransaction: async (publicKey, signingInputs) => {
       const res = await request({
         type: WalletMessageType.SignTransactionRequest,
@@ -656,6 +731,15 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
+    importHotKeyPair: async (accountPublicKey, keyPairPayload) => {
+      const res = await request({
+        type: WalletMessageType.ImportHotKeyPairRequest,
+        accountPublicKey,
+        keyPairPayload
+      });
+      assertResponse(res.type === WalletMessageType.ImportHotKeyPairResponse);
+    },
+
     setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.SetGuardianEndpointRequest,
@@ -692,6 +776,25 @@ export const useWalletStore = create<WalletStore>()(
         guardianSyncStatus
       });
       assertResponse(res.type === WalletMessageType.SetGuardianSyncStatusResponse);
+    },
+
+    markHotKeyRotatedOut: async (accountPublicKey, hotPublicKey, onChainHotCommitment) => {
+      const res = await request({
+        type: WalletMessageType.MarkHotKeyRotatedOutRequest,
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      });
+      assertResponse(res.type === WalletMessageType.MarkHotKeyRotatedOutResponse);
+    },
+
+    retireRotatedOutHotKey: async (accountPublicKey, expectedHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.RetireRotatedOutHotKeyRequest,
+        accountPublicKey,
+        expectedHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
     },
 
     checkGuardianDrift: async accountPublicKey => {
@@ -756,7 +859,22 @@ export const useWalletStore = create<WalletStore>()(
         id
       });
       assertResponse(res.type === MidenMessageType.DAppSimulateTransactionResponse);
-      return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
+      return { ...(res.effects && fromSimulatedEffectsWire(res.effects)), error: res.error };
+    },
+
+    estimateUsdcxBurnFee: async (accountPublicKey, destinationChainId) => {
+      const res = await request({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey,
+        destinationChainId
+      });
+      assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      const failure = burnFeeFailureOf(res);
+      return res.outcome === 'measured'
+        ? { outcome: 'measured', reserve: BigInt(res.feeReserve), faucetId: res.faucetId, scope: res.scope }
+        : res.outcome === 'failed' && failure
+          ? { outcome: 'failed', failure }
+          : { outcome: res.outcome };
     },
 
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
@@ -816,6 +934,14 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
+    confirmDAppUnlock: async id => {
+      const res = await request({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id
+      });
+      assertResponse(res.type === MidenMessageType.DAppUnlockConfirmationResponse);
+    },
+
     confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
@@ -865,9 +991,30 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        // Before the first await, so a caller that already found this address in flight still sees it.
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: true }
+        }));
+        const recordUnlandedRead = () => {
+          const hasBalances = get().balances[accountAddress] !== undefined;
+          if (hasBalances) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+            }));
+            return;
+          }
+          if (isSyncFused('balances')) {
+            set(state => ({
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+            }));
+          }
+        };
+        const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+        const network = effectiveNetwork();
         const overridden = new Set<string>();
         // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
         let midenFaucetId: string | null = null;
+        let snapshot: BalanceSnapshot | undefined;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
           faucetMetadataOf,
@@ -875,14 +1022,39 @@ export const useWalletStore = create<WalletStore>()(
           onDisplayFaucetId: faucetId => {
             midenFaucetId = faucetId;
           },
+          onSnapshot: value => {
+            snapshot = value;
+          },
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
-        if (balances === null) return;
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
+        if (balances === null) {
+          recordUnlandedRead();
+          return;
+        }
+        // A Developer Settings save repointed this realm while the read was out: these are the old
+        // node's balances. The metadata it wrote stays, each faucet's own record on any network.
+        if (effectiveNetwork() !== network) {
+          recordUnlandedRead();
+          return;
+        }
+        set(state => ({
+          ...withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden, snapshot),
+          balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+        }));
+      } catch (error) {
+        if (get().balances[accountAddress] === undefined) {
+          set(state => ({
+            balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+          }));
+        }
+        throw error;
       } finally {
+        set(state => ({
+          balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: false }
+        }));
         fetchingAddresses.delete(accountAddress);
       }
     },
@@ -891,6 +1063,16 @@ export const useWalletStore = create<WalletStore>()(
       set(state => ({
         balancesLoading: { ...state.balancesLoading, [accountAddress]: isLoading }
       }));
+    },
+
+    clearBalances: () => {
+      set({
+        balances: {},
+        balancesLoading: {},
+        balancesLastFetched: {},
+        balanceReadFailed: {},
+        balanceReadInFlight: {}
+      });
     },
 
     // Asset actions
@@ -1136,10 +1318,17 @@ export const selectIsReady = (state: WalletStore) => state.status === WalletStat
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
 
+/**
+ * The claim guard of a page's unattended claim writers: the claim queue asks it right before each row it writes, so a
+ * lock that lands mid-pass queues nothing. Every page realm keeps this store's status in step with the backend's lock.
+ */
+export const isWalletReadyNow = (): boolean => selectIsReady(useWalletStore.getState());
+
 // Expose store and intercom for E2E test introspection (only in E2E builds).
 // Use globalThis (not window) so this works in both extension pages and the
 // service worker context where window is undefined.
 if (process.env.MIDEN_E2E_TEST === 'true') {
+  Reflect.set(globalThis, '__TEST_BALANCE_READ_STATE__', balanceReadStateForTest);
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
@@ -1529,4 +1718,42 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   });
+  // Proves an abandon on the Guardian under test: pushes a 1-unit public send as a candidate (signing the proposal
+  // pushes its delta), never executes it, abandons it and polls the quarantine to its end. The sleeps run outside the
+  // WASM lock; the proposal steps take it themselves.
+  Reflect.set(
+    globalThis,
+    '__TEST_GUARDIAN_ABANDON_PROBE__',
+    async (accountPublicKey: string, recipient: string, faucetId: string) => {
+      setTestSyncPaused(true);
+      try {
+        const [{ NoteType }, { getOrCreateMultisigService }, { zustandProvider }, { sameWalletAccountId }] =
+          await Promise.all([
+            import('@miden-sdk/miden-sdk/lazy'),
+            import('lib/miden/front/guardian-manager'),
+            import('lib/miden/front/guardian-sync'),
+            import('lib/miden/sdk/helpers')
+          ]);
+        const walletAccount = useWalletStore
+          .getState()
+          .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+        if (!walletAccount) return { error: `No wallet account ${accountPublicKey}` };
+        const service = await getOrCreateMultisigService(walletAccount.publicKey, zustandProvider);
+        const proposal = await service.createSendProposal(recipient, faucetId, 1n, NoteType.Public);
+        await service.signAndCreateTransactionRequest(proposal.id);
+        const ticket = await service.abandonCandidate(proposal.nonce, proposal.id);
+        const deadline = Date.now() + 150_000;
+        for (;;) {
+          const status = await service.abandonStatus(proposal.nonce, ticket);
+          if (status !== 'waiting') return { legacy: ticket.legacy, status };
+          if (Date.now() >= deadline) return { error: 'abandon still waiting after 150 s' };
+          await new Promise(resolve => setTimeout(resolve, 3_000));
+        }
+      } catch (e) {
+        return { error: describeHookError(e) };
+      } finally {
+        setTestSyncPaused(false);
+      }
+    }
+  );
 }

@@ -30,11 +30,13 @@ import {
   requestConsume,
   requestDisconnect,
   requestGuardianInfo,
+  requestLoginKey,
   requestPermission,
   requestPrivateNotes,
   requestSend,
   requestTransaction,
   signBytes,
+  signLoginBytes,
   waitForTransaction
 } from './client';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppPermission, MidenPageMessageType } from './types';
@@ -250,7 +252,46 @@ describe('request-based functions', () => {
       ORIGIN
     );
     deliverPageResponse({ type: MidenDAppMessageType.SignResponse, signature: 'sig-123' });
-    await expect(p).resolves.toBe('sig-123');
+    await expect(p).resolves.toStrictEqual({ signature: 'sig-123', signedCommitment: undefined });
+  });
+
+  it('signBytes returns the signed commitment beside the signature', async () => {
+    const p = signBytes('acct-9', 'pk-5', 'hello', 'Message' as any);
+    deliverPageResponse({ type: MidenDAppMessageType.SignResponse, signature: 'sig-123', signedCommitment: 'cmt-456' });
+    await expect(p).resolves.toStrictEqual({ signature: 'sig-123', signedCommitment: 'cmt-456' });
+  });
+
+  it('requestLoginKey asks for the account alone and returns the login key', async () => {
+    const p = requestLoginKey('acct-9');
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: { type: 'LOGIN_KEY_REQUEST', sourceAccountId: 'acct-9' },
+        reqId: 'id'
+      },
+      ORIGIN
+    );
+    deliverPageResponse({ type: 'LOGIN_KEY_RESPONSE', loginKey: 'login-key-b64' });
+    await expect(p).resolves.toBe('login-key-b64');
+  });
+
+  it('signLoginBytes sends the account, the payload and the kind, and returns the signature', async () => {
+    const p = signLoginBytes('acct-9', 'word-b64', 'word');
+    expect(postSpy).toHaveBeenCalledWith(
+      {
+        type: MidenPageMessageType.Request,
+        payload: {
+          type: 'LOGIN_SIGN_REQUEST',
+          sourceAccountId: 'acct-9',
+          payload: 'word-b64',
+          kind: 'word'
+        },
+        reqId: 'id'
+      },
+      ORIGIN
+    );
+    deliverPageResponse({ type: 'LOGIN_SIGN_RESPONSE', signature: 'login-sig-b64' });
+    await expect(p).resolves.toBe('login-sig-b64');
   });
 
   it('requestAssets returns the assets', async () => {
@@ -412,6 +453,19 @@ describe('error mapping', () => {
     const err = await rejectionOf(MidenDAppErrorType.NetworkNotGranted);
     expect(err).toBeInstanceOf(NotGrantedMidenWalletError);
     expect(err.message).toBe('NETWORK_NOT_GRANTED');
+  });
+
+  it('keeps LOGIN_KEY_UNAVAILABLE in the error message', async () => {
+    const refusal = "LOGIN_KEY_UNAVAILABLE: this account's root key is not on this device";
+    const kept = { message: expect.stringContaining('LOGIN_KEY_UNAVAILABLE') };
+
+    const keyRequest = requestLoginKey('acct-9');
+    deliverPageError(refusal);
+    await expect(keyRequest).rejects.toMatchObject(kept);
+
+    const signRequest = signLoginBytes('acct-9', 'word-b64', 'word');
+    deliverPageError(refusal);
+    await expect(signRequest).rejects.toMatchObject(kept);
   });
 });
 

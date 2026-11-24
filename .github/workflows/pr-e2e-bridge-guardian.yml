@@ -1,8 +1,6 @@
 name: Guardian Bridge-Out E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: bridge-guardian-e2e-${{ github.ref }}
@@ -24,13 +22,18 @@ jobs:
     # Full suite only when the base is main or next; bridge-guardian-e2e-gate
     # below reports the required name under the same rule (#1071).
     if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'
-    # x64-8x. The suite was green on arm64-2x when it installed the published SDK.
-    # A linked web-sdk build compiles miden-client-web on the runner, and the 2x ARM
-    # runner was cancelled three times in that crate at about 30 min. The same build
-    # finishes in about 10 min on the 8x runner guardian lifecycle uses.
-    runs-on: warp-ubuntu-latest-x64-8x
-    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
-    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # WarpBuild when a job can compile linked dependencies. The wallet PR body carries
+    # `Web SDK PR:` and `Guardian PR:`; `Client PR:` and `Protocol PR:` live on the
+    # linked web-sdk PR's body and ride on `Web SDK PR:`. The runner comes from the
+    # event payload while the injections read the live body, so after adding or
+    # removing a marker push a commit (or close and reopen) rather than re-running.
+    runs-on: >-
+      ${{ (github.event_name == 'workflow_dispatch' ||
+           contains(github.event.pull_request.body, 'Web SDK PR:') ||
+           contains(github.event.pull_request.body, 'Guardian PR:')) &&
+          'warp-ubuntu-latest-x64-8x' || 'ubuntu-24.04' }}
+    # 120 rather than 60/75: while the PR carries `Web SDK PR:` / `Guardian PR:` markers
+    # (or its linked web-sdk PR carries `Client PR:` / `Protocol PR:`), the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
     # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
@@ -50,17 +53,17 @@ jobs:
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
       GUARDIAN_URL: http://localhost:3000
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       # Pinned exact (NOT @stable) — a required gate must not drift with upstream
       # rustc. Bump deliberately (and the cache key below).
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       # Foundry provides `anvil` — the local EVM node the spec boots for the
       # bridge intent's `getForcedWithdrawalStatus` read (AnvilInstance resolves
       # the binary from PATH / ~/.foundry/bin).
       - name: Install Foundry (anvil)
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
@@ -82,7 +85,7 @@ jobs:
           fi
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin
@@ -143,6 +146,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -175,6 +181,66 @@ jobs:
         # --retries=1: a small margin for a loaded-runner sync hiccup, not a
         # flake-masker (a genuine P2ID regression fails all attempts on the assertion).
         run: xvfb-run -a yarn playwright test --config playwright.bridge-guardian.config.ts --retries=1
+
+      - name: Explain OneClick E2E secret scope
+        if: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
+        run: echo 'Secret-dependent OneClick E2E steps are omitted for fork and Dependabot pull requests. Guardian bridge-out coverage still runs; trusted same-repository pull requests and manual dispatch require the OneClick secret and checks.'
+
+      - name: Validate dedicated OneClick Reown project
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: |
+          node <<'NODE'
+          const id = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim();
+          if (!/^[a-f0-9]{32}$/i.test(id) || id.toLowerCase() === 'd18d112eb50cbe764f03e51a90210611') {
+            console.error('WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID must contain the dedicated 32-character Reown project id');
+            process.exit(1);
+          }
+          NODE
+
+      - name: Build extension for hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        env:
+          WALLETCONNECT_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: yarn test:e2e:one-click-local:build
+
+      - name: Verify extension manifest for hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        run: |
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('dist/chrome_unpacked/manifest.json', 'utf8'));
+          if (typeof manifest.key !== 'string') throw new Error('OneClick E2E manifest key is missing');
+          const extensionId = crypto.createHash('sha256').update(Buffer.from(manifest.key, 'base64'))
+            .digest('hex').slice(0, 32).replace(/[0-9a-f]/g, value => String.fromCharCode(parseInt(value, 16) + 97));
+          if (extensionId !== 'dfkbipcpggpmndndboecmjgjdgcncbhl') {
+            throw new Error(`Unexpected OneClick E2E extension id: ${extensionId}`);
+          }
+          NODE
+
+      - name: Run hermetic 1Click E2E
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        timeout-minutes: 20
+        env:
+          WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WALLETCONNECT_ONE_CLICK_E2E_PROJECT_ID }}
+        run: xvfb-run -a yarn test:e2e:one-click-local:run
+
+      - name: Require executed 1Click test cases
+        if: ${{ success() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')) }}
+        run: |
+          node -e 'const fs = require("node:fs"); const path = "test-results/one-click-local/results.json"; if (!fs.existsSync(path)) { console.error("1Click Playwright report is missing"); process.exit(1); } const report = JSON.parse(fs.readFileSync(path, "utf8")); const expected = report.stats?.expected; const skipped = report.stats?.skipped; console.log("1Click expected: " + expected + "; skipped: " + skipped); if (!Number.isSafeInteger(expected) || expected < 1 || skipped !== 0) process.exit(1);'
+
+      - name: Upload hermetic 1Click results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: one-click-local-e2e-report
+          path: test-results/one-click-local/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Report flaky (retried-then-passed) specs
         # A spec that failed once and passed on the retry above is reported as a
         # plain green run, so the flake it represents is invisible. Print one
@@ -190,10 +256,10 @@ jobs:
         if: failure()
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
-      - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: bridge-guardian-e2e-report
           path: test-results/

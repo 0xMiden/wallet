@@ -1,14 +1,19 @@
-import { Address, Hash, Hex, parseUnits } from 'viem';
+import { Address, Hash, Hex } from 'viem';
 
+import { parseArcAmount } from 'lib/bridge/providers/xreserve/deposit-terms';
+import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import {
-  CIRCLE_USDC_DECIMALS,
   getUsdcxXReserveSource,
+  UsdcxXReserveSource,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN
+  getUsdcxRemoteDomain
 } from './constant';
+import { UsdcxDomainNotRegisteredError } from './protocol';
+
+export { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from './protocol';
 
 /** The argument tuple of xReserve `depositToRemote`. */
 export type DepositToRemoteArgs = readonly [
@@ -27,42 +32,30 @@ export interface UsdcxSigner {
 }
 
 export interface UsdcxDepositDeps {
-  /** The EVM chain the deposit is made on; it must be a `USDCX_SOURCE_CHAINS` entry with a local xReserve. */
+  /** The EVM chain the deposit is made on; it must be a `usdcxSourceChains` entry with a local xReserve. */
   sourceChainId: number;
+  source?: UsdcxXReserveSource;
   signer: UsdcxSigner;
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
   /** The USDC allowance the depositing account gave `spender`, in base units. */
   readAllowance(spender: Address): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
-}
-
-/** Circle did not register the remote domain on the xReserve contract. No gas was spent. */
-export class UsdcxDomainNotRegisteredError extends Error {
-  readonly remoteDomain: number;
-
-  constructor(remoteDomain: number) {
-    super(`xReserve remote domain ${remoteDomain} is not registered`);
-    this.name = 'UsdcxDomainNotRegisteredError';
-    this.remoteDomain = remoteDomain;
-  }
-}
-
-export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxDomainNotRegisteredError {
-  return error instanceof UsdcxDomainNotRegisteredError;
+  owned?: OwnedUsdcxDeposit;
 }
 
 /** Build the `depositToRemote` arguments for a human USDC amount, an encoded recipient and a source chain. */
 export function buildDepositToRemoteArgs(
   amount: string,
   remoteRecipient: Hex,
-  sourceChainId: number
+  sourceChainId: number,
+  source = getUsdcxXReserveSource(sourceChainId)
 ): DepositToRemoteArgs {
   return [
-    parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
-    USDCX_REMOTE_DOMAIN,
+    parseArcAmount(amount),
+    source.midenDomain ?? getUsdcxRemoteDomain(),
     remoteRecipient,
-    getUsdcxXReserveSource(sourceChainId).usdc,
+    source.usdc,
     USDCX_DEPOSIT_MAX_FEE,
     USDCX_DEPOSIT_HOOK_DATA
   ];
@@ -86,9 +79,25 @@ export async function runUsdcxDeposit(
   trackingTxId: string,
   amount: string,
   remoteRecipient: Hex,
-  { sourceChainId, signer, isRemoteDomainRegistered, readAllowance, waitForReceipt, updatePhase }: UsdcxDepositDeps
+  {
+    sourceChainId,
+    source = getUsdcxXReserveSource(sourceChainId),
+    signer,
+    isRemoteDomainRegistered,
+    readAllowance,
+    waitForReceipt,
+    updatePhase,
+    owned
+  }: UsdcxDepositDeps
 ): Promise<Hash> {
-  const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId);
+  const original = owned && { ...owned, operation: structuredClone(owned.operation) };
+  const ownership = original && (await import('lib/bridge/providers/xreserve/ownership'));
+  const assertCurrent = async () => {
+    if (original && ownership) await ownership.assertUsdcxDepositCurrent(original);
+  };
+  if (original && ownership) ownership.assertUsdcxDepositTerms(original, trackingTxId, amount, remoteRecipient, source);
+  await assertCurrent();
+  const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId, source);
   const [value, remoteDomain] = args;
 
   if (!(await isRemoteDomainRegistered(remoteDomain))) {
@@ -97,13 +106,16 @@ export async function runUsdcxDeposit(
 
   // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
   // and `approve` would replace a larger allowance with this amount.
-  const { xReserve } = getUsdcxXReserveSource(sourceChainId);
+  const { xReserve } = source;
   if ((await readAllowance(xReserve)) < value) {
+    await assertCurrent();
     const approvalHash = await signer.approve(xReserve, value);
     await waitForReceipt(approvalHash);
   }
 
+  await assertCurrent();
   const depositHash = await signer.depositToRemote(args);
+  if (original && ownership) await ownership.recordUsdcxDepositHash(original, depositHash);
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: depositHash,
     usdcxRemoteRecipient: remoteRecipient.toLowerCase()

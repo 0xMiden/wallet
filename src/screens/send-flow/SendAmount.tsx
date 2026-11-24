@@ -1,43 +1,55 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
+import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
-import { AnimatedNumber, Pill } from 'components/ui';
+import { TokenUsdValue } from 'components/TokenUsdValue';
 import { Card } from 'components/ui/Card';
+import { Notice } from 'components/ui/Notice';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
-import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
+import { AmountShortcuts } from './AmountShortcuts';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
 export interface SendAmountProps {
+  embedded?: boolean;
   /** The token with its spendable balance (the native token's fee reserve already taken off). */
   token?: UIToken;
   amount: string;
   isValidAmount: boolean;
   /** Untranslated error key from the send form. */
   error?: string;
+  errorDiagnostics?: UiEvidenceInput;
   /** The values of the error copy's placeholders. */
   errorValues?: Record<string, string>;
   recipientAddress: string;
+  /** Keeps Max on screen but inert, while the token has no cap to fill it with. */
+  maxDisabled?: boolean;
+  /** Says Send is still checking a token it holds back from new sends until the Testnet document arrives. */
+  tokenHeld?: boolean;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
   network?: SendNetworkId;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
+  tokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Opens Receive, offered when the account has no MIDEN for the fee. */
   onReceive: () => void;
   onBack: () => void;
@@ -50,21 +62,33 @@ export interface SendAmountProps {
  * made of: the token (with its available balance and Max) and where it goes.
  */
 export const SendAmount: React.FC<SendAmountProps> = ({
+  embedded,
   token,
   amount,
   isValidAmount,
   error,
   errorValues,
+  errorDiagnostics,
   recipientAddress,
+  maxDisabled,
+  tokenHeld,
   recipientName,
   network,
   onAmountChange,
   onSelectToken,
+  tokenAnchorRef,
   onReceive,
   onBack,
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const [shortcutSelection, setShortcutSelection] = useState(0);
+  // The field shows the keystroke at once. A later `amount` from the form replaces it,
+  // including Max and a restored draft.
+  const [draft, setDraft] = useState(amount);
+  useEffect(() => {
+    setDraft(amount);
+  }, [amount]);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const transition = useMotion({ duration: durations.normal, ease: easings.easeOutCubic });
 
@@ -72,31 +96,25 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
-  // Built once per render, not per frame; harmless when `token` is undefined since it is only
-  // read from the `{token && ...}` branch below.
-  const formatAvailableBalance = balanceFormatterFor(token?.balance ?? 0);
-
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
   const feeShortfall = error === 'insufficientFeeAsset';
   const amountError =
     error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
-
-  const fiatValue =
-    token && scaleIsKnown && token.fiatPrice > 0 && amount
-      ? t('approxFiatValue', { value: approxFiatAmount(parseFloat(amount) * token.fiatPrice) })
-      : undefined;
+  useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
+  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
 
   const bridgeNetwork = network && network !== 'miden' ? getBridgeNetwork(network) : undefined;
 
   return (
     <SendStepLayout
+      embedded={embedded}
       title={t('enterAmount')}
       onBack={onBack}
       footer={
         <Button
-          title={t('confirm')}
+          title={t('continue')}
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
@@ -106,20 +124,48 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         />
       }
     >
-      <AmountInput
-        value={amount}
+      <TokenAmountInput
+        assetId={token?.id ?? ''}
+        symbol={token?.name ?? ''}
+        decimals={token?.decimals ?? 0}
+        decimalsLimit={token ? token.decimals : 6}
+        scaleIsKnown={!!token?.scaleIsKnown}
+        value={draft}
+        tokenIntentKey={shortcutSelection}
         invalid={!!amountError}
         error={amountError}
-        helper={fiatValue && <span className="font-heading text-base font-bold text-gray">{fiatValue}</span>}
+        errorId={isUserErrorId(error) ? error : null}
+        errorDiagnostics={errorDiagnostics}
         showDivider={false}
         data-testid="send-amount-input"
-        onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+        onValueChange={value => {
+          const next = value || '';
+          setDraft(next);
+          onAmountChange(next);
+        }}
       />
 
-      <div className="mt-8 rounded-2xl bg-fill">
+      {token && (
+        <AmountShortcuts
+          balance={token.balance}
+          decimals={token.decimals}
+          scaleIsKnown={scaleIsKnown}
+          onAmountChange={value => {
+            setShortcutSelection(selection => selection + 1);
+            onAmountChange(value);
+          }}
+          disabled={maxDisabled}
+          testIdPrefix="send-amount"
+          className="text-accent-send-ink"
+        />
+      )}
+
+      <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
+            ref={tokenAnchorRef}
             type="button"
+            aria-haspopup={tokenAnchorRef ? 'dialog' : undefined}
             data-testid="send-token-selector"
             onClick={() => {
               hapticLight();
@@ -128,7 +174,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
             {token ? (
-              <TokenLogo symbol={token.name} faucetId={token.id} size="md" />
+              <TokenLogo faucetId={token.id} size="md" />
             ) : (
               <span className="h-9 w-9 shrink-0 rounded-full bg-gray-100" aria-hidden="true" />
             )}
@@ -141,57 +187,61 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
                   {/* Keyed by token: a different token lands its balance, not a count from the last one. */}
                   {scaleIsKnown ? (
-                    <AnimatedNumber
+                    <TokenAmount
                       key={token.id}
-                      value={token.balance}
-                      format={value => `${t('available')} ${formatAvailableBalance(value)}`}
+                      amount={token.balance}
+                      prefix={`${t('available')} `}
+                      minimumFractionDigits={4}
+                      rounding="down"
+                      animated
                     />
                   ) : (
                     t('unknownTokenScale')
+                  )}
+                  {scaleIsKnown && (
+                    <TokenUsdValue
+                      amount={token.balance}
+                      faucetId={token.id}
+                      symbol={token.name}
+                      className="block text-caption text-muted"
+                    />
                   )}
                 </span>
               )}
             </span>
           </button>
-          <AnimatePresence initial={false}>
-            {token && scaleIsKnown && token.balance > 0 && (
-              <motion.span
-                key="max"
-                className="inline-flex shrink-0"
-                initial={{ opacity: 0, scale: 0.85 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.85 }}
-                transition={transition}
-              >
-                <Pill
-                  onClick={() => onAmountChange(formatBalance(token.balance))}
-                  className="text-accent-send-ink"
-                  data-testid="send-amount-max"
-                >
-                  {t('max')}
-                </Pill>
-              </motion.span>
+        </div>
+
+        {!embedded && <div className="mx-4 border-t border-rule-default" />}
+
+        {!embedded && (
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="text-sm text-text-muted">{t('to')}</span>
+            <span
+              data-testid="send-amount-recipient"
+              className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
+            >
+              {recipientName ?? truncateAddress(recipientAddress)}
+            </span>
+            {bridgeNetwork ? (
+              <NetworkChip kind="ethereum" network={bridgeNetwork.id} label={bridgeNetwork.name} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
             )}
-          </AnimatePresence>
-        </div>
+          </div>
+        )}
+      </Card>
 
-        <div className="mx-4 border-t border-rule-default" />
-
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className="text-sm text-text-muted">{t('to')}</span>
-          <span
-            data-testid="send-amount-recipient"
-            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
-          >
-            {recipientName ?? truncateAddress(recipientAddress)}
-          </span>
-          {bridgeNetwork ? (
-            <NetworkChip kind="ethereum" label={bridgeNetwork.name} />
-          ) : (
-            <NetworkChip kind="miden" label={t('miden')} />
-          )}
-        </div>
-      </div>
+      {tokenHeld && (
+        <Notice
+          tone="warning"
+          icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+          className="mt-4"
+          data-testid="send-amount-held-notice"
+        >
+          {t('sendTokenAvailabilityChecking')}
+        </Notice>
+      )}
 
       <AnimatePresence initial={false}>
         {feeShortfall && (

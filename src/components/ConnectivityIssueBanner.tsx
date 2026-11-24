@@ -7,11 +7,15 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
+import { useStorage } from 'lib/miden/front/storage';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
+import { STORAGE_STALL_KEY } from 'lib/miden/storage-health';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate } from 'lib/woozie';
 
 export interface ConnectivityIssueBannerProps {
@@ -25,7 +29,7 @@ export interface ConnectivityIssueBannerProps {
  * realm), so routing it through the SW-owned snapshot would only add a
  * cross-realm writer to a key with single-writer rules.
  */
-type BannerCategory = ConnectivityCategory | 'guardian';
+type BannerCategory = ConnectivityCategory | 'guardian' | 'storage';
 
 interface BannerView {
   category: BannerCategory;
@@ -33,6 +37,9 @@ interface BannerView {
   iconColor: string;
   titleKey: string;
   bodyKey: string;
+  errorId?: UserErrorId;
+  /** False for a state the user cannot clear by closing the banner. */
+  dismissible?: boolean;
   /** When set, render a retry CTA with this label. */
   ctaKey?: string;
 }
@@ -42,7 +49,7 @@ interface BannerView {
  * at once (e.g. node down + prover down) but a stack of three banners is
  * worse UX than picking the most actionable one. Priority:
  *
- *   network > node > guardian > prover > resolving
+ *   storage > network > node > guardian > prover > resolving
  *
  * Reasoning: if the user is offline, fixing that fixes everything else, so
  * surface that. If the node is unreachable, that masks the prover signal
@@ -51,12 +58,15 @@ interface BannerView {
  * outranks the prover: it blocks every co-signed transaction and has a real
  * remedy (switch operators), while a prover failure just means transactions
  * go local, which still works. `resolving` only renders when nothing else is
- * active.
+ * active. `storage` leads: with the browser's own storage not answering, the wallet
+ * looks empty and no other category can be judged.
  */
 function pickActiveCategory(
   state: ReturnType<typeof useConnectivityState>['state'],
-  guardianDown: boolean
+  guardianDown: boolean,
+  storageStalled: boolean
 ): BannerCategory | null {
+  if (storageStalled) return 'storage';
   if (state.network.active) return 'network';
   if (state.node.active) return 'node';
   if (guardianDown) return 'guardian';
@@ -66,12 +76,22 @@ function pickActiveCategory(
 }
 
 const VIEWS: Record<BannerCategory, BannerView> = {
+  // No CTA: only restarting the browser helps, and the flag clears itself once storage answers again.
+  storage: {
+    category: 'storage',
+    iconName: IconName.WarningFill,
+    iconColor: '#FEA644',
+    titleKey: 'storageStalledTitle',
+    bodyKey: 'storageStalledBody',
+    dismissible: false
+  },
   network: {
     category: 'network',
     iconName: IconName.WarningFill,
     iconColor: '#FEA644',
     titleKey: 'connectivityNetworkTitle',
     bodyKey: 'connectivityNetworkBody',
+    errorId: 'connectivityNetworkBody',
     ctaKey: 'connectivityRetry'
   },
   node: {
@@ -80,6 +100,7 @@ const VIEWS: Record<BannerCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityNodeTitle',
     bodyKey: 'connectivityNodeBody',
+    errorId: 'connectivityNodeBody',
     ctaKey: 'connectivityRetrySync'
   },
   guardian: {
@@ -88,6 +109,7 @@ const VIEWS: Record<BannerCategory, BannerView> = {
     iconColor: '#FEA644',
     titleKey: 'connectivityGuardianTitle',
     bodyKey: 'connectivityGuardianBody',
+    errorId: 'connectivityGuardianBody',
     // Routes to Rotate Guardian rather than retrying: the flag only arms after
     // the sync loop has already retried past its threshold, and the direct
     // on-chain switch fallback makes the rotation work while the operator is
@@ -123,6 +145,8 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = props =
 const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ className }) => {
   const { t } = useTranslation();
   const { state, dismiss } = useConnectivityState();
+  // Written by the service worker only; reads as false anywhere nothing writes it.
+  const [storageStalled] = useStorage<boolean>(STORAGE_STALL_KEY, false);
 
   // Guardian-outage flag for the CURRENT account, live from the sync loop
   // (armed after a threshold of consecutive server-down sync failures, cleared
@@ -154,10 +178,11 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
   const guardianDismissed = dismissedAccountPk !== undefined && dismissedAccountPk === currentAccountPk;
 
   const active = useMemo(
-    () => pickActiveCategory(state, guardianOutage && !guardianDismissed),
-    [guardianDismissed, guardianOutage, state]
+    () => pickActiveCategory(state, guardianOutage && !guardianDismissed, storageStalled === true),
+    [guardianDismissed, guardianOutage, state, storageStalled]
   );
   const view = active ? VIEWS[active] : null;
+  useUserVisibleError(view?.errorId, 'inline');
 
   const onCta = useCallback(() => {
     hapticLight();
@@ -177,7 +202,7 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
   }, [view]);
 
   const onDismiss = useCallback(() => {
-    if (!view) return;
+    if (!view || view.category === 'storage') return;
     hapticLight();
     if (view.category === 'guardian') {
       setDismissedAccountPk(currentAccountPk);
@@ -219,14 +244,16 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
           {t(view.ctaKey)}
         </button>
       )}
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={t('close')}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-fill-pressed hover:opacity-100"
-      >
-        <Icon name={IconName.Close} size="sm" fill="currentColor" />
-      </button>
+      {view.dismissible !== false && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t('close')}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-fill-pressed hover:opacity-100"
+        >
+          <Icon name={IconName.Close} size="sm" fill="currentColor" />
+        </button>
+      )}
     </div>
   );
 };

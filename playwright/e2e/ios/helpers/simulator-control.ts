@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 
+import { capNativeScreenshot } from '../../harness/cap-native-screenshot';
+
 const execFileAsync = promisify(execFile);
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
@@ -12,6 +14,9 @@ const DEVICE_PAIR_NAME_A = 'miden-e2e-A';
 const DEVICE_PAIR_NAME_B = 'miden-e2e-B';
 const DEVICE_TYPE_A = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17';
 const DEVICE_TYPE_B = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
+
+// Ships in every simulator runtime, so backgrounding needs nothing installed.
+const BACKGROUND_COVER_BUNDLE_ID = 'com.apple.Preferences';
 
 const BOOT_TIMEOUT_MS = 60_000;
 const BOOT_POLL_MS = 1_000;
@@ -159,6 +164,16 @@ export class SimulatorControl {
     await execFileAsync('xcrun', ['simctl', 'launch', udid, bundleId], { env: childEnv });
   }
 
+  /** Leave the running app the way an app switch does: another installed app takes the foreground. */
+  async background(udid: string): Promise<void> {
+    await execSimctl(['launch', udid, BACKGROUND_COVER_BUNDLE_ID]);
+  }
+
+  /** Return to a running app. Without `--terminate-running-process`, simctl activates the process it finds. */
+  async foreground(udid: string, bundleId: string): Promise<void> {
+    await execSimctl(['launch', udid, bundleId]);
+  }
+
   async terminate(udid: string, bundleId: string): Promise<void> {
     // Idempotent — exits non-zero if app wasn't running. Swallow that case.
     try {
@@ -169,9 +184,11 @@ export class SimulatorControl {
     }
   }
 
-  async screenshot(udid: string, outPath: string): Promise<void> {
+  /** `timeoutMs` kills the `simctl io` child at that bound instead of the default simctl one. */
+  async screenshot(udid: string, outPath: string, opts: { timeoutMs?: number } = {}): Promise<void> {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    await execSimctl(['io', udid, 'screenshot', outPath]);
+    await execSimctl(['io', udid, 'screenshot', outPath], opts.timeoutMs);
+    await capNativeScreenshot(outPath);
   }
 
   /**
@@ -288,8 +305,11 @@ const SIMCTL_TIMEOUT_MS = 180_000;
  * specific type to trigger recoverSimSubsystem rather than failing outright.
  */
 export class SimctlTimeoutError extends Error {
-  constructor(public readonly command: string) {
-    super(`simctl timed out after ${SIMCTL_TIMEOUT_MS}ms: simctl ${command}`);
+  constructor(
+    public readonly command: string,
+    timeoutMs = SIMCTL_TIMEOUT_MS
+  ) {
+    super(`simctl timed out after ${timeoutMs}ms: simctl ${command}`);
     this.name = 'SimctlTimeoutError';
   }
 }
@@ -298,13 +318,13 @@ export function isSimctlTimeoutError(err: unknown): err is SimctlTimeoutError {
   return err instanceof SimctlTimeoutError;
 }
 
-async function execSimctl(args: string[]): Promise<{ stdout: string; stderr: string }> {
+async function execSimctl(args: string[], timeoutMs = SIMCTL_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
   try {
-    return await execFileAsync('xcrun', ['simctl', ...args], { timeout: SIMCTL_TIMEOUT_MS });
+    return await execFileAsync('xcrun', ['simctl', ...args], { timeout: timeoutMs });
   } catch (err) {
     const e = err as Error & { killed?: boolean; signal?: string };
     if (e.killed || e.signal === 'SIGTERM') {
-      throw new SimctlTimeoutError(args.join(' '));
+      throw new SimctlTimeoutError(args.join(' '), timeoutMs);
     }
     throw err;
   }

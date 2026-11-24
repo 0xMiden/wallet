@@ -1,28 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { NetworkChip } from 'components/NetworkChip';
+import { NetworkLogo } from 'components/NetworkChip';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SectionHeader } from 'components/ui/SectionHeader';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, useIsInDrawer } from 'lib/ui/drawer';
 import { AddressChain } from 'utils/miden';
 
 import { BRIDGE_NETWORKS, BridgeNetwork, BridgeNetworkId } from './bridge-networks';
 
 export interface NetworkFieldProps {
   networks?: readonly BridgeNetwork[];
-  /** The address's chain family: a Miden address carries its network, a `0x` address does not. */
   chain: AddressChain;
-  /** The chosen destination network for a `0x` address. */
   network?: BridgeNetworkId;
   onSelect: (network: BridgeNetworkId) => void;
-  /** Test id prefix: `<prefix>-network-options` and `<prefix>-network-<id>`. */
   testIdPrefix: string;
 }
 
-/**
- * The "Network" row under an address. A Miden address shows Miden. A `0x` address offers the
- * bridge networks as chips to pick from; while there is only one, it is shown as a fact rather
- * than as a lone chip that looks selectable but has no alternative (the caller selects it).
- */
+/** A destination summary opens a full-name network list. The shared sheet owns focus and mobile back. */
 export const NetworkField: React.FC<NetworkFieldProps> = ({
   chain,
   network,
@@ -31,27 +28,61 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
   networks = BRIDGE_NETWORKS
 }) => {
   const { t } = useTranslation();
-  const choosable = networks.length > 1;
+  const nested = useIsInDrawer();
+  const [open, setOpen] = useState(false);
+  const choosable = chain !== 'miden' && networks.length > 1;
+  const selected = networks.find(option => option.id === network);
+  const single = networks.length === 1 ? networks[0] : undefined;
+  const destination = selected ?? single;
 
   return (
-    <div className="flex flex-col gap-2" data-testid={`${testIdPrefix}-network-options`}>
-      <span className="text-sm text-text-muted">{t('network')}</span>
-      <div className="flex flex-wrap gap-2">
-        {chain === 'miden' ? (
-          <NetworkChip kind="miden" label={t('miden')} data-testid={`${testIdPrefix}-network-miden`} />
-        ) : (
-          networks.map(option => (
-            <NetworkChip
-              key={option.id}
-              kind="ethereum"
-              label={option.name}
-              selected={choosable && network === option.id}
-              onClick={choosable ? () => onSelect(option.id) : undefined}
-              data-testid={`${testIdPrefix}-network-${option.id}`}
-            />
-          ))
-        )}
-      </div>
+    <div data-testid={`${testIdPrefix}-network-options`}>
+      <SectionHeader>{t('network')}</SectionHeader>
+      <ListGroup surface="outline">
+        <ListRow
+          title={chain === 'miden' ? t('miden') : (destination?.name ?? t('selectNetwork'))}
+          avatar={<NetworkLogo kind={chain === 'miden' ? 'miden' : 'ethereum'} network={destination?.id} size="md" />}
+          onClick={choosable ? () => setOpen(true) : undefined}
+          chevron={choosable}
+          accent="send"
+          data-testid={
+            choosable
+              ? `${testIdPrefix}-network-picker`
+              : `${testIdPrefix}-network-${chain === 'miden' ? 'miden' : destination?.id}`
+          }
+        />
+      </ListGroup>
+      <Drawer
+        nested={nested}
+        open={open && choosable}
+        onOpenChange={setOpen}
+        screenKey={`${testIdPrefix}-destination-network`}
+      >
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>{t('selectNetwork')}</DrawerTitle>
+          </DrawerHeader>
+          <div className="min-h-0 overflow-y-auto">
+            <ListGroup className="mx-4 mb-6">
+              {networks.map(option => (
+                <ListRow
+                  variant="choice"
+                  key={option.id}
+                  title={option.name}
+                  avatar={<NetworkLogo kind="ethereum" network={option.id} size="md" />}
+                  checked={network === option.id}
+                  accent="send"
+                  onClick={() => {
+                    onSelect(option.id);
+                    setOpen(false);
+                  }}
+                  data-testid={`${testIdPrefix}-network-${option.id}`}
+                />
+              ))}
+            </ListGroup>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 };

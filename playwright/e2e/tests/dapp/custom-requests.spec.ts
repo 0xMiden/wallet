@@ -1,5 +1,5 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { captureBaseline, expectFailedAfterEnqueue, pollUntil } from '../../helpers/dapp-assertions';
+import { pollUntil } from '../../helpers/dapp-assertions';
 import { dappAxes, type DappAxis } from '../../helpers/dapp-axis';
 import { normalizeHex } from '../../helpers/dapp-gates';
 import {
@@ -11,7 +11,6 @@ import {
   type Journey
 } from '../../helpers/dapp-journey';
 import { cellIdsFor, JOURNEY_TIMEOUT_MS, journeyTitle } from '../../helpers/dapp-matrix';
-import pinned from '../../helpers/dapp-pinned.json';
 import {
   customWriteToTheEnd,
   pendingNote,
@@ -20,7 +19,7 @@ import {
   type ProducedNote
 } from '../../helpers/dapp-writes';
 import { readTransactionRows } from '../../helpers/history';
-import { advanceChain, answerPrompt, callDapp, popupBlock, unwrap } from '../../helpers/test-dapp';
+import { callDapp } from '../../helpers/test-dapp';
 
 const ATTACHMENT = ['1', '2', '3', '4', '5', '6', '7', '8'];
 const EXPLICIT_SCHEME = 42;
@@ -141,8 +140,8 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
             vaultDelta: { [j.tokenFaucetId]: fx.supplied.amount - tst(1.5) },
             toB: [true],
             consumedNullifiers: [fx.supplied.nullifierHex],
-            // Gross on single-sig (1.5 out, 4 in); net on Guardian (+2.5), whose summary nets each faucet.
-            preview: { amount: /^1\.5 TST$/, netAmount: /^2\.5 TST$/, outputNotes: 1 }
+            // The supplied note is the request's own, so it is credited: 4 in, 1.5 out, +2.5 on every account.
+            preview: { amount: /^2\.5 TST$/, outputNotes: 1 }
           },
           ctx
         );
@@ -193,32 +192,31 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
       }
     },
     X7: {
-      budget: 'write',
+      budget: 'long',
       run: async ctx => {
-        // What an untouched builder yields for a private Guardian account: no multisig auth args.
-        const side = await sideOf(j, dapp);
-        const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
-        const built = await callDapp(
-          dapp,
-          'buildCustom',
-          { shape: 'p2id', outputs: [toB(tst(1))], authArgs: 'none' },
-          ctx.deadline
-        );
-        await advanceChain(j.walletA, dapp, built.boundBlockNum + B3, ctx);
-        const { result } = await answerPrompt(
-          dapp,
-          () =>
-            callDapp(
-              dapp,
-              'submitCustom',
-              { requestId: built.requestId, recipientAddress: j.addressB, importNotes: false },
-              ctx.deadline
-            ),
-          { kind: 'transaction', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
-          ctx
-        );
-        const { txId } = unwrap(result, 'custom request without auth args', ctx);
-        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.X7.guardian, ctx);
+        for (const feeSalt of [false, true]) {
+          const { built, written } = await customWriteToTheEnd(
+            j,
+            dapp,
+            {
+              build: { shape: 'p2id', outputs: [toB(tst(1))], authArgs: 'none', feeSalt },
+              submit: { recipientAddress: j.addressB, importNotes: false },
+              advance: B3,
+              vaultDelta: { [j.tokenFaucetId]: -tst(1) },
+              toB: [true],
+              consumedNullifiers: [],
+              preview: { amount: /^1 TST$/, outputNotes: 1 }
+            },
+            ctx
+          );
+          expect(written.outputNotes.map(note => note.bytesB64)).toEqual(built.outputNoteBytesB64);
+          const chainBytes = await Promise.all(
+            built.outputNoteIds.map(
+              async noteId => (await callDapp(dapp, 'chainNote', { noteId }, ctx.deadline)).noteBytesB64
+            )
+          );
+          expect(chainBytes).toEqual(built.outputNoteBytesB64);
+        }
       }
     },
     X11: {
@@ -242,10 +240,76 @@ function customCells(j: Journey, fx: CustomFixtures): Record<string, DappCellImp
             vaultDelta: { [j.tokenFaucetId]: tst(3) - tst(1) },
             toB: [true],
             consumedNullifiers: [held.nullifierHex ?? ''],
-            preview: { amount: /^1 TST$/, netAmount: /^2 TST$/, outputNotes: 1 }
+            // The held note is not credited, so 1 TST leaves on every account and the sheet counts the held note.
+            preview: { amount: /^1 TST$/, heldNotesSpent: 1, outputNotes: 1 }
           },
           ctx
         );
+      }
+    },
+    X8a: {
+      budget: 'write',
+      run: async ctx => {
+        // The dApp's own script pays B through the basic wallet's create_note and move_asset_to_note.
+        const { written } = await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'pay', outputs: [toB(tst(2))] },
+            submit: { recipientAddress: j.addressB, importNotes: false },
+            advance: B3,
+            vaultDelta: { [j.tokenFaucetId]: -tst(2) },
+            toB: [true],
+            consumedNullifiers: [],
+            preview: { amount: /^2 TST$/, outputNotes: 1, storageChanged: false }
+          },
+          ctx
+        );
+        expect(
+          written.outputNotes.map(note => note.script),
+          'output note script'
+        ).toEqual(['p2id']);
+      }
+    },
+    X8b: {
+      budget: 'write',
+      run: async ctx => {
+        // Landing proves the script argument and the advice words reached execution unchanged.
+        await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'pay-checked', outputs: [toB(tst(3), 'private')] },
+            submit: { recipientAddress: j.addressB, importNotes: false },
+            advance: B3,
+            vaultDelta: { [j.tokenFaucetId]: -tst(3) },
+            toB: [true],
+            consumedNullifiers: [],
+            preview: { amount: /^3 TST$/, outputNotes: 1, storageChanged: false }
+          },
+          ctx
+        );
+      }
+    },
+    X8c: {
+      budget: 'write',
+      run: async ctx => {
+        const { written } = await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { kind: 'fee-only', outputs: [] },
+            submit: { recipientAddress: '', importNotes: false },
+            advance: B3,
+            vaultDelta: {},
+            toB: [],
+            consumedNullifiers: [],
+            preview: { amount: null, outputNotes: 0, storageChanged: false }
+          },
+          ctx
+        );
+        // The native drop is exactly the row's fee (expectWritesToTheEnd step 5); a zero fee would make that vacuous.
+        expect(written.feeAmount !== 0n, 'the row recorded the fee it paid').toBe(j.env.chargesFees === true);
       }
     }
   };

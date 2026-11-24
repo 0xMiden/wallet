@@ -2,7 +2,14 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+
 import { ContactDetailPage, sendToContactPath } from './ContactDetailPage';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 const updateContactMock = jest.fn();
 const removeContactMock = jest.fn();
@@ -69,12 +76,21 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   ContactAvatar: ({ name, network }: any) => <span data-testid="avatar" data-name={name} data-network={network} />
 }));
 jest.mock('components/NetworkChip', () => ({
+  NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
+let mockNetworkName = 'testnet';
+let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('screens/send-flow/bridge-networks', () => ({
-  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
+  defaultBridgeNetwork: () =>
+    mockNetworkName === 'mainnet'
+      ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }
+      : { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => clipboardWriteMock(...args) }
@@ -90,6 +106,8 @@ const NINA = { name: 'Nina', address: '0xnina', addedAt: Date.UTC(2026, 8, 19) }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockNetworkName = 'testnet';
+  mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
@@ -155,7 +173,7 @@ it('keeps Save disabled on a 0x contact stored without a network until something
 it('renames a contact from edit mode', async () => {
   render(<ContactDetailPage address="0xpaul" />);
   fireEvent.click(screen.getByTestId('contact-edit'));
-  expect(screen.getByRole('heading')).toHaveTextContent('editContact');
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('editContact');
   expect(screen.getByTestId('contact-save')).toBeDisabled();
   // Was `w-full max-w-none rounded-full text-base font-semibold`.
   expect(screen.getByTestId('contact-save').className).not.toMatch(/rounded-full|text-base|font-semibold/);
@@ -532,4 +550,93 @@ it('releases the row when the user leaves edit mode after a failed save', async 
   });
 
   expect(screen.getByTestId('redirect')).toHaveTextContent('/settings/address-book');
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each([
+    ['save', 'raw_contact_save_failed', true],
+    ['save', 'raw_contact_save_failed', false],
+    ['delete', 'raw_contact_delete_failed', true],
+    ['delete', 'raw_contact_delete_failed', false]
+  ])('reports a rejected %s with closed identity %s (Error object: %s)', async (operation, id, errorObject) => {
+    const text = 'private contact 0xsecret amount 123 https://private.invalid';
+    const failure = errorObject ? new Error(text) : text;
+    (operation === 'save' ? updateContactMock : removeContactMock).mockRejectedValueOnce(failure);
+    confirmMock.mockResolvedValue(true);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    if (operation === 'save') {
+      fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Private replacement' } });
+    }
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`contact-${operation}`));
+    });
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(backMock).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when a failed edit is acknowledged before dwell', async () => {
+    updateContactMock.mockRejectedValueOnce(new Error('private failure'));
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Changed' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-save'));
+    });
+    expect(screen.getByText('private failure')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    fireEvent.click(screen.getByTestId('page-back'));
+    expect(screen.queryByText('private failure')).not.toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a cancelled delete or the persisted contact details', async () => {
+    confirmMock.mockResolvedValue(false);
+    render(<ContactDetailPage address="0xpaul" />);
+    fireEvent.click(screen.getByTestId('contact-edit'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('contact-delete'));
+    });
+    act(() => jest.advanceTimersByTime(2000));
+    expect(removeContactMock).not.toHaveBeenCalled();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+});
+
+it('edits a Mainnet contact with production choices and preserves a stored test contact on rename', async () => {
+  mockNetworkName = 'mainnet';
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  const mainnetContact = { name: 'Mainnet', address: '0xmainnet', network: 'ethereum' };
+  contactsMock.mockReturnValue([mainnetContact, PAUL]);
+  const { unmount } = render(<ContactDetailPage address="0xmainnet" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.click(screen.getByTestId('contact-network-picker'));
+  expect(screen.getByTestId('contact-network-ethereum')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('contact-network-base')).toBeInTheDocument();
+  expect(screen.queryByTestId('contact-network-sepolia')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('contact-network-arc-testnet')).not.toBeInTheDocument();
+  unmount();
+
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  expect(screen.getByTestId('contact-save')).toBeDisabled();
+  expect(screen.getByTestId('contact-network-picker')).toHaveTextContent('Sepolia');
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Renamed' } });
+  await act(async () => fireEvent.click(screen.getByTestId('contact-save')));
+  expect(updateContactMock).toHaveBeenCalledWith('0xpaul', { name: 'Renamed', network: 'sepolia' });
 });

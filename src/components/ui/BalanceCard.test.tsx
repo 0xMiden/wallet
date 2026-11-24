@@ -215,6 +215,30 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
   });
 
+  it('preserves a negative move when its percentage rounds to negative zero', () => {
+    render(
+      <BalanceCard accountNumber={ADDRESS} amount="123.45" delta={{ absolute: '-$40.00', percentage: '-0.00%' }} />
+    );
+
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill -$40.00 -0.00%');
+    expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
+  });
+
+  it('uses the absolute sign when the percentage rounds to zero and direction says positive', () => {
+    render(
+      <BalanceCard
+        accountNumber={ADDRESS}
+        amount="123.45"
+        delta={{ absolute: '-$40.00', percentage: '0.00%', direction: 'positive' }}
+      />
+    );
+
+    const pill = screen.getByTestId('balance-card-delta');
+    expect(pill).toHaveTextContent('balanceCardDeltaPill -$40.00 0.00%');
+    expect(pill.querySelector('[data-name="ArrowDown"]')).not.toBeNull();
+  });
+
   it('renders a zero change as neutral: no arrow and no sign, even when the caller says positive', () => {
     render(
       <BalanceCard
@@ -376,7 +400,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="123.45" onMore={jest.fn()} />);
 
     const row = copyControl().querySelector('[aria-live="polite"]')!;
-    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-label');
+    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-caption-heading', 'font-bold');
     expect(row.children[0]).toHaveAttribute('data-copy-label');
     expect(screen.getByText(ADDRESS)).toHaveClass('truncate');
     expect(row.children[1]).toHaveAttribute('data-copy-icon');

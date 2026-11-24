@@ -160,3 +160,61 @@ describe('subscribeSnapshots', () => {
     expect(good).toHaveBeenCalled();
   });
 });
+
+describe('capture invalidation', () => {
+  it('does not repopulate a closed session while preserving unrelated captures', async () => {
+    let finish: (value: { data: string }) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<{ data: string }>(resolve => {
+          finish = resolve;
+        })
+    );
+    const closed = captureSnapshot('closed');
+    clearSnapshot('closed');
+    mockSnapshot.mockResolvedValueOnce({ data: DATA_URL });
+    await captureSnapshot('keep');
+    finish({ data: DATA_URL });
+    expect(await closed).toBeNull();
+    expect(getSnapshot('closed')).toBeUndefined();
+    expect(getSnapshot('keep')).toBe(DATA_URL);
+  });
+
+  it('clear-all invalidates pending captures even when the cache is empty', async () => {
+    let finish: (value: { data: string }) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<{ data: string }>(resolve => {
+          finish = resolve;
+        })
+    );
+    const pending = captureSnapshot('closed');
+    clearAllSnapshots();
+    finish({ data: DATA_URL });
+    expect(await pending).toBeNull();
+    expect(getSnapshot('closed')).toBeUndefined();
+  });
+
+  it('allows a new capture with the same ID without allowing an older capture back in', async () => {
+    let finish: (value: { data: string }) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<{ data: string }>(resolve => {
+          finish = resolve;
+        })
+    );
+    const old = captureSnapshot('reopened');
+    clearSnapshot('reopened');
+    mockSnapshot.mockResolvedValueOnce({ data: 'data:image/jpeg;base64,NEW' });
+    expect(await captureSnapshot('reopened')).toBe('data:image/jpeg;base64,NEW');
+    finish({ data: DATA_URL });
+    expect(await old).toBeNull();
+    expect(getSnapshot('reopened')).toBe('data:image/jpeg;base64,NEW');
+  });
+});

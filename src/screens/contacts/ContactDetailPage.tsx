@@ -16,13 +16,14 @@ import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletContact } from 'lib/shared/types';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import useIsMounted from 'lib/ui/useIsMounted';
 import { navigate, Redirect } from 'lib/woozie';
 import { BridgeNetworkId } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 
-import { contactNetwork } from './contact-network';
+import { contactNetwork, useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
 
@@ -55,14 +56,16 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   const { updateContact, removeContact } = useContacts();
   const confirm = useConfirm();
   const { kind, bridgeNetwork } = contactNetwork(contact.address, contact.network);
+  const networks = useContactBridgeNetworks(contact.network);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(contact.name);
   const [network, setNetwork] = useState<BridgeNetworkId | undefined>(bridgeNetwork?.id);
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? bridgeNetwork?.id;
   const [saving, setSaving] = useState(false);
   // Only cleared on failure: a success unmounts this page via `onDeleted`.
   const [removing, setRemoving] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<{ text: string; id: UserErrorId }>();
 
   // `updateContact` and `removeContact` each rewrite the ENTIRE contact list from the same
   // render-time snapshot, so two overlapping writers is last-writer-wins: saving during an
@@ -95,10 +98,10 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
 
   const trimmedName = name.trim();
   // Compare against the RESOLVED network, not the raw stored one: `contactNetwork` falls back to
-  // DEFAULT_BRIDGE_NETWORK, so a `0x` contact saved without a network seeds `network` to that
+  // `defaultBridgeNetwork()`, so a `0x` contact saved without a network seeds `network` to that
   // default while `contact.network` stays undefined - which read as "changed" the moment edit mode
   // opened, enabling Save with nothing edited and writing a network the user never picked.
-  const changed = trimmedName !== contact.name || (kind === 'ethereum' && network !== bridgeNetwork?.id);
+  const changed = trimmedName !== contact.name || (kind === 'ethereum' && selectedNetwork !== bridgeNetwork?.id);
 
   const startEditing = () => {
     setName(contact.name);
@@ -119,12 +122,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
     try {
       await updateContact(contact.address, {
         name: trimmedName,
-        ...(kind === 'ethereum' ? { network } : {})
+        ...(kind === 'ethereum' ? { network: selectedNetwork } : {})
       });
       setEditing(false);
     } catch (err: unknown) {
       failed = err instanceof Error ? err.message : String(err);
-      setError(failed);
+      setError({ text: failed, id: 'raw_contact_save_failed' });
     }
     setSaving(false);
     // Lower to what is still true. Clearing unconditionally here would drop the row while the
@@ -153,7 +156,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
       await removeContact(contact.address);
       onDeleted();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError({ text: err instanceof Error ? err.message : String(err), id: 'raw_contact_delete_failed' });
       setRemoving(false);
       // Stay retained: the row is already gone from the store and this error is the only thing
       // left explaining why the contact is still on screen.
@@ -208,11 +211,14 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
         <ContactNameInput value={name} onChange={setName} autoFocus />
         <NetworkField
           chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
-          network={network}
+          network={selectedNetwork}
+          networks={networks}
           onSelect={setNetwork}
           testIdPrefix="contact"
         />
-        <ErrorLine className="-mt-2">{error}</ErrorLine>
+        <ErrorLine className="-mt-2" errorId={error?.id}>
+          {error?.text}
+        </ErrorLine>
         {/* The shared destructive button: `fill` with the negative ink, the one shape a
             destructive action takes anywhere in the wallet. */}
         <Button

@@ -1,7 +1,10 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
-import { isValidGuardianUrl } from 'lib/settings/helpers';
+import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
+import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
+import { GuardianHistoryDataError } from './history-errors';
+import { compareAccountIds } from '../activity/utils';
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -13,11 +16,11 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-history';
+import { isRecoveredSwapOrder } from '../swap/recovered-order';
 import type { ConsumableNote, NoteType } from '../types';
 import { NoteTypeEnum } from '../types';
-import { GuardianHistoryDataError } from './history-errors';
 
-export const GUARDIAN_HISTORY_VERSION = 4;
+export const GUARDIAN_HISTORY_VERSION = 6;
 export { GuardianHistoryDataError };
 
 export interface GuardianHistoryRecovery {
@@ -175,19 +178,22 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
 }
 
 export function normalizeHistoryOperators(endpoints: string[]): string[] {
-  const operators = new Set<string>();
+  // Keyed canonically so a renamed built-in host and its old name are one operator; the first spelling wins.
+  const operators = new Map<string, string>();
   for (const endpoint of endpoints) {
     if (!isValidGuardianUrl(endpoint)) continue;
     try {
       const url = new URL(endpoint);
       url.hash = '';
       url.search = '';
-      operators.add(url.toString().replace(/\/+$/, ''));
+      const normalized = url.toString().replace(/\/+$/, '');
+      const key = canonicalGuardianEndpoint(normalized);
+      if (!operators.has(key)) operators.set(key, normalized);
     } catch {
       // Ignore an invalid saved endpoint.
     }
   }
-  return [...operators];
+  return [...operators.values()];
 }
 
 export function sumHistoryAssets(notes: GuardianHistoryNote[]): IConsumedAssetTotal[] {
@@ -207,8 +213,16 @@ export function sameNonemptyNotes(left: string[] | undefined, right: string[] | 
   return a.size === b.size && [...a].every(id => b.has(id));
 }
 
+// Ids were first written under the pre-rename host name, so any spelling of a renamed host keys to it.
+function renameStableOperator(operator: string): string {
+  for (const [oldName, newName] of RENAMED_GUARDIAN_ENDPOINTS) {
+    if (sameGuardianEndpoint(operator, newName)) return oldName;
+  }
+  return operator;
+}
+
 export function historyCheckpointId(network: string, accountId: string, operator: string): string {
-  return JSON.stringify([network, accountId, operator, GUARDIAN_HISTORY_VERSION]);
+  return JSON.stringify([network, accountId, renameStableOperator(operator), GUARDIAN_HISTORY_VERSION]);
 }
 
 function transferNotes(
@@ -228,6 +242,20 @@ function transferNotes(
     default:
       return [];
   }
+}
+
+// Every input note is a PSWAP note of one order, sent by this account: the creator taking its own offer back.
+function reclaimsOwnSwapOrder(accountId: string, notes: GuardianHistoryNote[]): boolean {
+  const orderId = notes[0]?.swap?.orderId;
+  return (
+    orderId !== undefined &&
+    notes.every(
+      note =>
+        note.swap?.orderId === orderId &&
+        note.swap?.requestedAsset !== undefined &&
+        compareAccountIds(note.sender ?? '', accountId)
+    )
+  );
 }
 
 /**
@@ -276,7 +304,7 @@ export function recoveredHistoryRecord(
     proposal?.proposalType === 'switch_guardian' && payloadProposal?.proposalType === 'switch_guardian'
       ? { ...proposal, newGuardianEndpoint: proposal.newGuardianEndpoint ?? payloadProposal.newGuardianEndpoint }
       : proposal;
-  const type = recoveredAction(resolvedProposal);
+  const action = recoveredAction(resolvedProposal);
   const inputNotes: GuardianHistoryNote[] =
     summary?.inputNotes ??
     entry.inputNotes.map(note => ({
@@ -291,20 +319,30 @@ export function recoveredHistoryRecord(
       assets: [],
       visibility: note.noteType
     }));
+  // A Guardian zero-fill reclaim is proposed as a custom transaction. Recorded as the consume it is, it carries its
+  // input notes where reconcileRecoveredSwaps and every settlement reader look for a reclaim. One that also creates a
+  // user note (the fee note is split off) did more than reclaim, and as a consume it would drop that note.
+  const type =
+    action === 'execute' && outputNotes.length === 0 && reclaimsOwnSwapOrder(accountId, inputNotes)
+      ? 'consume'
+      : action;
   const selectedNotes = transferNotes(type, inputNotes, outputNotes);
   const totals = sumHistoryAssets(selectedNotes);
   const first = totals.length === 1 ? totals[0] : undefined;
   const finalCommitment = delta.newCommitment || entry.newCommitment || undefined;
   // The id travels in the route path, and the router does not decode a segment.
   // Keep it to characters no browser encodes in a hash and that never form a `/`.
-  const identity = finalCommitment ?? `nonce-${entry.nonce}-${operator.replace(/[^a-z0-9]+/gi, '_')}`;
+  const identity =
+    finalCommitment ?? `nonce-${entry.nonce}-${renameStableOperator(operator).replace(/[^a-z0-9]+/gi, '_')}`;
   const recipients = new Set(
     selectedNotes.map(note => (type === 'consume' ? note.sender : note.recipient)).filter(value => value !== undefined)
   );
   const recipient = recipients.size === 1 ? [...recipients][0] : undefined;
   const noteIds = selectedNotes.map(note => note.id);
   const reclaimed =
-    type === 'consume' && inputNotes.length > 0 && inputNotes.every(note => note.sender === accountId.split('_')[0]);
+    type === 'consume' &&
+    inputNotes.length > 0 &&
+    inputNotes.every(note => compareAccountIds(note.sender ?? '', accountId));
   const secondaryAccountId =
     recipient ?? (type !== 'consume' && outputNotes.length <= 1 ? proposal?.recipientId : undefined);
   const noteType = selectedNotes[0] ? historyNoteVisibility(selectedNotes[0]) : NoteTypeEnum.Public;
@@ -396,7 +434,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const orders = rows.filter(
       row =>
         row.type === 'swap' &&
-        row.accountId === consume.accountId &&
+        compareAccountIds(row.accountId, consume.accountId) &&
         row.recovery?.network === consume.recovery?.network &&
         row.extraInputs?.orderId === first.orderId
     );
@@ -405,7 +443,9 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const faucetId = reclaim ? order.faucetId : order.extraInputs?.requestedFaucetId;
     if (
       !faucetId ||
-      notes.some(note => note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== faucetId))
+      notes.some(
+        note => note.assets.length === 0 || note.assets.some(asset => !compareAccountIds(asset.faucetId, faucetId))
+      )
     )
       continue;
     touch(consume);
@@ -415,6 +455,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
       swapOrderTxId: order.id,
       swapSettleKind: reclaim ? 'reclaim' : 'settle'
     };
+    if (isRecoveredSwapOrder(order)) continue;
     const completedAt = consume.completedAt ?? consume.initiatedAt;
     order.extraInputs = {
       ...order.extraInputs,

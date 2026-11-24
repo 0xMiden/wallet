@@ -9,6 +9,7 @@ import { InfoHintTrigger } from 'components/ui/InfoHint';
 import { ListGroup } from 'components/ui/ListGroup';
 import { hapticLight } from 'lib/mobile/haptics';
 import { testnetTokenInfo, type TestnetTokenInfo } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 interface SwapTokenInfoSheetProps {
   open: boolean;
@@ -57,7 +58,8 @@ interface SwapTokenInfoButtonProps {
 export const SwapTokenInfoButton: FC<SwapTokenInfoButtonProps> = ({ faucetId, label }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const info = testnetTokenInfo(faucetId);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const info = testnetTokenInfo(bridgeConfig, faucetId);
   if (!info) return null;
   return (
     <>

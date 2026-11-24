@@ -12,7 +12,9 @@
  * round from being able to say "no built-in holds this key" — see
  * `identifyGuardianOperator`, whose callers act on that difference.
  *
- * "Built-in" here means wallet code only. `getBuiltInGuardianOptionsForNetwork`
+ * "Built-in" here means the wallet's own configuration only: the `guardians`
+ * list of the network's `0xMiden/wallet-config` document, else the bundled
+ * list. `getBuiltInGuardianOptionsForNetwork`
  * excludes the developer guardian-URL override that the onboarding picker's
  * `getGuardianOptionsForNetwork` appends, because this module is read as a
  * second source ABOUT a stored endpoint, and a persisted setting is the same
@@ -24,6 +26,7 @@ import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
 import { withGuardianProbe } from 'lib/miden/guardian/native-http';
 import { getBuiltInGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 
 /** Strip an optional `0x` prefix and lowercase, so commitments from different sources compare equal. */
 export function normalizeHex(h: string): string {
@@ -136,6 +139,10 @@ interface BuiltInOperatorProbe {
  * than as "no built-in serves this".
  */
 async function probeBuiltInOperators(network?: MIDEN_NETWORK_NAME): Promise<BuiltInOperatorProbe> {
+  // The built-ins are the config document's list, so the stored document is in memory before the read. A round that
+  // ran first would ask the bundled list, and its 'none' or 'identified' would rest on operators the document may
+  // have removed. Reads storage only; never waits for the network and never rejects.
+  await initBridgeConfig();
   const options = getBuiltInGuardianOptionsForNetwork(network);
   const answers = await Promise.all(
     options.map(async option => {

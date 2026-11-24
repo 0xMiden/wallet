@@ -1,15 +1,20 @@
 // The leaf, never lib/miden/swap/tokens: the metadata overrides read these labels (see faucet-ids.ts).
-import { IETH_FAUCET_ID, normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import type { IBridgeProvider } from 'lib/miden/db/types';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import type { BridgeConfigSnapshot } from './runtime';
-import { selectMidenUsdcFaucetId } from './values';
+import { selectEpochToken, selectMidenUsdcFaucetId, selectSwapTokenFaucetId } from './values';
 
 /** What testnet calls the bridge's own USDC, on Sepolia and on Miden alike (#1247). A token name: never translated. */
 export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
 
 /** What testnet calls the swap registry's iETH, a test asset that is not ETH (#477). A token name: never translated. */
 export const TEST_IETH_LABEL = 'Test iETH';
+
+/** The ticker the swap solver lists testnet's iETH under; its faucet is whatever the solver says. */
+export const IETH_SYMBOL = 'IETH';
 
 /** The copy a token page and an info sheet show for a token: what it is, and where its swaps execute. */
 export interface TestnetTokenInfo {
@@ -23,11 +28,11 @@ interface TestnetToken {
   info?: TestnetTokenInfo;
 }
 
-// The tokens testnet names whatever the bridge config says; one with info is described as well as named.
-function staticTestnetTokens(): TestnetToken[] {
+// The swap token testnet describes as well as names: the solver's IETH token, at whatever faucet it lists.
+function describedTestnetTokens(s: BridgeConfigSnapshot): TestnetToken[] {
   return [
     {
-      faucetId: IETH_FAUCET_ID,
+      faucetId: selectSwapTokenFaucetId(s, IETH_SYMBOL),
       label: TEST_IETH_LABEL,
       info: { descriptionKey: 'testIethDescription', executionKey: 'testIethExecution' }
     }
@@ -36,7 +41,7 @@ function staticTestnetTokens(): TestnetToken[] {
 
 // Each Miden token testnet shows under a name of the wallet's own; another token is one more entry.
 function testnetMidenTokens(s: BridgeConfigSnapshot): TestnetToken[] {
-  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...staticTestnetTokens()];
+  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...describedTestnetTokens(s)];
 }
 
 function testnetTokenFor(tokens: TestnetToken[], faucetId: string | undefined): TestnetToken | undefined {
@@ -61,9 +66,15 @@ export function midenTokenLabelFor(snapshot: BridgeConfigSnapshot, faucetId: str
   return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? null;
 }
 
-/** On testnet, the info of the entry for `faucetId` (iETH's, #477); null for any other token and off testnet. */
-export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo | null {
-  return testnetTokenFor(staticTestnetTokens(), faucetId)?.info ?? null;
+/**
+ * On testnet, the info of the entry for `faucetId` (iETH's, #477) once `snapshot` names it; null for any other
+ * token and off testnet.
+ */
+export function testnetTokenInfo(
+  snapshot: BridgeConfigSnapshot,
+  faucetId: string | undefined
+): TestnetTokenInfo | null {
+  return testnetTokenFor(describedTestnetTokens(snapshot), faucetId)?.info ?? null;
 }
 
 /**
@@ -71,5 +82,54 @@ export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo
  * label whenever the document names an EVM USDC, whether or not the token's Sepolia read has succeeded; else `symbol`.
  */
 export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): string {
-  return getTestNetworkNameKey() === 'testnet' && snapshot.config?.epoch.evmUsdc ? TEST_EPOCH_USDC_LABEL : symbol;
+  return getTestNetworkNameKey() === 'testnet' &&
+    Object.values(snapshot.config?.supportedEvmChains ?? {}).some(chain => chain.bridges.epoch?.tokens.USDC)
+    ? TEST_EPOCH_USDC_LABEL
+    : symbol;
+}
+
+/**
+ * Whether an Epoch output is the bridge's own USDC, the only symbol `evmUsdcLabel` may rename. `USDC` is that token.
+ * On a chain, so is the route USDC's read symbol, and an `address` whose lowercase form equals that token's address.
+ * With no chain, the USDC read symbol of every Epoch route is compared.
+ */
+export function epochOutputIsBridgeUsdc(
+  snapshot: BridgeConfigSnapshot,
+  chainId: number | undefined,
+  symbol: string,
+  address?: string
+): boolean {
+  if (symbol === 'USDC') return true;
+  if (chainId !== undefined) {
+    const token = selectEpochToken(snapshot, chainId, 'USDC');
+    return (
+      symbol === token?.symbol || (address !== undefined && address.toLowerCase() === token?.address.toLowerCase())
+    );
+  }
+  return Object.values(snapshot.config?.supportedEvmChains ?? {}).some(
+    chain => symbol === selectEpochToken(snapshot, chain.chainId, 'USDC')?.symbol
+  );
+}
+
+/**
+ * The name a bridge-in's EVM source is shown under. ETH and Circle's USDC keep their symbol. An AggLayer row that saved
+ * the ERC-20 it deposited (`sourceToken`) takes the bridge USDC's label only when that token is the document's EVM
+ * USDC; any other ERC-20 keeps its symbol. A row with no saved token takes that label only when its symbol is the
+ * bridge USDC, so a Fast deposit of POL or WETH keeps its symbol.
+ */
+export function bridgeInSourceLabel(
+  snapshot: BridgeConfigSnapshot,
+  source: { provider?: IBridgeProvider; symbol: string; sourceToken?: string }
+): string {
+  if (source.provider === 'usdcx' || source.symbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL) return source.symbol;
+  if (source.sourceToken !== undefined) {
+    const token = source.sourceToken.toLowerCase();
+    const isBridgeUsdc = Object.values(snapshot.config?.supportedEvmChains ?? {}).some(
+      chain => chain.bridges.epoch?.tokens.USDC?.contractAddress.toLowerCase() === token
+    );
+    if (!isBridgeUsdc) return source.symbol;
+  } else if (!epochOutputIsBridgeUsdc(snapshot, undefined, source.symbol)) {
+    return source.symbol;
+  }
+  return evmUsdcLabel(snapshot, source.symbol);
 }

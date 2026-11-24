@@ -6,14 +6,21 @@ import { useTranslation } from 'react-i18next';
 
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { WaveDots } from 'components/ui';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { amountExceedsTokenDecimals, typedAmountExceedsBalance } from 'lib/i18n/numbers';
+import { SwapToken, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
+import { swapPayEstimate } from './amount-display';
+import { CommandSwap } from './CommandSwap';
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
 
@@ -22,21 +29,29 @@ export interface SwapAmountsProps {
   feeAssetMissing?: boolean;
   offerToken: SwapToken;
   offerBalance: number;
+  /** Base-unit comparison from the manager, including amounts beyond JS float precision. */
+  offerExceedsBalance?: boolean;
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
+  offerTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   requestToken: SwapToken;
   requestAmount: string;
   onRequestAmountChange: (amount: string) => void;
   onSelectRequestToken: () => void;
+  requestTokenAnchorRef?: React.Ref<HTMLButtonElement>;
   /** Show a skeleton on the receive field while its quote is being computed. */
   requestLoading?: boolean;
+  offerLoading?: boolean;
+  quoteLoading?: boolean;
+  requestEdited?: boolean;
   onSwapDirection: () => void;
   onConfirm: () => void;
   canProceed: boolean;
   /** Helper line under the fields (fetching price / pick two tokens / unavailable). */
   statusMessage?: string;
   statusIsError?: boolean;
+  statusErrorId?: UserErrorId | null;
 }
 
 /** SwapToken → the UIToken shape SelectAmount expects. `balance` feeds the
@@ -56,9 +71,14 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
  * First swap screen: two stacked SelectAmount fields (You Pay / You Receive)
  * with a swap-direction toggle between them and a single shared Confirm CTA.
  */
-export const SwapAmounts: React.FC<SwapAmountsProps> = ({
+export const SwapAmounts: React.FC<SwapAmountsProps> = props => {
+  return useFlowPresentation() === 'command' ? <CommandSwap {...props} /> : <CompactSwapAmounts {...props} />;
+};
+
+const CompactSwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
   offerBalance,
+  offerExceedsBalance,
   offerAmount,
   onOfferAmountChange,
   onSelectOfferToken,
@@ -67,14 +87,20 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   onRequestAmountChange,
   onSelectRequestToken,
   requestLoading,
+  offerLoading,
+  quoteLoading,
+  requestEdited,
   onSwapDirection,
   onConfirm,
   canProceed,
   statusMessage,
   statusIsError,
+  statusErrorId,
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const prices = useWalletStore(state => state.tokenPrices);
+  useUserVisibleError(statusMessage && statusIsError ? (statusErrorId ?? null) : null, 'inline');
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
   const motionTokens = useTabBarMotion();
@@ -93,15 +119,20 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   });
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
-  const awaitingAmount = !(offerAmountValue > 0);
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const awaitingAmount = !(Number(requestEdited ? requestAmount : offerAmount) > 0);
+  const offerExceedsPrecision = amountExceedsTokenDecimals(offerAmount, offerToken.decimals);
+  const requestExceedsPrecision = amountExceedsTokenDecimals(requestAmount, requestToken.decimals);
+  const offerAmountExceedsBalance =
+    offerExceedsBalance ?? typedAmountExceedsBalance(offerAmount, offerBalance, offerToken.decimals);
   // Missing the fee asset outranks an over-balance amount: no amount at all is
   // sendable, so telling the user to lower it would send them in a loop.
   const offerAmountError = feeAssetMissing
     ? 'insufficientFeeAsset'
-    : offerAmountExceedsBalance
-      ? 'amountMustBeLessThanBalance'
-      : undefined;
+    : offerExceedsPrecision
+      ? 'amountExceedsTokenDecimals'
+      : offerAmountExceedsBalance
+        ? 'amountMustBeLessThanBalance'
+        : undefined;
 
   return (
     // The shared home-group pane body: the page margin, the offset to the first line ("You Pay",
@@ -121,7 +152,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           data-testid="swap-review-submit"
           className="w-full max-w-none"
         >
-          {requestLoading ? <WaveDots label={t('calculatingQuote')} /> : undefined}
+          {(quoteLoading ?? requestLoading) ? <WaveDots label={t('calculatingQuote')} /> : undefined}
         </Button>
       }
     >
@@ -129,24 +160,36 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
+            showAmountShortcuts
             // The amount field's own caption, as on Earn's "Deposit Amount", and no rule under a typed
             // amount.
             label={t('youPay')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(offerToken, offerBalance)}
+            token={{
+              ...swapTokenToUIToken(offerToken, offerBalance),
+              fiatPrice: tokenQuote(prices, offerToken.faucetId, offerToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
-            logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
-            isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
+            amountDisplayValue={
+              requestEdited && offerAmount
+                ? t('swapApproxAmount', { amount: swapPayEstimate(offerAmount) })
+                : offerAmount
+            }
+            isValidAmount={offerAmountValue > 0 && !offerExceedsPrecision && !offerAmountExceedsBalance}
             error={offerAmountError}
+            errorId={feeAssetMissing ? null : offerAmountError}
             // The fee shortfall keeps the amount red but says so under the token.
             hideErrorText={feeAssetMissing}
+            loading={offerLoading}
+            amountDecimalsLimit={offerToken.decimals}
+            amountMaxLength={80}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
           {feeAssetMissing && (
-            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+            <ErrorLine errorId="insufficientFeeAssetShort" role="note" data-testid="swap-fee-notice" className="mt-3">
               {t('insufficientFeeAssetShort')}
             </ErrorLine>
           )}
@@ -189,16 +232,27 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             label={t('youReceive')}
             showAmountDivider={false}
             accent="swap"
-            token={swapTokenToUIToken(requestToken)}
+            token={{
+              ...swapTokenToUIToken(requestToken),
+              fiatPrice: tokenQuote(prices, requestToken.faucetId, requestToken.symbol)?.price ?? 0
+            }}
             tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
-            logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
-            isValidAmount={Number(requestAmount) > 0}
+            isValidAmount={Number(requestAmount) > 0 && !requestExceedsPrecision}
+            error={requestExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined}
             loading={requestLoading}
+            amountDecimalsLimit={requestToken.decimals}
+            amountMaxLength={80}
             onAmountChange={onRequestAmountChange}
             onSelectToken={onSelectRequestToken}
           />
         </motion.div>
+
+        {requestEdited && (
+          <span className="text-body-sm text-muted" data-testid="swap-receive-target-note">
+            {t('swapReceiveTargetNote')}
+          </span>
+        )}
 
         {statusMessage && (
           <span

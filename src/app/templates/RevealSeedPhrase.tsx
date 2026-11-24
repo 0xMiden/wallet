@@ -12,7 +12,12 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
-import { SeedPhraseGrid, SeedPhrasePlaceholder, SeedPhrasePrivacyHero } from 'components/ui/SeedPhraseGrid';
+import {
+  SeedPhraseGrid,
+  SeedPhrasePlaceholder,
+  SeedPhrasePrivacyHero,
+  SeedRevealToggle
+} from 'components/ui/SeedPhraseGrid';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
@@ -21,8 +26,10 @@ import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { useRevealMask } from 'lib/ui/useRevealMask';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -45,14 +52,14 @@ const RevealSeedPhrase: FC = () => {
     [seedStatus]
   );
   const [secret, setSecret] = useSecretState();
-  const { copy, copied } = useClipboardCopy(secret ?? '');
+  const { copy, copied } = useClipboardCopy(secret ?? '', { secret: true });
   const [step, setStep] = useState<Step>('warning');
   // Every exit from this page goes through `leave`, never `goBack()` directly: it
   // bumps the generation, resets the step and the drawer, then pops through this
   // hook. `history.go(-1)` settles on a later task, so two exits in one visit would
   // each pop a page (Settings too); the hook fires once per location as a safety
   // net, and routes to the Settings root when the page was opened cold.
-  const popPage = useBackWithFallback('/settings');
+  const popPage = useBackWithFallback('/me');
   // Leaving must INVALIDATE an in-flight reveal, not merely navigate. Close and the
   // back arrow stay live while the biometric prompt is up, and `history.go(-1)`
   // settles on a later task, so a reveal that resolves in between would otherwise
@@ -75,10 +82,12 @@ const RevealSeedPhrase: FC = () => {
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authErrorId, setAuthErrorId] = useState<UserErrorId | null>(null);
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
   const isGuardReady = useScreenshotGuard(secret !== null);
+  const mask = useRevealMask({ resetKey: secret });
 
   const {
     register,
@@ -90,6 +99,7 @@ const RevealSeedPhrase: FC = () => {
   } = useForm<FormData>();
 
   const passwordValue = watch('password');
+  const [passwordErrorId, setPasswordErrorId] = useState<UserErrorId | null>(null);
 
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
@@ -124,6 +134,7 @@ const RevealSeedPhrase: FC = () => {
         // not navigate away from the view that replaced it.
         if (generation !== secretGeneration.current) return;
         setAuthError(err instanceof Error ? err.message : String(err));
+        setAuthErrorId('raw_seed_reveal_failed');
         setStep('reveal');
       })
       .finally(() => setIsSubmitting(false));
@@ -171,6 +182,7 @@ const RevealSeedPhrase: FC = () => {
         // Checked after the delay, as RevealSecret does: leave() bumps the generation, and
         // the user can leave while this await runs, so a guard above it protects nothing.
         if (generation !== secretGeneration.current) return;
+        setPasswordErrorId('raw_seed_reveal_failed');
         setError('password', { type: 'submit-error', message: err.message });
       } finally {
         setIsSubmitting(false);
@@ -212,6 +224,7 @@ const RevealSeedPhrase: FC = () => {
             <PasscodeEntry
               onSubmit={code => onPasswordSubmit({ password: code })}
               onChange={() => clearErrors()}
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
               error={errors.password?.message ?? null}
               isSubmitting={isSubmitting}
             />
@@ -224,6 +237,7 @@ const RevealSeedPhrase: FC = () => {
               id="reveal-seed-password"
               type="password"
               placeholder="********"
+              errorId={errors.password?.type === 'submit-error' ? passwordErrorId : 'required'}
               error={errors.password?.message}
               errorTestId="error-caption"
               containerClassName="mb-4"
@@ -340,7 +354,9 @@ const RevealSeedPhrase: FC = () => {
       >
         {isGuardReady && (
           <SubPageSection className="gap-3">
-            <SeedPhraseGrid words={words} />
+            <SeedPhraseGrid words={words} masked={mask.masked} />
+
+            <SeedRevealToggle className="self-start" revealed={mask.revealed} onToggle={mask.toggle} />
 
             {/* Copy is the shared Pill, drawn with the copy glyph and label over useClipboardCopy. */}
             <Pill
@@ -392,7 +408,7 @@ const RevealSeedPhrase: FC = () => {
           </>
         }
       >
-        <Notice tone="negative" role="alert" title={t('error')}>
+        <Notice errorId={authErrorId} tone="negative" role="alert" title={t('error')}>
           {authError}
         </Notice>
       </SubPageLayout>

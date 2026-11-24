@@ -22,6 +22,14 @@ describe('buildSdkSignCallback', () => {
     });
   });
 
+  it('rethrows a WebAssembly.RuntimeError as that same error', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const raw = jest.fn(async () => {
+      throw trap;
+    });
+    await expect(buildSdkSignCallback(raw)(publicKey, signingInputs)).rejects.toBe(trap);
+  });
+
   it('classifies any other failure as internal, and a non-Error throw too', async () => {
     await expect(
       buildSdkSignCallback(async () => {

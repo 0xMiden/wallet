@@ -1,5 +1,7 @@
 import type { FlowAccent } from 'components/flow/accent';
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
 import type { TransactionStepDef } from './constants';
 
@@ -20,8 +22,9 @@ export interface GeneratingTransactionProps {
   activeType?: ITransactionType;
   /**
    * Whether the sending account is a Guardian account. Selects the step set:
-   * Guardian sends show co-sign → prove → submit → guardian-sync; standard
-   * sends show prove → submit (the guardian-only steps are omitted).
+   * Guardian sends show co-sign → prove → submit → guardian-sync, and a private
+   * send its delivery after that; standard sends show prove → submit (the
+   * guardian-only steps are omitted).
    */
   isGuardian: boolean;
   /** The in-flight tx, used by the summary badge under the title. */
@@ -45,10 +48,15 @@ export interface GeneratingTransactionProps {
   onRetryAnyway?: () => void;
   /** Whether the failed tx can be retried (requeueable / resubmittable). */
   canRetry?: boolean;
+  /** When the Guardian hold on this row clears, while one applies: Retry stays off until then (#2060). */
+  guardianHoldUntil?: number;
   /** True while a retry is in flight — drives the Retry button spinner. */
   isRetrying?: boolean;
   /** Error message from a failed retry attempt, shown under the buttons. */
   retryError?: string | null;
+  /** Closed identity for the displayed retry error; null marks a non-error display. */
+  retryErrorId?: UserErrorId | null;
+  retryErrorDiagnostics?: Extract<UiEvidenceInput, { kind: 'transaction_retry' }>;
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';

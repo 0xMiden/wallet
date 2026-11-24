@@ -1,13 +1,15 @@
 import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
+import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { getMessage } from 'lib/i18n';
+import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { PublicError } from 'lib/miden/back/defaults';
+import { intercom, MAINNET_ACCESS_CODE_REJECTED, PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
@@ -15,6 +17,7 @@ import {
   revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
+import * as PlatformUnlock from 'lib/miden/back/platform-unlock-store';
 import {
   toFront,
   store,
@@ -29,6 +32,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -51,10 +55,20 @@ import {
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
-import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  loadEndpointOverrides
+} from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
+import {
+  GetStateResponse,
   GuardianRecoveryAction,
   GuardianSyncStatus,
+  EstimateUsdcxBurnFeeRequest,
+  EstimateUsdcxBurnFeeResponse,
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
@@ -63,11 +77,12 @@ import {
   WalletAccount,
   WalletMessageType,
   WalletSettings,
-  WalletState,
   WalletStatus
 } from 'lib/shared/types';
 import { resolveTelemetryContext } from 'lib/telemetry/context';
 import { sendEvent } from 'lib/telemetry/sink';
+import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
+import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -88,6 +103,8 @@ import {
   requestImportPrivateNote,
   requestConsumableNotes,
   requestGuardianInfo,
+  requestLoginKey,
+  requestLoginSign,
   waitForTransaction
 } from './dapp';
 
@@ -99,6 +116,11 @@ let _dappQueue: PQueue | undefined;
 function getDappQueue() {
   if (!_dappQueue) _dappQueue = new PQueue({ concurrency: 1 });
   return _dappQueue;
+}
+
+/** A queued dApp request's turn came after the deadline its caller set, so the user was never asked. */
+export class DAppQueueDeadlineError extends Error {
+  name = 'DAppQueueDeadlineError';
 }
 
 // The accounts-list single-writer serializer, shared with the detached Guardian
@@ -148,43 +170,46 @@ function syncRealmInsertKeySink() {
 }
 
 export async function init() {
-  console.log('[Actions.init] Starting...');
-  // This realm's one SDK client signs every inline write with the vault (#878):
-  // installed once, here, before anything can ask it to sign. Every realm that
-  // writes runs init (the service worker, mobile and desktop); the extension
-  // popup never does and never signs; the offscreen document builds its own
-  // client with its reverse-IPC signer.
-  installRealmKeystore({
-    sign: buildSdkSignCallback(
-      async (publicKey, signingInputs) =>
-        new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
-    )
+  return getAccountsWriteQueue().add(async () => {
+    console.log('[Actions.init] Starting...');
+    // This realm's one SDK client signs every inline write with the vault (#878):
+    // installed once, here, before anything can ask it to sign. Every realm that
+    // writes runs init (the service worker, mobile and desktop); the extension
+    // popup never does and never signs; the offscreen document builds its own
+    // client with its reverse-IPC signer.
+    installRealmKeystore({
+      sign: buildSdkSignCallback(
+        async (publicKey, signingInputs) =>
+          new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
+      )
+    });
+    const vault = await getVault(); // wait for vault initialization
+    const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
+    console.log('[Actions.init] Vault exists:', vaultExist);
+    inited(vaultExist);
+    console.log('[Actions.init] Called inited()');
   });
-  const vault = await getVault(); // wait for vault initialization
-  const vaultExist = await vault.isExist();
-  console.log('[Actions.init] Vault exists:', vaultExist);
-  inited(vaultExist);
-  console.log('[Actions.init] Called inited()');
 }
 
-export async function getFrontState(): Promise<WalletState> {
+export async function getFrontState(): Promise<GetStateResponse['state']> {
   try {
     const state = store.getState();
     if (state.inited) {
-      return toFront(state);
+      return { ...toFront(state), backendInitialized: true };
     }
   } catch {
     // store not initialized yet
   }
-  // Return Idle immediately so the UI can render while backend inits.
+  // Pending Idle must not hydrate the frontend as a real onboarding state.
   return {
     status: 0,
     accounts: [],
     currentAccount: null,
     networks: [],
     settings: null,
-    ownMnemonic: null
-  } as WalletState;
+    ownMnemonic: null,
+    backendInitialized: false
+  };
 }
 
 export async function isDAppEnabled() {
@@ -202,12 +227,146 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
+// Mainnet admits only an account registered with an access code, so a setup there publishes no other.
+const isInviteOnlyNetwork = () => getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+
+async function readPendingAdmission(): Promise<string[] | undefined> {
+  try {
+    const items = await getStorageProvider().get([PENDING_ADMISSION_STORAGE_KEY]);
+    const accountIds: unknown = items[PENDING_ADMISSION_STORAGE_KEY];
+    return Array.isArray(accountIds) && accountIds.every((id): id is string => typeof id === 'string')
+      ? accountIds
+      : undefined;
+  } catch {
+    // An unreadable marker never wipes a wallet.
+    return undefined;
+  }
+}
+
+async function markPendingAdmission(accountIds: string[]) {
+  await getStorageProvider().set({ [PENDING_ADMISSION_STORAGE_KEY]: accountIds });
+}
+
+// A published setup's accounts are admitted: a marker a failed removal leaves only makes the next start ask again.
+async function clearPendingAdmission() {
+  await getStorageProvider()
+    .remove([PENDING_ADMISSION_STORAGE_KEY])
+    .catch(error => console.warn('[Actions] could not clear the pending-admission marker:', error));
+}
+
+async function admitsEveryAccount(accountIds: string[]): Promise<boolean> {
+  for (const accountId of accountIds) if (!(await isMainnetAccountAdmitted(accountId))) return false;
+  return true;
+}
+
+/**
+ * Whether init keeps an existing vault. A setup marked pending with no accounts stopped inside its spawn and is
+ * undone. Otherwise init asks the node about each account: one it does not admit undoes the setup, and no answer
+ * keeps the wallet and the marker so the next start asks again.
+ */
+async function keepsSetupPendingAdmission(): Promise<boolean> {
+  const accountIds = await readPendingAdmission();
+  if (accountIds === undefined) return true;
+  let admitted = false;
+  try {
+    if (accountIds.length > 0) {
+      // The node to ask is the stored network's, and a mobile or desktop realm runs init before its page loads it.
+      await loadEndpointOverrides();
+      admitted = await admitsEveryAccount(accountIds);
+    }
+  } catch (error) {
+    console.warn('[Actions.init] could not ask the node about a setup pending admission:', error);
+    return true;
+  }
+  if (!admitted) {
+    await undoFailedSetup(undefined, 'Actions.init');
+    return false;
+  }
+  await clearPendingAdmission();
+  return true;
+}
+
+// Keep the account ID after a failed admission request so a retry uses the same account.
+let pendingAccessVault: { inputs: string; vault: Vault } | null = null;
+
+async function discardPendingAccessVault() {
+  if (!pendingAccessVault) return;
+  await undoFailedSetup(pendingAccessVault.vault, 'Actions.pendingAccessSetup');
+  pendingAccessVault = null;
+}
+
+/**
+ * A setup's spawn. A marked setup writes its marker first, with no accounts: the spawn's wipe keeps it and the spawn
+ * persists the vault before it returns, so a realm that stops inside it leaves the marker for init. Once the spawn
+ * returns, the marker lists every account the vault holds. Any other setup first removes a marker an earlier one left,
+ * which that wipe would otherwise keep and init would read as this setup's.
+ */
+async function spawnSetup(marked: boolean, spawn: () => Promise<Vault>): Promise<Vault> {
+  if (!marked) {
+    // Not swallowed: a marker this cannot read or remove would outlive the wipe.
+    const storage = getStorageProvider();
+    if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
+      await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
+    return spawn();
+  }
+  await markPendingAdmission([]);
+  let vault: Vault;
+  try {
+    vault = await spawn();
+  } catch (error) {
+    // A rejected spawn has undone what it wrote, or wrote nothing, so init has no setup to undo.
+    await clearPendingAdmission();
+    throw error;
+  }
+  try {
+    await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
+  } catch (error) {
+    await undoFailedSetup(vault, 'Actions.spawnSetup');
+    throw error;
+  }
+  return vault;
+}
+
+async function getAccessSetupVault(inputs: string, accessCode: string | undefined, spawn: () => Promise<Vault>) {
+  if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
+  await discardPendingAccessVault();
+  const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn);
+  if (accessCode) pendingAccessVault = { inputs, vault };
+  return vault;
+}
+
+async function registerSetupAccessCode(accountId: string, code: string) {
+  const outcome = await redeemMainnetAccessCode(code, { accountId, rpcUrl: getEffectiveRpcUrl() });
+  if (outcome === 'rejected') {
+    // No retry can admit this account with this code: the caller's finally undoes it now.
+    pendingAccessVault = null;
+    throw Object.assign(new PublicError(getMessage('mainnetAccessCodeRejected')), {
+      code: MAINNET_ACCESS_CODE_REJECTED
+    });
+  }
+}
+
+/**
+ * A setup publishes on mainnet only accounts the node admits. A code registers only the current one, and a seed import,
+ * a hot key or a wallet file can bring several.
+ */
+async function assertEveryMainnetAdmitted(accounts: WalletAccount[]) {
+  if (!(await admitsEveryAccount(accounts.map(({ publicKey }) => publicKey))))
+    throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+}
+
+// An access code registers one account, so no other account a wallet adds there would be admitted.
+function refuseSecondMainnetAccount() {
+  if (isInviteOnlyNetwork()) throw new PublicError(getMessage('mainnetSecondAccountRefused'));
+}
+
 export function registerNewWallet(
   walletType: WalletType,
   password?: string,
   mnemonic?: string,
   ownMnemonic?: boolean,
-  guardianEndpoint?: string
+  guardianEndpoint?: string,
+  accessCode?: string
 ) {
   console.log(
     '[Actions.registerNewWallet] Called with walletType:',
@@ -225,11 +384,19 @@ export function registerNewWallet(
       let vault: Vault | undefined;
       let published = false;
       try {
-        vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
+        // A new wallet there needs a code; a seed import may bring an account the node already admits.
+        if (isInviteOnlyNetwork() && !ownMnemonic && !accessCode) throw new PublicError(getMessage('noCodeBody'));
+        vault = await getAccessSetupVault(
+          JSON.stringify(['new', walletType, password, mnemonic, ownMnemonic, guardianEndpoint]),
+          accessCode,
+          () => Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint)
+        );
         console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
+        if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
+        if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -240,12 +407,15 @@ export function registerNewWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
+        pendingAccessVault = null;
+        if (accessCode || isInviteOnlyNetwork()) await clearPendingAdmission();
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
         throw err;
       } finally {
-        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerNewWallet');
+        if (!published && vault && pendingAccessVault?.vault !== vault)
+          await undoFailedSetup(vault, 'Actions.registerNewWallet');
         syncRealmInsertKeySink();
       }
     })
@@ -256,14 +426,17 @@ export function registerNewWallet(
 export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
+      const inviteOnly = isInviteOnlyNetwork();
       let vault: Vault | undefined;
       let published = false;
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
-        vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
+        await discardPendingAccessVault();
+        vault = await spawnSetup(inviteOnly, () => Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint));
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
+        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -274,6 +447,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
+        if (inviteOnly) await clearPendingAdmission();
       } finally {
         if (!published && vault) await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
         syncRealmInsertKeySink();
@@ -290,15 +464,20 @@ export function registerImportedWallet(
 ) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
+      const inviteOnly = isInviteOnlyNetwork();
       let vault: Vault | undefined;
       let published = false;
       try {
+        await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
+        vault = await spawnSetup(inviteOnly, () =>
+          Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
+        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -309,6 +488,7 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
+        if (inviteOnly) await clearPendingAdmission();
       } finally {
         if (!published && vault) await undoFailedSetup(vault, 'Actions.registerImportedWallet');
         syncRealmInsertKeySink();
@@ -318,33 +498,43 @@ export function registerImportedWallet(
 }
 
 export function lock() {
-  return withInited(async () => {
-    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
-    // consume loop) to drain before clearing the vault key. If we lock while
-    // the kernel is mid-`miden::protocol::auth::request`, the signing
-    // callback has no key → executeTransaction fails → notes can end up
-    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
-    // coincided with LOCK_REQUEST arriving while a consume loop was active.
-    await withWasmClientLock(async () => {
-      const { vault } = store.getState();
-      clearRecoveryAuthorizations();
-      releaseGuardianRecoveriesOnLock();
-      locked();
-      // Only the vault being locked gives up its insert-key sink; one an unlock in
-      // flight just installed stays (#878).
-      vault?.retire();
-    });
+  return withInited(lockForResetInTurn);
+}
+
+export async function lockForResetInTurn() {
+  // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
+  // consume loop) to drain before clearing the vault key. If we lock while
+  // the kernel is mid-`miden::protocol::auth::request`, the signing
+  // callback has no key → executeTransaction fails → notes can end up
+  // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
+  // coincided with LOCK_REQUEST arriving while a consume loop was active.
+  await withWasmClientLock(async () => {
+    const { vault } = store.getState();
+    clearRecoveryAuthorizations();
+    releaseGuardianRecoveriesOnLock();
+    locked();
+    // Only the vault being locked gives up its insert-key sink; one an unlock in
+    // flight just installed stays (#878).
+    vault?.retire();
   });
 }
 
 export function unlock(password?: string) {
+  return unlockUsing(
+    () => Vault.setup(password),
+    () => true
+  );
+}
+
+function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       // Constructed inside the try: the constructor installs the candidate's sink,
       // and the finally below is what puts the store's back if anything after the
       // construction throws (#878).
       try {
-        const vault = await Vault.setup(password);
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+        const vault = await createVault();
         // Resuming an interrupted removal is best-effort. It reaches the keystore, a
         // client build and the offscreen document, and it throws seedRemovalFailed by
         // design; letting that escape would leave the wallet permanently unopenable,
@@ -369,17 +559,76 @@ export function unlock(password?: string) {
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonic = await vault.isOwnMnemonic();
+        const seedPhraseStatus = await vault.fetchSeedPhraseStatus();
+        if (!canAdopt()) throw new PublicError(getMessage('passkeyUnlockUnavailable'));
         unlocked({
           vault,
           accounts,
           settings,
           currentAccount,
           ownMnemonic,
-          seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+          seedPhraseStatus
         });
       } finally {
         syncRealmInsertKeySink();
       }
+    })
+  );
+}
+
+export async function platformUnlock(
+  command: PlatformUnlockCommand,
+  owner: Runtime.Port,
+  available: boolean
+): Promise<PlatformUnlockResult> {
+  if (command.action === 'unlock') {
+    await unlockUsing(
+      () => Vault.setupWithPlatformCredential(command.credentialId, command.prfSecret),
+      () => intercom.isConnected(owner)
+    );
+    return { action: 'unlock' };
+  }
+  return withInited(() =>
+    getUnlockQueue().add(async (): Promise<PlatformUnlockResult> => {
+      const current = store.getState();
+      if (
+        ['begin', 'commit', 'remove'].includes(command.action) &&
+        (current.status !== WalletStatus.Ready || current.vault === null || !intercom.isConnected(owner))
+      ) {
+        throw new PublicError(getMessage('passkeyUnlockUnavailable'));
+      }
+      switch (command.action) {
+        case 'state':
+          return { action: 'state', state: await PlatformUnlock.readPlatformUnlockState(available) };
+        case 'begin':
+          return {
+            action: 'begin',
+            enrollmentId: await PlatformUnlock.beginPlatformEnrollment(owner, command.expectedCredentialId)
+          };
+        case 'track':
+          await PlatformUnlock.trackPlatformEnrollment(owner, command.enrollmentId, command.credential);
+          break;
+        case 'commit':
+          await PlatformUnlock.commitPlatformEnrollment(
+            owner,
+            command.enrollmentId,
+            command.password,
+            command.prfSecret
+          );
+          break;
+        case 'abandon':
+          await PlatformUnlock.abandonPlatformEnrollments(owner, command.enrollmentId);
+          break;
+        case 'remove':
+          await PlatformUnlock.removePlatformUnlock(command.expectedCredentialId);
+          break;
+        case 'pending-signals':
+          return { action: 'pending-signals', credentialIds: await PlatformUnlock.getPendingPlatformSignals() };
+        case 'signal-complete':
+          await PlatformUnlock.acknowledgePlatformSignal(command.credentialId);
+          break;
+      }
+      return { action: command.action };
     })
   );
 }
@@ -406,6 +655,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
   // Guardian recovery clearing its pending flag — loses one of the two writes.
   return withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
+      refuseSecondMainnetAccount();
       if (name) {
         name = name.trim();
         if (!ACCOUNT_NAME_PATTERN.test(name)) {
@@ -512,6 +762,7 @@ export function importAccount(privateKey: string, name?: string) {
   // the second write would drop the first account.
   return withUnlocked(({ vault }) =>
     getUnlockQueue().add(async () => {
+      refuseSecondMainnetAccount();
       if (name !== undefined) {
         name = name.trim();
         if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
@@ -676,10 +927,39 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
 }
 
 /**
+ * Persist the verdict that another device rotated the account's hot key. On
+ * the accounts write queue like every other read-modify-write of the list;
+ * broadcast only when the vault wrote it, so a refused (stale) verdict moves
+ * nothing on screen.
+ */
+export function markHotKeyRotatedOut(accountPublicKey: string, hotPublicKey: string, onChainHotCommitment: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const { written, ...updated } = await vault.markHotKeyRotatedOut(
+        accountPublicKey,
+        hotPublicKey,
+        onChainHotCommitment
+      );
+      if (written) accountsUpdated(updated);
+    })
+  );
+}
+
+/** Drop the rotated-out hot key and flag the account for a rotation to this device. */
+export function retireRotatedOutHotKey(accountPublicKey: string, expectedHotPubKey: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.retireRotatedOutHotKey(accountPublicKey, expectedHotPubKey);
+      accountsUpdated(updated);
+    })
+  );
+}
+
+/**
  * Frontend-triggered kickoff for the detached Guardian pending-note recovery.
- * Fired by GuardianRecoveryProvider once the hot-key rotation has landed and
- * no transaction is in flight; returns false (so the provider retries) while
- * the account is still ineligible or busy.
+ * Fired by GuardianRecoveryProvider for every flagged account; returns false
+ * (so the provider retries) while the account is still ineligible or busy.
+ * `maybeStartGuardianRecovery` holds the rules.
  */
 export function startGuardianRecovery(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
@@ -790,6 +1070,15 @@ export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expec
   );
 }
 
+export function importHotKeyPair(accountPublicKey: string, keyPairPayload: string) {
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.importHotKeyPair(accountPublicKey, keyPairPayload);
+      accountsUpdated(updated);
+    })
+  );
+}
+
 export function getPublicKeyForCommitment(commitment: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getPublicKeyForCommitment(commitment);
@@ -801,6 +1090,8 @@ export function getAuthSecretKey(key: string) {
     return await vault.getAuthSecretKey(key);
   });
 }
+
+export { confirmationNotFound } from './dapp';
 
 export function getAllDAppSessions() {
   return getAllDApps();
@@ -833,11 +1124,17 @@ export function removeDAppSession(origin: string) {
  * so before this gate existed the toggle was inert on three of the four shipped
  * platforms. Throwing (rather than returning void) surfaces to the dApp as a
  * rejected request instead of a silent `null`.
+ *
+ * `startBy` (epoch ms) refuses a queued request whose turn comes later with
+ * `DAppQueueDeadlineError`, before it asks the user. The queue runs every
+ * origin's requests one at a time, so a Bread Connect request can wait behind
+ * other prompts until its app has stopped waiting for the answer.
  */
 export async function processDApp(
   origin: string,
   req: MidenDAppRequest,
-  sessionId?: string
+  sessionId?: string,
+  startBy?: number
 ): Promise<MidenDAppResponse | void> {
   dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
   if (!(await isDAppEnabled())) {
@@ -845,47 +1142,66 @@ export async function processDApp(
   }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
-  // builds don't leak transaction data to os_log / logcat.
-  dappDebug('[processDApp] Full request:', JSON.stringify(req));
+  // builds don't leak transaction data to os_log / logcat. A login
+  // signature's word is left out even then.
+  const dumped = req?.type === MidenDAppMessageType.LoginSignRequest ? { ...req, payload: '[redacted]' } : req;
+  dappDebug('[processDApp] Full request:', JSON.stringify(dumped));
+  const queued = <T>(handle: () => Promise<T>) =>
+    withInited(() =>
+      getDappQueue().add(() => {
+        if (startBy !== undefined && Date.now() > startBy) {
+          throw new DAppQueueDeadlineError('The request waited in the dApp queue past its deadline');
+        }
+        return handle();
+      })
+    );
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => getDappQueue().add(() => requestPermission(origin, req, sessionId)));
+      return queued(() => requestPermission(origin, req, sessionId));
 
     case MidenDAppMessageType.DisconnectRequest:
-      return withInited(() => getDappQueue().add(() => requestDisconnect(origin, req)));
+      return queued(() => requestDisconnect(origin, req));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => getDappQueue().add(() => requestTransaction(origin, req, sessionId)));
+      return queued(() => requestTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => getDappQueue().add(() => requestSendTransaction(origin, req, sessionId)));
+      return queued(() => requestSendTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
+      return queued(() => requestConsumeTransaction(origin, req, sessionId));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req, sessionId)));
+      return queued(() => requestPrivateNotes(origin, req, sessionId));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => getDappQueue().add(() => requestSign(origin, req, sessionId)));
+      return queued(() => requestSign(origin, req, sessionId));
+
+    case MidenDAppMessageType.LoginSignRequest:
+      return queued(() => requestLoginSign(origin, req, sessionId));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => getDappQueue().add(() => requestAssets(origin, req, sessionId)));
+      return queued(() => requestAssets(origin, req, sessionId));
 
     case MidenDAppMessageType.GuardianInfoRequest:
-      return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
+      return queued(() => requestGuardianInfo(origin, req));
+
+    case MidenDAppMessageType.LoginKeyRequest:
+      return queued(() => requestLoginKey(origin, req));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req, sessionId)));
+      return queued(() => requestImportPrivateNote(origin, req, sessionId));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req, sessionId)));
+      return queued(() => requestConsumableNotes(origin, req, sessionId));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
-      return withInited(() => waitForTransaction(req));
+      // Off the dApp queue, which runs one request at a time: a wait lasts up to five minutes. Under `withInited` only,
+      // so a dApp's wait on its own transaction survives an auto-lock (#1416).
+      return withInited(() => waitForTransaction(origin, req));
   }
 }
 
@@ -903,6 +1219,26 @@ export async function handleReportTelemetryEvent(
     await sendEvent(req.event, resolveTelemetryContext());
   }
   return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+/** Dry-run a USDCx burn and answer how much of the native asset its cost needs. Signs and submits nothing. */
+export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<EstimateUsdcxBurnFeeResponse> {
+  return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
+    const estimate = await estimateUsdcxBurnFeeReserve(req.accountPublicKey, req.destinationChainId);
+    const type = WalletMessageType.EstimateUsdcxBurnFeeResponse;
+    const failure = burnFeeFailureOf(estimate);
+    return estimate.outcome === 'measured'
+      ? {
+          type,
+          outcome: 'measured',
+          feeReserve: estimate.reserve.toString(),
+          faucetId: estimate.faucetId,
+          scope: estimate.scope
+        }
+      : estimate.outcome === 'failed' && failure
+        ? { type, outcome: 'failed', failure }
+        : { type, outcome: estimate.outcome };
+  });
 }
 
 const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];

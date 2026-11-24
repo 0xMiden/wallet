@@ -85,6 +85,7 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
         mismatch ? t('passcodesDoNotMatch') : phase === 'enter' ? t('createA6DigitCode') : t('reEnterTheSame6Digits')
       }
       isError={mismatch}
+      errorId={mismatch ? 'passcodesDoNotMatch' : null}
       filled={activeCode.length}
       length={PASSCODE_LENGTH}
       errorKey={mismatchCount}

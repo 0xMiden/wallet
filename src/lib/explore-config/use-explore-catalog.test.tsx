@@ -57,6 +57,15 @@ it('loads the new network after a switch and shows its catalog', () => {
   expect(mockInit.mock.calls).toEqual([['testnet'], ['devnet']]);
 });
 
+it('only reads, without loading, until asked to load', () => {
+  const { result, rerender } = renderHook(({ load }) => useExploreCatalog(load), { initialProps: { load: false } });
+  expect(result.current).toEqual(catalogOn('testnet'));
+  expect(mockInit).not.toHaveBeenCalled();
+
+  rerender({ load: true });
+  expect(mockInit.mock.calls).toEqual([['testnet']]);
+});
+
 it('stops listening once unmounted', () => {
   const { unmount } = renderHook(() => useExploreCatalog());
   unmount();

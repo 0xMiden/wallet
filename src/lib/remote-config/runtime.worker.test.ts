@@ -43,6 +43,9 @@ jest.mock('./source', () => ({
 const mockDerive = jest.fn<Promise<DerivedBridgeConfig>, [BridgeConfig]>();
 jest.mock('./derive', () => ({ deriveBridgeConfig: (config: BridgeConfig) => mockDerive(config) }));
 
+const mockLookup = jest.fn();
+jest.mock('./geo-lookup', () => ({ lookupFeatureEligibility: (...args: unknown[]) => mockLookup(...args) }));
+
 let mockDegraded = false;
 const mockDown: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator' };
 jest.mock('./availability', () => ({
@@ -56,10 +59,9 @@ const NOW = 1_800_000_000_000;
 const config = (version: number): BridgeConfig => ({
   network: 'testnet',
   version,
-  evm: {},
-  agglayer: {},
-  epoch: {},
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false }
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false, nearIntents: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
@@ -67,8 +69,16 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     network: source.network,
     version: source.version,
     derivedAt,
-    agglayer: { rollupId: skipped, tokens: skipped, evmNetworkId: skipped, l1BridgeCode: skipped, indexer: skipped },
-    epoch: { allocator: skipped, midenUsdcFaucet: skipped, evmUsdc: skipped }
+    chains: {},
+    agglayer: { indexer: skipped },
+    epoch: {
+      allocator: skipped,
+      allocatorAccount: skipped,
+      market: skipped,
+      midenUsdcFaucet: skipped,
+      vaults: skipped
+    },
+    swap: { pairs: skipped }
   };
 };
 const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig => {
@@ -78,7 +88,7 @@ const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig
 };
 const seed = (version: number, fetchedAt = NOW) => {
   const entry = storeEntry(version, fetchedAt);
-  mockStorage.set('bridge_config_derived_v1:testnet', derivedFor(entry.config, fetchedAt));
+  mockStorage.set('bridge_config_derived_v2:testnet', derivedFor(entry.config, fetchedAt));
 };
 const flush = () => jest.advanceTimersByTimeAsync(0);
 
@@ -88,6 +98,7 @@ beforeEach(() => {
   _resetBridgeConfigRuntimeForTest();
   jest.useFakeTimers({ now: NOW });
   mockStorage.clear();
+  mockLookup.mockReset();
   mockDegraded = false;
   mockFetch.mockReset().mockImplementation(async () => storeEntry(1));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
@@ -154,14 +165,29 @@ it('backs off a failed refresh before the next load may retry', async () => {
   expect(mockFetch).toHaveBeenCalledTimes(2);
 });
 
-it('after a wipe, drops the copy and waits for the next load to fetch', async () => {
+// A reset keeps the stored document and its derivation, so a request right after one reads them without a fetch.
+it('after a wipe, keeps the copy and fetches nothing', async () => {
   seed(1);
   await initBridgeConfig();
-  mockStorage.clear();
+  const before = getBridgeConfigSnapshot();
   await Promise.all(mockRereads.map(reread => reread()));
-  expect(mockFetch).not.toHaveBeenCalled();
-  expect(getBridgeConfigSnapshot().status).toBe('loading');
+  expect(getBridgeConfigSnapshot()).toBe(before);
   await initBridgeConfig();
   await flush();
-  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(getBridgeConfigSnapshot()).toBe(before);
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+it('never requests eligibility from backend initialization, elapsed time or reset recovery', async () => {
+  seed(13);
+  await initBridgeConfig();
+  await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS * 2);
+  await initBridgeConfig();
+  await flush();
+  mockStorage.clear();
+  await Promise.all(mockRereads.map(reread => reread()));
+  await initBridgeConfig();
+  expect(mockLookup).not.toHaveBeenCalled();
+  expect(getBridgeConfigSnapshot().geo).toBeUndefined();
+  expect(jest.getTimerCount()).toBe(0);
 });

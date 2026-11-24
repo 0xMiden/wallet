@@ -34,19 +34,20 @@
  * new dApp actions sheet takes over the bottom of the screen.
  */
 
-import React, { type FC, useCallback, useEffect, useRef, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 
+import type { MorphVelocity } from '@miden/dapp-browser';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { type DappSession } from 'lib/dapp-browser';
 import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store';
 
-import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
+import { DappExpanderOverlay } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
 import { FOOTER_CLEARANCE_FALLBACK, subscribeFooterClearance } from './peek-footer';
-import { resolveTargetRect } from './peek-target-rect';
+import { CARD_CORNER_RADIUS, type SlotRect, frontCardRect, resolveTargetRect } from './peek-target-rect';
 
 const MAX_VISIBLE_CARDS = 3;
 // Side padding from the right edge of the screen. 16pt matches the
@@ -54,95 +55,54 @@ const MAX_VISIBLE_CARDS = 3;
 // else visually.
 const EDGE_PADDING = 16;
 
-type MorphMode = 'expand' | 'shrink';
-
-interface MorphingState {
-  /**
-   * `expand` = restore (card → slot rect, borderRadius 16→0).
-   * `shrink` = minimize (slot rect → card position, borderRadius 0→16).
-   * The ExpanderOverlay handles both by parametrizing its initial /
-   * animate rects and border radii.
-   */
-  mode: MorphMode;
+/** A restore without a native morph: its snapshot flies from the card to the slot instead of the page. */
+interface ColdExpand {
+  gestureId: number;
   session: DappSession;
   snapshot: string | null;
-  sourceRect: { x: number; y: number; width: number; height: number };
-  /**
-   * Where the morph finishes. For expand this is the webview slot
-   * rect; for shrink this is the frontmost peek card's final
-   * position. Aspect ratios matter: the snapshot is captured from
-   * the slot rect, so animating to any other aspect ratio makes
-   * `background-size: cover` scale by the larger dimension and
-   * crop, producing the "text shrinks at handoff" artifact.
-   */
-  targetRect: { x: number; y: number; width: number; height: number };
+  sourceRect: SlotRect;
+  targetRect: SlotRect;
 }
 
-// Restore is called partway through the expand animation so the native
-// webview rises at roughly the same moment the overlay reaches full
-// size. Too early → the webview covers the mid-expand overlay and the
-// illusion breaks. Too late → the overlay sits at full size waiting,
-// showing a still snapshot while the user waits for the webview.
-// 215ms (of a 390ms total, ~55%) lands the restore call near the point
-// where the expander has covered ~70% of the screen.
-const RESTORE_TRIGGER_DELAY_MS = 215;
+/**
+ * `ids` most recently arrived first. A session joins at the front and keeps its place, so the card a collapse lands
+ * on is still the front card once its session parks, whatever order the sessions were opened in.
+ */
+function useArrivalOrder(ids: string[]): string[] {
+  const order = useRef<string[]>([]);
+  const kept = order.current.filter(id => ids.includes(id));
+  order.current = [...ids.filter(id => !kept.includes(id)), ...kept];
+  return order.current;
+}
+
+/** Off its resting place (slid away under a drawer, or sliding back) the tray offers no card to land on. */
+function trayAtRest(tray: HTMLElement): boolean {
+  if (document.body.hasAttribute('data-drawer-open')) return false;
+  const transform = window.getComputedStyle(tray).transform;
+  return !transform || transform === 'none' || transform === 'matrix(1, 0, 0, 1, 0, 0)';
+}
 
 export const DappPeekTray: FC = () => {
-  const { session: foregroundSession, parkedSessions, restore, close, openSwitcher, slotRect } = useDappBrowser();
-  const [snapshotTick, setSnapshotTick] = useState(0);
+  const { parkedSessions, sessionStates, motion, restore, close, openSwitcher, reportLandingCard, slotRect } =
+    useDappBrowser();
+  const [, setSnapshotTick] = useState(0);
   const [footerClearance, setFooterClearance] = useState(FOOTER_CLEARANCE_FALLBACK);
-  // The currently-morphing session (either expanding-to-restore or
-  // shrinking-to-minimize). Cleared once the animation completes.
-  const [morphing, setMorphing] = useState<MorphingState | null>(null);
-  // Cyclic rotation pointer into `orderedAll` (the reversed parked list).
-  // The session at `orderedAll[activeIndex]` becomes the frontmost card.
-  // Swiping the front card left increments this (mod length) to rotate
-  // the next card forward; swiping right decrements to go back.
-  // Reset to 0 whenever a new session is parked so the freshly-minimized
-  // dApp is always the front on arrival (and the shrink animation
-  // lands on the right card).
+  const [coldExpand, setColdExpand] = useState<ColdExpand | null>(null);
+  const slotRectRef = useRef(slotRect);
+  slotRectRef.current = slotRect;
+  // DappActive clears the slot when it unmounts, so a restore from a parked tray reads null and lands on the last
+  // measured slot instead of the computed fallback.
+  const lastMeasuredSlotRef = useRef<SlotRect | null>(null);
+  if (slotRect && slotRect.width > 0 && slotRect.height > 0) lastMeasuredSlotRef.current = slotRect;
+  // Assigned during render so a warm refusal that resolves after this commit reads the sessions listed now.
+  const sessionStatesRef = useRef(sessionStates);
+  sessionStatesRef.current = sessionStates;
+  const gestureIdRef = useRef(0);
+  // Cyclic rotation pointer into `orderedAll`. The session at
+  // `orderedAll[activeIndex]` becomes the frontmost card. Swiping the front
+  // card rotates it; a card arriving resets it so the new card is in front.
   const [activeIndex, setActiveIndex] = useState(0);
-  // Active timers we started for the morph sequence, so an unmount
-  // during an animation doesn't leave dangling setTimeouts pointing
-  // at stale state.
-  const restoreTriggerTimerRef = useRef<number | null>(null);
-  const morphClearTimerRef = useRef<number | null>(null);
-  // Remember the last ground-truth slot rect the provider reported, so
-  // subsequent restore gestures animate to the right place even after
-  // the current foreground dApp is parked (which nulls the provider's
-  // `slotRect`). Without this cache, the second and subsequent restores
-  // would fall through to `resolveTargetRect`'s pure-fallback branch,
-  // which is only approximately correct. This is also what we use as
-  // the SOURCE rect for the shrink animation.
-  const lastKnownSlotRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  // Track the previous foreground session id so we can detect the
-  // transition from "foreground" to "parked" (i.e. a minimize) and
-  // trigger the shrink overlay. Reactive signal, no extra provider
-  // plumbing needed.
-  const prevForegroundIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!slotRect || slotRect.width <= 0 || slotRect.height <= 0) return;
-    // Debounce the cache write by 350ms so mid-transition measurements
-    // don't stick. When the Browser tab is sliding in, DappActive
-    // mounts with its ancestors mid-translateX (the tab's ~150ms
-    // slide-in). The first ResizeObserver measurement returns
-    // coordinates offset by that transform (~32pt too far right).
-    // Without the debounce, that transient value gets cached and the
-    // NEXT restore animation (which reads the cache) targets the
-    // wrong rect — user-visible jump at handoff. DappActive schedules
-    // a re-measure at 200ms and 400ms post-mount to catch the
-    // settled rect; our 350ms debounce ensures that at least one of
-    // those settled values wins and is what ends up in the cache.
-    const t = window.setTimeout(() => {
-      lastKnownSlotRectRef.current = {
-        x: slotRect.x,
-        y: slotRect.y,
-        width: slotRect.width,
-        height: slotRect.height
-      };
-    }, 350);
-    return () => window.clearTimeout(t);
-  }, [slotRect]);
+  const trayRef = useRef<HTMLDivElement>(null);
 
   // Re-render when the snapshot store updates so freshly-captured
   // snapshots swap in without unmounting their card.
@@ -152,63 +112,87 @@ export const DappPeekTray: FC = () => {
   // (see peek-footer).
   useEffect(() => subscribeFooterClearance(setFooterClearance), []);
 
-  // Clean up any running morph timers on unmount so the setState
-  // calls below don't fire against a stale component.
-  useEffect(() => {
+  // The front card is where a native collapse lands (#1817), so its rect is published whenever the tray moves.
+  useLayoutEffect(() => {
+    const tray = trayRef.current;
+    if (!tray) return;
+    const publish = () => reportLandingCard(trayAtRest(tray) ? frontCardRect(tray.getBoundingClientRect()) : null);
+    publish();
+    window.addEventListener('resize', publish);
+    tray.addEventListener('transitionend', publish);
+    const observer = new MutationObserver(publish);
+    observer.observe(document.body, { attributeFilter: ['data-drawer-open'] });
     return () => {
-      if (restoreTriggerTimerRef.current != null) window.clearTimeout(restoreTriggerTimerRef.current);
-      if (morphClearTimerRef.current != null) window.clearTimeout(morphClearTimerRef.current);
+      window.removeEventListener('resize', publish);
+      tray.removeEventListener('transitionend', publish);
+      observer.disconnect();
     };
-  }, []);
+  }, [footerClearance, reportLandingCard]);
+  useEffect(() => () => reportLandingCard(null), [reportLandingCard]);
 
-  // Commit a restore (expand): freeze the card's position in state,
-  // render the ExpanderOverlay (which flies from the source rect to
-  // the slot rect), trigger the actual provider restore partway
-  // through so the native webview arrives as the overlay reaches full
-  // size, and finally clear the overlay state once the whole animation
-  // has played out.
+  // Once the session is gone from the list, its overlay is too, including while its restore is still pending.
+  useLayoutEffect(() => {
+    setColdExpand(current =>
+      current !== null && !sessionStates.some(s => s.session.id === current.session.id) ? null : current
+    );
+  }, [sessionStates]);
+
+  // A warm card hands its rect and release velocity to the native morph, which moves the live page from it. A cold
+  // session has no page to move yet, and a plugin that refuses the morph shows the page without one: then the
+  // snapshot overlay makes the trip. The overlay belongs to one gesture: a newer restore replaces it, and a stale
+  // refusal neither installs nor clears the newer one.
   const handleCommitRestore = useCallback(
-    (session: DappSession, sourceRect: DOMRect) => {
-      const snap = getSnapshot(session.id) ?? null;
-      // Prefer the live slot rect (the current foreground dApp's rect,
-      // if any) over the cached one (set by a previous foreground) over
-      // the pure computed fallback (if neither is available yet).
-      const targetRect = resolveTargetRect(slotRect, lastKnownSlotRectRef.current);
-      setMorphing({
-        mode: 'expand',
-        session,
-        snapshot: snap,
-        sourceRect: { x: sourceRect.left, y: sourceRect.top, width: sourceRect.width, height: sourceRect.height },
-        targetRect
-      });
-      // Kick the provider restore partway through the expand so the
-      // webview is ready by the time the overlay is at full size.
-      restoreTriggerTimerRef.current = window.setTimeout(() => {
+    (session: DappSession, rect: DOMRect, velocity: MorphVelocity) => {
+      const gestureId = ++gestureIdRef.current;
+      const card = { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+      const expandSnapshot = () =>
+        setColdExpand({
+          gestureId,
+          session,
+          snapshot: getSnapshot(session.id) ?? null,
+          sourceRect: card,
+          targetRect: resolveTargetRect(slotRectRef.current, lastMeasuredSlotRef.current)
+        });
+      const state = sessionStates.find(s => s.session.id === session.id);
+      if (!state?.instance || state.isCold) {
+        expandSnapshot();
         void restore(session.id);
-        restoreTriggerTimerRef.current = null;
-      }, RESTORE_TRIGGER_DELAY_MS);
-      // Tear down the overlay after the full expand animation + a
-      // short tail for the fade-out. Leaves a little buffer so the
-      // native webview has definitely arrived before we unmount the
-      // React-side visual.
-      if (morphClearTimerRef.current != null) window.clearTimeout(morphClearTimerRef.current);
-      morphClearTimerRef.current = window.setTimeout(() => {
-        setMorphing(null);
-        morphClearTimerRef.current = null;
-      }, EXPAND_TOTAL_DURATION_MS + 100);
+        return;
+      }
+      // This gesture is the latest, so the previous overlay is no longer the one on screen.
+      setColdExpand(current => (current !== null && current.gestureId < gestureId ? null : current));
+      void restore(session.id, {
+        // A back card is scaled down, and its corners with it.
+        card: { ...card, cornerRadius: CARD_CORNER_RADIUS * (rect.width / CARD_WIDTH) },
+        velocity
+      }).then(moved => {
+        if (
+          !moved &&
+          gestureId === gestureIdRef.current &&
+          sessionStatesRef.current.some(s => s.session.id === session.id)
+        ) {
+          expandSnapshot();
+        }
+      });
     },
-    [restore, slotRect]
+    [restore, sessionStates]
   );
 
   // Cards render newest-first so the dApp the user most recently
   // minimized is the frontmost card (closest to their thumb, unobscured,
-  // obvious tap target). `parkedSessions` is kept in session-creation
-  // order by the provider, so we reverse it here — the last-added
-  // parked session lands at index 0 and becomes the front-of-deck.
+  // obvious tap target). The page in flight keeps a card under it: a
+  // collapse lands on the front card before its session parks, and an
+  // expand leaves its card until the native page has started covering it.
   // Then we CYCLICALLY ROTATE by `activeIndex` so the user-selected
   // active card is at the front. Finally, slice to MAX_VISIBLE_CARDS
   // and pass the overflow count to the front card as a "+N" badge.
-  const orderedAll = [...parkedSessions].reverse();
+  const parked = [...parkedSessions].reverse().map(state => state.session);
+  const movingId = motion && (motion.target === 'collapsed' || !motion.started) ? motion.id : null;
+  const moving = parked.some(s => s.id === movingId)
+    ? undefined
+    : sessionStates.find(state => state.session.id === movingId)?.session;
+  const byId = new Map((moving ? [moving, ...parked] : parked).map(s => [s.id, s]));
+  const orderedAll = useArrivalOrder([...byId.keys()]).flatMap(id => byId.get(id) ?? []);
   const rotated =
     orderedAll.length > 0 && activeIndex > 0
       ? [...orderedAll.slice(activeIndex), ...orderedAll.slice(0, activeIndex)]
@@ -218,23 +202,22 @@ export const DappPeekTray: FC = () => {
   // cards that don't fit in the visible slice at any given time).
   const overflowCount = Math.max(0, rotated.length - MAX_VISIBLE_CARDS);
 
-  // Reset the rotation pointer whenever a new session is parked, so
-  // the newly-minimized dApp is always the front card (matches the
-  // shrink animation's landing position, and is what the user expects
-  // after hitting Minimize). Also clamp `activeIndex` if the list
-  // shrinks below it (e.g. a session was closed from the switcher).
-  const prevParkedLenRef = useRef(parkedSessions.length);
+  // Reset the rotation pointer whenever a card arrives, so the newly
+  // minimized dApp is always the front card, where its collapse lands.
+  // An arrival is a new id, not a longer list: one card can leave on the
+  // render another arrives. Also clamp `activeIndex` if the list shrinks
+  // below it (e.g. a session was closed from the switcher).
+  const orderKey = orderedAll.map(s => s.id).join('\n');
+  const prevOrderRef = useRef<string[] | null>(null);
   useEffect(() => {
-    const len = parkedSessions.length;
-    if (len > prevParkedLenRef.current) {
-      setActiveIndex(0);
-    } else if (activeIndex >= len && len > 0) {
-      setActiveIndex(0);
-    } else if (len === 0 && activeIndex !== 0) {
+    const ids = orderKey ? orderKey.split('\n') : [];
+    const previous = prevOrderRef.current;
+    prevOrderRef.current = ids;
+    const arrived = previous !== null && ids.some(id => !previous.includes(id));
+    if (arrived || (activeIndex >= ids.length && ids.length > 0) || (ids.length === 0 && activeIndex !== 0)) {
       setActiveIndex(0);
     }
-    prevParkedLenRef.current = len;
-  }, [parkedSessions.length, activeIndex]);
+  }, [orderKey, activeIndex]);
 
   const handleNavigate = useCallback(
     (direction: 'left' | 'right') => {
@@ -259,63 +242,6 @@ export const DappPeekTray: FC = () => {
   // clipped off the left edge of the viewport.
   const stackWidth = CARD_WIDTH + Math.max(0, visible.length - 1) * CARD_STACK_OFFSET;
 
-  // Detect the foreground-dApp → parked transition that happens when
-  // the user minimizes, and trigger the reverse (shrink) animation so
-  // the soon-to-be card appears to be sucked back into the tray.
-  //
-  // Signal: the previous render had a foreground session id X, the
-  // current render has no foreground session, AND X now lives in
-  // parkedSessions. That's the minimize path.
-  //
-  // We use the cached slot rect as the source (the live slotRect is
-  // already null by this point because DappActive unmounted on park).
-  // Target is computed from the tray's known layout: the frontmost
-  // card lands at the right edge, offset up by the footer clearance.
-  //
-  // Deliberately only fires when `lastKnownSlotRectRef` has a value
-  // and a snapshot exists in the store — otherwise there's no visual
-  // continuity to animate and it's better to just let the card
-  // appear normally.
-  useEffect(() => {
-    const prevId = prevForegroundIdRef.current;
-    const currentId = foregroundSession?.id ?? null;
-    prevForegroundIdRef.current = currentId;
-    // Only care about the transition away from a foreground session.
-    if (!prevId || prevId === currentId) return;
-    // Was it parked (as opposed to closed or a switcher swap)?
-    const nowParked = parkedSessions.find(s => s.session.id === prevId);
-    if (!nowParked) return;
-    // Don't stomp an in-flight expand morph (e.g. the user chained a
-    // restore gesture with a minimize somehow).
-    if (morphing && morphing.session.id === prevId) return;
-    const snap = getSnapshot(prevId) ?? null;
-    const source = lastKnownSlotRectRef.current;
-    if (!snap || !source) return;
-    // Target: the frontmost card's final position in the tray.
-    // Because we just reversed parkedSessions above and the newly-
-    // minimized session was appended to the end of sessionStates
-    // (→ first in the reversed list), it'll be at stackIndex 0
-    // which renders at (right: 0, bottom: 0) within the tray's
-    // positioning box. Convert to absolute viewport coords.
-    const viewportW = document.body.clientWidth || window.innerWidth;
-    const viewportH = document.body.clientHeight || window.innerHeight;
-    const cardLeft = viewportW - EDGE_PADDING - CARD_WIDTH;
-    const cardTop = viewportH - (footerClearance + 4) - CARD_HEIGHT;
-    setMorphing({
-      mode: 'shrink',
-      session: nowParked.session,
-      snapshot: snap,
-      sourceRect: { x: source.x, y: source.y, width: source.width, height: source.height },
-      targetRect: { x: cardLeft, y: cardTop, width: CARD_WIDTH, height: CARD_HEIGHT }
-    });
-    // Tear down the overlay once the shrink has played out.
-    if (morphClearTimerRef.current != null) window.clearTimeout(morphClearTimerRef.current);
-    morphClearTimerRef.current = window.setTimeout(() => {
-      setMorphing(null);
-      morphClearTimerRef.current = null;
-    }, EXPAND_TOTAL_DURATION_MS + 50);
-  }, [foregroundSession, parkedSessions, footerClearance, morphing]);
-
   // Portal the tray into `document.body` rather than letting it render
   // inside the wallet's React tree. The app's global layout CSS in
   // main.css applies `width: 100% !important; height: 100% !important`
@@ -329,6 +255,7 @@ export const DappPeekTray: FC = () => {
 
   return createPortal(
     <div
+      ref={trayRef}
       data-dapp-bubble-host="true"
       data-testid="dapp-peek-tray"
       className="pointer-events-none fixed"
@@ -342,15 +269,15 @@ export const DappPeekTray: FC = () => {
         height: CARD_HEIGHT,
         zIndex: 65
       }}
-      aria-hidden={parkedSessions.length === 0}
+      aria-hidden={visible.length === 0}
     >
       <div className="relative h-full w-full">
         <AnimatePresence>
-          {visible.map((state, index) => (
+          {visible.map((session, index) => (
             <DappPeekCard
-              key={`peek-card-${state.session.id}-${snapshotTick}`}
-              session={state.session}
-              snapshot={getSnapshot(state.session.id) ?? undefined}
+              key={session.id}
+              session={session}
+              snapshot={getSnapshot(session.id) ?? undefined}
               stackIndex={index}
               // Pass the overflow count to the FRONT card only (index 0).
               // The front card is the most prominent and always fully
@@ -358,16 +285,13 @@ export const DappPeekTray: FC = () => {
               // cards only peek ~30pt so they're too cramped to host
               // additional chrome.
               overflowCount={index === 0 ? overflowCount : 0}
-              // During an EXPAND morph for this card: fade it in place
-              // so the expander appears to grow out of it directly.
-              isExpanding={morphing?.mode === 'expand' && morphing.session.id === state.session.id}
-              // During a SHRINK morph landing on this card: skip the
-              // entry animation so the card sits at its steady state
-              // under the shrinking overlay. When the overlay unmounts
-              // the card is already in position, no bounce-in catching.
-              isShrinking={morphing?.mode === 'shrink' && morphing.session.id === state.session.id}
-              onCommitRestore={sourceRect => handleCommitRestore(state.session, sourceRect)}
-              onClose={() => void close(state.session.id)}
+              // Under a collapsing page the card is already in place, its chrome back once the page hands over;
+              // under an expanding one it leaves at once when the page has covered it.
+              isShrinking={motion?.id === session.id && motion.target === 'collapsed'}
+              chromeVisible={motion?.id !== session.id}
+              exitInstantly={motion?.id === session.id && motion.target === 'expanded'}
+              onCommitRestore={(rect, velocity) => handleCommitRestore(session, rect, velocity)}
+              onClose={() => void close(session.id)}
               onShowAll={openSwitcher}
               // Only the front card (index 0) gets onNavigate. Back
               // cards can't reliably host a drag handler anyway because
@@ -379,23 +303,14 @@ export const DappPeekTray: FC = () => {
           ))}
         </AnimatePresence>
       </div>
-      {/* Shared morph overlay — handles BOTH the restore (expand) and
-          minimize (shrink) paths. Fixed-position portal element that
-          morphs from `sourceRect` to `targetRect` with a border-radius
-          interpolation between `initialBorderRadius` and
-          `finalBorderRadius`. For an expand we go card→slot with
-          borderRadius 16→0; for a shrink we go slot→card with
-          borderRadius 0→16. Separate element so its geometry animation
-          (left/top/width/height) doesn't interfere with the cards'
-          transform-based entry/exit animations. */}
-      {morphing && (
+      {coldExpand && (
         <DappExpanderOverlay
-          sourceRect={morphing.sourceRect}
-          snapshot={morphing.snapshot}
-          origin={morphing.session.origin}
-          targetRect={morphing.targetRect}
-          initialBorderRadius={morphing.mode === 'expand' ? 16 : 0}
-          finalBorderRadius={morphing.mode === 'expand' ? 0 : 16}
+          key={coldExpand.gestureId}
+          sourceRect={coldExpand.sourceRect}
+          snapshot={coldExpand.snapshot}
+          origin={coldExpand.session.origin}
+          targetRect={coldExpand.targetRect}
+          onDone={() => setColdExpand(current => (current?.gestureId === coldExpand.gestureId ? null : current))}
         />
       )}
     </div>,

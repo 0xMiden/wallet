@@ -1,8 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { MidenState } from 'lib/miden/types';
-import { isExtension } from 'lib/platform';
-import { SyncData, WalletMessageType, WalletNotification } from 'lib/shared/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { hasExtensionRuntime, isExtension } from 'lib/platform';
+import { primeCachedDisplayQuotes } from 'lib/prices/display-cache';
+import { SyncData, WalletMessageType, WalletNotification, WalletStatus } from 'lib/shared/types';
+import { loadTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { getIntercom, useWalletStore } from '../index';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
@@ -53,16 +56,24 @@ async function retryFetchState(isCancelled: () => boolean): Promise<MidenState |
  * invoke `onData` with it if present and for the current account.
  */
 /* c8 ignore start -- extension-only chrome.storage bridge */
-function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): void {
+function readSyncData(accountPublicKey: string, onData: (d?: SyncData) => void): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = globalThis as any;
-  if (!g.chrome?.storage?.local) return;
+  // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+  if (!g.chrome?.storage?.local || !hasExtensionRuntime()) return onData();
   g.chrome.storage.local.get('miden_sync_data', (result: any) => {
     const syncData: SyncData | undefined = result?.miden_sync_data;
-    if (!syncData) return;
-    if (syncData.accountPublicKey !== accountPublicKey) return;
-    onData(syncData);
+    onData(syncData?.accountPublicKey === accountPublicKey && matchesBalanceScope(syncData) ? syncData : undefined);
   });
+}
+
+function matchesBalanceScope({ balanceSnapshot: snapshot }: SyncData): boolean {
+  return (
+    snapshot?.network !== 'changed' &&
+    snapshot?.effectiveNetwork === getEffectiveNetworkName() &&
+    snapshot?.rpcUrl === getEffectiveRpcUrl() &&
+    snapshot?.accountNonce !== undefined
+  );
 }
 
 /**
@@ -71,18 +82,50 @@ function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): 
  * instead of falling back to DEFAULT_ZERO_MIDEN_BALANCE while the 3s poll
  * catches up.
  */
-async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<void> {
-  await new Promise<void>(resolve => {
-    readSyncData(accountPublicKey, syncData => {
-      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets)
-        .catch(err => console.warn('[useIntercomSync] Initial balance rehydrate failed:', err))
-        .finally(() => resolve());
-    });
-    // Resolve anyway if there's no sync data yet — don't block app mount.
-    setTimeout(resolve, 1_000);
-  });
+async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent: () => boolean): Promise<void> {
+  let active = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>(resolve => {
+        readSyncData(accountPublicKey, syncData => {
+          if (!syncData || !active || !isCurrent()) return resolve();
+          const network = getEffectiveNetworkName();
+          const current = () => active && isCurrent() && matchesBalanceScope(syncData);
+          void Promise.all([
+            updateBalancesFromSyncData(accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot, current),
+            primeCachedDisplayQuotes(current).catch(() => undefined),
+            import('app/hooks/useHiddenTokens').then(({ primeHiddenTokens }) =>
+              primeHiddenTokens(network, accountPublicKey)
+            ),
+            loadTokenPriceAssets(network).catch(() => undefined)
+          ]).then(
+            () => resolve(),
+            error => {
+              console.warn('[useIntercomSync] Initial balance rehydrate failed:', error);
+              resolve();
+            }
+          );
+        });
+      }),
+      new Promise<void>(resolve => (timer = setTimeout(resolve, 1_000)))
+    ]);
+  } catch (error) {
+    console.warn('[useIntercomSync] Initial balance storage read failed:', error);
+  } finally {
+    active = false;
+    clearTimeout(timer);
+  }
 }
 /* c8 ignore stop */
+
+async function publishState(state: MidenState, isCurrent: () => boolean, syncFromBackend: (state: MidenState) => void) {
+  const address = state.currentAccount?.publicKey;
+  if (isExtension() && state.status === WalletStatus.Ready && address && !useWalletStore.getState().balances[address]) {
+    await rehydrateBalancesFromStorage(address, isCurrent);
+  }
+  if (isCurrent()) syncFromBackend(state);
+}
 
 /**
  * Hook that sets up synchronization between the Zustand store and the backend.
@@ -90,6 +133,7 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<v
  */
 export function useIntercomSync() {
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
+  const updateRevision = useRef(0);
 
   useEffect(() => {
     // The backend broadcasts `StateUpdated` once SW init completes (see
@@ -98,22 +142,12 @@ export function useIntercomSync() {
     // that a missed broadcast or slow port setup never leaves the popup
     // permanently stuck (the failure mode in #113).
     let cancelled = false;
+    const initialRevision = updateRevision.current;
 
     (async () => {
-      const state = await retryFetchState(() => cancelled);
-      if (cancelled || !state) return;
-      syncFromBackend(state);
-
-      // Rehydrate balances from the last SW sync snapshot BEFORE the app
-      // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
-      // is missing from `useAllBalances` until the 3s poll ticks below,
-      // so Send's token list shows only the MIDEN fallback for the first
-      // few seconds after any page (re)load. Surfaced by the E2E stress
-      // suite — receivers that claim mid-run would render Send as
-      // MIDEN-only until the next poll cycle.
-      if (isExtension() && state.currentAccount) {
-        await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
-      }
+      const state = await retryFetchState(() => cancelled || initialRevision !== updateRevision.current);
+      const isCurrent = () => !cancelled && initialRevision === updateRevision.current;
+      if (state && isCurrent()) await publishState(state, isCurrent, syncFromBackend);
     })();
 
     return () => {
@@ -134,11 +168,12 @@ export function useIntercomSync() {
 
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
+        updateRevision.current += 1;
         currentRefetchToken.cancelled = true;
         const token = { cancelled: false };
         currentRefetchToken = token;
-        retryFetchState(() => token.cancelled).then(state => {
-          if (state && !token.cancelled) syncFromBackend(state);
+        void retryFetchState(() => token.cancelled).then(async state => {
+          if (state && !token.cancelled) await publishState(state, () => !token.cancelled, syncFromBackend);
         });
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
@@ -166,10 +201,14 @@ export function useIntercomSync() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
+    // An extension reload or update orphans this page and its extension APIs throw from then on (#1593).
+    if (!hasExtensionRuntime()) return;
 
     const accountPublicKey = currentAccount.publicKey;
+    let active = true;
     const poll = () => {
       readSyncData(accountPublicKey, syncData => {
+        if (!syncData || !active) return;
         // Note: we used to call `store().checkForNewNotes(noteIds)` here too.
         // `useNoteToastMonitor` (driven by `useClaimableNotes`) is now the single
         // authoritative source for new-note detection — having two racing paths
@@ -177,15 +216,27 @@ export function useIntercomSync() {
         // async `seenNoteIds` hydration resolved; missing toasts when custom-faucet
         // metadata arrived after Path A's notes had already been marked seen).
         // Convert vault assets → balances, update Zustand
-        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
-          console.warn('[useIntercomSync] Balance update failed:', err)
-        );
+        updateBalancesFromSyncData(
+          accountPublicKey,
+          syncData.vaultAssets,
+          syncData.balanceSnapshot,
+          () => active && matchesBalanceScope(syncData)
+        ).catch(err => console.warn('[useIntercomSync] Balance update failed:', err));
       });
     };
 
     poll();
-    const timer = setInterval(poll, 3_000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => {
+      if (!hasExtensionRuntime()) {
+        clearInterval(timer);
+        return;
+      }
+      poll();
+    }, 3_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [currentAccount]);
   /* c8 ignore stop */
 }
@@ -208,6 +259,9 @@ async function fetchStateFromBackend(): Promise<MidenState> {
     const res = await intercom.request({ type: WalletMessageType.GetStateRequest }, { signal: controller.signal });
     if (res?.type !== WalletMessageType.GetStateResponse) {
       throw new Error('Invalid response type');
+    }
+    if (res.state.backendInitialized === false) {
+      throw new Error('Backend initialization pending');
     }
     return res.state;
   } finally {

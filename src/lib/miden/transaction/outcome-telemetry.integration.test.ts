@@ -17,6 +17,10 @@
  * implementations — the reporter is the only thing stubbed, because it is the
  * boundary under test.
  */
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from 'lib/miden/back/background-notification';
 import * as Repo from 'lib/miden/repo';
 import { SettledOperation } from 'lib/telemetry/report-operation';
 
@@ -166,6 +170,8 @@ describe('what is not a failure', () => {
     await cancelTransaction(tx, reason);
 
     expect(reported).toEqual([]);
+    expect(jest.mocked(notifyBackgroundTransactionFailed).mock.calls).toEqual([]);
+    expect(jest.mocked(notifyBackgroundTransactionNotConfirmed).mock.calls).toEqual([]);
   });
 
   it('DOES report a consume the node said never landed, despite the reason being named an interruption', async () => {

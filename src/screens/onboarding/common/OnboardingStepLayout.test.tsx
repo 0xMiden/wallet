@@ -43,9 +43,8 @@ describe('OnboardingStepLayout', () => {
     expect(footer).toHaveAttribute('data-slot', 'footer');
     expect(footer).toHaveClass('flex-col');
     expect(screen.getByTestId('step').querySelector('[data-slot="body"]')).not.toContainElement(footer);
-    // No tab bar is drawn over onboarding, so it opts out of the cushion and the CTA keeps a plain 16px
-    // margin.
-    expect(footer).toHaveClass('pb-4');
+    // Onboarding omits the tab-bar cushion while retaining its margin and safe-area clearance.
+    expect(footer).toHaveClass('pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]');
     expect(footer).not.toHaveAttribute('data-navbar-cushion');
   });
 

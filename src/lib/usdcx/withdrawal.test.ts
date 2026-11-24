@@ -1,4 +1,27 @@
-import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
+import {
+  encodeBurnWithdrawal,
+  isUsdcxWithdrawalAvailable,
+  isUsdcxWithdrawalNetwork,
+  usdcxMinimumBurnShortfall,
+  validateUsdcxWithdrawal
+} from './withdrawal';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => {
+    const snapshot = jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot();
+    const sepoliaRoute = snapshot.config?.supportedEvmChains.sepolia?.bridges.usdcx;
+    if (listsMainnet && snapshot.config && sepoliaRoute) {
+      snapshot.config.supportedEvmChains.ethereum = {
+        chainId: 1,
+        bridges: { usdcx: { ...sepoliaRoute, withdrawalEnabled: true } }
+      };
+    }
+    return network === 'testnet' ? snapshot : { ...snapshot, config: null };
+  }
+}));
+let listsMainnet = false;
 
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
@@ -55,12 +78,12 @@ describe('USDCx withdrawal encoding', () => {
   );
 
   it('requires the configured faucet, testnet, positive amount, and a testnet destination chain id', () => {
-    // 2 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 2_000_000n)).not.toThrow();
+    // 5 USDCx, the minimum burn.
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 5_000_000n)).not.toThrow();
     // Sepolia, Base Sepolia and Arbitrum Sepolia are direct-payout destinations of the burn.
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 2_000_000n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 2_000_000n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 2_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 5_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 5_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 5_000_000n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
     // Mainnet destinations are configured but not offered while withdrawals are testnet-only.
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 1n)).toThrow('usdcxInvalidDestination');
@@ -71,23 +94,25 @@ describe('USDCx withdrawal encoding', () => {
     network = 'testnet';
   });
 
-  // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
-  it('refuses a burn its destination fee allowance takes whole, naming the allowance and the chain', () => {
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_001n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_001n)).not.toThrow();
-    let refusal: unknown;
-    try {
-      validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_000n);
-    } catch (error) {
-      refusal = error;
-    }
-    expect(refusal).toBeInstanceOf(UsdcxBurnError);
-    expect(refusal).toMatchObject({
-      translationKey: 'usdcxSendMoreThanPayoutFee',
-      values: { amount: '1.5', network: 'Sepolia' }
-    });
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n)).toThrow(
-      'usdcxSendMoreThanPayoutFee'
+  it('refuses a burn below the minimum, naming it, and takes a larger faucet minimum', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 4_999_999n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '5' } })
+    );
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 6_000_000n, 7_500_000n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '7.5' } })
+    );
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 7_500_000n, 7_500_000n)).not.toThrow();
+  });
+
+  it('keeps the mandatory burn floor in the helper when an explicit minimum is lower', () => {
+    expect(usdcxMinimumBurnShortfall(5_000_000n, 1n)).toBeUndefined();
+    expect(usdcxMinimumBurnShortfall(4_999_999n, 1n)).toEqual({ amount: '5' });
+  });
+
+  it('keeps the mandatory burn floor in the validator when an explicit minimum is lower', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 5_000_000n, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 4_999_999n, 1n)).toThrow(
+      expect.objectContaining({ translationKey: 'usdcxBelowMinimumBurn', values: { amount: '5' } })
     );
   });
 
@@ -97,4 +122,19 @@ describe('USDCx withdrawal encoding', () => {
     expect(isUsdcxWithdrawalNetwork()).toBe(false);
     network = 'testnet';
   });
+
+  it('refuses a document-listed mainnet destination on the testnet network', () => {
+    listsMainnet = true;
+    try {
+      expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 2_000_000n)).toThrow('usdcxInvalidDestination');
+    } finally {
+      listsMainnet = false;
+    }
+  });
+});
+
+it('does not offer Circle on Polygon when another chain supports it', () => {
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32)).toBe(true);
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32, 5042002)).toBe(true);
+  expect(isUsdcxWithdrawalAvailable(USDCX_FAUCET_ID_BECH32, 137)).toBe(false);
 });

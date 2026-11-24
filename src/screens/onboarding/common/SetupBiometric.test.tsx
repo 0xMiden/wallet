@@ -5,6 +5,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { authenticate, checkBiometricAvailability, checkBiometricSetup, openBiometricSettings } from 'lib/biometric';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isAndroid, isIOS, isMobile } from 'lib/platform';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import SetupBiometricScreen, { SetupBiometricScreen as NamedSetupBiometricScreen } from './SetupBiometric';
 
@@ -124,6 +125,24 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('SetupBiometricScreen', () => {
   describe('prompt phase — title + icon branch (isIOS)', () => {
@@ -626,5 +645,67 @@ describe('SetupBiometricScreen', () => {
 
   it('exposes the same component as its default and named export', () => {
     expect(NamedSetupBiometricScreen).toBe(SetupBiometricScreen);
+  });
+});
+
+describe('user-visible error reporting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['none-enrolled', false, false, 'biometricNotEnrolled'],
+    ['none-enrolled', true, false, 'biometricNotEnrolledWork'],
+    ['strong-not-enrolled', false, false, 'biometricStrongNotEnrolled'],
+    ['strong-not-enrolled', true, false, 'biometricStrongNotEnrolledWork'],
+    ['no-strong-biometric', false, false, 'biometricNotStrong'],
+    ['hardware-unavailable', false, false, 'biometricHardwareUnavailable'],
+    ['hardware-unavailable', false, true, 'biometricUnavailableIOS'],
+    ['security-update-required', false, false, 'biometricSecurityUpdate'],
+    ['passcode-not-set', false, false, 'biometricPasscodeNotSet'],
+    ['locked-out', false, false, 'biometricLockedOut']
+  ])('reports blocked biometric setup %s managed=%s ios=%s', async (reason, managed, ios, id) => {
+    mockIsIOS.mockReturnValue(ios);
+    mockCheckSetup.mockResolvedValue(blockedBy(String(reason), Boolean(managed)));
+    await act(async () => {
+      renderComponent();
+    });
+    expect(screen.getByText(String(id))).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport(String(id), 'inline');
+  });
+  it('reports the unavailable desktop fallback', async () => {
+    mockIsMobile.mockReturnValue(false);
+    await act(async () => {
+      renderComponent();
+    });
+    expect(screen.getByText('biometricUnavailable')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('biometricUnavailable', 'inline');
+  });
+  it('reports a declined biometric prompt', async () => {
+    mockAuthenticate.mockResolvedValue(false);
+    await act(async () => {
+      renderComponent();
+    });
+    expect(screen.getByText('biometricFailed')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('biometricFailed', 'inline');
+  });
+  it('does not report successful biometric setup', async () => {
+    await act(async () => {
+      renderComponent();
+    });
+    expect(screen.getByText('biometricConfirmed')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

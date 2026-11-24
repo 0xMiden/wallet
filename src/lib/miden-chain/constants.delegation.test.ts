@@ -36,7 +36,7 @@ describe('constants getters delegate to the override', () => {
   // built-in "Current" for the same account.
   it('does not append a duplicate Custom option when the override is a host-case spelling of a built-in', async () => {
     const override = buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET);
-    override.guardianUrl = 'https://Guardian.OpenZeppelin.com';
+    override.guardianUrl = 'https://Guardian-Testnet.OpenZeppelin.com';
     await applyEndpointOverride(override);
     const options = getGuardianOptionsForNetwork();
     expect(options.find(o => o.id === 'custom')).toBeUndefined();

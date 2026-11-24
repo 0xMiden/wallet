@@ -6,10 +6,13 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { TextField } from 'components/ui/TextField';
 import { useContacts } from 'lib/miden/front';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { useContactBridgeNetworks } from 'screens/contacts/contact-network';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { BridgeNetworkId, defaultBridgeNetwork } from './bridge-networks';
 import { NetworkField } from './NetworkField';
 
 const NAME_MAX_LENGTH = 50;
@@ -32,6 +35,7 @@ export interface AddContactDrawerProps {
 }
 
 interface SheetBodyProps {
+  open: boolean;
   address: string;
   initialName?: string;
   initialNetwork?: BridgeNetworkId;
@@ -40,31 +44,37 @@ interface SheetBodyProps {
   onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ address, initialName, initialNetwork, onSaved, onBusyChange }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialName, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
   const isEvm = detectAddressChain(address) === 'ethereum';
   const [name, setName] = useState(initialName ?? '');
-  const [network, setNetwork] = useState<BridgeNetworkId>(initialNetwork ?? DEFAULT_BRIDGE_NETWORK.id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
+  const networks = useContactBridgeNetworks();
+  const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
   const [error, setError] = useState<string>();
+  const [errorId, setErrorId] = useState<UserErrorId>();
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
+  useUserVisibleError(open && error ? errorId : null, 'inline');
 
   const save = async () => {
     if (!trimmedName || saving) return;
     if (!isValidRecipientAddress(address)) {
       setError(t('invalidAddress'));
+      setErrorId('invalidAddress');
       return;
     }
     setSaving(true);
     onBusyChange(true);
     setError(undefined);
+    setErrorId(undefined);
     try {
       await addContact({
         address,
         name: trimmedName,
         addedAt: Date.now(),
-        ...(isEvm ? { network } : {})
+        ...(isEvm ? { network: selectedNetwork } : {})
       });
       // Raise and lower in the same function. `onSaved` closes the sheet through the raw prop, and
       // the flag lives in the PARENT, which outlives this body and survives close/reopen - so a
@@ -73,6 +83,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialName, initialNetw
       onSaved();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
+      setErrorId('raw_contact_save_failed');
       setSaving(false);
       onBusyChange(false);
     }
@@ -100,7 +111,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialName, initialNetw
 
       <NetworkField
         chain={isEvm ? 'ethereum' : 'miden'}
-        network={network}
+        network={selectedNetwork}
+        networks={networks}
         onSelect={setNetwork}
         testIdPrefix="add-contact"
       />
@@ -111,6 +123,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialName, initialNetw
         onChange={event => {
           setName(event.target.value);
           setError(undefined);
+          setErrorId(undefined);
         }}
         placeholder={t('contactNamePlaceholder')}
         maxLength={NAME_MAX_LENGTH}
@@ -186,6 +199,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
           {/* Remount per address so a new recipient starts with an empty name. */}
           <SheetBody
             key={address}
+            open={open}
             address={address}
             initialName={initialName}
             initialNetwork={network}

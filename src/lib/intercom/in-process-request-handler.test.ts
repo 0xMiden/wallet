@@ -12,7 +12,15 @@ import { processInProcessRequest } from './in-process-request-handler';
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 const mockExportAccountFile = jest.fn(async (_accountPublicKey: string, _password?: string) => 'BAUG');
 const mockUnlock = jest.fn(async (_password: string) => undefined);
+const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+  outcome: 'measured',
+  feeReserve: '315',
+  faucetId: 'native',
+  scope: 'source-scope'
+}));
 jest.mock('lib/miden/back/actions', () => ({
+  estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
   unlock: (password: string) => mockUnlock(password)
@@ -25,6 +33,24 @@ jest.mock('lib/miden/back/transaction-processor', () => ({
 describe('processInProcessRequest', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it.each(['MobileIntercomAdapter', 'DesktopIntercomAdapter'])(
+    'keeps platform credentials unavailable on %s',
+    async label => {
+      await expect(
+        processInProcessRequest({ type: WalletMessageType.PlatformUnlockRequest, command: { action: 'state' } }, label)
+      ).rejects.toThrow();
+    }
+  );
+
+  it('does not treat an extension reset nonce as native reset authority', async () => {
+    await expect(
+      processInProcessRequest(
+        { type: WalletMessageType.PlatformResetRequest, nonce: 'A'.repeat(43) },
+        'DesktopIntercomAdapter'
+      )
+    ).rejects.toThrow();
   });
 
   // #788 follow-up: the dead-letter drain must work on mobile/desktop, where
@@ -51,6 +77,25 @@ describe('processInProcessRequest', () => {
 
     expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
     expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
+  });
+
+  it('EstimateUsdcxBurnFeeRequest reaches the estimate action and answers its response', async () => {
+    const req = {
+      type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+      accountPublicKey: 'mm1account',
+      destinationChainId: 5042002
+    } as WalletRequest;
+
+    const res = await processInProcessRequest(req, 'test-adapter');
+
+    expect(res).toEqual({
+      type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+      outcome: 'measured',
+      feeReserve: '315',
+      faucetId: 'native',
+      scope: 'source-scope'
+    });
+    expect(mockEstimateUsdcxBurnFee).toHaveBeenCalledWith(req);
   });
 
   // #1202: claims requeued while the vault was locked have nothing else to restart them off the extension.

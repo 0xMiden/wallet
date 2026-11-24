@@ -75,6 +75,43 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('Epoch quote actions apply only the latest request', () => {
+  it('clears a closed compact watch when a Miden quote starts', async () => {
+    const response = deferred<CrossChainQuote>();
+    mockGetCrossChainQuote.mockReturnValue(response.promise);
+    useEpochStore.setState({ compactWatchClosed: true });
+
+    const quoting = useEpochStore.getState().quoteMidenToEVM(withdrawParams('1'), '0xowner');
+    expect(useEpochStore.getState().compactWatchClosed).toBe(false);
+    response.resolve(withdrawQuote('1'));
+    await quoting;
+  });
+
+  it('clears a closed compact watch before EVM deposit signing starts', async () => {
+    useEpochStore.setState({
+      flow: 'evm-to-miden',
+      status: 'quoted',
+      quote: depositQuote('1'),
+      compactWatchClosed: true
+    });
+
+    const signing = useEpochStore.getState().executeEVMToMiden();
+    expect(useEpochStore.getState().compactWatchClosed).toBe(false);
+    await signing;
+  });
+
+  it('clears a closed compact watch before Miden withdrawal signing starts', async () => {
+    useEpochStore.setState({
+      flow: 'miden-to-evm',
+      status: 'quoted',
+      quote: withdrawQuote('1'),
+      compactWatchClosed: true
+    });
+
+    const signing = useEpochStore.getState().executeMidenToEVM();
+    expect(useEpochStore.getState().compactWatchClosed).toBe(false);
+    await signing;
+  });
+
   it('keeps the newer EVM→Miden quote when the older one answers last', async () => {
     const older = deferred<EVMToMidenQuote>();
     const newer = deferred<EVMToMidenQuote>();

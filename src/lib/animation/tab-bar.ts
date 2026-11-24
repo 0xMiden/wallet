@@ -8,10 +8,19 @@
  * moves instantly, the icon does not pop and a press does not scale.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useReducedMotion, type TargetAndTransition, type Transition } from 'framer-motion';
 
+import {
+  cancelSpring,
+  currentScale,
+  playKeyframes,
+  playSpring,
+  scaleKeyframe,
+  springKeyframes,
+  type SpringKeyframes
+} from './compositor';
 import { easings } from './easings';
 import { springs } from './springs';
 import { reducedMotionTransition, resolveTransition } from './use-motion';
@@ -117,4 +126,60 @@ export function useTabIconPop(active: boolean, swap = false): TabIconPop {
     transition: resolveTransition(reduceMotion, popping ? tabBarMotion.iconPopUp : tabBarMotion.iconPopSettle),
     onAnimationComplete
   };
+}
+
+/** The rise and the settle as one keyframe list, each curve's offsets scaled by its share of the time. */
+function iconPopKeyframes(): SpringKeyframes | null {
+  const { iconPopScale, iconPopUp, iconPopSettle } = tabBarMotion;
+  const up = springKeyframes(iconPopUp, 1, iconPopScale, scaleKeyframe, 'scale');
+  const settle = springKeyframes(iconPopSettle, iconPopScale, 1, scaleKeyframe, 'scale');
+  if (!up || !settle) return null;
+  const duration = up.duration + settle.duration;
+  const within = (start: number, span: number) => (keyframe: Keyframe) => ({
+    ...keyframe,
+    offset: (start + (keyframe.offset ?? 0) * span) / duration
+  });
+  return {
+    duration,
+    // The settle's first keyframe is the rise's last: the peak.
+    keyframes: [
+      ...up.keyframes.map(within(0, up.duration)),
+      ...settle.keyframes.slice(1).map(within(up.duration, settle.duration))
+    ]
+  };
+}
+
+/**
+ * `useTabIconPop` on the compositor, for the bottom nav: the icon in `ref` rises to `iconPopScale`
+ * on `iconPopUp` and settles back on `iconPopSettle`, joined into one keyframe animation (see
+ * `compositor.ts`). A tab that stops being active settles back on `iconPopSettle` from the scale it is
+ * drawn at. Nothing pops on mount, and reduced motion cancels a running pop.
+ */
+export function useCompositorTabIconPop(ref: RefObject<HTMLElement>, active: boolean): void {
+  const reduceMotion = useReducedMotion();
+  const wasActive = useRef(active);
+
+  // Before paint, so the pop starts in the frame that shows the tab active.
+  useLayoutEffect(() => {
+    const was = wasActive.current;
+    wasActive.current = active;
+    const el = ref.current;
+    if (!el) return;
+    if (reduceMotion) {
+      if (was) cancelSpring(el);
+    } else if (active && !was) {
+      const pop = iconPopKeyframes();
+      playKeyframes(el, pop?.keyframes ?? null, pop?.duration ?? 0, scaleKeyframe(1));
+    } else if (!active && was) {
+      // The drawn scale is read before playSpring cancels the rise, which has already written scale(1).
+      playSpring(el, tabBarMotion.iconPopSettle, currentScale(el), 1, scaleKeyframe, 'scale');
+    }
+  }, [active, reduceMotion, ref]);
+
+  useEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el) cancelSpring(el);
+    };
+  }, [ref]);
 }

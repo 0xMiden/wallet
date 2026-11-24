@@ -1,3 +1,8 @@
+# Native platform-authentication tests
+
+- Distinguish native Windows Hello coverage from physical-hardware coverage. For a cloud-testing request, investigate Windows 11 VMs and PIN verification before proposing physical-PC rental.
+- A cloud desktop, a virtual WebAuthn authenticator, and authentication redirected to the client prove different things. Qualify Hello/PRF inside the chosen VM before treating it as native Windows coverage.
+
 # Fee asset discovery
 
 - Apply an explicit final-review severity cutoff to new findings. Preserve lower-severity findings as deferred evidence without restarting the review or delaying the requested release.
@@ -53,3 +58,56 @@
 - Playwright clears its configured output directory at startup. Use distinct nested Playwright output directories for sequential CI stages, and never launch another run that clears the shared parent containing live harness evidence.
 
 - A public faucet acceptance receipt proves queue admission, not chain commitment. Compare the note inclusion timestamp with the failure timestamp, then wait for that specific note before running fixture consumption assertions. Never remint a queued grant to hide a short delivery budget.
+
+- A fullscreen return control must follow the requested standard app minimize lifecycle. Retain the existing session and document, restore through the normal app selector, and leave user closure in the existing minimized-app controls without adding a game-specific close affordance.
+
+- Moving safe-area reservation off the document body requires an exhaustive inventory of pinned controls and scroll endings. Measure real rendered ancestry with compiled CSS; nested forms must consume the physical safe area once, and backgrounds must still reach the viewport edge.
+
+- When a shared footer spacing contract changes, search all consumer tests for the prior class before final full gates. A stale onboarding-wrapper assertion can cost a second crypto-heavy full run even when the rendered geometry is correct.
+
+- A quiet redirected test log does not prove that no suites have run. Use completed summary counts and process evidence; do not label the runner as stuck before its first suite from missing PASS lines.
+
+# Session lessons
+
+- For #1738, define bounded implementation tasks and complete independent review only after the code is finished.
+
+- #1738 acceptance uses the existing mainnet E2E suite and already-funded accounts. Add a cost-bounded swap-out/swap-back loop. Do not replace live settlement coverage with a simulated cross-chain service; keep mocks for deterministic unit and component failure cases.
+
+- Mainnet 1Click E2E uses $2 as the total round-trip safety cap, including both swaps and network gas. Optimize for the cheapest viable route and minimum viable amount; do not treat the cap as a target. Reuse the funded accounts and recycle actual received principal.
+
+- Extend #1738 acceptance with mocked testnet E2E when requested, following Epoch. A rejection of replacing live settlement does not forbid deterministic mocked coverage alongside the funded mainnet loop.
+
+- For #1738, distinguish the real Bread UI and WalletConnect protocol from the mocked settlement service. User accepted Chrome once that distinction was clear; do not add mobile-runner scope after that explicit choice.
+
+- For #1738, config presence is not the rollout switch. Require an explicit wallet-config features.nearIntents boolean, default false, before exposing or starting the integration; dedicated mocks opt in and mainnet acceptance honors the same flag.
+
+- Preserve existing commit signing settings. No-attribution instructions prohibit authorship trailers; they do not justify disabling the signature required by the pre-push hook. Prepare an identical-tree candidate and obtain any required exception before replacing unpublished history.
+
+- When review requirements change, preserve prior review evidence and continue under the latest explicit instruction without relabeling incomplete proof.
+
+## Existing browser sessions
+
+When a browser debugging connection is unavailable, inspect the requested browser through the available native UI interface before asking for another sign-in. A missing CDP connection does not imply the signed-in browser window is inaccessible. Follow the user's named tab group and preserve the current login.
+
+- HTTP fixture tests run in Jest JSDOM, where Node fetch is not supplied. Reuse the existing node:http request pattern and distinguish setup exceptions from functional assertion failures in regression proofs.
+
+## Review and diagnostic workflow
+
+- Before expensive evidence preparation, validate a new label through stock state registration, rendering, seat, verification and fix-round consumers. Use the native label format and the round matching the plan gate that completed; safe-filename validation alone is insufficient.
+- Route private syntax checks through the guarded local-check helper. Private output does not remove the resource and logging requirements.
+- Debugger observers must verify ownership of the current frame and locals before reading them. Capture stage metadata before optional calculations, guard absent locals, and keep recovery independent of extraction so observer failures cannot consume a quit fallback.
+- Bound diagnostic attempts with visible progress and a concrete recovery decision. Record failed, refused and interrupted attempts in [upstream issue #62](https://github.com/WiktorStarczewski/review-council/issues/62), and keep infrastructure causes unconfirmed until evidence establishes them.
+- When a user's explicit global rule excludes a P3, record exactly `DEFERRED (P3, ignored by user rule)`. Do not fix it, open a plan, blocker or follow-up, or keep it as open carryover. Only a later explicit request naming it reopens that item.
+- For exact-value regression tests, inspect global Jest manual mocks as well as suite-local mocks. A global mock can bypass production conversion, so bind the assertion to an existing path that exercises the real conversion.
+
+
+## Swap amount locators during loading
+
+Quote loading removes the derived amount input while keeping the opposite input mounted. A global first/nth locator can then edit the wrong side. Scope each amount locator to the existing pay/receive container and cover the missing-input state in its behavioral regression.
+
+- For #1945 and #1949, the user stopped Council and plan gates. Complete remaining fixes directly, self-review, and preserve ordinary automated CI acceptance without restarting panels.
+
+- A live gh watcher only collects status. Treat a CI failure as immediate work in the active orchestration turn; never equate a surviving watcher process with active failure recovery.
+- An upstream quote error proves rejection, not a correct integration. Before blaming the provider, compare a working reference's exact request fields, authentication, headers and transport with controlled dry requests; check feature branches as well as main. Unfunded downstream paths remain unproven.
+
+- Release1.17.8 validation runs RC CI and the release E2E/Mainnet batch in parallel, per explicit user correction. Do not serialize their setup behind RC CI.

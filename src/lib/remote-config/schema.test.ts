@@ -1,54 +1,540 @@
-import { parseBridgeConfig, SUPPORTED_EARN_PROTOCOLS, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { keccak256, toBytes } from 'viem';
 
-// The spec's testnet document, as the config repo publishes it.
-const doc = (overrides: Record<string, unknown> = {}) => ({
+import { EARN_VAULT_PROTOCOLS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import testnet from './testing/testnet.json';
+
+describe('EARN_VAULT_PROTOCOLS', () => {
+  it('names the protocol strings a vault can list', () => {
+    expect(EARN_VAULT_PROTOCOLS).toEqual(['1delta', 'dummy-lending']);
+  });
+
+  it('keeps the hash the testnet deposits use for the dummy lender', () => {
+    expect(keccak256(toBytes('dummy-lending'))).toBe(
+      '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9'
+    );
+  });
+});
+
+type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
+/** The testnet document's one Earn vault, as written: the dummy lender's market of Sepolia USDC. */
+const DUMMY_VAULT = {
+  id: 'dummy-lending-sepolia-usdc',
+  marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+  name: 'Dummy Lending USDC',
+  protocol: 'dummy-lending'
+};
+const doc = (overrides: Record<string, ConfigValue> = {}) => ({
   network: 'testnet',
   version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {
-    l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-    midenBridge: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+  'bridge-providers': {
+    epoch: {
+      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
+      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
+      outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } }
+    },
+    agglayer: { indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api' },
+    usdcx: {}
   },
-  epoch: {
-    allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-    positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-    midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-    evmUsdc: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
-    earnProtocol: 'dummy-lending'
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69', outputs: ['usdc-testnet-output'] }
+          }
+        },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
+  features: { earn: true },
+  earn: { vaults: [DUMMY_VAULT] },
   mainnetCountdown: { enabled: true, launchAt: '2026-10-26T00:00:00Z' },
   ...overrides
 });
 
 type Section = 'evm' | 'agglayer' | 'epoch' | 'features' | 'mainnetCountdown';
-const withSection = (name: Section, fields: Record<string, unknown>) => {
+const withSection = (name: Section, fields: Record<string, ConfigValue>) => {
   const base = doc();
-  return { ...base, [name]: { ...base[name], ...fields } };
+  const providers = base['bridge-providers'];
+  const chain = base.supportedEvmChains.sepolia;
+  switch (name) {
+    case 'evm':
+      return { ...base, supportedEvmChains: { sepolia: { ...chain, ...fields } } };
+    case 'features': {
+      const route = { ...chain.bridges.agglayer };
+      if ('bridgeIn' in fields)
+        return {
+          ...base,
+          supportedEvmChains: {
+            sepolia: {
+              ...chain,
+              bridges: { ...chain.bridges, agglayer: { ...route, depositEnabled: fields.bridgeIn } }
+            }
+          }
+        };
+      if ('bridgeOut' in fields)
+        return {
+          ...base,
+          supportedEvmChains: {
+            sepolia: {
+              ...chain,
+              bridges: { ...chain.bridges, agglayer: { ...route, withdrawalEnabled: fields.bridgeOut } }
+            }
+          }
+        };
+      return { ...base, features: { ...base.features, ...fields } };
+    }
+    case 'mainnetCountdown':
+      return { ...base, mainnetCountdown: { ...base.mainnetCountdown, ...fields } };
+    case 'epoch': {
+      const token = chain.bridges.epoch.tokens.USDC;
+      const faucetId = fields.midenUsdcFaucet ?? providers.epoch.outputs['usdc-testnet-output'].faucetId;
+      return {
+        ...base,
+        'bridge-providers': {
+          ...providers,
+          epoch: { ...providers.epoch, ...fields, outputs: { 'usdc-testnet-output': { faucetId } } }
+        },
+        supportedEvmChains: {
+          sepolia: {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              epoch: {
+                ...chain.bridges.epoch,
+                tokens: { USDC: { ...token, contractAddress: fields.evmUsdc ?? token.contractAddress } }
+              }
+            }
+          }
+        }
+      };
+    }
+    case 'agglayer':
+      return {
+        ...base,
+        'bridge-providers': { ...providers, agglayer: { ...providers.agglayer, ...fields } },
+        supportedEvmChains: {
+          sepolia: {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              agglayer: {
+                ...chain.bridges.agglayer,
+                ...fields,
+                contractAddress: 'l1Bridge' in fields ? fields.l1Bridge : chain.bridges.agglayer.contractAddress,
+                midenBridgeId: fields.midenBridge ?? chain.bridges.agglayer.midenBridgeId
+              }
+            }
+          }
+        }
+      };
+  }
 };
 
-const ALL_OFF = { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
+const ALL_OFF = { earn: false, nearIntents: false };
 
-it('parses the published testnet document, lowercasing addresses', () => {
-  expect(parseBridgeConfig(doc(), 'testnet')).toStrictEqual({
-    network: 'testnet',
-    version: 1,
-    evm: { chainId: 11155111 },
-    agglayer: {
-      l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-      midenBridge: '0x3b66e20b5088f25133b69216484652',
-      indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+it('parses the testnet document and normalizes addresses', () => {
+  const parsed = parseBridgeConfig(doc(), 'testnet');
+  expect(parsed).not.toBeNull();
+  expect(parsed?.network).toBe('testnet');
+  expect(parsed?.version).toBe(1);
+  expect(parsed?.['bridge-providers']).toEqual(doc()['bridge-providers']);
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer).toEqual(
+    doc().supportedEvmChains.sepolia.bridges.agglayer
+  );
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC).toEqual({
+    contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    outputs: ['usdc-testnet-output']
+  });
+  expect(parsed?.features).toEqual({ earn: true, nearIntents: false });
+  expect(parsed?.mainnetCountdown).toEqual({ enabled: true, launchAt: Date.UTC(2026, 9, 26) });
+  expect(parsed?.swap).toEqual({});
+});
+
+describe('features.arcadeGcPurchase and arcade.sale', () => {
+  const seller = '0xA6BE5C4D8FDC03415BDE66453D5F91';
+
+  it('is left out when absent, and the sale exists exactly when the switch is on', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed?.features.arcadeGcPurchase).toBeUndefined();
+    expect(parsed?.arcade).toBeUndefined();
+    const on = parseBridgeConfig(
+      doc({ features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: { seller } } }),
+      'testnet'
+    );
+    expect(on?.features.arcadeGcPurchase).toBe(true);
+    expect(on?.arcade).toEqual({ sale: { seller: seller.toLowerCase() } });
+    expect(
+      parseBridgeConfig(doc({ features: { earn: true, arcadeGcPurchase: false } }), 'testnet')?.features
+        .arcadeGcPurchase
+    ).toBe(false);
+  });
+
+  it.each([
+    ['the switch on without a sale', { features: { earn: true, arcadeGcPurchase: true } }],
+    ['a sale while the switch is off', { features: { earn: true }, arcade: { sale: { seller } } }],
+    ['a sale with no seller', { features: { earn: true, arcadeGcPurchase: true }, arcade: { sale: {} } }],
+    [
+      'a bech32 seller',
+      {
+        features: { earn: true, arcadeGcPurchase: true },
+        arcade: { sale: { seller: 'mm1azntuhzd3lwqxs2mmeny202ljy3fxnpm' } }
+      }
+    ],
+    ['a nonboolean switch', { features: { earn: true, arcadeGcPurchase: 'true' } }]
+  ])('rejects %s', (_name, overrides) => {
+    expect(parseBridgeConfig(doc(overrides), 'testnet')).toBeNull();
+  });
+});
+
+describe('features.nearIntents', () => {
+  it('defaults to false when absent and accepts an explicit true', () => {
+    expect(parseBridgeConfig(doc(), 'testnet')?.features.nearIntents).toBe(false);
+    expect(
+      parseBridgeConfig(doc({ features: { earn: true, nearIntents: true } }), 'testnet')?.features.nearIntents
+    ).toBe(true);
+  });
+
+  it.each([null, 0, 1, 'true', {}])('rejects a nonboolean nearIntents switch: %j', nearIntents => {
+    expect(parseBridgeConfig(doc({ features: { earn: true, nearIntents } }), 'testnet')).toBeNull();
+  });
+});
+
+describe('swap section', () => {
+  it('reads a missing section, or a section that names no solver, as no solver', () => {
+    expect(parseBridgeConfig(doc({}), 'testnet')?.swap).toStrictEqual({});
+    expect(parseBridgeConfig(doc({ swap: {} }), 'testnet')?.swap).toStrictEqual({});
+  });
+
+  it('reads the solver as a base URL, normalized like every other URL field', () => {
+    const swap = { etaUrl: 'https://Quotes.Example:443/dex/' };
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example/dex' });
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'http://quotes.example' } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'https://quotes.example/?x=1' } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 42 } }), 'testnet')).toBeNull();
+  });
+
+  // The registry is the solver's /v2/pairs now: a list an older document still carries is not read, whatever it holds.
+  it('ignores a token list the document still carries', () => {
+    const swap = { etaUrl: 'https://quotes.example', tokens: [{ symbol: 'iEth', faucetId: 'not-an-id' }] };
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
+  });
+
+  // NEAR Intents is the top-level `nearIntents` section now: a `swap.oneClick` an older document carries is not read.
+  it('ignores a swap.oneClick section, valid or not, on every network', () => {
+    const assets = {
+      usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 }
+    };
+    const chains = {
+      eth: {
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+      }
+    };
+    const retired = { serviceUrl: 'https://retired.example', midenAssets: assets, chains };
+    const swap = { etaUrl: 'https://quotes.example', oneClick: retired };
+    const parsed = parseBridgeConfig(
+      { ...doc({ swap, nearIntents: { ...retired, serviceUrl: 'https://one-click.example' } }), network: 'mainnet' },
+      'mainnet'
+    );
+    expect(parsed?.nearIntents?.serviceUrl).toBe('https://one-click.example');
+    expect(parsed?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
+
+    // This section is invalid. Parsing it would reject the document.
+    const invalidSwap = {
+      etaUrl: 'https://quotes.example',
+      oneClick: { serviceUrl: 'http://bad', midenAssets: 'none' }
+    };
+    expect(parseBridgeConfig({ ...doc({ swap: invalidSwap }), network: 'mainnet' }, 'mainnet')?.swap).toStrictEqual({
+      etaUrl: 'https://quotes.example'
+    });
+    expect(parseBridgeConfig(doc({ swap: invalidSwap }), 'testnet')?.swap).toStrictEqual({
+      etaUrl: 'https://quotes.example'
+    });
+  });
+});
+
+describe('nearIntents section', () => {
+  const USDCX = 'nep141:miden-0xe69e6ca6e39df1b10c1e5399399feb.omft.near';
+  const ETH_USDC = 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near';
+  type Section = Record<string, ConfigValue>;
+  const FAUCET_1 = `0x${'1'.repeat(30)}`;
+  const FAUCET_2 = `0x${'2'.repeat(30)}`;
+  const ETH_CHAIN = {
+    name: 'Ethereum',
+    addressKind: 'evm',
+    tokens: {
+      USDC: {
+        assetId: ETH_USDC,
+        decimals: 6,
+        contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        miden: ['usdcx']
+      },
+      ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['eth'] }
+    }
+  };
+  const SOL_CHAIN = {
+    name: 'Solana',
+    addressKind: 'solana',
+    tokens: { SOL: { assetId: 'nep141:sol.omft.near', decimals: 9, miden: ['usdcx', 'eth'] } }
+  };
+  const section = (overrides: Section = {}): Section => ({
+    serviceUrl: 'https://intents.example/',
+    midenAssets: {
+      usdcx: { assetId: USDCX, faucetId: '0xE69E6CA6E39DF1B10C1E5399399FEB', decimals: 6 },
+      eth: { assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
     },
-    epoch: {
-      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-      midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-      evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-      earnProtocol: 'dummy-lending'
+    chains: {
+      eth: ETH_CHAIN,
+      sol: SOL_CHAIN,
+      btc: {
+        name: 'Bitcoin',
+        addressKind: 'bitcoin',
+        tokens: { BTC: { assetId: 'nep141:btc.omft.near', decimals: 8, miden: ['usdcx'] } }
+      },
+      near: {
+        name: 'NEAR',
+        addressKind: 'near',
+        tokens: { wNEAR: { assetId: 'nep141:wrap.near', decimals: 24, miden: ['usdcx'] } }
+      }
     },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
-    mainnetCountdown: { enabled: true, launchAt: Date.UTC(2026, 9, 26) }
+    ...overrides
+  });
+  const parse = (nearIntents: ConfigValue) =>
+    parseBridgeConfig({ ...doc({ nearIntents }), network: 'mainnet' }, 'mainnet');
+  const usdcToken = (overrides: Section = {}): Section => ({
+    assetId: ETH_USDC,
+    decimals: 6,
+    miden: ['usdcx'],
+    ...overrides
+  });
+  const withEthTokens = (tokens: Section) =>
+    section({ chains: { eth: { name: 'Ethereum', addressKind: 'evm', tokens } } });
+  const withEthToken = (token: Section) => withEthTokens({ USDC: token });
+  // `count` Miden assets m0, m1, and so on, each with its own asset id and faucet.
+  const manyMidenAssets = (count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [
+        `m${index}`,
+        { assetId: `miden-${index}`, faucetId: `0x${index.toString(16).padStart(30, '0')}`, decimals: 6 }
+      ])
+    );
+  const manyTokens = (count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, index) => [`T${index}`, usdcToken({ assetId: `t-${index}`, miden: ['m0'] })])
+    );
+
+  it('parses the keyed maps into lists in document order, with the key as id or symbol', () => {
+    expect(parse(section())?.nearIntents).toStrictEqual({
+      serviceUrl: 'https://intents.example',
+      midenAssets: [
+        { id: 'usdcx', assetId: USDCX, faucetId: '0xe69e6ca6e39df1b10c1e5399399feb', decimals: 6 },
+        { id: 'eth', assetId: 'nep141:miden-eth.omft.near', faucetId: '0x123456789012345678901234567890', decimals: 8 }
+      ],
+      chains: [
+        {
+          id: 'eth',
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: [
+            {
+              symbol: 'USDC',
+              assetId: ETH_USDC,
+              decimals: 6,
+              contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+              miden: ['usdcx']
+            },
+            { symbol: 'ETH', assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['eth'] }
+          ]
+        },
+        {
+          id: 'sol',
+          name: 'Solana',
+          addressKind: 'solana',
+          tokens: [{ symbol: 'SOL', assetId: 'nep141:sol.omft.near', decimals: 9, miden: ['usdcx', 'eth'] }]
+        },
+        {
+          id: 'btc',
+          name: 'Bitcoin',
+          addressKind: 'bitcoin',
+          tokens: [{ symbol: 'BTC', assetId: 'nep141:btc.omft.near', decimals: 8, miden: ['usdcx'] }]
+        },
+        {
+          id: 'near',
+          name: 'NEAR',
+          addressKind: 'near',
+          tokens: [{ symbol: 'wNEAR', assetId: 'nep141:wrap.near', decimals: 24, miden: ['usdcx'] }]
+        }
+      ]
+    });
+  });
+
+  it('keeps the order the document writes, not an alphabetical one', () => {
+    const reordered = section({ chains: { sol: SOL_CHAIN, eth: ETH_CHAIN } });
+    expect(parse(reordered)?.nearIntents?.chains.map(chain => chain.id)).toEqual(['sol', 'eth']);
+  });
+
+  it('accepts a section that still names appFees and does not read them', () => {
+    const withFees = section({ appFees: [{ recipient: 'wallet.near', fee: 25 }] });
+    expect(parse(withFees)?.nearIntents).toStrictEqual(parse(section())?.nearIntents);
+    expect(parse(withFees)?.nearIntents).not.toHaveProperty('appFees');
+  });
+
+  it('is absent when the document has no section', () => {
+    expect(parseBridgeConfig({ ...doc(), network: 'mainnet' }, 'mainnet')?.nearIntents).toBeUndefined();
+  });
+
+  it('is not read outside mainnet, so a malformed section there does not reject the document', () => {
+    expect(parseBridgeConfig(doc({ nearIntents: section() }), 'testnet')?.nearIntents).toBeUndefined();
+    const parsed = parseBridgeConfig(doc({ nearIntents: { serviceUrl: 'http://bad' } }), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.nearIntents).toBeUndefined();
+  });
+
+  it('accepts every limit at its edge', () => {
+    const outputs = ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'];
+    const edge = usdcToken({
+      assetId: 'a'.repeat(256),
+      decimals: 38,
+      contractAddress: 'c'.repeat(256),
+      miden: outputs
+    });
+    const first = { name: 'n'.repeat(64), addressKind: 'evm', tokens: { ...manyTokens(63), ['S'.repeat(32)]: edge } };
+    const other = (index: number) => ({
+      name: 'C',
+      addressKind: 'near',
+      tokens: { T: usdcToken({ assetId: `c-${index}`, decimals: 0, miden: ['m0'] }) }
+    });
+    const chains = Object.fromEntries(
+      Array.from({ length: 32 }, (_, index) => (index === 0 ? ['a'.repeat(32), first] : [`c${index}`, other(index)]))
+    );
+    const parsed = parse(section({ midenAssets: manyMidenAssets(64), chains }))?.nearIntents;
+    expect(parsed?.midenAssets).toHaveLength(64);
+    expect(parsed?.chains).toHaveLength(32);
+    expect(parsed?.chains[0]?.tokens).toHaveLength(64);
+    expect(parsed?.chains[0]?.tokens[63]?.miden).toEqual(outputs);
+  });
+
+  it.each<[string, ConfigValue]>([
+    ['a section that is not an object', []],
+    ['an http service', section({ serviceUrl: 'http://intents.example' })],
+    ['a service with a query', section({ serviceUrl: 'https://intents.example/?key=x' })],
+    ['no Miden asset', section({ midenAssets: {} })],
+    ['Miden assets as a list', section({ midenAssets: [{ assetId: USDCX, faucetId: FAUCET_1, decimals: 6 }] })],
+    ['more than 64 Miden assets', section({ midenAssets: manyMidenAssets(65) })],
+    [
+      'a Miden asset key in upper case',
+      section({ midenAssets: { USDCX: { assetId: USDCX, faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    [
+      'a Miden asset id with a control character',
+      section({ midenAssets: { usdcx: { assetId: 'a\u0007b', faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    [
+      'a Miden asset id longer than 256',
+      section({ midenAssets: { usdcx: { assetId: 'a'.repeat(257), faucetId: FAUCET_1, decimals: 6 } } })
+    ],
+    ['a bad faucet id', section({ midenAssets: { usdcx: { assetId: USDCX, faucetId: 'bad id', decimals: 6 } } })],
+    [
+      'Miden decimals above 38',
+      section({ midenAssets: { usdcx: { assetId: USDCX, faucetId: FAUCET_1, decimals: 39 } } })
+    ],
+    [
+      'two Miden assets with one asset id',
+      section({
+        midenAssets: {
+          usdcx: { assetId: USDCX, faucetId: FAUCET_1, decimals: 6 },
+          eth: { assetId: USDCX, faucetId: FAUCET_2, decimals: 6 }
+        }
+      })
+    ],
+    [
+      'two Miden assets with one faucet, written in two cases',
+      section({
+        midenAssets: {
+          usdcx: { assetId: USDCX, faucetId: '0xabcdefabcdefabcdefabcdefabcdef', decimals: 6 },
+          eth: { assetId: 'other', faucetId: '0xABCDEFABCDEFABCDEFABCDEFABCDEF', decimals: 6 }
+        }
+      })
+    ],
+    ['no chain', section({ chains: {} })],
+    [
+      'more than 32 chains',
+      section({
+        chains: Object.fromEntries(
+          Array.from({ length: 33 }, (_, index) => [
+            `c${index}`,
+            { name: 'C', addressKind: 'evm', tokens: { T: usdcToken({ assetId: `t-${index}` }) } }
+          ])
+        )
+      })
+    ],
+    ['a chain named miden', section({ chains: { miden: ETH_CHAIN } })],
+    ['a chain key in upper case', section({ chains: { ETH: ETH_CHAIN } })],
+    ['a chain key longer than 32', section({ chains: { ['a'.repeat(33)]: ETH_CHAIN } })],
+    ['a chain with no name', section({ chains: { eth: { addressKind: 'evm', tokens: { USDC: usdcToken() } } } })],
+    [
+      'a chain name longer than 64',
+      section({ chains: { eth: { name: 'n'.repeat(65), addressKind: 'evm', tokens: { USDC: usdcToken() } } } })
+    ],
+    [
+      'an unknown address kind',
+      section({ chains: { eth: { name: 'Ethereum', addressKind: 'cosmos', tokens: { USDC: usdcToken() } } } })
+    ],
+    ['a chain with no token', withEthTokens({})],
+    [
+      'more than 64 tokens on a chain',
+      section({
+        midenAssets: manyMidenAssets(1),
+        chains: { eth: { name: 'Ethereum', addressKind: 'evm', tokens: manyTokens(65) } }
+      })
+    ],
+    ['a symbol longer than 32', withEthTokens({ ['S'.repeat(33)]: usdcToken() })],
+    ['a symbol with a control character', withEthTokens({ 'US\nDC': usdcToken() })],
+    ['a token with no asset id', withEthToken(usdcToken({ assetId: undefined }))],
+    ['a token asset id longer than 256', withEthToken(usdcToken({ assetId: 'a'.repeat(257) }))],
+    ['token decimals above 38', withEthToken(usdcToken({ decimals: 39 }))],
+    ['negative token decimals', withEthToken(usdcToken({ decimals: -1 }))],
+    ['an empty contract address', withEthToken(usdcToken({ contractAddress: '' }))],
+    ['a contract address longer than 256', withEthToken(usdcToken({ contractAddress: 'a'.repeat(257) }))],
+    ['a token with no Miden output', withEthToken(usdcToken({ miden: [] }))],
+    ['a Miden output that is not listed', withEthToken(usdcToken({ miden: ['wbtc'] }))],
+    ['a Miden output listed twice', withEthToken(usdcToken({ miden: ['usdcx', 'usdcx'] }))],
+    [
+      'more than 8 Miden outputs',
+      section({
+        midenAssets: manyMidenAssets(9),
+        chains: {
+          eth: {
+            name: 'Ethereum',
+            addressKind: 'evm',
+            tokens: { USDC: usdcToken({ miden: Object.keys(manyMidenAssets(9)) }) }
+          }
+        }
+      })
+    ],
+    ['a token asset id that is a Miden asset id', withEthToken(usdcToken({ assetId: USDCX }))],
+    [
+      'one token asset id on two chains',
+      section({
+        chains: {
+          eth: { name: 'Ethereum', addressKind: 'evm', tokens: { USDC: usdcToken() } },
+          base: { name: 'Base', addressKind: 'evm', tokens: { USDC: usdcToken() } }
+        }
+      })
+    ]
+  ])('rejects the document for %s', (_label, nearIntents) => {
+    expect(parse(nearIntents)).toBeNull();
   });
 });
 
@@ -57,7 +543,7 @@ it('lowercases Miden account ids written in upper case', () => {
     withSection('agglayer', { midenBridge: '0x3B66E20B5088F25133B69216484652' }),
     'testnet'
   );
-  expect(parsed?.agglayer.midenBridge).toBe('0x3b66e20b5088f25133b69216484652');
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer?.midenBridgeId).toBe('0x3b66e20b5088f25133b69216484652');
 });
 
 it.each([
@@ -68,19 +554,18 @@ it.each([
 ])('normalizes the base URL %s to %s in every URL field', (input, expected) => {
   const epoch = parseBridgeConfig(withSection('epoch', { allocatorUrl: input, positionsUrl: input }), 'testnet');
   const agglayer = parseBridgeConfig(withSection('agglayer', { indexerUrl: input }), 'testnet');
-  expect(epoch?.epoch.allocatorUrl).toBe(expected);
-  expect(epoch?.epoch.positionsUrl).toBe(expected);
-  expect(agglayer?.agglayer.indexerUrl).toBe(expected);
+  expect(epoch?.['bridge-providers'].epoch.allocatorUrl).toBe(expected);
+  expect(epoch?.['bridge-providers'].epoch.positionsUrl).toBe(expected);
+  expect(agglayer?.['bridge-providers'].agglayer.indexerUrl).toBe(expected);
 });
 
-it('ignores fields it does not know, at every level', () => {
+it('ignores unknown fields at each level', () => {
   const base = doc();
   const extended = {
     ...base,
     schema: 2,
-    evm: { ...base.evm, rpcUrl: 'https://rpc.example' },
-    agglayer: { ...base.agglayer, gerMap: 'never read' },
-    epoch: { ...base.epoch, solver: 1 },
+    'bridge-providers': { ...base['bridge-providers'], epoch: { ...base['bridge-providers'].epoch, solver: 1 } },
+    supportedEvmChains: { sepolia: { ...base.supportedEvmChains.sepolia, rpcUrl: 'https://rpc.example' } },
     features: { ...base.features, swap: true },
     mainnetCountdown: { ...base.mainnetCountdown, label: 'never read' }
   };
@@ -91,30 +576,70 @@ it('reads absent sections as empty and absent switches as off', () => {
   expect(parseBridgeConfig({ network: 'devnet', version: 3 }, 'devnet')).toStrictEqual({
     network: 'devnet',
     version: 3,
-    evm: {},
-    agglayer: {},
-    epoch: {},
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
     features: ALL_OFF,
-    mainnetCountdown: { enabled: false }
+    mainnetCountdown: { enabled: false },
+    swap: {}
   });
 });
 
-it('leaves an absent field out of its section', () => {
+describe('limits.bridgeInMaxBalanceUsd', () => {
+  it('reads the bridge-in balance ceiling', () => {
+    const parsed = parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd: 1232.462 } }), 'testnet');
+    expect(parsed?.limits).toStrictEqual({ bridgeInMaxBalanceUsd: 1232.462 });
+  });
+
+  it.each([
+    ['no limits section', doc()],
+    ['an empty limits section', doc({ limits: {} })],
+    ['a limits section with other fields', doc({ limits: { other: 1 } })]
+  ])('leaves limits out for %s', (_label, body) => {
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty('limits');
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1232.462', null, true])(
+    'fails the document on the malformed ceiling %p',
+    bridgeInMaxBalanceUsd => {
+      expect(parseBridgeConfig(doc({ limits: { bridgeInMaxBalanceUsd } }), 'testnet')).toBeNull();
+    }
+  );
+
+  it('fails the document on a limits section that is not an object', () => {
+    expect(parseBridgeConfig(doc({ limits: 1232 }), 'testnet')).toBeNull();
+  });
+});
+
+describe('onboarding', () => {
+  // The countdown's moment is the one switch behind the invite-only Welcome, so a document's `onboarding`
+  // section, which older wallets read, is neither read nor checked.
+  it.each([
+    ['an onboarding section', doc({ onboarding: { inviteOnly: true } })],
+    ['an onboarding section that is not an object', doc({ onboarding: true })],
+    ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })]
+  ])('ignores %s', (_label, body) => {
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty('onboarding');
+  });
+});
+
+it('leaves absent provider fields out', () => {
   const partial = {
     network: 'testnet',
     version: 2,
-    agglayer: { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f' },
-    epoch: { allocatorUrl: 'https://allocator.example' },
-    features: { earn: true }
+    'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' } },
+    features: { earn: false }
   };
-  expect(parseBridgeConfig(partial, 'testnet')).toStrictEqual({
-    network: 'testnet',
-    version: 2,
-    evm: {},
-    agglayer: { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f' },
-    epoch: { allocatorUrl: 'https://allocator.example' },
-    features: { ...ALL_OFF, earn: true },
-    mainnetCountdown: { enabled: false }
+  expect(parseBridgeConfig(partial, 'testnet')).toEqual({
+    ...partial,
+    features: { earn: false, nearIntents: false },
+    'bridge-providers': { epoch: partial['bridge-providers'].epoch, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    mainnetCountdown: { enabled: false },
+    swap: {}
   });
 });
 
@@ -127,31 +652,195 @@ it('reads the countdown switch without its moment, and a moment with fractional 
   ).toStrictEqual({ enabled: false, launchAt: Date.UTC(2026, 9, 26, 0, 0, 0, 500) });
 });
 
-it('drops an unsupported chain id and keeps the rest of the document', () => {
-  const parsed = parseBridgeConfig(withSection('evm', { chainId: 1 }), 'testnet');
-  expect(parsed?.evm).toStrictEqual({});
-  expect(parsed?.epoch.evmUsdc).toBe('0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+it('rejects a chain whose slug and id do not match', () => {
+  expect(parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet')).toBeNull();
+  expect(parseBridgeConfig(doc({ supportedEvmChains: { polygon: { chainId: 11155111 } } }), 'testnet')).toBeNull();
 });
 
-it('drops an unsupported Earn protocol and keeps the rest of the document', () => {
+describe('values this build does not know', () => {
+  const published = parseBridgeConfig(testnet, 'testnet');
+  const chains = testnet.supportedEvmChains;
+  const providers = testnet['bridge-providers'];
+  const withChains = (supportedEvmChains: Record<string, ConfigValue>) => ({ ...testnet, supportedEvmChains });
+  const withProviders = (fields: Record<string, ConfigValue>) => ({
+    ...testnet,
+    'bridge-providers': { ...providers, ...fields }
+  });
+
+  it('skips a chain this build has no name for and keeps the rest', () => {
+    const body = withChains({
+      ...chains,
+      'polygon-amoy': { chainId: 80002, bridges: { usdcx: chains['base-sepolia'].bridges.usdcx } }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).toStrictEqual(published);
+  });
+
+  it('leaves out a USDCx deposit route it does not know and every executor deposit through that chain', () => {
+    const arc = chains['arc-testnet'];
+    const body = withChains({
+      ...chains,
+      'arc-testnet': {
+        ...arc,
+        bridges: {
+          usdcx: { ...arc.bridges.usdcx, deposit: { route: 'cctp-v3', bridge: arc.bridges.usdcx.executor.address } }
+        }
+      }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.epoch
+    );
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.agglayer
+    );
+    const arcRoute = parsed?.supportedEvmChains['arc-testnet']?.bridges.usdcx;
+    expect(arcRoute?.tokens).toStrictEqual(published?.supportedEvmChains['arc-testnet']?.bridges.usdcx?.tokens);
+    expect(arcRoute).not.toHaveProperty('deposit');
+    expect(arcRoute).not.toHaveProperty('executor');
+    for (const slug of ['sepolia', 'base-sepolia', 'arbitrum-sepolia']) {
+      const source = parsed?.supportedEvmChains[slug]?.bridges.usdcx;
+      expect(source?.depositEnabled).toBe(true);
+      expect(source).not.toHaveProperty('deposit');
+    }
+  });
+
+  it('keeps an Epoch route of any token and its Miden symbol, and leaves out one that lists none', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const listed = { WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH' } };
+    const withEpoch = (tokens: Record<string, { contractAddress: string; midenSymbol?: string }>) => {
+      const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
+      return parseBridgeConfig(
+        withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } } }),
+        'testnet'
+      );
+    };
+    expect(withEpoch(listed)?.supportedEvmChains['base-sepolia']?.bridges.epoch?.tokens).toStrictEqual({
+      WETH: { contractAddress: '0x4200000000000000000000000000000000000006', midenSymbol: 'ETH', outputs: [] }
+    });
+    expect(withEpoch({})).toStrictEqual(published);
+    expect(withEpoch({ WETH: { ...listed.WETH, midenSymbol: 'eth' } })).toBeNull();
+  });
+
+  it('leaves out a USDCx route that lists no token it knows', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const tokens = { USDT: { contractAddress: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' } };
+    const usdcx = { ...baseSepolia.bridges.usdcx, tokens };
+    const parsed = parseBridgeConfig(
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx } } }),
+      'testnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.supportedEvmChains['base-sepolia']?.bridges).toStrictEqual({});
+  });
+
+  it('reads an Epoch output under any name and leaves out a token output nothing declares', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const outputs = {
+      ...providers.epoch.outputs,
+      'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' }
+    };
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-mainnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: { ...providers.epoch, outputs } }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+      'usdc-mainnet-output'
+    ]);
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+  });
+
+  it('keeps only the declared Epoch output where Object.hasOwn is missing', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-testnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: providers.epoch }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const saved = Object.hasOwn;
+    // @ts-expect-error simulating Safari before 15.4
+    delete Object.hasOwn;
+    try {
+      const parsed = parseBridgeConfig(body, 'testnet');
+      expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+        'usdc-testnet-output'
+      ]);
+    } finally {
+      Object.hasOwn = saved;
+    }
+  });
+
+  it('reads Epoch outputs off testnet', () => {
+    const outputs = { 'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } };
+    const parsed = parseBridgeConfig(
+      { network: 'mainnet', version: 1, 'bridge-providers': { epoch: { outputs } } },
+      'mainnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+  });
+
+  it('still rejects an executor deposit through a listed chain that never had an executor, and a route id not text', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const usdcx = baseSepolia.bridges.usdcx;
+    const through = (deposit: Record<string, ConfigValue>) =>
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx: { ...usdcx, deposit } } } });
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, executorChain: 'sepolia' }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, route: 7 }), 'testnet')).toBeNull();
+  });
+
+  it.each([
+    ['indexerUrl', { agglayer: {} }, 'agglayer'],
+    ['positionsUrl', { epoch: { ...providers.epoch, positionsUrl: undefined } }, 'epoch'],
+    ['allocatorUrl', { epoch: { ...providers.epoch, allocatorUrl: undefined } }, 'epoch'],
+    ['irisUrl', { usdcx: { ...providers.usdcx, irisUrl: undefined } }, 'usdcx'],
+    ['attestationUrl', { usdcx: { ...providers.usdcx, attestationUrl: undefined } }, 'usdcx'],
+    ['midenDomain', { usdcx: { ...providers.usdcx, midenDomain: undefined } }, 'usdcx']
+  ])('leaves out every route that needs a missing %s and keeps the rest', (_name, fields, bridge) => {
+    const parsed = parseBridgeConfig(withProviders(fields), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.features).toStrictEqual(published?.features);
+    expect(parsed?.mainnetCountdown).toStrictEqual(published?.mainnetCountdown);
+    for (const [slug, chain] of Object.entries(published?.supportedEvmChains ?? {})) {
+      const kept = Object.fromEntries(Object.entries(chain.bridges).filter(([name]) => name !== bridge));
+      expect(parsed?.supportedEvmChains[slug]?.bridges).toStrictEqual(kept);
+    }
+  });
+});
+
+it('ignores removed market configuration', () => {
   const parsed = parseBridgeConfig(withSection('epoch', { earnProtocol: 'aave-v3' }), 'testnet');
-  expect(parsed?.epoch).not.toHaveProperty('earnProtocol');
-  expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
+  expect(parsed?.['bridge-providers'].epoch).not.toHaveProperty('earnProtocol');
+  expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
 
-it('supports Sepolia, Arc Testnet, Base Sepolia and Arbitrum Sepolia, and dummy lending only', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614]);
-  expect(SUPPORTED_EARN_PROTOCOLS).toEqual(['dummy-lending']);
+it('supports each chain in the wallet registry', () => {
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10, 137, 4663]);
 });
 
-it('takes the supported chains from the wallet chain registry', () => {
+it('takes supported ids from the wallet registry', () => {
   let schema!: typeof import('./schema');
   jest.isolateModules(() => {
     jest.doMock('lib/walletconnect/config', () => ({ SUPPORTED_CHAINS: [{ id: 11155111 }, { id: 84532 }] }));
     schema = require('./schema');
   });
-  const parsed = schema.parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet');
-  expect(parsed?.evm.chainId).toBe(84532);
+  expect(schema.SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 84532]);
 });
 
 it.each([
@@ -166,9 +855,9 @@ it.each([
   ['a version written as text', doc({ version: '1' })],
   ['a version past the safe integers', doc({ version: 2 ** 53 })],
   ['no version', doc({ version: undefined })],
-  ['an evm section that is not an object', doc({ evm: 11155111 })],
-  ['a null agglayer section', doc({ agglayer: null })],
-  ['an epoch section that is an array', doc({ epoch: [] })],
+  ['an evm section that is not an object', doc({ supportedEvmChains: 11155111 })],
+  ['a null agglayer section', doc({ 'bridge-providers': { agglayer: null } })],
+  ['an epoch section that is an array', doc({ 'bridge-providers': { epoch: [] } })],
   ['a features section that is not an object', doc({ features: true })],
   ['a chain id written as text', withSection('evm', { chainId: '11155111' })],
   ['chain id 0', withSection('evm', { chainId: 0 })],
@@ -189,10 +878,13 @@ it.each([
   ['a URL with a query', withSection('epoch', { allocatorUrl: 'https://allocator.example/?key=1' })],
   ['a URL with a fragment', withSection('epoch', { allocatorUrl: 'https://allocator.example/#top' })],
   ['a numeric URL', withSection('agglayer', { indexerUrl: 443 })],
-  ['a numeric Earn protocol', withSection('epoch', { earnProtocol: 1 })],
+  ['a numeric output list', doc({ 'bridge-providers': { epoch: { outputs: 1 } } })],
   ['a switch written as text', withSection('features', { earn: 'true' })],
   ['a numeric switch', withSection('features', { bridgeIn: 1 })],
-  ['a null switch', withSection('features', { bridgeOut: null })]
+  ['a null switch', withSection('features', { bridgeOut: null })],
+  ['a geo section that is not an object', doc({ geo: [] })],
+  ['a geo rule that is not an object', doc({ geo: { earn: ['block UK'] } })],
+  ['a geo answer that is not yes or no', doc({ geo: { earn: { 'block UK': true } } })]
 ])('rejects a document with %s', (_label, body) => {
   expect(parseBridgeConfig(body, 'testnet')).toBeNull();
 });
@@ -211,9 +903,9 @@ it.each([
   const parsed = parseBridgeConfig(body, 'testnet');
   expect(parsed).not.toBeNull();
   expect(parsed?.mainnetCountdown).toStrictEqual({ enabled: false });
-  expect(parsed?.features).toStrictEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
-  expect(parsed?.evm).toStrictEqual({ chainId: 11155111 });
-  expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
+  expect(parsed?.features).toStrictEqual({ earn: true, nearIntents: false });
+  expect(parsed?.supportedEvmChains.sepolia?.chainId).toBe(11155111);
+  expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
 
 it('reads a fraction of any length as the same instant', () => {
@@ -223,16 +915,477 @@ it('reads a fraction of any length as the same instant', () => {
   expect(at('2026-10-26T00:00:00.5Z')?.launchAt).toBe(Date.UTC(2026, 9, 26, 0, 0, 0, 500));
 });
 
+describe('the Earn vaults', () => {
+  const SEPOLIA_USDC = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+  const withVaults = (vaults: ConfigValue) => doc({ earn: { vaults } });
+  const withVault = (fields: Record<string, ConfigValue>) => withVaults([{ ...DUMMY_VAULT, ...fields }]);
+  const without = (field: string) =>
+    withVaults([Object.fromEntries(Object.entries(DUMMY_VAULT).filter(([key]) => key !== field))]);
+  // A second chain with no Epoch route. A vault can name it: the document lists it.
+  const withArc = (vaults: ConfigValue) => {
+    const base = withVaults(vaults);
+    return {
+      ...base,
+      supportedEvmChains: { ...base.supportedEvmChains, 'arc-testnet': { chainId: 5042002, bridges: {} } }
+    };
+  };
+
+  it('keeps each vault in the document order, its uid in lowercase and its deposits on by default', () => {
+    const aave = {
+      id: 'aave-v3-sepolia-usdc',
+      marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}`,
+      name: 'Aave V3 USDC',
+      protocol: '1delta',
+      about: 'Lends USDC to Aave V3 borrowers.',
+      risk: 'medium',
+      depositsEnabled: false
+    };
+    expect(parseBridgeConfig(withVaults([DUMMY_VAULT, aave]), 'testnet')?.earn).toStrictEqual({
+      vaults: [
+        {
+          id: 'dummy-lending-sepolia-usdc',
+          marketUid: `dummy_lending:11155111:${SEPOLIA_USDC}`,
+          name: 'Dummy Lending USDC',
+          protocol: 'dummy-lending',
+          depositsEnabled: true
+        },
+        {
+          id: 'aave-v3-sepolia-usdc',
+          marketUid: `aave_v3:11155111:${SEPOLIA_USDC}`,
+          name: 'Aave V3 USDC',
+          protocol: '1delta',
+          about: 'Lends USDC to Aave V3 borrowers.',
+          risk: 'medium',
+          depositsEnabled: false
+        }
+      ]
+    });
+  });
+
+  it('parses the bundled testnet document with its vault', () => {
+    expect(parseBridgeConfig(testnet, 'testnet')?.earn?.vaults.map(vault => vault.id)).toEqual([
+      'dummy-lending-sepolia-usdc'
+    ]);
+  });
+
+  it.each([
+    ['a 64-character name', withVault({ name: 'n'.repeat(64) })],
+    ['a 200-character about', withVault({ about: 'a'.repeat(200) })],
+    ['a name with spaces at its ends, which no rule checks', withVault({ name: ' Dummy ' })],
+    ['a risk of low', withVault({ risk: 'low' })],
+    ['a risk of medium', withVault({ risk: 'medium' })],
+    ['a risk of high', withVault({ risk: 'high' })],
+    ['vaults that all stop deposits', withVault({ depositsEnabled: false })],
+    ['an unknown field', withVault({ colour: 'blue' })],
+    ['an SVG logo', withVault({ logo: 'icons/aave.svg' })],
+    ['a PNG logo with hyphens and digits', withVault({ logo: 'icons/morpho-blue-2.png' })]
+  ])('accepts %s', (_label, body) => {
+    expect(parseBridgeConfig(body, 'testnet')?.earn?.vaults).toHaveLength(1);
+  });
+
+  it('keeps a logo as written and omits one the vault does not name', () => {
+    const second = { ...DUMMY_VAULT, id: 'aave-v3-sepolia-usdc', marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}` };
+    const vaults = parseBridgeConfig(
+      withVaults([
+        { ...DUMMY_VAULT, logo: 'icons/aave.svg' },
+        { ...second, logo: 'icons/aave.svg' },
+        { ...second, id: 'third', marketUid: `MORPHO_BLUE:11155111:${SEPOLIA_USDC}` }
+      ]),
+      'testnet'
+    )?.earn?.vaults;
+    // Two vaults may share one file.
+    expect(vaults?.map(vault => vault.logo)).toEqual(['icons/aave.svg', 'icons/aave.svg', undefined]);
+    expect(vaults?.[2]).not.toHaveProperty('logo');
+  });
+
+  it('accepts as many vaults as the document lists', () => {
+    const vaults = Array.from({ length: 40 }, (_, i) => ({
+      ...DUMMY_VAULT,
+      id: `vault-${i}`,
+      marketUid: `LENDER_${i}:11155111:${SEPOLIA_USDC}`
+    }));
+    expect(parseBridgeConfig(withVaults(vaults), 'testnet')?.earn?.vaults).toHaveLength(40);
+  });
+
+  it('reads a vault on a route this build leaves out, as the config repo reads it', () => {
+    const base = doc();
+    const futureChain = {
+      chainId: 999999999,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: { USDC: { contractAddress: '0x1111111111111111111111111111111111111111' } }
+        }
+      }
+    };
+    const body = {
+      ...base,
+      supportedEvmChains: { ...base.supportedEvmChains, 'future-chain': futureChain },
+      earn: {
+        vaults: [
+          DUMMY_VAULT,
+          { ...DUMMY_VAULT, id: 'future', marketUid: 'AAVE_V3:999999999:0x1111111111111111111111111111111111111111' }
+        ]
+      }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed?.supportedEvmChains).not.toHaveProperty('future-chain');
+    expect(parsed?.earn?.vaults.map(vault => vault.id)).toEqual(['dummy-lending-sepolia-usdc', 'future']);
+  });
+
+  it('reads a vault in any token on a chain the document lists, with or without an Epoch route', () => {
+    const WETH = '0x7b79995e5f793a07bc00c21412e50ecae098e7f9';
+    const parsed = parseBridgeConfig(
+      withArc([
+        DUMMY_VAULT,
+        { ...DUMMY_VAULT, id: 'aave-v3-sepolia-weth', marketUid: `AAVE_V3:11155111:${WETH}` },
+        { ...DUMMY_VAULT, id: 'arc-vault', marketUid: `DUMMY_LENDING:5042002:${SEPOLIA_USDC}` }
+      ]),
+      'testnet'
+    );
+    expect(parsed?.earn?.vaults.map(vault => vault.marketUid)).toEqual([
+      `dummy_lending:11155111:${SEPOLIA_USDC}`,
+      `aave_v3:11155111:${WETH}`,
+      `dummy_lending:5042002:${SEPOLIA_USDC}`
+    ]);
+  });
+
+  it('reads a vault on an Epoch route left out for want of provider values', () => {
+    const body = withSection('epoch', { allocatorUrl: undefined });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed?.supportedEvmChains.sepolia?.bridges).not.toHaveProperty('epoch');
+    expect(parsed?.earn?.vaults).toHaveLength(1);
+  });
+
+  it.each([
+    ['Earn on with no earn section', doc({ earn: undefined })],
+    ['Earn on with an empty vault list', withVaults([])],
+    ['Earn on with no vault list', doc({ earn: {} })],
+    ['an earn section with Earn off', doc({ features: { earn: false } })],
+    ['an earn section with no Earn switch', doc({ features: {} })],
+    ['an earn section that is not an object', doc({ earn: [DUMMY_VAULT] })],
+    ['a vault list that is not an array', withVaults({ dummy: DUMMY_VAULT })],
+    ['a vault that is not an object', withVaults(['dummy-lending-sepolia-usdc'])],
+    ['a vault with no id', without('id')],
+    ['an id with a capital letter', withVault({ id: 'Dummy-lending' })],
+    ['an id that starts with a digit', withVault({ id: '1-dummy' })],
+    ['an id that starts with a hyphen', withVault({ id: '-dummy' })],
+    ['an id with an underscore', withVault({ id: 'dummy_lending' })],
+    ['an empty id', withVault({ id: '' })],
+    ['a numeric id', withVault({ id: 7 })],
+    [
+      'two vaults with one id',
+      withVaults([DUMMY_VAULT, { ...DUMMY_VAULT, marketUid: `AAVE_V3:11155111:${SEPOLIA_USDC}` }])
+    ],
+    ['a vault with no market', without('marketUid')],
+    ['a market of two parts', withVault({ marketUid: `DUMMY_LENDING:${SEPOLIA_USDC}` })],
+    ['a market of four parts', withVault({ marketUid: `DUMMY_LENDING:11155111:${SEPOLIA_USDC}:1` })],
+    ['a lowercase lender key', withVault({ marketUid: `dummy_lending:11155111:${SEPOLIA_USDC}` })],
+    ['a lender key with a hyphen', withVault({ marketUid: `DUMMY-LENDING:11155111:${SEPOLIA_USDC}` })],
+    ['an empty lender key', withVault({ marketUid: `:11155111:${SEPOLIA_USDC}` })],
+    ['a chain id of zero', withVault({ marketUid: `DUMMY_LENDING:0:${SEPOLIA_USDC}` })],
+    ['a chain id with a leading zero', withVault({ marketUid: `DUMMY_LENDING:011155111:${SEPOLIA_USDC}` })],
+    ['a chain id that is not a number', withVault({ marketUid: `DUMMY_LENDING:sepolia:${SEPOLIA_USDC}` })],
+    ['a chain the document does not list', withVault({ marketUid: `DUMMY_LENDING:1:${SEPOLIA_USDC}` })],
+    [
+      'a checksummed token',
+      withVault({ marketUid: 'DUMMY_LENDING:11155111:0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' })
+    ],
+    ['a token without 0x', withVault({ marketUid: `DUMMY_LENDING:11155111:${SEPOLIA_USDC.slice(2)}` })],
+    ['a numeric market', withVault({ marketUid: 11155111 })],
+    ['two vaults with one market', withVaults([DUMMY_VAULT, { ...DUMMY_VAULT, id: 'dummy-again' }])],
+    ['a vault with no name', without('name')],
+    ['an empty name', withVault({ name: '' })],
+    ['a 65-character name', withVault({ name: 'n'.repeat(65) })],
+    ['a numeric name', withVault({ name: 12 })],
+    ['a vault with no protocol', without('protocol')],
+    ['an unknown protocol', withVault({ protocol: 'aave-v3' })],
+    ['a protocol in capitals', withVault({ protocol: '1DELTA' })],
+    ['an empty about', withVault({ about: '' })],
+    ['a 201-character about', withVault({ about: 'a'.repeat(201) })],
+    ['a null about', withVault({ about: null })],
+    ['an unknown risk', withVault({ risk: 'extreme' })],
+    ['a risk in capitals', withVault({ risk: 'Low' })],
+    ['a deposits switch written as text', withVault({ depositsEnabled: 'false' })],
+    ['a null deposits switch', withVault({ depositsEnabled: null })],
+    ['a logo outside icons/', withVault({ logo: 'aave.svg' })],
+    ['a logo that is a URL', withVault({ logo: 'https://example.com/icons/aave.svg' })],
+    ['a logo that climbs out of icons/', withVault({ logo: 'icons/../aave.svg' })],
+    ['a logo in a folder under icons/', withVault({ logo: 'icons/lender/aave.svg' })],
+    ['a logo with a capital letter', withVault({ logo: 'icons/Aave.svg' })],
+    ['a logo with an underscore', withVault({ logo: 'icons/aave_v3.svg' })],
+    ['a logo with a doubled hyphen', withVault({ logo: 'icons/aave--v3.svg' })],
+    ['a logo with a leading hyphen', withVault({ logo: 'icons/-aave.svg' })],
+    ['a WebP logo', withVault({ logo: 'icons/aave.webp' })],
+    ['a logo with an upper-case extension', withVault({ logo: 'icons/aave.SVG' })],
+    ['a logo with a query', withVault({ logo: 'icons/aave.svg?x=1' })],
+    ['an empty logo', withVault({ logo: '' })],
+    ['a null logo', withVault({ logo: null })],
+    ['a numeric logo', withVault({ logo: 7 })]
+  ])('rejects a document with %s', (_label, body) => {
+    expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+  });
+
+  it('accepts no earn section while Earn is off or absent', () => {
+    expect(parseBridgeConfig(doc({ features: { earn: false }, earn: undefined }), 'testnet')?.earn).toBeUndefined();
+    expect(parseBridgeConfig(doc({ features: {}, earn: undefined }), 'testnet')?.features.earn).toBe(false);
+  });
+});
+
+describe('the Guardian operators', () => {
+  const OZ = {
+    id: 'open-zeppelin',
+    name: 'OpenZeppelin',
+    operatedBy: 'OpenZeppelin',
+    location: 'US-EAST',
+    endpoint: 'https://guardian-testnet.openzeppelin.com'
+  };
+  const KODA = {
+    id: 'kodax',
+    name: 'Koda',
+    operatedBy: 'Korea Digital Asset (Koda)',
+    location: 'Asia (SK)',
+    endpoint: 'https://guardian-testnet.kodax.com'
+  };
+  const entry = (index: number) => ({ ...OZ, id: `operator-${index}`, endpoint: `https://guardian-${index}.example` });
+  const guardians = (list: unknown) => parseBridgeConfig(doc({ guardians: list }), 'testnet');
+
+  it('reads no list from a document that has none, so the wallet keeps its own', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed && 'guardians' in parsed).toBe(false);
+  });
+
+  it('reads the list in document order', () => {
+    expect(guardians([KODA, OZ])?.guardians).toStrictEqual([KODA, OZ]);
+  });
+
+  it('puts an endpoint in the form the wallet compares: lowercase host, no default port, no trailing slash', () => {
+    const parsed = guardians([{ ...OZ, endpoint: 'https://GUARDIAN-TESTNET.openzeppelin.com:443//' }]);
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('https://guardian-testnet.openzeppelin.com');
+  });
+
+  it('ignores a field of an entry that it does not know', () => {
+    expect(guardians([{ ...OZ, logoUrl: 'https://example.com/logo.png' }])?.guardians).toStrictEqual([OZ]);
+  });
+
+  it('accepts 16 operators and refuses 17', () => {
+    expect(guardians(Array.from({ length: 16 }, (_, index) => entry(index)))?.guardians).toHaveLength(16);
+    expect(guardians(Array.from({ length: 17 }, (_, index) => entry(index)))).toBeNull();
+  });
+
+  it.each<[string, unknown]>([
+    ['a list that is an object', {}],
+    ['a list that is null', null],
+    ['an empty list', []],
+    ['an entry that is a URL string', [OZ.endpoint]],
+    ['an entry that is null', [null]],
+    ['an id with an upper-case letter', [{ ...OZ, id: 'OpenZeppelin' }]],
+    ['an id with a double hyphen', [{ ...OZ, id: 'open--zeppelin' }]],
+    ['an id that ends in a hyphen', [{ ...OZ, id: 'open-' }]],
+    ['an empty id', [{ ...OZ, id: '' }]],
+    ['an id of 33 characters', [{ ...OZ, id: 'a'.repeat(33) }]],
+    ['a numeric id', [{ ...OZ, id: 7 }]],
+    ['the id of the custom endpoint', [{ ...OZ, id: 'custom' }]],
+    ['the id of the no-Guardian choice', [{ ...OZ, id: 'no-guardian' }]],
+    ['a missing name', [{ id: OZ.id, operatedBy: OZ.operatedBy, location: OZ.location, endpoint: OZ.endpoint }]],
+    ['an empty name', [{ ...OZ, name: '' }]],
+    ['a name of 49 characters', [{ ...OZ, name: 'n'.repeat(49) }]],
+    ['a name with a space at its start', [{ ...OZ, name: ' OpenZeppelin' }]],
+    ['an operator with a line break', [{ ...OZ, operatedBy: 'Open\nZeppelin' }]],
+    ['an operator with a C1 control', [{ ...OZ, operatedBy: 'Open\u0085Zeppelin' }]],
+    ['a numeric location', [{ ...OZ, location: 7 }]],
+    ['a missing endpoint', [{ id: OZ.id, name: OZ.name, operatedBy: OZ.operatedBy, location: OZ.location }]],
+    ['an http endpoint', [{ ...OZ, endpoint: 'http://guardian-testnet.openzeppelin.com' }]],
+    ['a local http endpoint', [{ ...OZ, endpoint: 'http://localhost:3000' }]],
+    ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian-testnet.openzeppelin.com/?a=1' }]],
+    ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian-testnet.openzeppelin.com' }]],
+    ['an about that is an object', [{ ...OZ, about: { en: 'A security company.' } }]],
+    ['an empty about', [{ ...OZ, about: '' }]],
+    ['an about of 161 characters', [{ ...OZ, about: 'a'.repeat(161) }]],
+    ['an about with a line break', [{ ...OZ, about: 'A security\ncompany.' }]],
+    ['an about with a space at its end', [{ ...OZ, about: 'A security company. ' }]],
+    ['a kind that is null', [{ ...OZ, kind: null }]],
+    ['a numeric kind', [{ ...OZ, kind: 7 }]],
+    ['a kind of 65 characters', [{ ...OZ, kind: 'k'.repeat(65) }]],
+    ['two entries with one id', [OZ, { ...KODA, id: OZ.id }]],
+    [
+      'two entries with one endpoint in two spellings',
+      [OZ, { ...KODA, endpoint: 'https://Guardian-Testnet.OpenZeppelin.com/' }]
+    ]
+  ])('rejects the document for %s', (_label, list) => {
+    expect(guardians(list)).toBeNull();
+  });
+
+  it('reads the about and kind texts as written', () => {
+    const described = { ...OZ, about: 'A smart contract security company.', kind: 'Smart contract security' };
+    expect(guardians([described, KODA])?.guardians).toStrictEqual([described, KODA]);
+  });
+
+  it('accepts an about and a kind at their length limits', () => {
+    const parsed = guardians([{ ...OZ, about: 'a'.repeat(160), kind: 'k'.repeat(64) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ about: 'a'.repeat(160), kind: 'k'.repeat(64) });
+  });
+
+  it('accepts a name and an id at their length limits', () => {
+    const parsed = guardians([{ ...OZ, id: 'a'.repeat(32), name: 'n'.repeat(48) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ id: 'a'.repeat(32), name: 'n'.repeat(48) });
+  });
+
+  it('accepts a local http endpoint only under the E2E allowance', () => {
+    const parsed = parseBridgeConfig(doc({ guardians: [{ ...OZ, endpoint: 'http://localhost:3000/' }] }), 'testnet', {
+      allowLocalHttp: true
+    });
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('http://localhost:3000');
+  });
+});
+
 describe('the E2E local http allowance', () => {
   it.each(['http://127.0.0.1:8548', 'http://localhost:8549/'])('accepts %s when allowed', input => {
     const parsed = parseBridgeConfig(withSection('epoch', { allocatorUrl: input }), 'testnet', {
       allowLocalHttp: true
     });
-    expect(parsed?.epoch.allocatorUrl).toBe(input.replace(/\/$/, ''));
+    expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe(input.replace(/\/$/, ''));
   });
 
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {
     const body = withSection('epoch', { allocatorUrl: input });
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
+describe('the NEAR Intents local E2E gate', () => {
+  const nearIntents = (serviceUrl: string) => ({
+    serviceUrl,
+    midenAssets: { usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 } },
+    chains: {
+      eth: {
+        name: 'Ethereum',
+        addressKind: 'evm',
+        tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+      }
+    }
+  });
+  const configured = doc({ nearIntents: nearIntents('https://one-click.example') });
+  const local = { ...doc({ nearIntents: nearIntents('http://127.0.0.1:8550') }), network: 'localnet' };
+  const both = { allowLocalHttp: true, allowOneClickLocalE2E: true };
+
+  it('rejects a mainnet LAN URL and a mainnet localhost URL outside the hermetic gate', () => {
+    const env = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      MODE_ENV: 'development',
+      MIDEN_E2E_TEST: 'false'
+    });
+    try {
+      const mainnet = { ...local, network: 'mainnet' };
+      expect(parseBridgeConfig(mainnet, 'mainnet')).toBeNull();
+      const lanConfig = { ...mainnet, nearIntents: nearIntents('http://192.168.29.144:8787') };
+      expect(parseBridgeConfig(lanConfig, 'mainnet')).toBeNull();
+      const localhostConfig = { ...mainnet, nearIntents: nearIntents('http://localhost:8787') };
+      expect(parseBridgeConfig(localhostConfig, 'mainnet')).toBeNull();
+    } finally {
+      env.restore();
+    }
+  });
+
+  it('hides NEAR Intents outside mainnet unless the explicit local E2E option is enabled', () => {
+    expect(parseBridgeConfig(configured, 'testnet')?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet')?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet', both)?.nearIntents).toMatchObject({
+      serviceUrl: 'http://127.0.0.1:8550'
+    });
+  });
+
+  it('does not allow the local E2E option to enable NEAR Intents on testnet or another network', () => {
+    expect(parseBridgeConfig(configured, 'testnet', { allowOneClickLocalE2E: true })?.nearIntents).toBeUndefined();
+    expect(
+      parseBridgeConfig({ ...configured, network: 'devnet' }, 'devnet', { allowOneClickLocalE2E: true })?.nearIntents
+    ).toBeUndefined();
+  });
+
+  it('allows loopback HTTP for NEAR Intents only when both local E2E allowances are enabled', () => {
+    expect(parseBridgeConfig(local, 'localnet', { allowLocalHttp: true })?.nearIntents).toBeUndefined();
+    expect(parseBridgeConfig(local, 'localnet', { allowOneClickLocalE2E: true })).toBeNull();
+    expect(parseBridgeConfig(local, 'localnet', both)?.nearIntents).toMatchObject({
+      serviceUrl: 'http://127.0.0.1:8550'
+    });
+    expect(parseBridgeConfig({ ...local, network: 'mainnet' }, 'mainnet', both)).toBeNull();
+    expect(
+      parseBridgeConfig({ ...local, nearIntents: nearIntents('https://one-click.example') }, 'localnet', both)
+    ).toBeNull();
+  });
+});
+
+describe('the AggLayer deposit tokens', () => {
+  const agglayerRoute = (body: ReturnType<typeof parseBridgeConfig>) =>
+    body?.supportedEvmChains.sepolia?.bridges.agglayer;
+
+  it('reads the listed tokens, addresses lowercase, and the Blockscout root without its trailing slash', () => {
+    const parsed = parseBridgeConfig(
+      withSection('agglayer', {
+        tokens: {
+          USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' },
+          WBTC: { contractAddress: '0x21472DF1B5d2b673F6444B41258C6460294a2C06' }
+        },
+        tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2/'
+      }),
+      'testnet'
+    );
+    expect(agglayerRoute(parsed)).toMatchObject({
+      tokens: {
+        USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+        WBTC: { contractAddress: '0x21472df1b5d2b673f6444b41258c6460294a2c06' }
+      },
+      tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2'
+    });
+  });
+
+  it('leaves both out when the document names none', () => {
+    const route = agglayerRoute(parseBridgeConfig(doc(), 'testnet'));
+    expect(route).not.toHaveProperty('tokens');
+    expect(route).not.toHaveProperty('tokenApiUrl');
+  });
+
+  it.each<[string, Record<string, ConfigValue>]>([
+    ['a list instead of a map', { tokens: [] }],
+    ['a lower-case symbol', { tokens: { usdc: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' } } }],
+    ['a short address', { tokens: { USDC: { contractAddress: '0x1' } } }],
+    [
+      'one address twice',
+      {
+        tokens: {
+          USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' },
+          USDT: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' }
+        }
+      }
+    ],
+    ['an http Blockscout root', { tokenApiUrl: 'http://eth-sepolia.blockscout.com/api/v2' }],
+    ['a Blockscout root with a query', { tokenApiUrl: 'https://eth-sepolia.blockscout.com/api/v2?x=1' }]
+  ])('rejects %s', (_label, fields) => {
+    expect(parseBridgeConfig(withSection('agglayer', fields), 'testnet')).toBeNull();
+  });
+});
+
+describe('geo place rules', () => {
+  it('keeps yes answers for earn and swap, and drops a no, an unknown phrase, and an unknown feature', () => {
+    const parsed = parseBridgeConfig(
+      doc({
+        geo: {
+          earn: { 'block NY state': 'yes', 'block UK': 'yes', 'block US-CA': 'no', 'block Narnia': 'yes' },
+          swap: { 'block DE': 'yes' },
+          bridgeIn: { 'block UK': 'yes' }
+        }
+      }),
+      'testnet'
+    );
+    expect(parsed?.geo).toEqual({
+      earn: [{ country: 'US', region: 'NY' }, { country: 'GB' }],
+      swap: [{ country: 'DE' }]
+    });
+  });
+
+  it('omits the section when the document names none', () => {
+    expect(parseBridgeConfig(doc(), 'testnet')?.geo).toBeUndefined();
   });
 });

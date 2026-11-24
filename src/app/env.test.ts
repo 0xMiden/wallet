@@ -11,6 +11,7 @@ import {
   WindowType,
   IS_DEV_ENV,
   onboardingUrls,
+  openCommandHome,
   openInFullPage
 } from './env';
 
@@ -25,13 +26,22 @@ const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
 // Mock lib/woozie
 jest.mock('lib/woozie', () => ({
-  createUrl: jest.fn((base, search, hash) => `${base}${search}${hash}`)
+  createUrl: jest.requireActual<typeof import('lib/woozie/history')>('lib/woozie/history').createUrl
 }));
 
 // Mock webextension-polyfill
 const mockTabsCreate = jest.fn();
 const mockTabsQuery = jest.fn().mockResolvedValue([]);
 const mockTabsUpdate = jest.fn();
+const mockSidebarClose = jest.fn();
+const mockChromeGetCurrent = jest.fn();
+const mockChromeGetLastFocused = jest.fn();
+const mockChromeSidePanelClose = jest.fn();
+const originalChrome = Object.getOwnPropertyDescriptor(globalThis, 'chrome');
+const mockChrome = {
+  windows: { getCurrent: mockChromeGetCurrent, getLastFocused: mockChromeGetLastFocused },
+  sidePanel: { close: mockChromeSidePanelClose }
+};
 const mockRuntimeGetURL = jest.fn((path: string) => `chrome-extension://test/${path}`);
 const mockAddListener = jest.fn();
 const mockSendMessage = jest.fn().mockResolvedValue(undefined);
@@ -44,6 +54,7 @@ jest.mock('webextension-polyfill', () => ({
       query: (...args: unknown[]) => mockTabsQuery(...args),
       update: (...args: unknown[]) => mockTabsUpdate(...args)
     },
+    sidebarAction: { close: (...args: unknown[]) => mockSidebarClose(...args) },
     runtime: {
       getURL: (path: string) => mockRuntimeGetURL(path),
       onMessage: {
@@ -68,6 +79,15 @@ describe('env', () => {
     jest.clearAllMocks();
     mockIsMobile.mockReturnValue(false);
     mockIsExtension.mockReturnValue(true);
+    mockSidebarClose.mockResolvedValue(undefined);
+    mockChromeGetCurrent.mockResolvedValue({ id: 27 });
+    mockChromeSidePanelClose.mockResolvedValue(undefined);
+    Object.defineProperty(globalThis, 'chrome', { configurable: true, value: undefined });
+  });
+
+  afterEach(() => {
+    if (originalChrome) Object.defineProperty(globalThis, 'chrome', originalChrome);
+    else Reflect.deleteProperty(globalThis, 'chrome');
   });
 
   describe('IS_DEV_ENV', () => {
@@ -245,9 +265,178 @@ describe('env', () => {
     });
   });
 
+  describe('openCommandHome', () => {
+    it('does not open a tab outside the extension', async () => {
+      mockIsExtension.mockReturnValue(false);
+      await openCommandHome(WindowType.Popup);
+      expect(mockTabsCreate).not.toHaveBeenCalled();
+    });
+
+    const compactSources: Array<WindowType.Popup | WindowType.SidePanel> = [WindowType.Popup, WindowType.SidePanel];
+    it.each(compactSources)('opens extension-owned home in an active tab (%s)', async source => {
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+      try {
+        window.history.replaceState(null, '', '/?draft=private#/send?amount=123');
+        await openCommandHome(source);
+        expect(mockTabsCreate).toHaveBeenCalledWith({
+          url: 'chrome-extension://test/fullpage.html#/',
+          active: true
+        });
+        expect(close).toHaveBeenCalledTimes(source === WindowType.Popup ? 1 : 0);
+      } finally {
+        window.history.replaceState(null, '', '/');
+        close.mockRestore();
+      }
+    });
+
+    it('closes a supported sidebar only after successful creation', async () => {
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockSidebarClose).toHaveBeenCalledTimes(1);
+      expect(mockTabsCreate.mock.invocationCallOrder[0]).toBeLessThan(mockSidebarClose.mock.invocationCallOrder[0]!);
+    });
+
+    it('closes only the initiating Chrome window panel after creating the tab', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockTabsCreate.mockImplementationOnce(() => {
+        expect(mockChromeGetCurrent).toHaveBeenCalledTimes(1);
+        mockChromeGetCurrent.mockResolvedValue({ id: 99 });
+        return Promise.resolve({ id: 21 });
+      });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeSidePanelClose).toHaveBeenCalledWith({ windowId: 27 });
+      expect(mockTabsCreate.mock.invocationCallOrder[0]).toBeLessThan(
+        mockChromeSidePanelClose.mock.invocationCallOrder[0]!
+      );
+      expect(mockChromeGetLastFocused).not.toHaveBeenCalled();
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+    });
+
+    it('leaves the Chrome panel usable when its close API is unavailable or its window identity is unknown', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { ...mockChrome, sidePanel: {} } });
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeGetCurrent).not.toHaveBeenCalled();
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockChromeGetCurrent.mockResolvedValueOnce({});
+      mockTabsCreate.mockResolvedValueOnce({ id: 22 });
+      await openCommandHome(WindowType.SidePanel);
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
+    });
+
+    it('opens the tab and keeps the panel usable when the initiating window cannot be read', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockChromeGetCurrent.mockRejectedValueOnce(new Error('window unavailable'));
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      await expect(openCommandHome(WindowType.SidePanel)).resolves.toBeUndefined();
+      expect(mockTabsCreate).toHaveBeenCalledTimes(1);
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
+    });
+
+    it('does not report Chrome closure failure after successful tab creation', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockTabsCreate.mockResolvedValueOnce({ id: 21 });
+      mockChromeSidePanelClose.mockRejectedValueOnce(new Error('panel already closed'));
+      await expect(openCommandHome(WindowType.SidePanel)).resolves.toBeUndefined();
+      expect(mockChromeSidePanelClose).toHaveBeenCalledWith({ windowId: 27 });
+    });
+
+    it('keeps a side panel usable when creating the tab fails', async () => {
+      Object.defineProperty(globalThis, 'chrome', { configurable: true, value: mockChrome });
+      mockTabsCreate.mockRejectedValueOnce(new Error('tabs unavailable'));
+      await expect(openCommandHome(WindowType.SidePanel)).rejects.toThrow('tabs unavailable');
+      expect(mockChromeSidePanelClose).not.toHaveBeenCalled();
+      expect(mockSidebarClose).not.toHaveBeenCalled();
+    });
+
+    it('does not close a popup before tab creation resolves, and keeps it open on rejection', async () => {
+      let rejectCreate: (error: Error) => void = () => {};
+      mockTabsCreate.mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectCreate = reject)));
+      const close = jest.spyOn(window, 'close').mockImplementation(() => {});
+      try {
+        const opening = openCommandHome(WindowType.Popup);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(close).not.toHaveBeenCalled();
+        rejectCreate(new Error('tabs unavailable'));
+        await expect(opening).rejects.toThrow('tabs unavailable');
+        expect(close).not.toHaveBeenCalled();
+      } finally {
+        close.mockRestore();
+      }
+    });
+  });
+
   describe('OpenInFullPage', () => {
     const wrapper = ({ children }: { children: React.ReactNode }) =>
       React.createElement(AppEnvProvider, { windowType: WindowType.Popup }, children);
+
+    describe.each([
+      { surface: 'popup', windowType: WindowType.Popup },
+      { surface: 'sidebar', windowType: WindowType.SidePanel }
+    ])('$surface onboarding handoff', ({ windowType }) => {
+      const compactWrapper = ({ children }: { children: React.ReactNode }) =>
+        React.createElement(AppEnvProvider, { windowType }, children);
+
+      it.each([
+        { flow: 'Guardian', hash: 'guardian-intro' },
+        { flow: 'Guardian', hash: 'meet-guardian' },
+        { flow: 'Guardian', hash: 'choose-guardian' },
+        { flow: 'Guardian', hash: 'reused-phrase' },
+        { flow: 'import', hash: 'select-import-type' },
+        { flow: 'import', hash: 'import-from-seed' },
+        { flow: 'import', hash: 'import-from-key' },
+        { flow: 'import', hash: 'import-from-file' },
+        { flow: 'import', hash: 'import-select-recovery-method' },
+        { flow: 'setup', hash: 'mainnet-access' },
+        { flow: 'setup', hash: 'network-notice' },
+        { flow: 'setup', hash: 'choose-protection' },
+        { flow: 'setup', hash: 'setup-biometric' },
+        { flow: 'setup', hash: 'setup-passcode' },
+        { flow: 'setup', hash: 'select-wallet-type' }
+      ])('reuses $flow onboarding without navigation ($hash)', async ({ hash }) => {
+        mockTabsQuery.mockResolvedValueOnce([
+          { id: 7, url: 'chrome-extension://test/fullpage.html#/history' },
+          { id: 42, url: `chrome-extension://test/fullpage.html#/#${hash}` }
+        ]);
+        const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+          render(React.createElement(OpenInFullPage), { wrapper: compactWrapper });
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(mockTabsUpdate).toHaveBeenCalledWith(42, { active: true });
+          expect(mockTabsUpdate).toHaveBeenCalledTimes(1);
+          expect(mockTabsCreate).not.toHaveBeenCalled();
+          expect(closeSpy).toHaveBeenCalledTimes(1);
+        } finally {
+          closeSpy.mockRestore();
+        }
+      });
+
+      it.each([
+        'chrome-extension://test/fullpage.html#/history',
+        'chrome-extension://test/confirm.html#?id=request',
+        'chrome-extension://other/fullpage.html#/#guardian-intro',
+        'https://example.com/fullpage.html#/#guardian-intro',
+        'chrome-extension://test/popup.html#/#guardian-intro'
+      ])('does not reuse unrelated wallet or approval tabs (%s)', async url => {
+        mockTabsQuery.mockResolvedValueOnce([{ id: 42, url }]);
+        const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+          render(React.createElement(OpenInFullPage), { wrapper: compactWrapper });
+          await new Promise(resolve => setTimeout(resolve, 0));
+
+          expect(mockTabsUpdate).not.toHaveBeenCalled();
+          expect(mockTabsCreate).toHaveBeenCalledTimes(1);
+          expect(closeSpy).toHaveBeenCalledTimes(1);
+        } finally {
+          closeSpy.mockRestore();
+        }
+      });
+    });
 
     it('focuses an existing onboarding tab when one exists', async () => {
       mockTabsQuery.mockResolvedValueOnce([{ id: 42, url: 'chrome-extension://test/fullpage.html' }]);

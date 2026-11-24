@@ -209,13 +209,26 @@ const ALLOWED: Record<string, string[]> = {
   // Session allowlist, plus one hold per in-flight probe. The hold is removed
   // when that probe settles, so it is not a retry budget. `NULL_BODY_STATUSES`
   // is a constant table of HTTP statuses the fetch boundary answers with no body.
-  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'NULL_BODY_STATUSES', 'probeHolds'],
+  // The two probe maps are one attempt's deadline and the native read its permit waits on,
+  // both keyed by that attempt's signal and removed when the attempt returns.
+  'src/lib/miden/guardian/native-http.ts': [
+    'guardianNativeProbeSettlements',
+    'guardianOrigins',
+    'guardianProbeRequestBudgets',
+    'NULL_BODY_STATUSES',
+    'probeHolds'
+  ],
+  // Static proposal and error-name catalogs, with no per-account retry state.
+  'src/lib/miden/guardian/index.ts': ['BUILTIN_PROPOSAL_TYPES', 'POST_PUSH_PROPOSAL_VERIFICATION_NAMES'],
   // One promise chain per account, which serializes that account's guardian
   // transactions: ordering, not retry state. `guardianCandidates` is the one
   // candidate a write left on its Guardian, which the next proposal asks about
   // (#312) and whose failed abandon it retries (#1317): a record of the last
   // write, replaced by the next one, with no cap and no cooldown.
-  'src/lib/miden/guardian/serialize.ts': ['guardianCandidates', 'guardianTxChains']
+  // `newGuardianAnswers` is a WeakSet of the error objects that the new
+  // Guardian's key fetch rejected with: an origin marker that the switch
+  // classifier reads, with no count, no cap and no cooldown.
+  'src/lib/miden/guardian/serialize.ts': ['guardianCandidates', 'guardianTxChains', 'newGuardianAnswers']
 };
 
 describe('guardian repair modules hold no hand-rolled retry ledgers', () => {

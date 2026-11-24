@@ -5,17 +5,21 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianHoldUntil } from 'app/hooks/useGuardianHoldUntil';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { EmptyState } from 'components/ui/EmptyState';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { outlineSurfaceClassName } from 'components/ui/surfaces';
 import {
   acknowledgementOf,
   bridgeProviderOf,
-  isOutcomeUnconfirmed,
   isRequeueableTransaction,
   notConfirmedHintKey,
   requestSWTransactionProcessing,
@@ -26,10 +30,17 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
+import { retryRefusalText } from 'lib/miden/transaction/retry-refusal';
+import { readsAsNotConfirmed, shownSubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
+import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
+import { snapshotPendingRetry, type UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { navigate, Redirect } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -40,10 +51,12 @@ import {
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
+  formatStepSeconds,
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
-  isUnconfirmedGuardianSwitch
+  isUnconfirmedGuardianSwitch,
+  waitsToDeliverNote
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
@@ -62,13 +75,20 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const { signTransaction } = useMidenContext();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<{
+    text: string;
+    id: UserErrorId;
+    transactionId: string;
+    diagnostics?: Extract<UiEvidenceInput, { kind: 'transaction_retry' }>;
+  } | null>(null);
   const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
   // so status alone drives the whole screen — no queue-guessing, no shadow copy.
-  const { row: active, loaded } = useTransactionRow(txId);
+  const { row: active, loaded, readFailed } = useTransactionRow(txId);
+  // What the row says about its hold is read at render, so this also turns the page when the hold ends.
+  const guardianHoldUntil = useGuardianHoldUntil(active);
 
   const onClose = useCallback(() => {
     const { hash } = window.location;
@@ -107,14 +127,48 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
+  // Loading is not a nonfailed row: the first database result may already be a persisted failure.
+  const firstLoadedRow = useRef<{ txId: string; failed: boolean }>();
+  if (loaded && active?.id === txId && firstLoadedRow.current?.txId !== txId) {
+    firstLoadedRow.current = { txId, failed: status === ITransactionStatus.Failed };
+  }
+  useUserVisibleError(
+    loaded &&
+      !readFailed &&
+      active?.id === txId &&
+      status === ITransactionStatus.Failed &&
+      firstLoadedRow.current?.txId === txId &&
+      !firstLoadedRow.current.failed &&
+      !readsAsNotConfirmed(active)
+      ? 'raw_transaction_failed'
+      : null,
+    'status_screen'
+  );
+  const submissionMessage =
+    active !== undefined && (status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed)
+      ? shownSubmissionFeedback(active)
+      : undefined;
+  useUserVisibleError(
+    submissionMessage !== undefined && submissionMessage.rowCopy === undefined ? submissionMessage.messageKey : null,
+    'status_screen',
+    undefined,
+    submissionMessage?.submissionFeedbackBranch === undefined
+      ? undefined
+      : {
+          kind: 'submission_feedback',
+          submissionFeedbackBranch: submissionMessage.submissionFeedbackBranch
+        }
+  );
   // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
-  // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
+  // it while the row waits for a verdict, a Failed one included (#2060); its judging takes no WASM lock (#1081).
+  const verdictPending =
+    !readFailed && (status === ITransactionStatus.Unconfirmed || (active !== undefined && awaitingVerdict(active)));
   useEffect(() => {
-    if (isExtension() || status !== ITransactionStatus.Unconfirmed) return;
+    if (isExtension() || !verdictPending) return;
     void reconcileUnconfirmedInApp();
     const timer = setInterval(() => void reconcileUnconfirmedInApp(), TRANSACTION_LOOP_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [status]);
+  }, [verdictPending]);
 
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
   // row to the receipt (#1081).
@@ -148,11 +202,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // drop `restoredFromBackup` and re-offer Retry on an imported row. The one field
   // added on top is `bridgeProvider`: a bare row does not carry it (it lives on the
   // UI history entry), so without it the Epoch (Fast) guard never fires.
-  const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
+  const canRetry =
+    !!active && !readFailed && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
     async (acknowledged?: { attemptId: string | null }) => {
-      if (!active) return;
+      if (!active || readFailed) return;
       setIsRetrying(true);
       setRetryError(null);
       setAcknowledgement(null);
@@ -162,8 +217,25 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
-        console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        if (error instanceof ClaimFeeRefusedError) {
+          setRetryError({ text: t('insufficientFeeAsset'), id: 'insufficientFeeAsset', transactionId: active.id });
+        } else {
+          console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+          setRetryError(
+            error instanceof Error
+              ? {
+                  text: retryRefusalText(error, t),
+                  id: 'raw_transaction_retry_failed',
+                  transactionId: active.id,
+                  diagnostics: {
+                    kind: 'transaction_retry',
+                    retryNoticeOrigin: 'status_screen',
+                    pendingRetryReason: snapshotPendingRetry(error) ?? 'unexpected'
+                  }
+                }
+              : { text: t('smthWentWrong'), id: 'smthWentWrong', transactionId: active.id }
+          );
+        }
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
@@ -174,13 +246,20 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         setIsRetrying(false);
       }
     },
-    [active, t]
+    [active, readFailed, t]
   );
 
   const onRetry = useCallback(() => handleRetry(), [handleRetry]);
   const onRetryAnyway = useCallback(() => {
     if (acknowledgement !== null) void handleRetry(acknowledgement);
   }, [acknowledgement, handleRetry]);
+  // A refusal describes the hold it met, and Retry anyway only ever follows its refusal.
+  useEffect(() => {
+    if (guardianHoldUntil !== undefined) return;
+    setRetryError(null);
+    setAcknowledgement(null);
+  }, [guardianHoldUntil]);
+  const shownRefusal = retryError?.transactionId === active?.id ? retryError : null;
 
   // Drop any hash left over from an EARLIER receipt as soon as this screen
   // starts tracking a different row. `lastCompletedTxHash` is module-global and
@@ -196,10 +275,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
-    if (status === ITransactionStatus.Completed && active?.transactionId) {
+    if (!readFailed && status === ITransactionStatus.Completed && active?.transactionId) {
       useWalletStore.getState().setLastCompletedTxHash(active.transactionId);
     }
-  }, [status, active?.transactionId]);
+  }, [readFailed, status, active?.transactionId]);
 
   // No auto-close: once the tx reaches a terminal state the receipt stays up
   // until the user dismisses it via Done/Hide.
@@ -218,6 +297,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
   }, [explorerUrl]);
+
+  if (readFailed) {
+    return <EmptyState icon={IconName.Warning} title={t('historyDetailsLoadError')} role="status" />;
+  }
 
   if (active?.awaitingRecoverySeed && active.status === ITransactionStatus.Queued) {
     return <RecoverySeedPrompt transaction={active} onClose={onClose} />;
@@ -268,10 +351,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
           onRetry={onRetry}
-          onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
+          onRetryAnyway={shownRefusal !== null && acknowledgement !== null ? onRetryAnyway : undefined}
           canRetry={canRetry}
+          guardianHoldUntil={guardianHoldUntil}
           isRetrying={isRetrying}
-          retryError={retryError}
+          retryError={shownRefusal?.text}
+          retryErrorId={shownRefusal?.id ?? null}
+          retryErrorDiagnostics={shownRefusal?.diagnostics}
         />
       </div>
     </div>
@@ -293,11 +379,21 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onRetry,
   onRetryAnyway,
   canRetry = false,
+  guardianHoldUntil,
   isRetrying = false,
-  retryError
+  retryError,
+  retryErrorId,
+  retryErrorDiagnostics
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
+  useUserVisibleError(
+    !showSuccessReceipt && retryError ? retryErrorId : null,
+    'inline',
+    undefined,
+    retryErrorDiagnostics
+  );
   const { t } = useTranslation();
+  const command = useFlowPresentation() === 'command';
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
   // The step set and per-step durations derive only from the account flow and
@@ -311,11 +407,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // the careful receipt replaces it.
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
-  const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
+  const deliversNote = waitsToDeliverNote(activeTransaction ?? completedTransaction);
+  const steps = useMemo(
+    () => stepsForFlow(isGuardian, signedLocally, deliversNote),
+    [isGuardian, signedLocally, deliversNote]
+  );
   // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
   // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
+  const submission = failedRow !== undefined ? shownSubmissionFeedback(failedRow) : undefined;
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && readsAsNotConfirmed(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -340,7 +441,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const stepDurationLabels = useMemo(
     () =>
       getStepDurationsMs(steps, stageTimestamps).map(ms =>
-        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: ms / 1000 })
+        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: formatStepSeconds(ms) })
       ),
     [steps, stageTimestamps, t]
   );
@@ -357,6 +458,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
+      if (submission !== undefined) return submission.rowCopy ?? t(submission.messageKey);
       if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
@@ -381,7 +483,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     commitUnconfirmed,
     activeTransaction,
     completedTransaction,
-    guardianBusy
+    guardianBusy,
+    submission
   ]);
 
   const dismissalDescription = useMemo(() => {
@@ -413,6 +516,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // While the Guardian is busy, its step waits rather than spinning (#312).
   const guardianWaitState: TransactionStepState = 'pending';
   const actionTitle = transactionComplete ? t('done') : t('hide');
+  const offersRetry = transactionComplete && hasErrors && canRetry && onRetry !== undefined;
+  const heldByGuardian = guardianHoldUntil !== undefined;
 
   if (showSuccessReceipt) {
     return (
@@ -433,12 +538,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       <FlowLayout
         title={processingTitle}
         onClose={onDoneClick}
+        commandFooter={command}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
                   resubmit) as the primary action; Done demotes to secondary so the
                   recovery path is the obvious one. */}
-            {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
+            {offersRetry && heldByGuardian && <GuardianHoldNotice clearsAtSec={guardianHoldUntil} />}
+            {offersRetry && !heldByGuardian && maxNetworkFee && (
               // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
               // every claim, send and swap lands on when it fails, so it is where the cost
               // of trying again has to be stated.
@@ -446,13 +553,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}
-            {transactionComplete && hasErrors && canRetry && onRetry && (
+            {offersRetry && (
               <Button
                 type="button"
                 variant={ButtonVariant.Primary}
                 accent={accent}
                 isLoading={isRetrying}
-                disabled={isRetrying}
+                disabled={isRetrying || heldByGuardian}
                 onClick={onRetry}
                 className="w-full max-w-none"
               >
@@ -499,7 +606,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 data-testid="retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 isLoading={isRetrying}
-                disabled={isRetrying}
+                disabled={isRetrying || heldByGuardian}
                 onClick={onRetryAnyway}
                 className="w-full max-w-none"
               >
@@ -510,7 +617,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         }
       >
         <section className="flex w-full flex-col items-center pt-6">
-          <TransactionHeroIcon state={heroState} accent={accent} />
+          <div className="tx-stage-hero">
+            <TransactionHeroIcon state={heroState} accent={accent} />
+          </div>
 
           <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-ink">
             {visibleTitle}
@@ -523,7 +632,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           {/* Earn's steps sit on the outline surface, in Nunito throughout, like the rest of its flow. */}
           <div
             className={classNames(
-              'mt-6 w-full overflow-hidden rounded-2xl',
+              'tx-stage-list mt-6 w-full overflow-hidden rounded-2xl',
               accent === 'earn' ? classNames(outlineSurfaceClassName, 'face-heading') : 'bg-fill'
             )}
           >
@@ -549,8 +658,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           {/* The row's own text stays one tap away, as on its Activity card. */}
-          {unconfirmed && (
-            <ErrorDetails details={failedRow?.rawError ?? failedRow?.error} className="mt-2 w-full items-center" />
+          {(unconfirmed || submission?.details !== undefined) && (
+            <ErrorDetails
+              details={submission?.details ?? failedRow?.rawError ?? failedRow?.error}
+              className="mt-2 w-full items-center"
+            />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

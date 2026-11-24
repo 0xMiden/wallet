@@ -18,6 +18,9 @@ import {
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
+  pipelineKillIn,
+  readWasmHandle,
+  rethrowTrapOrKill,
   someInCauseChain
 } from './sdk-error-code';
 
@@ -265,6 +268,49 @@ describe('ApplyAfterSubmitError', () => {
     };
     expect(extractLanded(hostile)).toEqual({});
     expect(extractLanded(hostileFields)).toEqual({});
+  });
+
+  it('extractLanded keeps a decimal order id below the field modulus and drops any other shape', () => {
+    expect(extractLanded({ landed: { orderId: '42' } })).toEqual({ orderId: '42' });
+    expect(extractLanded({ landed: { orderId: '18446744069414584320' } })).toEqual({
+      orderId: '18446744069414584320'
+    });
+    for (const orderId of [
+      42n,
+      42,
+      '0x2a',
+      '',
+      '1e3',
+      '-1',
+      '042',
+      ' 42',
+      '18446744069414584321',
+      '1'.repeat(21),
+      null
+    ]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', orderId } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+
+  it('extractLanded keeps a note-id-shaped order note id in lower case and drops any other', () => {
+    const noteId = `0x${'AB'.repeat(32)}`;
+    expect(extractLanded({ landed: { orderNoteId: noteId } })).toEqual({ orderNoteId: noteId.toLowerCase() });
+    for (const orderNoteId of ['ab'.repeat(32), `0x${'ab'.repeat(31)}`, `0x${'zz'.repeat(32)}`, 5, null]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', orderNoteId } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
+
+  it('extractLanded keeps a completed local apply only as true', () => {
+    expect(extractLanded({ landed: { applied: true } })).toEqual({ applied: true });
+    for (const applied of [false, 'true', 1, null, {}]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', applied } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
   });
 
   it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
@@ -591,6 +637,145 @@ describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
     expect(isKilledPipeline(new ApplyAfterSubmitError(new Error('Client terminated')))).toBe(false);
     expect(isKilledPipeline(new Error("Offscreen call 'x' failed: WebClient terminated"))).toBe(false);
     expect(isKilledPipeline(new Error('WebClient terminated unexpectedly'))).toBe(false);
+  });
+});
+
+describe('pipelineKillIn', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('returns the same lock-recovery eviction', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(poison)).toBe(poison);
+  });
+
+  it('returns the same offscreen abort', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline');
+    expect(pipelineKillIn(abort)).toBe(abort);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])('returns the same terminated client (%p)', message => {
+    const terminated = new Error(message);
+    expect(pipelineKillIn(terminated)).toBe(terminated);
+  });
+
+  it('returns the inner kill rather than its wrapper', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(pipelineKillIn(new Error('wrapper', { cause: poison }))).toBe(poison);
+  });
+
+  it('returns the first kill when the chain holds more than one', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const terminated = new Error('Client terminated', { cause: poison });
+    expect(pipelineKillIn(new Error('wrapper', { cause: terminated }))).toBe(terminated);
+  });
+
+  it('skips an unreadable link and still returns the kill in its cause', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    const wrapper = Object.defineProperty(new Error('wrapper', { cause: poison }), 'name', {
+      get() {
+        throw new Error('unreadable');
+      }
+    });
+    expect(pipelineKillIn(wrapper)).toBe(poison);
+  });
+
+  it('returns undefined for an ordinary failure', () => {
+    expect(pipelineKillIn(new Error('boom'))).toBeUndefined();
+  });
+
+  it.each([undefined, null, 'Client terminated', 42])('returns undefined for a non-object (%p)', value => {
+    expect(pipelineKillIn(value)).toBeUndefined();
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])(
+    'keeps a terminated cause (%p) under a landed error landed',
+    message => {
+      expect(pipelineKillIn(new ApplyAfterSubmitError(new Error(message)))).toBeUndefined();
+    }
+  );
+});
+
+describe('rethrowTrapOrKill', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const thrown = (error: unknown): unknown => {
+    try {
+      rethrowTrapOrKill(error);
+    } catch (caught) {
+      return caught;
+    }
+    return undefined;
+  };
+
+  it('throws a WebAssembly trap as that same object', () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    expect(thrown(trap)).toBe(trap);
+  });
+
+  it('throws the eviction a wrapper carries, not the wrapper', () => {
+    const poison = new WasmClientPoisonedError('watchdog');
+    expect(thrown(new Error('wrapped', { cause: poison }))).toBe(poison);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])('throws a terminated client (%p) as itself', message => {
+    const terminated = new Error(message);
+    expect(thrown(terminated)).toBe(terminated);
+  });
+
+  it('returns for an ordinary failure', () => {
+    expect(thrown(new Error('bad bytes'))).toBeUndefined();
+  });
+
+  it('returns for a terminated client under an apply-after-submit error, which landed', () => {
+    expect(thrown(new ApplyAfterSubmitError(new Error('Client terminated')))).toBeUndefined();
+  });
+});
+
+describe('readWasmHandle', () => {
+  const handle = () => ({ free: jest.fn() });
+
+  it('returns what the read returns and frees the handle once', () => {
+    const word = handle();
+    expect(readWasmHandle(word, () => 'abcd')).toBe('abcd');
+    expect(word.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('frees the handle once and rethrows the same object when the read fails with an ordinary error', () => {
+    const word = handle();
+    const error = new Error('bad word');
+    expect(() =>
+      readWasmHandle(word, () => {
+        throw error;
+      })
+    ).toThrow(error);
+    expect(word.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a trap as that same object and never frees the handle, even when its free would throw', () => {
+    const word = handle();
+    word.free.mockImplementation(() => {
+      throw new Error('freed after the trap');
+    });
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    let caught: unknown;
+    try {
+      readWasmHandle(word, () => {
+        throw trap;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(trap);
+    expect(word.free).not.toHaveBeenCalled();
+  });
+
+  it('lets a free that throws after a read that succeeded propagate', () => {
+    const word = handle();
+    const freeError = new Error('free failed');
+    word.free.mockImplementation(() => {
+      throw freeError;
+    });
+    expect(() => readWasmHandle(word, () => 'abcd')).toThrow(freeError);
   });
 });
 

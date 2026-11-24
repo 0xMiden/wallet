@@ -15,7 +15,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 const ensureSdkWasmReady = jest.fn().mockResolvedValue(undefined);
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: () => ensureSdkWasmReady() }));
 
-jest.mock('lib/platform', () => ({ isExtension: () => true, isMobile: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => true, isMobile: () => false, isDesktop: () => false }));
 jest.mock('lib/store/WalletStoreProvider', () => ({ WalletStoreProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
@@ -30,7 +30,10 @@ jest.mock('@miden-sdk/react/lazy', () => ({
 }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
-jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
+jest.mock('lib/remote-config/runtime', () => ({
+  followEffectiveNetwork: jest.fn(),
+  initBridgeConfig: jest.fn().mockResolvedValue(undefined)
+}));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
 jest.mock('./assets', () => ({
@@ -48,6 +51,7 @@ jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
 jest.mock('lib/miden/name/MidenNameWatcher', () => ({ MidenNameWatcher: () => null }));
+jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';

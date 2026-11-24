@@ -2,14 +2,8 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
 import { waitForMirroredSetting } from './contacts-receive-settings';
-import {
-  CellDeadlineExceeded,
-  deadlineIn,
-  HarnessFault,
-  InfrastructureFault,
-  type CellContext,
-  type Deadline
-} from './dapp-cells';
+import { deadlineIn, HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { callOn, ChainUnavailable, type DappChannel } from './dapp-channel';
 import { waitForConfirmPopup } from './dapp-confirm';
 import { waitForFreshSyncs, type ConfirmPageEvent } from './dapp-gates';
 import pinned from './dapp-pinned.json';
@@ -31,7 +25,8 @@ import type {
   Outcome,
   RawArg,
   SessionView,
-  TestDappWindowApi
+  SignatureView,
+  VerifyInput
 } from '../test-dapp/protocol';
 
 /**
@@ -49,7 +44,8 @@ const DAPP_INIT_BUDGET_MS = 120_000;
 
 export interface DappHandle {
   readonly page: Page;
-  readonly label: DappLabel;
+  /** `react` is the React page (helpers/react-dapp.ts), on its own origin. */
+  readonly label: DappLabel | 'react';
   readonly origin: string;
   readonly context: BrowserContext;
 }
@@ -71,7 +67,7 @@ async function ensureServed(context: BrowserContext): Promise<void> {
 
 // The page publishes `testDapp` once its modules loaded (the SDK's wasm among them); the provider is injected by the
 // content script on its own schedule, so both are awaited.
-async function waitReady(page: Page, timeoutMs: number): Promise<void> {
+export async function waitReady(page: Page, timeoutMs: number): Promise<void> {
   await page.waitForFunction(
     () => (window as unknown as { testDapp?: { ready?: boolean } }).testDapp?.ready === true,
     undefined,
@@ -103,52 +99,28 @@ export async function reloadDapp(dapp: DappHandle, init: DappInit, deadline: Dea
   await callDapp(dapp, 'init', init, deadline);
 }
 
-/**
- * The node behind the dApp's own client failed a call, or the chain did not advance: the environment's failure, so a
- * cell that meets it is `blocked (infrastructure)`, never a harness fault or a wallet verdict. It is that cell's alone
- * (`abortsLeg: false`): no INFRA_ABORT, and the next cell runs its own quiesce.
- */
-export class ChainUnavailable extends InfrastructureFault {
-  constructor(message: string) {
-    super(message, { abortsLeg: false });
-    this.name = 'ChainUnavailable';
-  }
-}
-
-// Commands a repeat cannot change the answer of, so callDapp asks again after the node failed one. Each makes its node
-// call before anything the wallet, the adapter or the dApp's store sees, or repeats harmlessly (see the handlers in
-// test-dapp/test-dapp.ts): the chain reads; syncHeight; init, which keeps its first client and listens on the provider
-// once; buildCustom, which syncs before it builds or holds anything; makeNoteFile, whose getNotesById comes before its
-// import. waitForHeight is not one: the page retries its own syncs until the timeout it is handed.
-const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
-  'chainNote',
-  'chainNullifier',
-  'chainAccount',
-  'syncHeight',
-  'init',
-  'buildCustom',
-  'makeNoteFile'
-]);
-const NODE_RETRY_MS = 2_000;
+export { ChainUnavailable } from './dapp-channel';
 
 // What crosses into the page. Playwright maps an evaluate argument's type recursively, and a generic command and input
-// pair is too deep for it (TS2589), so the pair is pinned by evaluateOnce's own signature and crosses as this.
+// pair is too deep for it (TS2589), so the pair is pinned by the typed callers (callOn in dapp-channel.ts, callReact in
+// react-dapp.ts) and crosses as this.
 interface PageCall {
-  command: DappCommandName;
+  command: string;
   input: unknown;
 }
+// Either page's `window.testDapp` (test-dapp/protocol.ts, test-dapp/react-protocol.ts), as the untyped channel sees it.
+interface AnyTestDapp {
+  call(command: string, input: unknown): Promise<unknown>;
+}
 
-function evaluateOnce<K extends DappCommandName>(
-  dapp: DappHandle,
-  command: K,
-  input: DappInput<K>
-): Promise<DappOutput<K>> {
+/** One `window.testDapp.call` on either page, untyped; a page error maps to ChainUnavailable or HarnessFault. */
+export function evaluateCommand(dapp: DappHandle, command: string, input: unknown): Promise<unknown> {
   const call: PageCall = { command, input };
   const answer = dapp.page.evaluate((sent: PageCall): Promise<unknown> => {
-    const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
+    const api = (window as unknown as { testDapp?: AnyTestDapp }).testDapp;
     if (!api) throw new Error('window.testDapp is not installed');
-    return api.call(sent.command, sent.input as never);
-  }, call) as Promise<DappOutput<K>>;
+    return api.call(sent.command, sent.input);
+  }, call);
   return answer.catch((error: unknown) => {
     const text = error instanceof Error ? error.message : String(error);
     // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
@@ -158,48 +130,55 @@ function evaluateOnce<K extends DappCommandName>(
   });
 }
 
+/** The extension's channel: `window.testDapp.call` through `page.evaluate`, bounded by the cell deadline's race alone. */
+export const pageChannel = (dapp: DappHandle): DappChannel => ({
+  label: dapp.label,
+  send: (command, input) => evaluateCommand(dapp, command, input)
+});
+
 /**
- * One `window.testDapp` command, raced against `deadline` when one is given. With a deadline, a `REPEATABLE` command
- * the node failed is asked again every 2 s while the time left covers that interval and another attempt as long as the
- * last (spec section 2.4); `once` asks a single time, for a read compared with an earlier one. The last node failure is
- * what it then throws, with the attempt count, also when the deadline cuts the attempt after it.
+ * One `window.testDapp` command on the extension page, with `callOn`'s semantics (dapp-channel.ts): raced against
+ * `deadline` when one is given, a repeatable command the node failed asked again, `once` for a read compared with an
+ * earlier one.
  */
-export async function callDapp<K extends DappCommandName>(
+export function callDapp<K extends DappCommandName>(
   dapp: DappHandle,
   command: K,
   input: DappInput<K>,
   deadline?: Deadline,
   options: { once?: boolean } = {}
 ): Promise<DappOutput<K>> {
-  if (deadline === undefined) return evaluateOnce(dapp, command, input);
-  const repeat = REPEATABLE.has(command) && options.once !== true;
-  let failed: ChainUnavailable | undefined;
-  for (let attempt = 1; ; attempt += 1) {
-    const startedAt = Date.now();
-    try {
-      return await deadline.race(evaluateOnce(dapp, command, input), `dApp ${dapp.label} ${command}`);
-    } catch (error) {
-      if (error instanceof CellDeadlineExceeded && failed !== undefined) {
-        throw new ChainUnavailable(`${failed.message} (after ${attempt} attempts, the deadline cut the last)`);
-      }
-      if (!(error instanceof ChainUnavailable) || !repeat) throw error;
-      failed = error;
-      if (deadline.remainingMs() < NODE_RETRY_MS + (Date.now() - startedAt)) {
-        throw attempt === 1 ? error : new ChainUnavailable(`${error.message} (after ${attempt} attempts)`);
-      }
-      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
-    }
-  }
+  return callOn(pageChannel(dapp), command, input, deadline, options);
 }
 
 const failedOutcome = (value: unknown): value is { ok: false; error: DappError } =>
   typeof value === 'object' && value !== null && Reflect.get(value, 'ok') === false;
+const acceptedOutcome = (value: unknown): boolean =>
+  typeof value === 'object' && value !== null && Reflect.get(value, 'ok') === true;
 
 /** The value of an accepted request; a refusal is recorded as the cell's `dappError` and fails the cell. */
 export function unwrap<T>(outcome: Outcome<T>, what: string, ctx: CellContext): T {
   if (outcome.ok) return outcome.value;
   ctx.evidence.dappError = outcome.error;
   throw new Error(`${what} was refused: ${outcome.error.name}: ${outcome.error.message}`);
+}
+
+/**
+ * The checks for a `signBytes` answer: the signature verifies for the connect key against the domain commitment, does
+ * not verify against the raw value (a raw Blind or Arbitrary signature could authorize a transaction), and the wallet's
+ * `signedCommitment` equals the commitment the page computed itself (`messageB64`).
+ */
+export async function expectDomainSignature(
+  verify: (input: VerifyInput) => Promise<{ verifies: boolean; commitmentHex: string }>,
+  signed: SignatureView,
+  kind: VerifyInput['kind'],
+  publicKeyB64: string
+): Promise<{ verifies: boolean; commitmentHex: string }> {
+  const input = { kind, payloadB64: signed.payloadB64, signatureB64: signed.signatureB64, publicKeyB64 };
+  expect((await verify(input)).verifies, 'the raw value must not verify').toBe(false);
+  // An older wallet sends no commitment; the cells run against the wallet under test, which does.
+  expect(signed.signedCommitmentB64, 'the wallet returns signedCommitment').toBe(signed.messageB64);
+  return verify({ ...input, domain: 'signBytes' });
 }
 
 export type PromptDecision = 'approve' | 'decline' | 'close' | 'auto-after-unlock';
@@ -213,20 +192,20 @@ export interface PromptPlan {
   whileOpen?: (popup: Page) => Promise<void>;
 }
 
-// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect banner's
-// (ConnectBanner.tsx:35-39) and every other request's (ConfirmPage.tsx:142).
+// Both origin elements carry the full origin as their title (DappOrigin.tsx): the connect window's
+// (confirm/ConnectRequest.tsx) and every other request's originator chip (ConfirmPage.tsx).
 async function popupOrigin(popup: Page, kind: ConfirmKind): Promise<string | null> {
   return popup
     .getByTestId(kind === 'connect' ? 'connect-origin' : 'confirm-request-origin')
     .getAttribute('title', { timeout: 30_000 });
 }
 
-// The input is sr-only (src/app/atoms/Checkbox.tsx): a click aimed at it, even a forced one, lands on whatever covers its
-// 1px box and changes nothing. A user clicks the row's label, so the tick goes there and the state is read back.
+// The consent tick is a `role="checkbox"` button (CheckboxConsent in components/ui/Checkbox.tsx), so the click goes
+// to it and the state is read back from `aria-checked`.
 async function tickPrivateData(popup: Page): Promise<void> {
-  const input = popup.locator('input[name="confirmPrivateDataPermission"]');
-  await popup.locator('label').filter({ has: input }).click();
-  await expect(input, 'private-data checkbox ticked').toBeChecked();
+  const consent = popup.getByTestId('connect-private-data-consent');
+  await consent.click();
+  await expect(consent, 'private-data checkbox ticked').toHaveAttribute('aria-checked', 'true');
 }
 
 /**
@@ -249,7 +228,9 @@ export async function answerPrompt<T>(
   if ('result' in first) {
     ctx.evidence.popupOpened = false;
     if (failedOutcome(first.result)) ctx.evidence.dappError = first.result.error;
-    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${JSON.stringify(first.result)}`);
+    // An accepted Outcome can carry a signature and the word it signed, so it alone is not printed.
+    const settled = acceptedOutcome(first.result) ? 'an accepted answer' : JSON.stringify(first.result);
+    throw new Error(`expected a ${plan.kind} popup, but the request settled first: ${settled}`);
   }
   const popup = first.popup;
   ctx.evidence.popupOpened = true;
@@ -270,7 +251,48 @@ export async function answerPrompt<T>(
     if (plan.tickPrivateData) await tickPrivateData(popup);
     await plan.whileOpen?.(popup);
     if (plan.decision === 'close') await popup.close();
-    else await popup.getByTestId(plan.decision === 'approve' ? ids.approve : ids.decline).click();
+    else if (plan.decision === 'approve') await popup.getByTestId(ids.approve).click();
+    else {
+      let settledNotGranted = false;
+      let popupCrashed = false;
+      let contextClosed = false;
+      const startedOpen = !popup.isClosed();
+      const onCrash = () => {
+        popupCrashed = true;
+      };
+      const onContextClose = () => {
+        contextClosed = true;
+      };
+      popup.on('crash', onCrash);
+      dapp.context.on('close', onContextClose);
+      void pending.then(
+        result => {
+          settledNotGranted = failedOutcome(result) && result.error?.message === 'NOT_GRANTED';
+        },
+        () => undefined
+      );
+      try {
+        await popup.getByTestId(ids.decline).click();
+      } catch (error) {
+        // The refusal can arrive and close this popup before Playwright finishes its click.
+        // A crash, context shutdown or any other answer still fails the interaction.
+        const targetClosed =
+          error instanceof Error && error.message.includes('Target page, context or browser has been closed');
+        if (
+          !targetClosed ||
+          !settledNotGranted ||
+          !startedOpen ||
+          !popup.isClosed() ||
+          popupCrashed ||
+          contextClosed ||
+          !dapp.context.browser()?.isConnected()
+        )
+          throw error;
+      } finally {
+        popup.off('crash', onCrash);
+        dapp.context.off('close', onContextClose);
+      }
+    }
   }
   const result = await ctx.deadline.race(pending, `${plan.kind} answer`);
   if (failedOutcome(result)) ctx.evidence.dappError = result.error;
@@ -342,7 +364,7 @@ const confirmPagesOpen = (context: BrowserContext): Page[] =>
   context.pages().filter(page => !page.isClosed() && page.url().includes('confirm.html'));
 
 /**
- * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2463-2466), so a
+ * The wallet answers the dApp before its popup window is gone (`close()` is not awaited, dapp.ts:2512-2515), so a
  * page from the previous answer can still be closing when the next request starts; wait it out rather than count it.
  */
 export async function waitForNoConfirmPages(context: BrowserContext, timeoutMs = 10_000): Promise<void> {
@@ -462,7 +484,7 @@ export async function popupBlock(dapp: DappHandle, ctx: CellContext): Promise<vo
   await callDapp(dapp, 'waitForHeight', { target: height + 1, timeoutMs: heightWaitMs(ctx.deadline) }, ctx.deadline);
 }
 
-/** Closing a confirm page is the wallet's decline (dapp.ts:2512-2516). */
+/** Closing a confirm page is the wallet's decline (dapp.ts:2564-2568). */
 export async function closeOpenConfirmPages(context: BrowserContext): Promise<number> {
   const open = context.pages().filter(page => page.url().includes('confirm.html'));
   for (const page of open) await page.close();
@@ -517,7 +539,7 @@ export async function revokeDappSession(wallet: GuardianAwareWalletPage, origin:
   }, origin);
 }
 
-/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2367-2372). */
+/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2416-2426). */
 export async function dappSessionsFor(wallet: GuardianAwareWalletPage, origin: string): Promise<string[]> {
   return wallet.page.evaluate(async target => {
     const got = await chrome.storage.local.get('dapp_sessions');

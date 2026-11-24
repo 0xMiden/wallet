@@ -3,7 +3,9 @@ import React from 'react';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guardian/discover';
-import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { GUARDIAN_OPTIONS, MIDEN_NETWORK_NAME, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
 import { GuardianProbeState, WalletType } from '../types';
@@ -14,18 +16,19 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Pin the network to testnet: jest loads dotenv (`setupFiles`), so a developer
-// `.env` with MIDEN_NETWORK=devnet would otherwise shrink the preset grid to
-// the single devnet operator and break the multi-preset assertions below.
-jest.mock('lib/miden-chain/constants', () => {
-  const actual = jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
-  return {
-    ...actual,
-    DEFAULT_NETWORK: actual.MIDEN_NETWORK_NAME.TESTNET,
-    getGuardianOptionsForNetwork: (network = actual.MIDEN_NETWORK_NAME.TESTNET) =>
-      actual.getGuardianOptionsForNetwork(network)
-  };
-});
+// Pin the effective network to testnet: jest loads dotenv (`setupFiles`), so a
+// developer `.env` with MIDEN_NETWORK=devnet would otherwise shrink the preset
+// grid to the single devnet operator and break the multi-preset assertions
+// below. The mainnet cases set it, as a stored network choice does.
+const DEFAULT_NETWORK = MIDEN_NETWORK_NAME.TESTNET;
+let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+// The developer's custom Guardian, set while the effective network is the one it belongs to.
+let mockCustomGuardian = '';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveGuardianUrl: () => mockCustomGuardian
+}));
 
 // Leaf UI components pull in framer-motion / Capacitor haptics /
 // react-currency-input-field / radix-slot which are irrelevant to this
@@ -45,6 +48,21 @@ jest.mock('components/ui/TextField', () => ({
   // are assertable.
   TextField: ({ id, value, placeholder, onChange, label: _label, ...rest }: any) => (
     <input data-testid="guardian-input" id={id} value={value} placeholder={placeholder} onChange={onChange} {...rest} />
+  )
+}));
+
+jest.mock('components/ui/Checkbox', () => ({
+  ...jest.requireActual('components/ui/Checkbox'),
+  CheckboxConsent: ({ checked, onCheckedChange, children, 'data-testid': testId }: any) => (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      data-testid={testId}
+      onClick={() => onCheckedChange(!checked)}
+    >
+      {children}
+    </button>
   )
 }));
 
@@ -75,6 +93,7 @@ const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecov
 };
 
 const continueButton = () => screen.getByTestId('continue-button') as HTMLButtonElement;
+const acknowledgeReusedPhrase = () => fireEvent.click(screen.getByTestId('reused-phrase-acknowledge'));
 const guardianInput = () => screen.getByTestId('guardian-input') as HTMLInputElement;
 const ozPreset = () => screen.getByRole('radio', { name: /OpenZeppelin/ });
 const gatewayPreset = () => screen.getByRole('radio', { name: /Gateway Operator/ });
@@ -84,7 +103,31 @@ const selectOnChain = () => fireEvent.click(screen.getByText('importPublicAccoun
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockCustomGuardian = '';
 });
+
+afterEach(() => {
+  _resetGuardianRegistryForTest();
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const privateErrorFixture =
+  'failure 0x1234abcd amount 42 abandon ability able about above absent absorb abstract absurd abuse access accident';
+const dwellForError = () => {
+  act(() => {
+    jest.advanceTimersByTime(999);
+  });
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => {
+    jest.advanceTimersByTime(1);
+  });
+};
+const expectDisplayReport = (id: string, surface: string) => {
+  expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  expect(reportUserVisibleError).toHaveBeenCalledWith(id, surface);
+  expect(JSON.stringify(jest.mocked(reportUserVisibleError).mock.calls)).not.toContain(privateErrorFixture);
+};
 
 describe('ImportRecoveryMethodScreen', () => {
   it('renders the title, both options, and the default Guardian badge', () => {
@@ -271,7 +314,8 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
-    // On-chain never needs an endpoint, so Continue is enabled.
+    // On-chain never needs an endpoint; it needs the reused-phrase acknowledgement instead.
+    acknowledgeReusedPhrase();
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
 
@@ -499,47 +543,188 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(guardianInput()).toHaveValue('https://mine.example.com');
   });
 
-  it('falls back to the manual picker with a retry link when nothing was detected', () => {
-    const onRetryProbe = jest.fn();
-    renderScreen({ probe: done(), onRetryProbe });
+  it('says no backup was found, and offers a new account, when every Guardian answered with none', () => {
+    const onCreateNew = jest.fn();
+    renderScreen({ probe: done(), onCreateNew });
 
-    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
-    // Exactly today's screen underneath.
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.getByText('guardianNoBackupFoundTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-lookup-uncertain')).not.toBeInTheDocument();
+    // Exactly today's screen underneath: a Guardian the probe cannot list is still reachable.
     expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
-    expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('create-account-with-phrase'));
+    expect(onCreateNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer a new account when the host cannot create one', () => {
+    renderScreen({ probe: done() });
+
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a new account for a hot-key import, which holds no phrase', () => {
+    renderScreen({ probe: done(), onCreateNew: jest.fn(), guardianOnly: true });
+
+    expect(screen.getByTestId('guardian-no-backup')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('never presents the new-account offer as a recovery', () => {
+    renderScreen({ probe: done(), onCreateNew: jest.fn() });
+
+    expect(screen.getByTestId('create-account-with-phrase')).toHaveTextContent('createAccountWithPhrase');
+    // The Continue button is the recovery; the offer is a separate, differently named action.
+    expect(continueButton()).toHaveTextContent('continue');
+  });
+
+  it('treats a lookup that failed as uncertain: a retry, and no offer to create an account', () => {
+    const onRetryProbe = jest.fn();
+    renderScreen({
+      probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] }),
+      onRetryProbe,
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
+    expect(screen.getByText('guardianLookupUncertain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-no-backup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: /retryGuardianDetection/ }));
     expect(onRetryProbe).toHaveBeenCalledTimes(1);
   });
 
-  it('warns that detection may be incomplete when some operators were unreachable', () => {
+  it('treats a probe that errored as uncertain, never as not found', () => {
+    renderScreen({ probe: { status: 'error', message: 'network down' }, onCreateNew: jest.fn() });
+
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-no-backup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  it('keeps the plain picker when Guardians answered but none is clearly the current one', () => {
+    renderScreen({
+      probe: done({ matches: [match(), match({ endpoint: GATEWAY_ENDPOINT, nonce: undefined })] }),
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
+    expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('offers a new account after a chosen Guardian answered "not found" at registration', () => {
+    const onCreateNew = jest.fn();
+    renderScreen({
+      probe: detected(),
+      error: 'guardianAccountNotFound',
+      errorId: 'guardianAccountNotFound',
+      onCreateNew
+    });
+
+    fireEvent.click(screen.getByTestId('create-account-with-phrase'));
+    expect(onCreateNew).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer a new account after any other lookup failure', () => {
+    renderScreen({
+      probe: detected(),
+      error: 'guardianUrlUnreachable',
+      errorId: 'guardianUrlUnreachable',
+      onCreateNew: jest.fn()
+    });
+
+    expect(screen.getByText('guardianUrlUnreachable')).toBeInTheDocument();
+    expect(screen.queryByTestId('create-account-with-phrase')).not.toBeInTheDocument();
+  });
+
+  it('asks for the reused-phrase acknowledgement before a public import, which may create an account', () => {
+    const { onSubmit } = renderScreen({ onCreateNew: jest.fn() });
+
+    selectOnChain();
+
+    expect(screen.getByText('publicImportMayCreate')).toBeInTheDocument();
+    expect(screen.getByText('reusedPhraseWarning')).toBeInTheDocument();
+    expect(continueButton()).toBeDisabled();
+
+    acknowledgeReusedPhrase();
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+
+    // Taking the tick back holds Continue again.
+    acknowledgeReusedPhrase();
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('does not ask for the acknowledgement on a Guardian import', () => {
+    renderScreen();
+
+    expect(screen.queryByTestId('reused-phrase-acknowledge')).not.toBeInTheDocument();
+    expect(continueButton()).toBeEnabled();
+  });
+
+  // #1648: the only listed operator that knows the account serves a state the chain has moved past,
+  // so the account was moved to a guardian the probe cannot list. The screen names that operator,
+  // opens the URL field empty and holds Continue back until a URL is entered.
+  it('asks for the guardian URL when the only operator that knows the account serves a superseded state', () => {
+    const { onSubmit } = renderScreen({
+      probe: done({ matches: [match({ holdsCurrentState: false })] })
+    });
+
+    expect(screen.getByTestId('guardian-state-behind-chain')).toBeInTheDocument();
+    expect(screen.getByText('guardianStateBehindChain')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-not-detected')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-detected')).not.toBeInTheDocument();
+    expect(guardianInput()).toHaveValue('');
+    expect(continueButton()).toBeDisabled();
+
+    fireEvent.change(guardianInput(), { target: { value: 'https://mine.example.com' } });
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://mine.example.com'
+    });
+  });
+
+  it('keeps the listed operators reachable behind the toggle when a superseded state was found', () => {
+    const { onSubmit } = renderScreen({
+      probe: done({ matches: [match({ holdsCurrentState: false })] })
+    });
+
+    fireEvent.click(customToggle());
+    fireEvent.click(ozPreset());
+    expect(continueButton()).toBeEnabled();
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.Guardian, guardianEndpoint: OZ_ENDPOINT });
+  });
+
+  it('still shows the detected guardian when a current operator outranks a superseded one', () => {
+    renderScreen({
+      probe: detected(match(), [match({ endpoint: 'https://old.example.com', holdsCurrentState: false })])
+    });
+
+    expect(screen.getByTestId('guardian-detected')).toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-state-behind-chain')).not.toBeInTheDocument();
+  });
+
+  it('omits the retry link when the host cannot re-run the probe', () => {
     renderScreen({
       probe: done({ failures: [{ endpoint: OZ_ENDPOINT, reason: 'timeout', message: 'timed out' }] })
     });
 
-    expect(screen.getByText('guardianProbePartialFailure')).toBeInTheDocument();
-  });
-
-  it('omits the partial-failure warning when every operator answered', () => {
-    renderScreen({ probe: done() });
-
-    expect(screen.queryByText('guardianProbePartialFailure')).not.toBeInTheDocument();
-  });
-
-  it('omits the retry link when the host cannot re-run the probe', () => {
-    renderScreen({ probe: done() });
-
+    expect(screen.getByTestId('guardian-lookup-uncertain')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retryGuardianDetection/ })).not.toBeInTheDocument();
-  });
-
-  it('falls back to the manual picker when the probe itself errored', () => {
-    renderScreen({ probe: { status: 'error', message: 'network down' } });
-
-    expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /OpenZeppelin/ })).toBeInTheDocument();
-    expect(continueButton()).toBeEnabled();
   });
 
   it('still surfaces the post-register not-found error alongside a detected guardian', () => {
@@ -554,6 +739,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     selectOnChain();
 
     expect(screen.queryByTestId('guardian-probe-spinner')).not.toBeInTheDocument();
+    acknowledgeReusedPhrase();
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
@@ -583,5 +769,159 @@ describe('guardianOnly (hot-key import)', () => {
 
     expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
     expect(screen.getByText('importPublicAccount')).toBeInTheDocument();
+  });
+});
+
+/**
+ * A release build is a testnet or devnet build, and mainnet is a stored choice. The screen offers the operators of the
+ * network the recovery restores into (the effective one, or the one the host names), so on a mainnet whose document
+ * lists none, nothing points at a testnet operator.
+ */
+describe('on a network that lists no Guardian operator', () => {
+  const MAINNET_OPERATOR = {
+    id: 'mainnet-operator',
+    name: 'Mainnet Operator',
+    operatedBy: 'Operator Co',
+    location: 'EU',
+    endpoint: 'https://guardian-mainnet.example'
+  };
+  beforeEach(() => setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []));
+
+  const mainnetScreens: Array<[string, () => ReturnType<typeof renderScreen>]> = [
+    [
+      'the effective network',
+      () => {
+        mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+        return renderScreen({ probe: { status: 'idle' } });
+      }
+    ],
+    [
+      'the network the host names',
+      () => renderScreen({ probe: { status: 'idle' }, network: MIDEN_NETWORK_NAME.MAINNET })
+    ]
+  ];
+
+  it.each(mainnetScreens)('selects the public account on mainnet as %s, with no endpoint', (_case, render) => {
+    const { onSubmit } = render();
+
+    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByTestId('default-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+
+    acknowledgeReusedPhrase();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+  });
+
+  it.each(mainnetScreens)('offers no testnet operator on mainnet as %s once Guardian is chosen', (_case, render) => {
+    render();
+    selectGuardian();
+
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('pins Guardian with no endpoint for a hot key on mainnet', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    renderScreen({ guardianOnly: true, probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('starts on the custom Guardian set on mainnet, and Continue submits it', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    mockCustomGuardian = 'https://custom.guardian.example';
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Custom/ })).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://custom.guardian.example'
+    });
+  });
+
+  it('leaves a recovery the host names as mainnet on the public account when the custom Guardian is on testnet', () => {
+    mockCustomGuardian = 'https://custom.guardian.example';
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' }, network: MIDEN_NETWORK_NAME.MAINNET });
+
+    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).not.toContain('https://custom.guardian.example');
+
+    acknowledgeReusedPhrase();
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+  });
+
+  it('defaults to the operator mainnet lists, once it lists one', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Mainnet Operator/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: MAINNET_OPERATOR.endpoint
+    });
+  });
+});
+
+describe('user-visible error reporting', () => {
+  it('does not report the no-match fallback or partial-discovery caution', () => {
+    renderScreen({
+      probe: {
+        status: 'done',
+        result: {
+          matches: [],
+          probedEndpoints: [DEFAULT_ENDPOINT],
+          failures: [{ endpoint: DEFAULT_ENDPOINT, reason: 'timeout', message: privateErrorFixture }]
+        }
+      }
+    });
+    expect(screen.getByText('guardianLookupUncertain')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('reports the displayed lookup failure using a closed site identity', () => {
+    renderScreen({ error: privateErrorFixture });
+    expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    dwellForError();
+    expectDisplayReport('raw_import_recovery_lookup_failed', 'notice');
+  });
+  it('does not report a lookup error hidden by the public-account selection', () => {
+    renderScreen({ error: privateErrorFixture });
+    selectOnChain();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+  it('does not report detecting progress', () => {
+    renderScreen({ probe: { status: 'probing' } });
+    expect(screen.getByText('detectingGuardian')).toBeVisible();
+    dwellForError();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

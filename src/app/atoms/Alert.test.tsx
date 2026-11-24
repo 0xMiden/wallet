@@ -1,8 +1,15 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import Alert from './Alert';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
 
 // Mock react-i18next
 jest.mock('react-i18next', () => ({
@@ -112,5 +119,125 @@ describe('Alert', () => {
     render(<Alert description="Test" data-testid="my-alert" />);
 
     expect(screen.getByTestId('my-alert')).toBeInTheDocument();
+  });
+});
+
+describe('Alert user-visible error ownership', () => {
+  const identity: { errorId: 'incorrectPassword' } = { errorId: 'incorrectPassword' };
+  const noIdentity: { errorId: null } = { errorId: null };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('reports only the closed inline pair after the real error description dwells for 1000 ms', () => {
+    render(<Alert {...identity} type="error" title="private title" description="private raw detail 17.25" />);
+    expect(screen.getByRole('alert')).toHaveTextContent('private raw detail 17.25');
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    act(() => jest.advanceTimersByTime(1));
+
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'inline']]);
+    act(() => jest.advanceTimersByTime(5000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'inline']]);
+  });
+
+  it('cancels the legacy error episode when its description clears before dwell', () => {
+    const { rerender } = render(<Alert {...identity} type="error" description="temporary detail" />);
+    act(() => jest.advanceTimersByTime(999));
+
+    rerender(<Alert {...identity} type="error" description="" />);
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('cancels the legacy error episode when the atom unmounts before dwell', () => {
+    const { unmount } = render(<Alert {...identity} type="error" description="temporary detail" />);
+    act(() => jest.advanceTimersByTime(999));
+
+    unmount();
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each<['warn' | 'success']>([['warn'], ['success']])(
+    'keeps a %s legacy Alert quiet even with an explicit error identity',
+    type => {
+      render(<Alert {...identity} type={type} description="nonerror detail" />);
+
+      act(() => jest.advanceTimersByTime(5000));
+
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+    }
+  );
+
+  it('keeps a legacy error Alert without an identity quiet', () => {
+    render(<Alert type="error" description="raw detail" />);
+
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy error Alert with an explicit null identity quiet', () => {
+    render(<Alert {...noIdentity} type="error" description="raw detail" />);
+
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['', null])('keeps an empty legacy error description %p quiet', description => {
+    render(<Alert {...identity} type="error" description={description} />);
+
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+  });
+
+  it('retains one legacy error episode when raw text changes and the atom rerenders', () => {
+    const { rerender } = render(<Alert {...identity} type="error" description="first raw detail" />);
+    act(() => jest.advanceTimersByTime(500));
+    rerender(<Alert {...identity} type="error" description="second raw detail" />);
+    act(() => jest.advanceTimersByTime(500));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'inline']]);
+
+    rerender(<Alert {...identity} type="error" description="third raw detail" />);
+    act(() => jest.advanceTimersByTime(5000));
+
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'inline']]);
+  });
+
+  it('starts a new legacy error episode after an empty description clears the previous one', () => {
+    const { rerender } = render(<Alert {...identity} type="error" description="first raw detail" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['incorrectPassword', 'inline']]);
+
+    rerender(<Alert {...identity} type="error" description="" />);
+    act(() => jest.advanceTimersByTime(1000));
+    rerender(<Alert {...identity} type="error" description="second raw detail" />);
+    act(() => jest.advanceTimersByTime(999));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(1));
+
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['incorrectPassword', 'inline'],
+      ['incorrectPassword', 'inline']
+    ]);
+  });
+
+  it('consumes the legacy error identity without forwarding it to the DOM', () => {
+    render(<Alert {...identity} type="error" description="visible detail" data-testid="real-alert" />);
+
+    expect(screen.getByTestId('real-alert')).toHaveTextContent('visible detail');
+    expect(screen.getByTestId('real-alert')).not.toHaveAttribute('errorId');
   });
 });

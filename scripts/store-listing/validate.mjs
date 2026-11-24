@@ -5,7 +5,17 @@ import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 
 import { compose } from './compose-copy.mjs';
-import { allStrings, assert, isMainModule, readJsonFile, resolveInside } from './shared.mjs';
+import {
+  allStrings,
+  assert,
+  isMainModule,
+  readJsonFile,
+  resolveInside,
+  validateRuleAge,
+  validateRuleSources,
+  validateScreenshotDimensions
+} from './shared.mjs';
+import { validateScreenshotManifest } from './screenshots.mjs';
 
 /*
  * This validator treats manifests, copy, raw captures, and rendered files as a
@@ -18,7 +28,6 @@ import { allStrings, assert, isMainModule, readJsonFile, resolveInside } from '.
  * validates repository-sized publication assets through the same code path.
  */
 const platformKeys = ['appStore', 'playStore', 'chromeWebStore'];
-const millisecondsPerDay = 24 * 60 * 60 * 1000;
 
 function parseArguments(argv) {
   const options = {
@@ -33,7 +42,8 @@ function parseArguments(argv) {
     const flag = argv[index];
     const value = argv[index + 1];
     if (!value) throw new Error(`Missing value for ${flag}`);
-    if (flag === '--scenes') options.scenes = value;
+    if (flag === '--screenshots-manifest') options.screenshotsManifest = value;
+    else if (flag === '--scenes') options.scenes = value;
     else if (flag === '--rules') options.rules = value;
     else if (flag === '--copy') options.copy = value;
     else if (flag === '--root') options.root = value;
@@ -49,23 +59,6 @@ function validatePunctuation(...documents) {
   assert(!invalid, 'Unicode dashes are not allowed');
 }
 
-function parseDay(value, label) {
-  assert(/^\d{4}-\d{2}-\d{2}$/.test(value), `${label} must use YYYY-MM-DD`);
-  const date = new Date(`${value}T00:00:00Z`);
-  assert(!Number.isNaN(date.valueOf()), `${label} must be a valid date`);
-  return date;
-}
-
-function validateRuleAge(rules, asOf) {
-  // A checked date is an expiring assertion, not historical decoration. This
-  // forces a rule review instead of silently carrying old dimensions forward.
-  const checkedAt = parseDay(rules.checkedAt, 'checkedAt');
-  const evaluationDate = parseDay(asOf, 'as-of date');
-  const ageDays = (evaluationDate.valueOf() - checkedAt.valueOf()) / millisecondsPerDay;
-  assert(ageDays >= 0, 'Store rules cannot be checked in the future');
-  assert(ageDays <= rules.maxAgeDays, `Store rules are stale: checked ${rules.checkedAt}`);
-}
-
 async function exists(filePath) {
   try {
     await access(filePath);
@@ -73,40 +66,6 @@ async function exists(filePath) {
   } catch {
     return false;
   }
-}
-
-function validateRuleSources(rule) {
-  // Every encoded limit needs a first-party review trail for the next refresh.
-  assert(Array.isArray(rule.sources) && rule.sources.length > 0, `${rule.label} must include first-party rule sources`);
-  for (const source of rule.sources) {
-    assert(
-      typeof source === 'string' && source.startsWith('https://'),
-      `${rule.label} rule source must be an HTTPS URL`
-    );
-  }
-}
-
-function dimensionsMatch(asset, dimensions) {
-  return dimensions.some(candidate => candidate.width === asset.width && candidate.height === asset.height);
-}
-
-function validateScreenshotDimensions(asset, rule) {
-  // Apple and Chrome publish exact canvases. Google instead publishes a range
-  // and aspect-ratio bound, so the manifest supports both rule shapes.
-  if (rule.dimensions) {
-    assert(
-      dimensionsMatch(asset, rule.dimensions),
-      `${asset.id} has unsupported screenshot dimensions ${asset.width}x${asset.height}`
-    );
-    return;
-  }
-
-  const shortSide = Math.min(asset.width, asset.height);
-  const longSide = Math.max(asset.width, asset.height);
-  assert(
-    shortSide >= rule.minDimension && longSide <= rule.maxDimension && longSide / shortSide <= rule.maxLongToShortRatio,
-    `${asset.id} has unsupported screenshot dimensions ${asset.width}x${asset.height}`
-  );
 }
 
 function validateScreenshotSequence(platformKey, screenshots, rules) {
@@ -298,6 +257,17 @@ async function validatePackage({ scenes, rules, copy, root, asOf }) {
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const root = path.resolve(options.root);
+  if (options.screenshotsManifest) {
+    const manifest = await validateScreenshotManifest({
+      root,
+      manifestPath: options.screenshotsManifest,
+      rulesPath: options.rules,
+      asOf: options.asOf
+    });
+    const count = manifest.sets.reduce((total, set) => total + set.images.length, 0);
+    console.log(`Store screenshot manifest is valid: ${count} images across ${manifest.sets.length} groups.`);
+    return;
+  }
   const [scenes, rules, copy] = await Promise.all([
     readJsonFile(path.resolve(options.scenes), 'Scene manifest'),
     readJsonFile(path.resolve(options.rules), 'Store rules'),

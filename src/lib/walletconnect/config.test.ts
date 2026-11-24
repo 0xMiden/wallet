@@ -50,3 +50,13 @@ describe('WC_PROJECT_ID resolution', () => {
     expect(m.SUPPORTED_CHAINS[0]!.rpcUrl).toContain('projectId=abc123def');
   });
 });
+
+// viem's `arc` has no RPC and no explorer, so every Arc mainnet link and chain-add request came out empty.
+it("reads, adds and links Arc mainnet (5042) through Circle's public RPC and explorer", () => {
+  expect(loadModule().getChain(5042)).toMatchObject({
+    name: 'Arc',
+    rpcUrl: 'https://rpc.mainnet.arc.io',
+    publicRpcUrl: 'https://rpc.mainnet.arc.io',
+    explorer: 'https://explorer.arc.io'
+  });
+});

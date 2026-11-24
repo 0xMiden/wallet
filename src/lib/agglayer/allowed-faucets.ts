@@ -18,9 +18,9 @@ const REGISTRY_SLOT = 'agglayer::bridge::faucet_registry_map';
 const approved = new Set<string>();
 const approvalKey = (rpcUrl: string, midenBridge: string, faucetId: string) => `${rpcUrl}|${midenBridge}|${faucetId}`;
 
-export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string): Promise<boolean> {
+export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string, chainId?: number): Promise<boolean> {
   await ensureSdkWasmReady();
-  const midenBridge = getAgglayerMidenBridge();
+  const midenBridge = getAgglayerMidenBridge(chainId);
   const faucet = accountRefToSdk(faucetRef);
   const approval = approvalKey(rpcUrl, midenBridge, faucet.toString());
   if (approved.has(approval)) return true;

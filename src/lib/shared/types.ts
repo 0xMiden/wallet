@@ -6,7 +6,9 @@ import type {
 } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import { TelemetryEvent } from 'lib/telemetry/types';
+import type { BurnFeeFailure } from 'lib/usdcx/burn-fee-failure';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
@@ -27,6 +29,10 @@ export enum WalletMessageType {
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
   UnlockResponse = 'UNLOCK_RESPONSE',
+  PlatformUnlockRequest = 'PLATFORM_UNLOCK_REQUEST',
+  PlatformUnlockResponse = 'PLATFORM_UNLOCK_RESPONSE',
+  PlatformResetRequest = 'PLATFORM_RESET_REQUEST',
+  PlatformResetResponse = 'PLATFORM_RESET_RESPONSE',
   LockRequest = 'LOCK_REQUEST',
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
@@ -77,8 +83,6 @@ export enum WalletMessageType {
   GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
   VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
   VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
-  SignDataRequest = 'SIGN_DATA_REQUEST',
-  SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
@@ -89,6 +93,8 @@ export enum WalletMessageType {
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  ImportHotKeyPairRequest = 'IMPORT_HOT_KEY_PAIR_REQUEST',
+  ImportHotKeyPairResponse = 'IMPORT_HOT_KEY_PAIR_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
   RevertGuardianEndpointRequest = 'REVERT_GUARDIAN_ENDPOINT_REQUEST',
@@ -97,6 +103,10 @@ export enum WalletMessageType {
   SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
   SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
   SetGuardianSyncStatusResponse = 'SET_GUARDIAN_SYNC_STATUS_RESPONSE',
+  MarkHotKeyRotatedOutRequest = 'MARK_HOT_KEY_ROTATED_OUT_REQUEST',
+  MarkHotKeyRotatedOutResponse = 'MARK_HOT_KEY_ROTATED_OUT_RESPONSE',
+  RetireRotatedOutHotKeyRequest = 'RETIRE_ROTATED_OUT_HOT_KEY_REQUEST',
+  RetireRotatedOutHotKeyResponse = 'RETIRE_ROTATED_OUT_HOT_KEY_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
@@ -147,6 +157,9 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // A page's delivery write (page → SW), so the SW's delivery sweep looks again
+  NoteDeliveryWrittenRequest = 'NOTE_DELIVERY_WRITTEN_REQUEST',
+  NoteDeliveryWrittenResponse = 'NOTE_DELIVERY_WRITTEN_RESPONSE',
   // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
   // cache + rebuild its Miden client singleton(s) after a save.
   ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
@@ -161,7 +174,10 @@ export enum WalletMessageType {
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
   ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
-  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE',
+  // USDCx burn fee dry run (popup → backend)
+  EstimateUsdcxBurnFeeRequest = 'ESTIMATE_USDCX_BURN_FEE_REQUEST',
+  EstimateUsdcxBurnFeeResponse = 'ESTIMATE_USDCX_BURN_FEE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -205,6 +221,8 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  /** Network + nonce of the SAME account/vault read. Old cached payloads have no proof. */
+  balanceSnapshot?: import('lib/miden/balance-snapshot').BalanceSnapshot;
   // When the service worker's last successful sync finished, so a reader can tell a
   // live result from the snapshot persisted by an earlier session. A pass whose sync
   // failed repeats the previous value. Absent before this service worker's first
@@ -235,6 +253,8 @@ export interface SerializedConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /** The note holds fungible assets beyond the one `faucetId` and `amountBaseUnits` describe; absent reads as not. */
+  carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   swapOrder?: {
@@ -271,6 +291,19 @@ export interface ProcessTransactionsRequest extends WalletMessageBase {
 
 export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+/**
+ * A delivery write an extension page made, such as Retry's landing or the in-app reconciler's, which the background
+ * counts as one of its own so its idle delivery sweep queries again. It carries no row data: the sweep reads the rows.
+ * Extension-only: on mobile and desktop the writer and the sweep share a realm and its count.
+ */
+export interface NoteDeliveryWrittenRequest extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenRequest;
+}
+
+export interface NoteDeliveryWrittenResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteDeliveryWrittenResponse;
 }
 
 /**
@@ -356,6 +389,33 @@ export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   notes: SerializedInputNoteDetail[];
 }
 
+export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
+  /** The account that burns. */
+  accountPublicKey: string;
+  /** The chain the burn pays out on. The recipient does not change the cost, so the request names none. */
+  destinationChainId: number;
+}
+
+/**
+ * What a USDCx burn fee estimate found: the native-asset base units to hold back for the burn's cost once `measured`
+ * (0n for a burn that costs nothing), `busy` when the WASM lock was not won in time so no dry run ran, or `failed`
+ * when the dry run ran and could not measure, or could not be built.
+ */
+export type UsdcxBurnFeeEstimate =
+  | { outcome: 'measured'; reserve: bigint; faucetId: string; scope: string }
+  | { outcome: 'busy' }
+  | { outcome: 'failed'; failure?: BurnFeeFailure };
+
+/** A {@link UsdcxBurnFeeEstimate} on the wire, its reserve as a decimal string. */
+export type EstimateUsdcxBurnFeeResponse = WalletMessageBase & {
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
+} & (
+    | { outcome: 'measured'; feeReserve: string; faucetId: string; scope: string }
+    | { outcome: 'busy' }
+    | { outcome: 'failed'; failure?: BurnFeeFailure }
+  );
+
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
   // TODO: Add an enum param here for determining which wallet type
@@ -363,7 +423,7 @@ export interface GetStateRequest extends WalletMessageBase {
 
 export interface GetStateResponse extends WalletMessageBase {
   type: WalletMessageType.GetStateResponse;
-  state: WalletState;
+  state: WalletState & { backendInitialized?: boolean };
 }
 
 // TODO: Make generalizable and pull out somewhere
@@ -419,6 +479,23 @@ export type KeyDerivation = 'v1';
  * the user must supply it. Absent until the drift reconciler first writes it.
  */
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
+
+/**
+ * Persisted finding that the account's on-chain hot signer (signer slot 0) is
+ * not the hot key this device holds: another device, most often a seed
+ * recovery, rotated the key and holds the account now. The verdict names the
+ * local key it was judged against, so it binds to that key alone: a record
+ * whose `hotPublicKey` has moved on carries a verdict about a key it no longer
+ * uses, and the predicate ignores it.
+ */
+export interface HotKeyRotatedOutVerdict {
+  /** This device's hot key at the time of the check (`WalletAccount.hotPublicKey`). */
+  hotPublicKey: string;
+  /** The hot-signer commitment the chain named instead. */
+  onChainHotCommitment: string;
+  /** Wall-clock time of the check, ms since the epoch. */
+  detectedAt: number;
+}
 
 /** Built-in guardian provider identity, reverse-mapped from the endpoint. */
 export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
@@ -478,6 +555,15 @@ export interface WalletAccount {
   guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
   guardianSyncStatus?: GuardianSyncStatus;
+  /**
+   * The verdict that another device rotated the account's hot key. See
+   * {@link HotKeyRotatedOutVerdict}. Set by the cold-signed signer check in the
+   * guardian sync's self-heal and by the direct guardian switch; cleared when
+   * this device's key is installed again (`swapHotKey`) or when the stale key is
+   * retired for a rotation to this device. Read only through
+   * `isHotKeyRotatedOut` in `lib/miden/guardian/sync-guard`.
+   */
+  hotKeyRotatedOut?: HotKeyRotatedOutVerdict;
   /** Auth scheme this account was created with. See {@link AuthScheme}. */
   authScheme: AuthScheme;
   /**
@@ -544,6 +630,8 @@ export interface NewWalletRequest extends WalletMessageBase {
   // probed (import / recovery), threaded explicitly so a new Guardian account
   // binds to the caller's chosen endpoint. Undefined for non-guardian wallets.
   guardianEndpoint?: string;
+  /** Bind the final account before wallet setup completes. */
+  accessCode?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
@@ -576,6 +664,25 @@ export interface UnlockRequest extends WalletMessageBase {
 
 export interface UnlockResponse extends WalletMessageBase {
   type: WalletMessageType.UnlockResponse;
+}
+
+export interface PlatformUnlockRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockRequest;
+  command: PlatformUnlockCommand;
+}
+
+export interface PlatformUnlockResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformUnlockResponse;
+  result: PlatformUnlockResult;
+}
+
+export interface PlatformResetRequest extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetRequest;
+  nonce: string;
+}
+
+export interface PlatformResetResponse extends WalletMessageBase {
+  type: WalletMessageType.PlatformResetResponse;
 }
 
 export interface LockRequest extends WalletMessageBase {
@@ -856,17 +963,6 @@ export interface VerifyStrictActionAuthenticationResponse extends WalletMessageB
   type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
 }
 
-export interface SignDataRequest extends WalletMessageBase {
-  type: WalletMessageType.SignDataRequest;
-  publicKey: string;
-  signingInputs: string;
-}
-
-export interface SignDataResponse extends WalletMessageBase {
-  type: WalletMessageType.SignDataResponse;
-  signature: string;
-}
-
 export interface SignTransactionRequest extends WalletMessageBase {
   type: WalletMessageType.SignTransactionRequest;
   publicKey: string;
@@ -936,6 +1032,16 @@ export interface SwapHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyResponse;
 }
 
+export interface ImportHotKeyPairRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairRequest;
+  accountPublicKey: string;
+  keyPairPayload: string;
+}
+
+export interface ImportHotKeyPairResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportHotKeyPairResponse;
+}
+
 export interface SetGuardianEndpointRequest extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointRequest;
   accountPublicKey: string;
@@ -983,6 +1089,37 @@ export interface SetGuardianSyncStatusRequest extends WalletMessageBase {
 
 export interface SetGuardianSyncStatusResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianSyncStatusResponse;
+}
+
+/**
+ * Persist the rotated-out verdict (see {@link HotKeyRotatedOutVerdict}). The
+ * write lands only while the stored `hotPublicKey` is still `hotPublicKey`.
+ */
+export interface MarkHotKeyRotatedOutRequest extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutRequest;
+  accountPublicKey: string;
+  hotPublicKey: string;
+  onChainHotCommitment: string;
+}
+
+export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
+  type: WalletMessageType.MarkHotKeyRotatedOutResponse;
+}
+
+/**
+ * Make this device the account's main one again: drop the rotated-out hot key
+ * and flag the account for a hot-key rotation (`requiresHotKeyRotation`), which
+ * `HotKeyRotationGate` then runs. Refused unless the stored `hotPublicKey` is
+ * still `expectedHotPubKey`.
+ */
+export interface RetireRotatedOutHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyRequest;
+  accountPublicKey: string;
+  expectedHotPubKey: string;
+}
+
+export interface RetireRotatedOutHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.RetireRotatedOutHotKeyResponse;
 }
 
 export interface CheckGuardianDriftRequest extends WalletMessageBase {
@@ -1221,6 +1358,8 @@ export type WalletRequest =
   | NewWalletRequest
   | NewWalletFromHotKeyRequest
   | UnlockRequest
+  | PlatformUnlockRequest
+  | PlatformResetRequest
   | LockRequest
   | CreateAccountRequest
   | UpdateCurrentAccountRequest
@@ -1247,16 +1386,18 @@ export type WalletRequest =
   | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
   | VerifyStrictActionAuthenticationRequest
-  | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
   | SignEvmRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
+  | ImportHotKeyPairRequest
   | SetGuardianEndpointRequest
   | RevertGuardianEndpointRequest
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
+  | MarkHotKeyRotatedOutRequest
+  | RetireRotatedOutHotKeyRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
@@ -1279,12 +1420,14 @@ export type WalletRequest =
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | NoteDeliveryWrittenRequest
   | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | ReportTelemetryEventRequest;
+  | ReportTelemetryEventRequest
+  | EstimateUsdcxBurnFeeRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1294,6 +1437,8 @@ export type WalletResponse =
   | NewWalletResponse
   | NewWalletFromHotKeyResponse
   | UnlockResponse
+  | PlatformUnlockResponse
+  | PlatformResetResponse
   | LockResponse
   | CreateAccountResponse
   | UpdateCurrentAccountResponse
@@ -1320,16 +1465,18 @@ export type WalletResponse =
   | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse
   | VerifyStrictActionAuthenticationResponse
-  | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
   | SignEvmResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
+  | ImportHotKeyPairResponse
   | SetGuardianEndpointResponse
   | RevertGuardianEndpointResponse
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
+  | MarkHotKeyRotatedOutResponse
+  | RetireRotatedOutHotKeyResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse
@@ -1352,9 +1499,11 @@ export type WalletResponse =
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | NoteDeliveryWrittenResponse
   | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | ReportTelemetryEventResponse;
+  | ReportTelemetryEventResponse
+  | EstimateUsdcxBurnFeeResponse;

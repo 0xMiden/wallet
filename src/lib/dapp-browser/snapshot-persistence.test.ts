@@ -176,3 +176,57 @@ describe('clearAllSnapshotsFromDisk', () => {
     await expect(clearAllSnapshotsFromDisk()).resolves.toBeUndefined();
   });
 });
+
+describe('ordered snapshot mutations', () => {
+  it('deletes after a write still awaiting mkdir and preserves another snapshot', async () => {
+    await writeSnapshotToDisk('keep', DATA_URL);
+    let release: () => void = () => {
+      throw new Error('mkdir has not started');
+    };
+    let started: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const creating = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockMkdir.mockImplementationOnce(async () => {
+      started();
+      await gate;
+    });
+    const write = writeSnapshotToDisk('closed', DATA_URL);
+    await creating;
+    const close = removeSnapshotFromDisk('closed');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release();
+    await Promise.all([write, close]);
+    expect(await readSnapshotFromDisk('closed')).toBeNull();
+    expect(await readSnapshotFromDisk('keep')).toBe(DATA_URL);
+  });
+
+  it('runs clear-all after a native file write already in flight', async () => {
+    let release: () => void = () => {
+      throw new Error('write has not started');
+    };
+    let started: () => void = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const writing = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockWriteFile.mockImplementationOnce(async ({ path, data }) => {
+      started();
+      await gate;
+      fsStore[path] = { data };
+    });
+    const write = writeSnapshotToDisk('closed', DATA_URL);
+    await writing;
+    const reset = clearAllSnapshotsFromDisk();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release();
+    await Promise.all([write, reset]);
+    expect(await readSnapshotFromDisk('closed')).toBeNull();
+    expect(Object.keys(fsStore)).toHaveLength(0);
+  });
+});

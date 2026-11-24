@@ -45,8 +45,10 @@
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */
-import { expect, type Locator, type Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
+import { commandSendForm, confirmCommandSendReview } from './command-send';
+import { selectContactNetwork } from './contact-network';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 // ── Settings sub-pages ──────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ export async function openSettingsDrawer(
 ): Promise<Locator> {
   const buttonTestId = SETTINGS_TAB_BUTTON[drawer];
   await wallet.navigateTo('/');
-  await wallet.page.getByTestId('explore-page').waitFor({ state: 'visible', timeout: timeoutMs });
+  await wallet.page.getByTestId('command-shell').waitFor({ state: 'visible', timeout: timeoutMs });
   await wallet.navigateTo('/settings');
 
   const button = wallet.page.getByTestId(buttonTestId);
@@ -313,8 +315,7 @@ export interface PickerContact {
  */
 export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeoutMs = 30_000): Promise<Locator> {
   await wallet.navigateTo('/send');
-  const sendFlow = wallet.page.getByTestId('send-flow');
-  await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
+  const sendFlow = await commandSendForm(wallet.page, timeoutMs);
 
   const addressBookButton = sendFlow.getByTestId('send-address-book-icon');
   try {
@@ -340,7 +341,7 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
 }
 
 export interface SendContactInput extends ContactInput {
-  /** The network the sheet must show: `id` names its chip, `name` its label ("Miden", "Sepolia"). */
+  /** The network the sheet must show: `id` names its network choice, `name` its label ("Miden", "Sepolia"). */
   network: { id: string; name: string };
 }
 
@@ -363,15 +364,7 @@ export async function addContactFromSend(
 ): Promise<void> {
   const step = `addContactFromSend("${contact.name}")`;
   await wallet.navigateTo('/send');
-  const sendFlow = wallet.page.getByTestId('send-flow');
-  try {
-    await sendFlow.waitFor({ state: 'visible', timeout: timeoutMs });
-  } catch {
-    throw new Error(
-      `${step}: /send never showed the send flow ([data-testid="send-flow"]) within ${timeoutMs}ms. ` +
-        `URL: ${wallet.page.url()}`
-    );
-  }
+  const sendFlow = await commandSendForm(wallet.page, timeoutMs);
   try {
     await sendFlow.getByTestId('send-recipient-input').fill(contact.address, { timeout: timeoutMs });
   } catch {
@@ -409,26 +402,11 @@ export async function addContactFromSend(
     throw new Error(`${step}: the sheet names ${JSON.stringify(shownAddress)}, not the typed ${contact.address}.`);
   }
 
-  const chip = wallet.page.getByTestId(`add-contact-network-${contact.network.id}`);
   try {
-    await chip.waitFor({ state: 'visible', timeout: timeoutMs });
-  } catch {
-    throw new Error(
-      `${step}: the sheet shows no ${contact.network.name} network ` +
-        `([data-testid="add-contact-network-${contact.network.id}"]). Networks shown: ` +
-        `${await safeText(wallet.page.getByTestId('add-contact-network-options'))}`
-    );
+    await selectContactNetwork(wallet.page, contact.network, timeoutMs);
+  } catch (error) {
+    throw new Error(`${step}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const chipText = (await chip.textContent())?.trim() ?? '';
-  if (chipText !== contact.network.name) {
-    throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
-  }
-  let expectedPressed: string | null = null;
-  if (contact.network.id !== 'miden') {
-    await chip.click({ timeout: timeoutMs });
-    expectedPressed = 'true';
-  }
-  await expect.poll(() => chip.getAttribute('aria-pressed'), { timeout: timeoutMs }).toBe(expectedPressed);
 
   try {
     await sheet.getByTestId('address-book-name-input').fill(contact.name, { timeout: timeoutMs });
@@ -607,9 +585,7 @@ export async function advanceToSendReview(
 ): Promise<SendReviewState> {
   const STEP_TIMEOUT_MS = 30_000;
   const page = wallet.page;
-  const sendFlow = page.getByTestId('send-flow');
-
-  await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
+  const sendFlow = await commandSendForm(page, STEP_TIMEOUT_MS);
 
   // Token picker: a bottom sheet portaled outside the send-flow container.
   await sendFlow.getByTestId('send-token-selector').click({ timeout: STEP_TIMEOUT_MS });
@@ -628,7 +604,7 @@ export async function advanceToSendReview(
   }
 
   await sendFlow.getByTestId('send-amount-input').fill(params.amount);
-  await sendFlow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
+  await confirmCommandSendReview(page, STEP_TIMEOUT_MS);
 
   // Review is a routed full-screen page that installs this hook on mount; the
   // public/private choice has no UI control any more.

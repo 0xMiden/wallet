@@ -8,9 +8,9 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
-import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
+import type { FlowPresentation } from 'components/flow/FlowPresentation';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
 import { Card } from 'components/ui/Card';
@@ -18,6 +18,7 @@ import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { TextField } from 'components/ui/TextField';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
@@ -25,11 +26,10 @@ import { useMidenNameResolvesHere } from 'lib/miden/name/useMidenNameResolvesHer
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
-import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
-import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
 import { MidenNameReceiveRow } from './MidenNameReceiveRow';
@@ -37,6 +37,11 @@ import { MidenNameReceiveRow } from './MidenNameReceiveRow';
 interface AddressTabProps {
   address: string;
   onBridgeDeposit: () => void;
+  /** The Receive tabs, drawn as the first line of the body. Absent when Receive has one tab. */
+  tabs?: React.ReactNode;
+  bridgeAvailability: FeatureAvailability;
+  bridgeOffered: boolean;
+  presentation?: FlowPresentation;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -69,8 +74,11 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 interface ReceiveActionTileProps {
   icon: IconName;
+  /** The glyph's size in the circle; a glyph that reads small at `xs` can take a step up. */
+  iconSize?: 'xs' | 'sm';
   title: string;
-  caption: string;
+  /** A second line under the title; a tile with none draws only its title. */
+  caption?: string;
   onClick: () => void;
   /** Greyed out, and takes no tap, while what it opens cannot start. */
   disabled?: boolean;
@@ -80,6 +88,7 @@ interface ReceiveActionTileProps {
 /** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
 const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   icon,
+  iconSize = 'xs',
   title,
   caption,
   onClick,
@@ -104,30 +113,69 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
         data-testid={dataTestId}
       >
         <IconCircle size="lg" className={cn(tone.tint, tone.text)}>
-          <Icon name={icon} size="xs" />
+          <Icon name={icon} size={iconSize} />
         </IconCircle>
         <span className="flex min-w-0 max-w-full flex-col items-center gap-0.5">
           <span data-slot="title" className="truncate text-row-title text-ink">
             {title}
           </span>
-          <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
-            {caption}
-          </span>
+          {caption !== undefined && (
+            <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+              {caption}
+            </span>
+          )}
         </span>
       </button>
     </Card>
   );
 };
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
+// One bridge action in both presentations; only its placement changes.
+export function ReceiveBridgeTile({
+  onBridgeDeposit,
+  availability
+}: {
+  onBridgeDeposit: () => void;
+  availability: FeatureAvailability;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ReceiveActionTile
+      icon={IconName.CrossChain}
+      iconSize="sm"
+      title={t('crossChain')}
+      caption={t('receiveCrossChainCaption')}
+      onClick={onBridgeDeposit}
+      disabled={isFeatureBlocked(availability)}
+      data-testid="receive-cross-chain"
+    />
+  );
+}
+
+export const AddressTab: React.FC<AddressTabProps> = ({
+  address,
+  onBridgeDeposit,
+  bridgeAvailability,
+  bridgeOffered,
+  presentation = 'compact',
+  tabs
+}) => {
   const { t } = useTranslation();
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : null;
   // The share fallback copies through the same hook as the page's copy control: one clipboard
   // path, and it catches a rejected write.
-  const { copy: copyAddress } = useClipboardCopy(address);
-  const [evmOpen, setEvmOpen] = useState(false);
-  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
+  const { copy: copyAddress, status: shareCopyStatus } = useClipboardCopy(address);
+  const [failedShareAddress, setFailedShareAddress] = useState<string | null>(null);
+  const shareAttemptRef = useRef(0);
+  useEffect(() => {
+    if (shareCopyStatus === 'failure') setFailedShareAddress(address);
+    if (shareCopyStatus === 'success') setFailedShareAddress(null);
+  }, [address, shareCopyStatus]);
+  useEffect(() => {
+    shareAttemptRef.current += 1;
+    setFailedShareAddress(null);
+  }, [address]);
   const qrRef = useRef<QRCodeHandle>(null);
   // Undefined on a network with no Miden Name deployment.
   const ownedLabel = useOwnedMidenName(address);
@@ -169,50 +217,33 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     if (index !== -1) committedPaletteStepRef.current = index;
   }, []);
 
-  const openBridgeDeposit = useCallback(() => {
-    onBridgeDeposit();
-  }, [onBridgeDeposit]);
-
-  // The action tile fires the tap haptic for both actions.
-  const handleOpenEvm = useCallback(() => {
-    if (evmConnected && evmAddress) {
-      openBridgeDeposit();
-      return;
-    }
-    setEvmOpen(true);
-  }, [evmAddress, evmConnected, openBridgeDeposit]);
-
-  useEffect(() => {
-    if (!evmOpen || !evmConnected || !evmAddress) return;
-    setEvmOpen(false);
-    openBridgeDeposit();
-  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
-
   // The shared text names the network (#875) so a pasted address never loses
   // its context. The QR image carries the same caption (see `caption` below).
   // Mainnet has no test network to name, so it shares the bare address.
   const shareText = network ? t('shareAddressText', { network, address }) : address;
 
   const handleShare = useCallback(async () => {
+    const attempt = ++shareAttemptRef.current;
     let qrBlob: Blob | null = null;
     try {
       qrBlob = (await qrRef.current?.getImageBlob()) ?? null;
     } catch (e) {
       console.warn('[Receive] failed to render QR image for share:', e);
     }
+    if (shareAttemptRef.current !== attempt) return;
 
     try {
       if (isMobile()) {
         if (qrBlob) {
-          const { uri } = await Filesystem.writeFile({
-            path: QR_FILE_NAME,
-            data: await blobToBase64(qrBlob),
-            directory: Directory.Cache
-          });
+          const data = await blobToBase64(qrBlob);
+          if (shareAttemptRef.current !== attempt) return;
+          const { uri } = await Filesystem.writeFile({ path: QR_FILE_NAME, data, directory: Directory.Cache });
+          if (shareAttemptRef.current !== attempt) return;
           await Share.share({ text: shareText, files: [uri], dialogTitle: t('receive') });
         } else {
           await Share.share({ text: shareText, dialogTitle: t('receive') });
         }
+        if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.share) {
@@ -220,10 +251,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
           if (navigator.canShare({ files: [file] })) {
             await navigator.share({ files: [file], text: shareText });
+            if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
             return;
           }
         }
         await navigator.share({ text: shareText });
+        if (shareAttemptRef.current === attempt) setFailedShareAddress(null);
         return;
       }
     } catch (e) {
@@ -235,21 +268,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     // entered no catch. A share rejection also lands here via the catch; every success branch
     // returns first. Moved into the catch, the Share button would do nothing at all on those builds;
     // Receive.test.tsx's 'the web has no navigator.share' row is what fails if anyone does.
-    await copyAddress();
+    if (shareAttemptRef.current === attempt) await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
-  const crossChain = useBridgeInAvailability();
-
-  return (
-    // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
-    // the code opens the pane 20px down, above a titled pane's first line), the scroll and gesture
-    // contract and the clearance over the tab bar, the same as Send, Earn and Swap. Last-resort
-    // scroll only: the column is laid out to fit between the top action bar and the tab bar on
-    // every supported height, and scrolls only when even that does not fit.
-    // The page keeps the app's own surface: the Receive green is carried by the affordances, not
-    // by a wash, and the code needs a plain light field around it to scan off.
-    <HomeGroupPaneBody testId="receive-page" top="visual">
+  const content = (
+    <>
+      {tabs !== undefined && presentation !== 'command' && <div className="pb-4">{tabs}</div>}
       {/* Every line of the page is Nunito: the body styles that read `--font-sans` (the tiles'
           captions, the warning) resolve to the heading face here. `contents` adds no box, so the
           pane's layout is untouched. */}
@@ -268,9 +292,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             around it — the card only added an edge between the code and the actions below. */}
         <div data-testid="receive-qr-block" className="flex flex-col items-center gap-2">
           <div data-testid="receive-qr-card" className="flex w-full flex-col items-center gap-2">
-            {/* The QR is a fixed square (272px), not the leftover height: big enough to scan
-                across a table, small enough to leave the page room to breathe. */}
-            <div data-testid="receive-qr-slot" className="relative w-full max-w-68">
+            {/* Keep the shared QR square bounded and its quiet zone clear in both layouts. */}
+            <div
+              data-testid="receive-qr-slot"
+              className={cn('relative w-full bg-page', presentation === 'command' ? 'max-w-56 p-2' : 'max-w-68')}
+            >
               <motion.div
                 data-testid="receive-qr-frame"
                 className="aspect-square w-full"
@@ -352,8 +378,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         </div>
 
         <div className="mt-2 flex shrink-0 flex-col gap-2">
-          {/* Two equal choices, side by side: each its own outlined tile, the Receive green on its
-              glyph, the label over a one-line caption. */}
           <div className="flex gap-2.5" data-testid="receive-actions">
             <ReceiveActionTile
               icon={IconName.Share}
@@ -362,23 +386,36 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
-            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
-                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
-                bytes. public/globals.js no longer installs one. */}
-            <ReceiveActionTile
-              icon={IconName.CrossChain}
-              title={t('crossChain')}
-              // Name the actual source test network, not a bare "Testnet" (#875).
-              caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-              onClick={handleOpenEvm}
-              disabled={isFeatureBlocked(crossChain)}
-              data-testid="receive-cross-chain"
-            />
+            {presentation !== 'command' && bridgeOffered && (
+              <ReceiveBridgeTile onBridgeDeposit={onBridgeDeposit} availability={bridgeAvailability} />
+            )}
           </div>
           {/* The owned name, the claim in progress or the offer to claim one. Renders nothing on a
               network with no Miden Name deployment. */}
           <MidenNameReceiveRow address={address} />
-          <FeatureUnavailableNotice availability={crossChain} variant="inline" />
+          {presentation !== 'command' && bridgeOffered && (
+            <FeatureUnavailableNotice availability={bridgeAvailability} variant="inline" />
+          )}
+          {failedShareAddress === address && (
+            <>
+              <Notice
+                errorId="smthWentWrong"
+                tone="negative"
+                variant="inline"
+                role="alert"
+                data-testid="receive-share-copy-failed"
+                title={t('receiveShareCopyFailed')}
+              />
+              <TextField
+                multiline
+                readOnly
+                label={t('address')}
+                value={address}
+                onFocus={event => event.currentTarget.select()}
+                data-testid="receive-share-manual-address"
+              />
+            </>
+          )}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
@@ -393,8 +430,17 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </Notice>
           )}
         </div>
-        <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
       </div>
+    </>
+  );
+
+  return presentation === 'command' ? (
+    <div data-testid="receive-page" className="min-w-0">
+      {content}
+    </div>
+  ) : (
+    <HomeGroupPaneBody testId="receive-page" top="visual">
+      {content}
     </HomeGroupPaneBody>
   );
 };

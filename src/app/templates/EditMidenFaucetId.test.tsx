@@ -4,8 +4,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { setFaucetIdSetting } from 'lib/miden/assets';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import EditMidenFaucetId from './EditMidenFaucetId';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // ---------------------------------------------------------------------------
 // Mocks.
@@ -160,6 +163,10 @@ describe('EditMidenFaucetId', () => {
     // The catch block waits 300ms (human delay) before setting the error.
     await screen.findByTestId('edit-faucet-id-error', undefined, { timeout: 2000 });
     expect(screen.getByTestId('edit-faucet-id-error')).toHaveTextContent('storage unavailable');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_faucet_id_save_failed', 'field');
     expect(field()).toHaveAttribute('aria-invalid', 'true');
     expect(screen.queryByText('faucetIdUpdated')).not.toBeInTheDocument();
     expect(consoleSpy).toHaveBeenCalledWith(boom);

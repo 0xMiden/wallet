@@ -3,17 +3,21 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { openInFullPage, useAppEnv } from 'app/env';
+import { usePlatformUnlock } from 'app/hooks/usePlatformUnlock';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { PasscodeScreen } from 'components/PasscodeScreen';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import type { BiometricAvailability } from 'lib/biometric';
 import { readLocalStorage, useLocalStorage, useMidenContext, writeLocalStorage } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { getPlatformCredential } from 'lib/platform-auth/webauthn';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => {
@@ -102,8 +106,26 @@ interface UnlockProps {
 
 const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
-  const { unlock } = useMidenContext();
-  const { compact } = useAppEnv();
+  const { unlock, platformUnlock } = useMidenContext();
+  const { compact, sidePanel, confirmWindow } = useAppEnv();
+  const { state: platformState } = usePlatformUnlock();
+  const [platformError, setPlatformError] = useState<'passkeyCanceled' | 'passkeyUnlockFailed' | null>(null);
+  const platformController = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  const canUsePlatform =
+    isExtension() &&
+    platformState.available &&
+    platformState.hasPassword &&
+    Boolean(platformState.credential) &&
+    (sidePanel || confirmWindow);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      platformController.current?.abort();
+    };
+  }, []);
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
@@ -418,6 +440,40 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     [isError]
   );
 
+  const onPlatformUnlock = useCallback(async () => {
+    const credential = platformState.credential;
+    if (!canUsePlatform || !credential || !beginUnlock()) return;
+    const controller = new AbortController();
+    platformController.current = controller;
+    setIsSubmitting(true);
+    setPlatformError(null);
+    setIsError(false);
+    try {
+      const assertion = await getPlatformCredential(credential.credentialId, credential.prfSalt, controller.signal);
+      controller.signal.throwIfAborted();
+      if (!mounted.current) return;
+      await platformUnlock({ action: 'unlock', ...assertion });
+      if (mounted.current) {
+        retireLockoutRecord();
+        setAttempt(1);
+        // Keep the current route, including a confirmation window's request ID.
+        window.location.reload();
+      }
+    } catch (cause) {
+      if (mounted.current) {
+        setPlatformError(
+          cause instanceof DOMException && ['AbortError', 'NotAllowedError'].includes(cause.name)
+            ? 'passkeyCanceled'
+            : 'passkeyUnlockFailed'
+        );
+      }
+    } finally {
+      platformController.current = null;
+      endUnlock();
+      if (mounted.current) setIsSubmitting(false);
+    }
+  }, [platformState.credential, canUsePlatform, beginUnlock, endUnlock, platformUnlock, setAttempt]);
+
   const onRetryHardwareUnlock = useCallback(async () => {
     if (!beginUnlock()) return;
     setIsSubmitting(true);
@@ -471,6 +527,22 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       clearInterval(interval);
     };
   }, [setTimeLock, adoptLockout]);
+
+  const unlockErrorVisible = hardwareUnlockChecked || isExtension();
+  useUserVisibleError(
+    unlockErrorVisible && isHardwareOnlyWallet && biometricError ? 'biometricFailed' : null,
+    'inline'
+  );
+  useUserVisibleError(
+    unlockErrorVisible && !isHardwareOnlyWallet && !isMobile()
+      ? isDisabled
+        ? 'unlockPasswordErrorDelay'
+        : isError
+          ? 'incorrectPassword'
+          : null
+      : null,
+    'passcode'
+  );
 
   // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
@@ -542,7 +614,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             </p>
           </div>
 
-          <form className="w-full flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
+          <form className="w-full max-w-92.5 flex flex-col gap-6 mt-4" onSubmit={onPasswordSubmit}>
             <Input
               id="unlock-password"
               enterKeyHint="go"
@@ -562,10 +634,24 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             <Button
               type="submit"
               title={t('unlock')}
+              className="self-center"
               isLoading={isSubmitting}
               disabled={!password || isDisabled || isSubmitting}
             />
           </form>
+
+          {canUsePlatform && (
+            <Button
+              variant={ButtonVariant.Secondary}
+              title={t('unlockWithPasskey')}
+              onClick={onPlatformUnlock}
+              disabled={isSubmitting}
+              className="mt-3"
+            />
+          )}
+          <ErrorLine errorId={platformError === 'passkeyCanceled' ? null : platformError} className="mt-3">
+            {platformError && t(platformError)}
+          </ErrorLine>
 
           <button
             id="forgot-password"
@@ -607,6 +693,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       title={t('enterYourPasscode')}
       message={subtitle}
       announcement={announcement}
+      errorId={isDisabled ? 'unlockPasswordErrorDelay' : isError ? 'incorrectPasscode' : 'biometricFailed'}
       isError={isDisabled || isError || biometricError}
       filled={code.length}
       length={PASSCODE_LENGTH}

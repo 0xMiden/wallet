@@ -1,0 +1,34 @@
+{
+  "name": "@miden-sdk/bread-connect",
+  "version": "0.1.0",
+  "description": "The Bread Connect protocol, which lets a native iOS or Android app use Bread as its wallet through app switches.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/",
+    "vectors/v1.json",
+    "PROTOCOL.md"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rimraf ./dist"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,5 +1,6 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
+import { getUsdcxXReserveSource, USDCX_REMOTE_DOMAIN } from './usdcx-config';
 import { AGGLAYER_BRIDGE_ADDRESS, MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
 
 /**
@@ -19,38 +20,84 @@ const FAKE_ALLOCATOR_URL = 'http://127.0.0.1:8548';
 const FAKE_POSITIONS_URL = 'http://127.0.0.1:8549';
 const SEPOLIA_CHAIN_ID = 11155111;
 
-export interface BridgeConfigDocument {
-  network: string;
-  version: number;
-  evm?: { chainId?: number };
-  agglayer?: { l1Bridge?: string; midenBridge?: string; indexerUrl?: string };
-  epoch?: {
-    allocatorUrl?: string;
-    positionsUrl?: string;
-    midenUsdcFaucet?: string;
-    evmUsdc?: string;
-    earnProtocol?: string;
-  };
-  features: { earn: boolean; fastBridge: boolean; bridgeIn: boolean; bridgeOut: boolean };
+type ParsedBridgeConfig = import('../../../src/lib/remote-config/schema').BridgeConfig;
+type NearIntentsAddressKind = import('../../../src/lib/one-click/types').NearIntentsAddressKind;
+
+/**
+ * The `nearIntents` section as the document writes it: keyed maps, not the parsed lists. The key of a Miden asset is
+ * the id that a chain token names in `miden`; the key of a chain is the 1Click blockchain name; the key of a token is
+ * its symbol. The order of the keys is the display order.
+ */
+export interface NearIntentsDocumentSection {
+  serviceUrl: string;
+  midenAssets: Record<string, { assetId: string; faucetId: string; decimals: number }>;
+  chains: Record<
+    string,
+    {
+      name: string;
+      addressKind: NearIntentsAddressKind;
+      tokens: Record<string, { assetId: string; decimals: number; contractAddress?: string; miden: string[] }>;
+    }
+  >;
 }
 
 /**
- * Earn and Guardian Fast bridge-out on the local node. No `midenUsdcFaucet`: each test creates its
- * collateral faucet and hands it over with `__TEST_SET_EARN_FAUCET__`. No `agglayer` section: the
- * local node's bridge account is not one the harness uses, so the Slow routes read "not configured".
+ * The document as served. The parsed type describes the other sections well enough for the suites, but the written
+ * `nearIntents` section is keyed maps, so it has its own type.
  */
-export function localnetEpochDocument(): BridgeConfigDocument {
+export type BridgeConfigDocument = Omit<ParsedBridgeConfig, 'nearIntents'> & {
+  nearIntents?: NearIntentsDocumentSection;
+};
+
+/**
+ * Epoch routes on the local node. A bridge test supplies its collateral faucet before the wallet starts.
+ * Earn tests can use `__TEST_SET_EARN_FAUCET__` instead. No AggLayer route is configured.
+ */
+export function localnetEpochDocument(collateralFaucetId?: string): BridgeConfigDocument {
   return {
     network: 'localnet',
     version: 1,
-    evm: { chainId: SEPOLIA_CHAIN_ID },
-    epoch: {
-      allocatorUrl: FAKE_ALLOCATOR_URL,
-      positionsUrl: FAKE_POSITIONS_URL,
-      evmUsdc: MOCK_USDC_ADDRESS,
-      earnProtocol: 'dummy-lending'
+    'bridge-providers': {
+      epoch: {
+        allocatorUrl: FAKE_ALLOCATOR_URL,
+        positionsUrl: FAKE_POSITIONS_URL,
+        ...(collateralFaucetId === undefined
+          ? {}
+          : { outputs: { 'usdc-localnet-output': { faucetId: collateralFaucetId } } })
+      },
+      agglayer: {},
+      usdcx: {}
     },
-    features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+    supportedEvmChains: {
+      sepolia: {
+        chainId: SEPOLIA_CHAIN_ID,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: {
+              USDC: {
+                contractAddress: MOCK_USDC_ADDRESS,
+                outputs: collateralFaucetId === undefined ? [] : ['usdc-localnet-output']
+              }
+            }
+          }
+        }
+      }
+    },
+    features: { earn: true, nearIntents: false },
+    // Earn on needs the vaults it offers: the dummy lender's market of the mock USDC, which the positions fake serves.
+    earn: {
+      vaults: [
+        {
+          id: 'dummy-lending-sepolia-usdc',
+          marketUid: `DUMMY_LENDING:${SEPOLIA_CHAIN_ID}:${MOCK_USDC_ADDRESS.toLowerCase()}`,
+          name: 'Dummy Lending USDC',
+          protocol: 'dummy-lending',
+          depositsEnabled: true
+        }
+      ]
+    }
   };
 }
 
@@ -75,21 +122,66 @@ export function testnetBridgeInDocument(published: unknown): BridgeConfigDocumen
   if (!isRecord(published) || published.network !== 'testnet') {
     throw new Error('the published testnet document is not a testnet config object');
   }
+  const providers = published['bridge-providers'];
+  const chains = published.supportedEvmChains;
+  const sepolia = isRecord(chains) ? chains.sepolia : undefined;
+  const bridges = isRecord(sepolia) ? sepolia.bridges : undefined;
+  const agglayer = isRecord(bridges) ? bridges.agglayer : undefined;
+  const epoch = isRecord(providers) ? providers.epoch : undefined;
+  const outputs = isRecord(epoch) ? epoch.outputs : undefined;
+  const output = isRecord(outputs) ? outputs['usdc-testnet-output'] : undefined;
+  const bridgeId =
+    isRecord(agglayer) && typeof agglayer.midenBridgeId === 'string'
+      ? agglayer.midenBridgeId
+      : publishedText(published, 'agglayer', 'midenBridge');
+  const indexerUrl = isRecord(providers)
+    ? publishedText(providers, 'agglayer', 'indexerUrl')
+    : publishedText(published, 'agglayer', 'indexerUrl');
+  const faucetId =
+    isRecord(output) && typeof output.faucetId === 'string'
+      ? output.faucetId
+      : publishedText(published, 'epoch', 'midenUsdcFaucet');
+  const local = localnetEpochDocument();
+  const circle = getUsdcxXReserveSource(SEPOLIA_CHAIN_ID);
   return {
+    ...local,
     network: 'testnet',
     version: typeof published.version === 'number' ? published.version : 1,
-    evm: { chainId: SEPOLIA_CHAIN_ID },
-    agglayer: {
-      l1Bridge: AGGLAYER_BRIDGE_ADDRESS,
-      midenBridge: publishedText(published, 'agglayer', 'midenBridge'),
-      indexerUrl: publishedText(published, 'agglayer', 'indexerUrl')
+    'bridge-providers': {
+      ...local['bridge-providers'],
+      epoch: { ...local['bridge-providers'].epoch, outputs: { 'usdc-testnet-output': { faucetId } } },
+      agglayer: { indexerUrl },
+      usdcx: {
+        midenDomain: USDCX_REMOTE_DOMAIN,
+        attestationUrl: circle.attestationApi,
+        irisUrl: 'https://iris-api-sandbox.circle.com'
+      }
     },
-    epoch: {
-      allocatorUrl: FAKE_ALLOCATOR_URL,
-      midenUsdcFaucet: publishedText(published, 'epoch', 'midenUsdcFaucet'),
-      evmUsdc: MOCK_USDC_ADDRESS
-    },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+    supportedEvmChains: {
+      sepolia: {
+        chainId: SEPOLIA_CHAIN_ID,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: { USDC: { contractAddress: MOCK_USDC_ADDRESS, outputs: ['usdc-testnet-output'] } }
+          },
+          usdcx: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            domain: circle.domain,
+            tokens: { USDC: { contractAddress: circle.usdc } },
+            deposit: { route: 'xreserve', xReserve: circle.xReserve }
+          },
+          agglayer: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            contractAddress: AGGLAYER_BRIDGE_ADDRESS,
+            midenBridgeId: bridgeId
+          }
+        }
+      }
+    }
   };
 }
 

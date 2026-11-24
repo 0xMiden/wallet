@@ -1,56 +1,81 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { AnimatedNumber } from 'components/ui/AnimatedNumber';
-import { usdFormatterFor } from 'lib/i18n/numbers';
+import { UsdAmount } from 'components/ui/TokenAmount';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
+import type { IHistoryEntry } from './IHistoryEntry';
 import { useActivityClaimList } from './useActivityClaimList';
 
 interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
+  predicate?: (entry: IHistoryEntry) => boolean;
+  catalogPending?: boolean;
+  /** The filter's own empty state, in place of the generic one. */
+  emptyState?: React.ReactNode;
   programId?: string | null;
   /** Forwarded to the list below, which owns the loading state the caller reports on. */
   onInitialLoad?: () => void;
 }
 
-export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
+export const ActivityPendingHistory = ({
+  search,
+  filter,
+  programId,
+  onInitialLoad,
+  predicate,
+  catalogPending,
+  emptyState
+}: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const {
     representedItems,
     listItems,
     renderPendingItem,
     acceptMany,
+    cannotPayFee,
     account,
     isLoadingNotes,
     hidden,
     declinedIds,
     hiddenCount
   } = useActivityClaimList(search, filter);
+  useUserVisibleError(hidden.failed ? 'activityHiddenNotesError' : null, 'inline');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  useBridgeConfigSnapshot({ load: false });
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
   const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
-  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
+  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering || catalogPending === true;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
   // sent it. It is the ONE bulk action on this tab; there is no per-asset or per-sender variant.
+  // A claim the Guardian still holds is not one: its own Retry is off until the hold ends.
   const claimableNotes = listItems
-    .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
+    .filter(
+      item =>
+        (item.status === 'pending' || item.status === 'failed') &&
+        item.note.fromCache !== true &&
+        item.holdUntil === undefined
+    )
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
   // Every acceptable transfer is already in flight: the action stays, in its loading state, so it
   // does not vanish from under the tap that started it.
   const acceptingAll = claimingCount > 0 && claimableNotes.length === 0;
+  // Every transaction Accept All would queue is certain to fail on the fee; each card says why.
+  const acceptAllBlocked = claimableNotes.length > 0 && cannotPayFee(claimableNotes);
   const showAcceptAll = filter === 'pending' && (claimableNotes.length > 0 || acceptingAll);
   // Restore is offered only while a declined transfer could still be accepted.
   const showRestore = filter === 'pending' && hiddenCount > 0;
@@ -58,17 +83,13 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // All is about to accept - so it is read off the SAME list the cards below come from, which is
   // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
   // the same store, which is what makes the banner and this row agree.
-  const waitingTotalUsd = useMemo(
-    () =>
-      getPendingNotesUsdTotal(
-        listItems.map(item => item.note),
-        tokenPrices
-      ),
-    [listItems, tokenPrices]
+  // Read the current verified price assets on each render.
+  const waitingTotalUsd = getPendingNotesUsdTotal(
+    listItems.map(item => item.note),
+    tokenPrices
   );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
-  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);
   // One line, one lockup, the same one the home banner uses for this money: the count in the
   // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
   // the SAME sentence as a clause rather than becoming a second line - and it is the clause the
@@ -116,13 +137,14 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
               <span className="min-w-0 truncate text-caption text-muted">{summary}</span>
               {waitingCount > 0 && (
-                <AnimatedNumber
+                <UsdAmount
+                  animated
+                  placeholder={null}
                   data-testid="pending-row-total"
                   className="shrink-0 text-value text-ink"
                   // An asset with no price leaves no total (null), and neither is a total of zero:
                   // say nothing rather than put a false figure next to the button that accepts them.
-                  value={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
-                  format={formatWaitingTotal}
+                  amount={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
                 />
               )}
             </div>
@@ -141,7 +163,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 className="w-auto shrink-0"
                 data-testid="pending-row-accept-all"
                 title={acceptingAll ? t('claiming') : t('acceptAll')}
-                disabled={claimableNotes.length === 0 && !acceptingAll}
+                disabled={(claimableNotes.length === 0 && !acceptingAll) || acceptAllBlocked}
                 isLoading={acceptingAll}
                 onClick={() => acceptAll()}
               />
@@ -154,15 +176,18 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             programId={programId}
             fullHistory
             centerEmptyState
+            emptyState={emptyState}
             scrollParentRef={scrollRef}
             searchQuery={search}
             filter={filter}
+            predicate={predicate}
             pendingItems={representedItems}
             drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
             onInitialLoad={onInitialLoad}
             onLoadingChange={setIsLoadingHistory}
-            externalLoading={isLoadingNotes || isRecovering}
+            externalLoading={isLoadingNotes || isRecovering || catalogPending}
+            deferInitialLoad={catalogPending === true}
             hideLoadingSpinner
           />
         </div>

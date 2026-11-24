@@ -1,28 +1,21 @@
-// Shared DTO + reducer for a to-be-consumed note summary (issue #260, slice 7a).
-//
-// `initiateConsumeTransactionFromId` reaches through a LIVE `InputNoteRecord`
-// returned by `getInputNote(noteId)` for exactly ONE field: the note's
-// `metadata()?.noteType()`. Under `MIDEN_USE_OFFSCREEN_CLIENT` the offscreen
-// client owns the imported/synced note and the SW client is dormant, so a SW-inline
-// read can miss a note the offscreen realm holds ("note not found" on a consume
-// the offscreen client could actually build).
-//
-// The record has no serializer and can't cross postMessage, but that one field is
-// a plain numeric enum — so this reduces the live record to a minimal, JSON-safe
-// DTO (the slice-4 pattern), letting the read route through the proxy so flag-on it
-// hits the realm that owns the note.
+// The offscreen realm owns imported/synced notes when enabled; the dormant SW
+// client can miss a note that realm could consume. A live InputNoteRecord has no
+// serializer, so its metadata and fee assets must be reduced under the owning
+// realm's lock before crossing postMessage.
 
 import type { InputNoteRecord, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
+import type { ConsumableNoteAsset } from './consumable-notes';
+import { getBech32AddressFromAccountId } from './helpers';
+
 /**
- * Minimal, JSON-safe reduction of a live `InputNoteRecord`. Carries ONLY the
- * `noteType` the caller reads — the NUMERIC `NoteType` enum, or `undefined` when
- * the record has no metadata yet (a partial record). A `null` reduction (distinct
- * from a found record whose `noteType` is `undefined`) means "no such note",
- * preserving the caller's not-found throw.
+ * JSON-safe facts for a from-id consume. Missing metadata leaves `noteType`
+ * undefined; unavailable assets are null, distinct from a known empty list.
+ * A null DTO means the note itself was not found.
  */
 export type InputNoteSummaryDto = {
   noteType: NoteType | undefined;
+  assets: ConsumableNoteAsset[] | null;
 };
 
 /** Reduce a live `InputNoteRecord` (or `null` when not found) to an
@@ -30,5 +23,20 @@ export type InputNoteSummaryDto = {
 export function reduceInputNoteSummary(record: InputNoteRecord | null): InputNoteSummaryDto | null {
   if (!record) return null;
   const meta = record.metadata();
-  return { noteType: meta ? meta.noteType() : undefined };
+  const noteType = meta ? meta.noteType() : undefined;
+  let assets: ConsumableNoteAsset[] | null = null;
+  try {
+    assets = record
+      .details()
+      .assets()
+      .fungibleAssets()
+      .map(asset => ({
+        faucetId: getBech32AddressFromAccountId(asset.faucetId()),
+        amount: asset.amount().toString()
+      }));
+  } catch (error) {
+    // The owning lock must retire a trapped client before any fallback can use it.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+  }
+  return { noteType, assets };
 }

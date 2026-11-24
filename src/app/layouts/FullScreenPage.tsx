@@ -3,6 +3,7 @@ import React, { FC, useState } from 'react';
 import { motion, TargetAndTransition, useIsPresent, useReducedMotion } from 'framer-motion';
 
 import { usePageMountedByReturn, usePageRevealedByLayer } from 'app/layouts/page-active';
+import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { usePreset } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
@@ -35,6 +36,9 @@ const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultP
   // Read in the first render, before the covered page's hold ends in this same commit (its layer
   // stops being active as the push starts), so a navbar that page hid never fades back in under us.
   const [arrivedOverHiddenNavbar] = useState(() => document.body.hasAttribute('data-hide-navbar'));
+  const [arrivedOverHiddenHomeActions] = useState(() => document.body.hasAttribute('data-hide-home-actions'));
+  // Keep the outgoing Send layer stable while this full-screen page covers or reveals it.
+  useHideHomeActionsWhileOpen(present && arrivedOverHiddenHomeActions);
   // Keep the previous tab's navbar visible under the incoming page, and give
   // it back the moment this page starts to slide out.
   useHideNavbarWhileOpen(present && (!slide || entered || arrivedOverHiddenNavbar));

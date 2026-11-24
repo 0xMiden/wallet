@@ -4,9 +4,10 @@
 
 /* #503 — native-app feel: UI chrome (labels, buttons, badges, nav) is not
    text-selectable. Content meant to be copyable opts back in — real inputs, and
-   anything tagged `.select-text` (addresses, seed reveal, error/tx detail
-   strings already use it). Only `user-select` is touched, so the paste/lookup
-   callout on inputs is unaffected.
+   anything tagged `.select-text` (addresses, error/tx detail strings already
+   use it). Recovery phrases stay unselectable: they are copied only through
+   `useClipboardCopy(text, { secret: true })`. Only `user-select` is touched, so
+   the paste/lookup callout on inputs is unaffected.
    NOTE: these rules are intentionally UNLAYERED (declared before
    `@import 'tailwindcss'` below), so they win over Tailwind's layered
    utilities. A bare Tailwind `select-all`/`select-text` class would LOSE to
@@ -54,10 +55,17 @@ button:disabled,
 @import 'vaul/style.css';
 
 /* Every sheet opens and closes on the tab-bar springs, so arriving at one feels like switching
- * nav tabs: bouncy in with a single overshoot, snappy out. vaul runs the open/close as a CSS
- * `animation` and the drag-release snap-back as an INLINE `transition`, so the springs arrive as
- * `linear()` curves in custom properties that `lib/ui/drawer.tsx` sets on both the sheet and its
- * backdrop (`lib/animation/sheet.ts`); the declared fallbacks are vaul's own stock curve.
+ * nav tabs: bouncy in with a single overshoot, snappy out. A bottom sheet's open/close runs the
+ * `@keyframes miden-sheet-open/close` that `lib/ui/drawer.tsx` installs (`lib/animation/sheet.ts`),
+ * sampled from the spring with `linear` timing between stops. Measured on an iPhone 17 Pro Max
+ * (#1841): WebKit runs a `linear()` timing function on the main thread at 60 Hz, but the same
+ * spring as sampled keyframes on the compositor at 120 Hz. vaul's drag-release snap-back is an
+ * INLINE `transition` and the backdrop fade a plain animation, so those still take the `linear()`
+ * curves from the custom properties `drawer.tsx` sets on both the sheet and its backdrop; the
+ * declared fallbacks are vaul's own stock curve.
+ *
+ * The close keyframes animate the individual `translate`, not `transform`: a sheet dragged down keeps
+ * vaul's inline drag `transform`, and `translate` adds to it, so the close leaves from the drag position.
  *
  * The snap-back rule clamps `transition-duration`/`transition-timing-function` with `!important`
  * (an inline style outranks a plain rule) but deliberately leaves `transition-property` alone:
@@ -69,8 +77,9 @@ button:disabled,
  * sheet may clip itself (`overflow-hidden` on DrawerContent would cut the skirt off).
  *
  * vaul inserts its own stylesheet at runtime, AFTER this one, so a tie in specificity goes to vaul:
- * each selector here carries one attribute more than the vaul rule it overrides
- * (`[data-vaul-drawer]`, `[data-vaul-overlay][data-vaul-snap-points=false]`). */
+ * each selector here carries one attribute more than the vaul rule it overrides (`[data-vaul-drawer]`,
+ * `[data-vaul-overlay][data-vaul-snap-points=false]`, and for the keyframes the four-attribute
+ * `[data-vaul-drawer][data-vaul-snap-points=false][data-vaul-drawer-direction=bottom][data-state=...]`). */
 [data-vaul-drawer][data-vaul-drawer-direction],
 [data-vaul-overlay][data-vaul-snap-points][data-state] {
   animation-duration: var(--sheet-open-duration, 0.5s);
@@ -83,6 +92,16 @@ button:disabled,
 [data-vaul-overlay][data-vaul-snap-points][data-state='closed'] {
   animation-duration: var(--sheet-close-duration, 0.5s);
   animation-timing-function: var(--sheet-close-easing, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+[data-vaul-drawer][data-vaul-snap-points='false'][data-vaul-drawer-direction='bottom'][data-slot='drawer-content'][data-state='open'] {
+  animation-name: miden-sheet-open;
+  animation-timing-function: linear;
+}
+
+[data-vaul-drawer][data-vaul-snap-points='false'][data-vaul-drawer-direction='bottom'][data-slot='drawer-content'][data-state='closed'] {
+  animation-name: miden-sheet-close;
+  animation-timing-function: linear;
 }
 
 /* vaul animates the sheet and its backdrop three ways, and reduced motion has
@@ -408,6 +427,12 @@ button:disabled,
   line-height: var(--tw-leading, 22px);
   font-weight: var(--tw-font-weight, 400);
 }
+@utility text-explainer-heading {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 22px);
+  font-weight: var(--tw-font-weight, 600);
+}
 @utility text-body-sm {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -650,6 +675,9 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
  * keeps its inline `display: flex` and hiding never moves its box, so the
  * dApp peek tray, which reads the footer's top edge the moment this flag
  * clears, gets the bar's resting edge without waiting for the fade. */
+html[data-ios-wallet-canvas] [data-tabbar-footer='true'] {
+  padding-bottom: var(--wallet-control-safe-bottom);
+}
 [data-tabbar-footer='true'] {
   transition: opacity 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
 }
@@ -671,7 +699,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
   transition: padding-bottom 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
 }
 body[data-hide-navbar] [data-navbar-cushion='true'] {
-  padding-bottom: 1rem;
+  padding-bottom: calc(1rem + var(--wallet-control-safe-bottom, 0px));
 }
 /* The room a flow CTA's cushion reserves for the tab bar (footer-cushion.ts reads it, 1rem when unset).
  * Declared on TabLayout's root, so only a page inside the layout that draws the bar inherits it: a slide
@@ -687,11 +715,9 @@ body[data-hide-navbar] [data-navbar-cushion='true'] {
   transition: none;
 }
 
-/* BottomNav's shadow deliberately overflows #root into body's safe-area
- * padding. On iOS WKWebView that strip is not repainted when TabLayout is
- * replaced, so the last shadow pixels can survive after the footer is gone.
- * Paint the strip explicitly while the navbar is hidden. */
-body[data-hide-navbar]::after {
+/* Entry pages with a body safe-area floor repaint it when the nav disappears.
+ * The iOS canvas reaches that edge itself and does not need a separate strip. */
+html:not([data-ios-wallet-canvas]) body[data-hide-navbar]::after {
   content: '';
   position: fixed;
   z-index: 0;
@@ -704,6 +730,15 @@ body[data-hide-navbar]::after {
   height: var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)));
   background-color: var(--color-app-bg);
   pointer-events: none;
+}
+
+/* A nested home flow replaces the entry tabs with its own Back header. This is separate from
+ * data-hide-navbar: opening the keyboard on the recipient page must not remove its top tabs. */
+body[data-hide-home-actions] [data-home-actions='true'] {
+  display: none;
+}
+body[data-home-band][data-hide-home-actions]::before {
+  background-color: var(--color-app-bg);
 }
 
 /* Home's top action bar band continues up through the status-bar safe area,
@@ -866,6 +901,8 @@ body[data-home-band]::before {
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
     --ds-page: #ffffff;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     /* The scrim behind a sheet or an overlay. One value in both themes: the sheet sits on its own
      * surface, so what the scrim has to do is dim the page behind it, and that job does not change
      * with the theme. Plain black at 55% — no blur, no gloss. */
@@ -875,6 +912,8 @@ body[data-home-band]::before {
     --ds-action-bar: #f9f9f9;
     --ds-hairline: rgba(63, 63, 63, 0.1);
     --ds-ink: #3f3f3f;
+    /* The header back arrow: a step softer than `ink`. */
+    --ds-back-glyph: #484848;
     --ds-muted: #6b6b6b;
     --ds-accent-tint: #fdeee5;
     --ds-accent-tint-ink: #a84a18;
@@ -992,6 +1031,8 @@ body[data-home-band]::before {
     --card-purple: #beacd2;
 
     --ds-page: #191919;
+    --ds-launcher-fill: #e77537;
+    --ds-launcher-ink: #191919;
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
     --ds-action-bar: #1e1e1e;
@@ -1003,6 +1044,7 @@ body[data-home-band]::before {
       inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5);
     --ds-shadow-raised-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.06);
     --ds-ink: #ffffff;
+    --ds-back-glyph: var(--ds-ink);
     --ds-muted: #a8a29c;
     --ds-accent-tint: #3a2418;
     --ds-accent-tint-ink: #f2a57a;
@@ -1017,5 +1059,448 @@ body[data-home-band]::before {
     --ds-negative-tint-ink: #e7a193;
     /* Lifted on #191919, where the light red sits at 2.9:1. */
     --ds-notification: #ff453a;
+  }
+}
+
+/* Confirm stage: the shared chart and entrance for transaction popups, the
+ * mobile sheet, review, and status. Unlayered so it wins over Tailwind. */
+@keyframes tx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tx-bar-in {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes tx-flow {
+  to {
+    stroke-dashoffset: -56;
+  }
+}
+
+@keyframes tx-sheen {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes tx-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes tx-rule {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+.tx-stage-popup {
+  background:
+    radial-gradient(120% 46% at 50% -12%, color-mix(in srgb, var(--accent-primary) 28%, transparent), transparent 58%),
+    var(--color-surface-solid);
+}
+
+.tx-stage-rule {
+  height: 3px;
+  width: 100%;
+  transform-origin: center;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+  animation: tx-rule 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-stage-grabber {
+  width: 42px;
+  height: 4px;
+  margin: 10px auto 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ds-muted) 45%, transparent);
+}
+
+.tx-story {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tx-story-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 8px;
+  border-radius: 16px;
+  background: var(--ds-fill);
+  color: var(--ds-ink);
+  padding: 10px 14px;
+}
+
+.tx-story-total {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.tx-notes-toggle {
+  display: flex;
+  width: fit-content;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+  margin-bottom: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ds-fill);
+  color: var(--ds-ink);
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tx-notes-chevron {
+  width: 8px;
+  height: 8px;
+  margin-top: -3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tx-notes-chevron.is-open {
+  margin-top: 3px;
+  transform: rotate(225deg);
+}
+
+.tx-notes-disclosure {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 1.08s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tx-notes-disclosure .tx-stage-list > .tx-note-slide {
+  animation: none;
+  opacity: 0;
+}
+
+.tx-notes-disclosure.is-open .tx-note-slide.out {
+  animation: note-from-left 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-notes-disclosure.is-open .tx-note-slide.in {
+  animation: note-from-right 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(2) {
+  animation-delay: 95ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(3) {
+  animation-delay: 189ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(4) {
+  animation-delay: 284ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(5) {
+  animation-delay: 378ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(6) {
+  animation-delay: 473ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(7) {
+  animation-delay: 567ms;
+}
+.tx-notes-disclosure.is-open .tx-note-slide:nth-child(8) {
+  animation-delay: 662ms;
+}
+
+@keyframes note-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-960px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes note-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(960px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tx-notes-disclosure-inner {
+  min-height: 0;
+}
+
+.tx-story-hop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: tx-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-story-hop-line {
+  gap: 0;
+}
+
+.tx-story-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tx-story-slot {
+  min-width: 0;
+}
+
+.tx-story-hop:nth-child(2) {
+  animation-delay: 90ms;
+}
+.tx-story-hop:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.tx-story-party {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-radius: 16px;
+  background: var(--ds-fill);
+  color: var(--ds-ink);
+  padding: 10px 14px;
+}
+
+.tx-originator {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-radius: 16px;
+  background: var(--ds-accent-tint);
+  color: var(--ds-ink);
+  padding: 10px 14px;
+}
+
+.tx-originator .tx-story-role {
+  color: var(--ds-accent-tint-ink);
+}
+
+.tx-originator-name {
+  margin-top: 2px;
+  color: var(--ds-ink);
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.tx-story-role {
+  color: var(--ds-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tx-story-name {
+  margin-top: 2px;
+  color: var(--ds-ink);
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 800;
+  word-break: break-all;
+}
+
+.tx-story-move {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+}
+
+.tx-story-line {
+  height: 2px;
+  flex: 1;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+}
+
+.tx-story-amount {
+  max-width: 70%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border-radius: 999px;
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent-tint-ink);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tx-stage-list > *:not(.tx-stage-chart) {
+  animation: tx-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-stage-list > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.tx-stage-list > *:nth-child(2) {
+  animation-delay: 100ms;
+}
+.tx-stage-list > *:nth-child(3) {
+  animation-delay: 160ms;
+}
+.tx-stage-list > *:nth-child(4) {
+  animation-delay: 220ms;
+}
+.tx-stage-list > *:nth-child(5) {
+  animation-delay: 280ms;
+}
+.tx-stage-list > *:nth-child(6) {
+  animation-delay: 340ms;
+}
+.tx-stage-list > *:nth-child(7) {
+  animation-delay: 400ms;
+}
+.tx-stage-list > *:nth-child(8) {
+  animation-delay: 460ms;
+}
+
+.tx-stage-rise {
+  animation: tx-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tx-stage-note {
+  position: relative;
+  overflow: hidden;
+}
+
+.tx-stage-note::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--tx-tone, var(--accent-primary));
+}
+
+.tx-stage-note[data-tone='fee'] {
+  --tx-tone: var(--accent-primary-hover);
+}
+
+.tx-stage-note[data-tone='sent'] {
+  --tx-tone: var(--accent-primary);
+}
+
+.tx-stage-note[data-tone='received'] {
+  --tx-tone: var(--status-positive);
+}
+
+.tx-stage-note[data-tone='note'] {
+  --tx-tone: color-mix(in srgb, var(--accent-primary) 58%, white);
+}
+
+.tx-stage-link {
+  width: 2px;
+  height: 28px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-primary), var(--status-positive));
+}
+
+.tx-stage-account {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 32%, transparent),
+    0 10px 28px color-mix(in srgb, var(--accent-primary) 16%, transparent);
+}
+
+.tx-stage-hero {
+  position: relative;
+}
+
+.tx-stage-hero::before {
+  content: '';
+  position: absolute;
+  inset: -18px;
+  z-index: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-primary) 34%, transparent), transparent 68%);
+  animation: tx-glow 2.4s ease-in-out 2;
+  pointer-events: none;
+}
+
+.tx-stage-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.tx-stage-cta {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.tx-stage-cta::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 32%, rgba(255, 255, 255, 0.38), transparent 68%);
+  transform: translateX(-130%);
+  animation: tx-sheen 2.8s ease-in-out 2;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-story-hop,
+  .tx-notes-disclosure,
+  .tx-notes-disclosure .tx-note-slide,
+  .tx-notes-chevron,
+  .tx-stage-list > *,
+  .tx-stage-rise,
+  .tx-stage-rule,
+  .tx-stage-hero::before,
+  .tx-stage-cta::after {
+    animation: none;
+  }
+
+  .tx-notes-disclosure .tx-stage-list > .tx-note-slide {
+    opacity: 1;
   }
 }

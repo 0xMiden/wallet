@@ -4,7 +4,7 @@
  *
  * The Epoch SDK hands `createMidenP2IDNote` HEX account ids, and the wallet has to
  * store them in the SAME bech32 form every other producer of a transaction row uses
- * — otherwise `getTokenMetadata` misses (row renders as "Unknown" with the 6-decimal
+ * - otherwise `getTokenMetadata` misses (row renders as "Unknown" with the 6-decimal
  * fallback) and `matchesTokenId` drops the row out of that token's history. The
  * encoding must therefore follow the EFFECTIVE network (`getNetworkId()`), not a
  * hardcoded testnet HRP: on a localnet / devnet / mainnet build, or under a
@@ -29,8 +29,14 @@ jest.mock('lib/miden/activity', () => ({
   startBackgroundTransactionProcessing: jest.fn(),
   waitForTransactionCompletion: jest.fn(async () => ({ txHash: '0xhash' }))
 }));
+const mockReadTransaction = jest.fn(async () => ({
+  outputNoteIds: ['note-1'],
+  approvedOutputNoteIds: ['note-stamped'],
+  requestBytes: new Uint8Array([1, 2, 3]),
+  extraInputs: { epochCollateralRequestBytes: new Uint8Array([1, 2, 3]) }
+}));
 jest.mock('lib/miden/repo', () => ({
-  transactions: { where: () => ({ first: async () => ({ outputNoteIds: ['note-1'] }) }) }
+  transactions: { where: () => ({ first: mockReadTransaction }) }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 jest.mock('lib/miden/types', () => ({ NoteTypeEnum: { Public: 'public', Private: 'private' } }));
@@ -45,7 +51,7 @@ jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 
 // This suite is about ID ENCODING, not note construction. The collateral note is
 // built by `buildEpochCollateralRequestBytes`, which reaches deep into the SDK
-// (assets, note scripts, attachments) and has its own tests — stubbing it keeps
+// (assets, note scripts, attachments) and has its own tests - stubbing it keeps
 // these cases from drifting every time the builder gains a dependency.
 jest.mock('./collateral-note', () => ({
   buildEpochCollateralRequestBytes: jest.fn(async () => ({
@@ -57,10 +63,13 @@ jest.mock('./collateral-note', () => ({
 
 // Minimal SDK stand-in. `AccountId.fromHex(...).toBech32(net)` is kept working so a
 // regression to the hardcoded `NetworkId.testnet()` encoding fails with a readable
-// `mtst1…` vs `mlcl1…` diff rather than a TypeError.
+// `mtst1…` vs `mlcl1…` diff rather than a TypeError. Like the SDK's, fromHex takes only a literal `0x`.
 jest.mock('@miden-sdk/miden-sdk', () => ({
   AccountId: {
-    fromHex: (hex: string) => ({ hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` })
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` };
+    }
   },
   Address: {
     fromBech32: (addr: string) => ({
@@ -72,6 +81,8 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   AccountInterface: { BasicWallet: 'BasicWallet' }
 }));
 
+import { requestSWTransactionProcessing, waitForTransactionCompletion } from 'lib/miden/activity';
+
 import { createEarnP2IDENote } from './earn-note';
 import { createBridgeP2IDENote, ifHextoBech32 } from './miden-note';
 
@@ -82,6 +93,10 @@ describe('epoch id encoding (ifHextoBech32)', () => {
 
   it('encodes a hex id under the EFFECTIVE network HRP, not a hardcoded testnet one', () => {
     expect(ifHextoBech32('0xdeadbeef')).toBe('mlcl1deadbeef');
+  });
+
+  it('encodes an id written with an uppercase 0X prefix the same as its 0x form', () => {
+    expect(ifHextoBech32('0Xdeadbeef')).toBe('mlcl1deadbeef');
   });
 
   it('passes an already-bech32 id through untouched', () => {
@@ -105,7 +120,7 @@ describe('epoch id encoding (ifHextoBech32)', () => {
 
     // The SDK gets the committed note id; the stamped one only rides on the row (#1250).
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-bridge' });
-    const [senderArg, , faucetArg, , , , requestBytesArg, , sendParams] =
+    const [senderArg, , faucetArg, , , , , requestBytesArg, , sendParams] =
       mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
@@ -117,6 +132,28 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       reclaimHeight: 6000,
       reclaimNoteId: 'note-stamped'
     });
+  });
+
+  it('retains the queued collateral id without proceeding when its first audit read fails', async () => {
+    mockReadTransaction.mockRejectedValueOnce(new Error('Collateral audit read interrupted'));
+    const onRowCreated = jest.fn();
+    const result = await createBridgeP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      deps,
+      onRowCreated
+    });
+    expect(result).toEqual({ success: false, txId: 'tx-bridge' });
+    expect(onRowCreated).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).toHaveBeenCalledTimes(1);
+    expect(requestSWTransactionProcessing).not.toHaveBeenCalled();
+    expect(waitForTransactionCompletion).not.toHaveBeenCalled();
   });
 
   it('stores the effective-network faucet + allocator ids on the earn-deposit row', async () => {
@@ -141,6 +178,27 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     expect(senderArg).toBe('mlcl1sender');
     expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
     expect(sendParams).toEqual({ recipientId: 'mlcl1allocator', noteType: 'public', recallBlocks: 5_000 });
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBeUndefined();
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBeUndefined();
+  });
+
+  it('passes the deposit protocol and chain through to transaction initiation', async () => {
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE_V3:8453:0xusdc',
+      protocol: '1delta',
+      chainId: 8453,
+      deps
+    });
+
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![11]).toBe('1delta');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![12]).toBe(8453);
   });
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {
@@ -180,8 +238,37 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       spendingLimitAuthorization: authorization
     });
 
-    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(authorization);
-    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe(authorization);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe(authorization);
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![9]).toBe(authorization);
+  });
+
+  // Signing may create only this note, so both rows record the id the collateral request was built with.
+  it('records the note the collateral request was built with on the bridged-send and earn-deposit rows', async () => {
+    await createBridgeP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      deps
+    });
+    await createEarnP2IDENote({
+      senderAccountId: 'mlcl1sender',
+      faucetId: '0xfaucet',
+      amount: '250',
+      allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
+      evmRecipient: '0xevm',
+      marketUid: 'AAVE:11155111:USDC',
+      deps
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toBe('note-stamped');
+    expect(mockInitiateEarnDepositTransaction.mock.calls[0]![8]).toBe('note-stamped');
   });
 
   it('preserves structured spending-limit rejections for the calling flow', async () => {

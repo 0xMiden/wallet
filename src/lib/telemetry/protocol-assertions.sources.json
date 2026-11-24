@@ -1,0 +1,10 @@
+{
+  "sdk": "0.18.0",
+  "crates": {
+    "miden-agglayer": "0.18.0",
+    "miden-core-lib": "0.36.3",
+    "miden-protocol": "0.18.0",
+    "miden-standards": "0.18.0"
+  },
+  "sha256": "d51b9dff02c0b0d7aa1c2645a6ccc0b23c0c57365269a536f9e8ff23240e2c04"
+}

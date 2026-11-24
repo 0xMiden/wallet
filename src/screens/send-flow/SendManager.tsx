@@ -3,31 +3,47 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
+import { v4 as uuid } from 'uuid';
 import * as yup from 'yup';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
 import { resolveMidenName } from 'lib/miden/name/resolver';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import {
+  snapshotRecipientValidation,
+  validateUiEvidence,
+  type RecipientValidationStage
+} from 'lib/telemetry/ui-producer-diagnostics';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
+import { useOptionalCommandDrafts, type CommandDrafts } from 'screens/command/command-drafts';
 import {
   detectAddressChain,
   isValidEthereumAddress,
@@ -40,21 +56,24 @@ import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
 import {
   BRIDGE_NETWORKS,
+  getBridgeNetwork,
   BridgeNetworkId,
-  DEFAULT_BRIDGE_NETWORK,
-  DEFAULT_USDCX_BRIDGE_NETWORK,
+  defaultBridgeNetwork,
+  defaultUsdcxBridgeNetwork,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
-  USDCX_BRIDGE_NETWORKS
+  usdcxBridgeNetworks
 } from './bridge-networks';
+import { CommandSendComposer } from './CommandSendComposer';
 import { ScanQrDrawer } from './ScanQrDrawer';
-import { SelectRecipient } from './SelectRecipient';
+import { SelectRecipient, type SelectRecipientProps } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { consumeSendDraft, setSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
-import { SendAmount } from './SendAmount';
-import { SendRoute } from './SendRoute';
+import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
+import { SendAmount, type SendAmountProps } from './SendAmount';
+import { SendRoute, type SendRouteProps } from './SendRoute';
 import {
   BridgeRoute,
   Contact,
@@ -68,6 +87,7 @@ import {
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
 import { useRecentRecipients } from './useRecentRecipients';
+import { useSendRouteEligibility } from './useSendRouteEligibility';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -153,27 +173,42 @@ export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
   /** Values restored when the user backs out of the full-screen review page. */
-  draft?: SendDraft | null;
+  draft?: CommandDrafts['send'] | null;
   /** Recipient handed over by a contact's page, with its saved network for a `0x` contact. */
   preselectedRecipient?: string | null;
   preselectedNetwork?: string | null;
 }
 
 export const SendManager: React.FC<SendManagerProps> = ({
+  isLoading,
   preselectedTokenId,
   draft,
   preselectedRecipient,
   preselectedNetwork
 }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const command = useFlowPresentation() === 'command';
+  const commandDrafts = useOptionalCommandDrafts();
+  const restoredSendIntent = draft?.reviewId
+    ? JSON.stringify([
+        draft.reviewId,
+        draft.amount,
+        draft.recipientAddress,
+        draft.tokenId,
+        draft.bridgeNetwork,
+        draft.bridgeRoute
+      ])
+    : undefined;
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
+  const bridgeConfig = useBridgeConfigSnapshot();
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
   // Token picker is a bottom sheet over the Amount step, not a Navigator step.
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const tokenAnchorRef = useRef<HTMLButtonElement>(null);
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
@@ -193,6 +228,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const currentStep = cardStack[cardStack.length - 1]?.name;
   const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
+  useHideHomeActionsWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts
@@ -398,6 +434,25 @@ export const SendManager: React.FC<SendManagerProps> = ({
     register('bridgeRoute');
   }, [register]);
 
+  const saveCommandDraft = useCallback(
+    (changes: Partial<CommandDrafts['send']>) => {
+      const admission = commandDrafts?.readSendAdmission();
+      if (!commandDrafts || (admission && (admission.status === 'pending' || admission.intent === restoredSendIntent)))
+        return;
+      const previous = commandDrafts.readDraft('send');
+      commandDrafts.writeDraft('send', {
+        ...previous,
+        amount: getValues('amount') ?? '',
+        recipientAddress: getValues('recipientAddress') ?? '',
+        tokenId: getValues('token')?.id ?? previous?.tokenId ?? '',
+        bridgeNetwork: getValues('bridgeNetwork'),
+        bridgeRoute: getValues('bridgeRoute'),
+        ...changes
+      });
+    },
+    [commandDrafts, getValues, restoredSendIntent]
+  );
+
   const amount = watch('amount');
   const recipientAddress = watch('recipientAddress');
   const token = watch('token');
@@ -423,6 +478,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // else the input.
   const effectiveRecipientAddress = resolvedMidenName?.address ?? recipientAddress;
   const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const destinationChainId = offeredNetworks.find(network => network.id === displayedNetwork)?.chainId;
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = effectiveRecipientAddress?.trim().toLowerCase();
@@ -465,6 +521,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // screen can show a live fee regardless of which route is selected.
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount || !validations.amount.isValidSync(amount)) return undefined;
+    // A finer amount stays on screen and is never quoted from its truncated base units.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) return undefined;
     try {
       return stringToBigInt(amount, token.decimals);
     } catch {
@@ -472,26 +530,60 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
-  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id, destinationChainId);
+  const routeEligibility = useSendRouteEligibility(
+    token?.id ?? '',
+    destinationChainId,
+    bridgeRoute ?? 'epoch',
+    usdcxAvailable,
+    pathname === '/send' && isBridge && (command || currentStep === SendFlowStep.Route)
+  );
+  // Set while the effect below, not the user, moved the route off Epoch, so it can move back once Epoch recovers.
+  const routeMovedOffEpochRef = useRef(false);
   useEffect(() => {
     if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
-    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
-  }, [usdcxAvailable, bridgeRoute, setValue]);
+    if (!usdcxAvailable && bridgeRoute === 'usdcx' && destinationChainId === undefined) {
+      setValue('bridgeRoute', 'epoch');
+    }
+    if (!usdcxAvailable && token && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      const selected = bridgeRoute ?? 'epoch';
+      if (routeMovedOffEpochRef.current && selected === 'agglayer' && routes.epoch) {
+        routeMovedOffEpochRef.current = false;
+        setValue('bridgeRoute', 'epoch');
+        return;
+      }
+      const nextRoute = routes.epoch ? 'epoch' : 'agglayer';
+      if (routes[nextRoute] && !routes[selected] && (!command || selected !== 'usdcx')) {
+        routeMovedOffEpochRef.current = nextRoute === 'agglayer';
+        setValue('bridgeRoute', nextRoute);
+      }
+    }
+  }, [usdcxAvailable, bridgeRoute, setValue, token, destinationChainId, bridgeConfig, command]);
 
-  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
-  const usdcxPayout = useMemo(() => {
-    const chainId =
+  // The destination chain of a USDCx burn, or undefined when this send is not one.
+  const usdcxChainId = useMemo(
+    () =>
       usdcxAvailable && isBridge
-        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
-        : undefined;
-    return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
-  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+        ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
+        : undefined,
+    [usdcxAvailable, isBridge, bridgeNetwork]
+  );
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(
+    () =>
+      usdcxChainId === undefined || amountBaseUnits === undefined
+        ? undefined
+        : { chainId: usdcxChainId, amount: amountBaseUnits },
+    [usdcxChainId, amountBaseUnits]
+  );
   const payoutFeeShortfall = useMemo(
     () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
     [usdcxPayout]
   );
 
   const epochQuote = useEpochQuote({
+    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
@@ -522,6 +614,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
     };
   }, [isBridge, epochQuote.loading, epochQuote.amount, epochQuote.symbol, epochQuote.error, token, amountBaseUnits]);
 
+  // Re-render when the sent token's quote expires, so the fee below stops using it on time.
+  useQuoteClock(token?.fiatPriceExpiresAt);
+  const fastQuoteExpired = token?.fiatPriceExpiresAt !== undefined && Date.now() >= token.fiatPriceExpiresAt;
+
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
     // Unpriced (0), unscaled or at the nominal $1 (a display figure, not a quote), the input has no
@@ -531,6 +627,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !token.scaleIsKnown ||
       !(token.fiatPrice > 0) ||
       token.fiatPriceIsNominal ||
+      fastQuoteExpired ||
       !amount ||
       epochQuote.amount == null
     ) {
@@ -540,7 +637,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     const output = parseFloat(epochQuote.amount);
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount]);
+  }, [token, amount, epochQuote.amount, fastQuoteExpired]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -548,23 +645,105 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
+  const { loaded: hiddenTokensLoaded, isHidden } = useHiddenTokens(publicKey);
+  // A Developer Settings save drops every cached balance, so after a network change balances read as loading.
+  const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const previousTokenScopeRef = useRef(tokenScope);
+  const automaticTokenIdRef = useRef<string | null>(null);
+  // The held tokens a send could spend, before the destination's routes are applied.
+  const sendableHoldings = useMemo(() => {
+    if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
+    if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
+    return balanceData.filter(row => {
+      if (
+        isHidden(row.tokenId) ||
+        !hasKnownScale(row.metadata) ||
+        isNewTransferTokenHeld(bridgeConfig, row.tokenId, nativeFaucetId)
+      )
+        return false;
+      const available =
+        row.tokenId === nativeFaucetId
+          ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
+          : row.balance;
+      return Number.isFinite(available) && available > 0;
+    });
+  }, [
+    isLoading,
+    balancesLoading,
+    hiddenTokensLoaded,
+    publicKey,
+    balanceData,
+    nativeFaucetId,
+    verificationBaseFee,
+    isHidden,
+    bridgeConfig
+  ]);
+  const defaultCandidates = useMemo(
+    () => sendableHoldings.filter(row => canSendTokenToChain(bridgeConfig, row.tokenId, destinationChainId)),
+    [sendableHoldings, bridgeConfig, destinationChainId]
+  );
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
+    if (previousTokenScopeRef.current !== tokenScope) {
+      previousTokenScopeRef.current = tokenScope;
+      appliedPreselectionRef.current = null;
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
     if (!preselectedTokenId) appliedPreselectionRef.current = null;
     if (!balanceData) return;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
-      if (match) {
+      // A link is a new selection; a restored draft is the user's own, so only a retired faucet keeps it out.
+      const held = draft
+        ? isRetiredTransferToken(bridgeConfig, preselectedTokenId, nativeFaucetId)
+        : isNewTransferTokenHeld(bridgeConfig, preselectedTokenId, nativeFaucetId);
+      if (match && !held && canSendTokenToChain(bridgeConfig, preselectedTokenId, destinationChainId)) {
         appliedPreselectionRef.current = preselectedTokenId;
+        automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
         return;
       }
+      if (draft && held) {
+        appliedPreselectionRef.current = preselectedTokenId;
+        setValue('amount', '');
+      }
     }
-    const current = getValues('token');
-    if (!current) return;
+    let current = getValues('token');
+    if (current && isRetiredTransferToken(bridgeConfig, current.id, nativeFaucetId)) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
+    if (
+      current &&
+      automaticTokenIdRef.current === current.id &&
+      !isLoading &&
+      !balancesLoading &&
+      hiddenTokensLoaded &&
+      // Holdings, not route-filtered candidates: a route the destination loses clears the token only through the
+      // destination check below, so a config refresh alone keeps it.
+      !sendableHoldings.some(row => row.tokenId === current?.id)
+    ) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
+    if (!current) {
+      // Explicit links and restored drafts own preselection, even while their row is absent.
+      const only = defaultCandidates.length === 1 ? defaultCandidates[0] : undefined;
+      if (!preselectedTokenId && only) {
+        automaticTokenIdRef.current = only.tokenId;
+        setValue('token', uiTokenFromBalance(only, tokenPrices));
+      }
+      return;
+    }
     const held = balanceData.find(t => t.tokenId === current.id);
     // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
     if (!held && balancesLoading) return;
@@ -585,19 +764,46 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setValue('token', refreshed);
   }, [
     preselectedTokenId,
+    draft,
+    tokenScope,
+    token,
+    isLoading,
+    hiddenTokensLoaded,
+    defaultCandidates,
+    sendableHoldings,
     balanceData,
     balancesLoading,
     tokenPrices,
     allTokensBaseMetadata,
     nativeFaucetId,
     setValue,
-    getValues
+    getValues,
+    bridgeConfig,
+    destinationChainId
   ]);
 
-  // Clear a token that the selected destination cannot receive.
+  // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
+  // leaves out, and a retired token goes silently.
+  const sendingTokenId = token?.id ?? (draft ? undefined : (preselectedTokenId ?? undefined));
+  const tokenHeld =
+    isNewTransferTokenHeld(bridgeConfig, sendingTokenId, nativeFaucetId) &&
+    !isRetiredTransferToken(bridgeConfig, sendingTokenId, nativeFaucetId);
+
+  // Clear a token that the selected destination cannot receive. Only a new destination or a new token clears it: a
+  // config refresh whose read failed for a moment keeps the user's token and amount, and Continue stays blocked.
+  const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
   useEffect(() => {
-    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
-  }, [usdcxOnly, token, usdcxAvailable, setValue]);
+    const checked = checkedSelectionRef.current;
+    // A destination the config stops offering for a moment reads as no destination; it is not a new one, so its return
+    // is not a change either.
+    const chainId = destinationChainId ?? checked.chainId;
+    if (checked.chainId === chainId && checked.tokenId === token?.id) return;
+    checkedSelectionRef.current = { chainId, tokenId: token?.id };
+    if (token && !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)) {
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
+  }, [bridgeConfig, destinationChainId, token, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -606,12 +812,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Non-native tokens are unaffected (their fee comes out of a different asset), and
   // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
   // the pre-discovery window both keep the full balance.
+  //
+  // A USDCx burn of the native token costs more than that static reserve (on mainnet its fee plus the
+  // faucet execution sponsorship came to 36 base fees against a reserve of 30, so "Max" failed with a
+  // vault shortfall). Its cost is measured by a dry run of the burn, and the cap holds back the larger
+  // of the two reserves. Until the measurement lands the burn has no cap at all: Max and Continue stay
+  // disabled, the amount field says why, and Available keeps the static figure.
+  // Keyed on the account and chain only, so editing the recipient never measures again.
+  const burnFeeTarget = useMemo(
+    () =>
+      publicKey && token && nativeFaucetId !== null && token.id === nativeFaucetId && usdcxChainId !== undefined
+        ? { accountPublicKey: publicKey, destinationChainId: usdcxChainId }
+        : undefined,
+    [publicKey, token, nativeFaucetId, usdcxChainId]
+  );
+  const burnFee = useBurnFeeReserve(burnFeeTarget);
+  const burnFeeUnmeasured = burnFeeTarget !== undefined && burnFee.status !== 'measured';
+  const burnFeeMessage = burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : 'usdcxBurnFeeMeasuring';
   const spendableBalance = useMemo(() => {
     if (!token) return 0;
-    return nativeFaucetId !== null && token.id === nativeFaucetId
-      ? maxSendableNative(token.balance, verificationBaseFee, token.decimals)
-      : token.balance;
-  }, [token, nativeFaucetId, verificationBaseFee]);
+    if (nativeFaucetId === null || token.id !== nativeFaucetId) return token.balance;
+    const staticCap = maxSendableNative(token.balance, verificationBaseFee, token.decimals);
+    if (burnFee.reserve === undefined) return staticCap;
+    const burnCap = Math.max(0, token.balance - Number(burnFee.reserve) / 10 ** token.decimals);
+    return Math.min(staticCap, burnCap);
+  }, [token, nativeFaucetId, verificationBaseFee, burnFee.reserve]);
 
   // Shown on the Amount step so the quoted "Available" is the number the validation
   // below actually enforces. The form's own `token` keeps the true balance, which is
@@ -633,6 +858,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       return;
     }
+    // Ahead of every amount check, so a restored or earlier amount never passes against the static cap.
+    if (burnFeeUnmeasured) {
+      setError('amount', { type: 'manual', message: burnFeeMessage });
+      return;
+    }
     if (amount === undefined) {
       // Clear a previous shortfall once funds arrive, even before typing.
       // A cleared field ('') still follows the invalid-amount path below.
@@ -641,7 +871,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
-    } else if (token && parseFloat(amount) > spendableBalance) {
+    } else if (token && amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+    } else if (token && typedAmountExceedsBalance(amount, spendableBalance, token.decimals)) {
       // Between one base fee and the 30x reserve the whole native balance is held back,
       // so `Available` reads 0 and "amount must be less than balance" is true but useless:
       // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
@@ -659,7 +891,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
     // asynchronously, so an amount typed before they landed was validated against an
     // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, spendableBalance, balanceData, balancesLoading, nativeFaucetId, verificationBaseFee]);
+  }, [
+    token,
+    spendableBalance,
+    balanceData,
+    balancesLoading,
+    nativeFaucetId,
+    verificationBaseFee,
+    burnFeeUnmeasured,
+    burnFeeMessage
+  ]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -692,10 +933,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // appears later cannot replace it.
   const onSelectToken = useCallback(
     (selectedToken: UIToken) => {
+      automaticTokenIdRef.current = null;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
+      saveCommandDraft({ tokenId: selectedToken.id });
     },
-    [preselectedTokenId, onAction]
+    [preselectedTokenId, onAction, saveCommandDraft]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -709,27 +952,112 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // the name (`name`). The raw name is never the `to` value, because review
   // signs `to`. An unresolved name cannot go to review.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress) return;
-    if (!resolvedMidenName && isMidenNameSupported() && looksLikeMidenName(recipientAddress)) return;
+    if (reviewHandoffRef.current) return;
+    const admission = commandDrafts?.readSendAdmission();
+    if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
+      reviewHandoffRef.current = true;
+      navigate(`/generating-transaction-full/${encodeURIComponent(admission.txId)}`);
+      return;
+    }
+    if (commandDrafts && admission?.status === 'pending') {
+      const original = commandDrafts.readDraft('send');
+      if (!original?.reviewId) return;
+      reviewHandoffRef.current = true;
+      const params = new URLSearchParams({
+        amount: original.amount,
+        to: original.recipientAddress,
+        tokenId: original.tokenId,
+        commandReviewId: original.reviewId
+      });
+      if (original.bridgeNetwork) params.set('network', original.bridgeNetwork);
+      if (original.bridgeRoute) params.set('route', original.bridgeRoute);
+      navigate(`/send/review?${params.toString()}`);
+      return;
+    }
+    if (
+      !token ||
+      !amount ||
+      !recipientAddress ||
+      (!resolvedMidenName && isMidenNameSupported() && looksLikeMidenName(recipientAddress)) ||
+      (command &&
+        (!isValidRecipient ||
+          !!errors.amount ||
+          !!payoutFeeShortfall ||
+          !validations.amount.isValidSync(amount) ||
+          !token.scaleIsKnown ||
+          typedAmountExceedsBalance(amount, spendableBalance, token.decimals) ||
+          (isBridge && destinationChainId === undefined))) ||
+      isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
+      !canSendTokenToChain(bridgeConfig, token.id, destinationChainId) ||
+      (isBridge && routeEligibility.blocked)
+    )
+      return;
+    if (isBridge && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
+      if (!routes[bridgeRoute ?? 'epoch']) return;
+    }
+    // Precision is decided before the balance comparison, and the typed string is left unchanged.
+    if (amountExceedsTokenDecimals(amount, token.decimals)) {
+      setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      return;
+    }
+    // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
+    // before the measured reserve landed, or under a smaller one, goes back there with the reason shown.
+    if (burnFeeTarget && (burnFeeUnmeasured || typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) {
+      const reserveHoldsWholeBalance = spendableBalance <= 0 && token.balance > 0;
+      const overCapMessage = reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance';
+      setError('amount', { type: 'manual', message: burnFeeUnmeasured ? burnFeeMessage : overCapMessage });
+      if (currentStep === SendFlowStep.Route) goBack();
+      return;
+    }
     reviewHandoffRef.current = true;
-    setSendDraft({
+    // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
+    routeMovedOffEpochRef.current = false;
+    const resolvedTo = resolvedMidenName?.address ?? recipientAddress;
+    const reviewDraft = {
       amount,
       recipientAddress,
       tokenId: token.id,
       bridgeNetwork: isBridge ? bridgeNetwork : undefined,
       bridgeRoute: isBridge ? bridgeRoute : undefined,
       ...(resolvedMidenName ? { midenName: resolvedMidenName } : {})
-    });
-    const params = new URLSearchParams({
-      amount,
-      to: resolvedMidenName?.address ?? recipientAddress,
-      tokenId: token.id
-    });
+    };
+    const commandReviewId = command ? uuid() : undefined;
+    if (command) saveCommandDraft({ ...reviewDraft, recipientAddress: resolvedTo, reviewId: commandReviewId });
+    else setSendDraft(reviewDraft);
+    const params = new URLSearchParams({ amount, to: resolvedTo, tokenId: token.id });
     if (resolvedMidenName) params.set('name', formatMidenName(resolvedMidenName.label));
+    if (commandReviewId) params.set('commandReviewId', commandReviewId);
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute, resolvedMidenName]);
+  }, [
+    amount,
+    recipientAddress,
+    resolvedMidenName,
+    token,
+    isBridge,
+    bridgeNetwork,
+    bridgeRoute,
+    burnFeeTarget,
+    burnFeeUnmeasured,
+    burnFeeMessage,
+    spendableBalance,
+    setError,
+    currentStep,
+    goBack,
+    bridgeConfig,
+    nativeFaucetId,
+    destinationChainId,
+    isValidRecipient,
+    errors.amount,
+    payoutFeeShortfall,
+    command,
+    commandDrafts,
+    restoredSendIntent,
+    saveCommandDraft,
+    routeEligibility.blocked
+  ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
@@ -743,9 +1071,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   const onRouteChange = useCallback(
     (route: BridgeRoute) => {
+      routeMovedOffEpochRef.current = false;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
+      saveCommandDraft({ bridgeRoute: route });
     },
-    [onAction]
+    [onAction, saveCommandDraft]
   );
 
   // Chain-aware address validation: 0x → Ethereum (hex + EIP-55), otherwise a
@@ -758,39 +1088,39 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // After that, the same checks apply to the RESOLVED address. The state for a
   // different input means that the lookup for this input did not start yet.
   const recipientErrorKey = useCallback(
-    (raw: string): string | null => {
+    (raw: string): { key: string; stage?: RecipientValidationStage } | null => {
       const trimmed = raw.trim();
       if (!trimmed) return null;
       if (detectAddressChain(trimmed) === 'ethereum') {
-        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+        return isValidEthereumAddress(trimmed) ? null : { key: 'invalidEthereumAddress' };
       }
       let address = trimmed;
       if (isMidenNameSupported() && looksLikeMidenName(trimmed)) {
         const status = nameResolution.input === trimmed ? nameResolution.status : 'resolving';
         switch (status) {
           case 'resolved':
-            if (!nameResolution.address) return 'midenNameNotFound';
+            if (!nameResolution.address) return { key: 'midenNameNotFound' };
             address = nameResolution.address;
             break;
           case 'not-found':
-            return 'midenNameNotFound';
+            return { key: 'midenNameNotFound' };
           case 'error':
-            return 'midenNameResolveFailed';
+            return { key: 'midenNameResolveFailed' };
           default:
-            return 'midenNameResolving';
+            return { key: 'midenNameResolving' };
         }
       }
       // Self-send guard: a P2IDE to yourself consumes through the kernel's
       // target branch, so recall semantics are meaningless and auto-consume
       // would claim it right back. Block it at entry, before the decode check —
       // it's the more specific message for the account's own address.
-      if (sameWalletAccountId(address, publicKey)) return 'cannotSendToSelf';
+      if (sameWalletAccountId(address, publicKey)) return { key: 'cannotSendToSelf' };
       try {
         isValidMidenAddress(address);
       } catch (error) {
         return error instanceof MidenAddressError && error.reason === 'wrong-network'
-          ? 'midenAddressWrongNetwork'
-          : 'invalidMidenAccountId';
+          ? { key: 'midenAddressWrongNetwork' }
+          : { key: 'invalidMidenAccountId', stage: snapshotRecipientValidation(error) ?? 'validator_exception' };
       }
       return null;
     },
@@ -810,9 +1140,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const applyRecipientValidation = useCallback(
     (address: string) => {
       cancelPendingValidation();
-      const errorKey = recipientErrorKey(address);
-      if (errorKey) {
-        setError('recipientAddress', { type: 'manual', message: errorKey });
+      const result = recipientErrorKey(address);
+      if (result) {
+        setError('recipientAddress', {
+          type: 'manual',
+          message: result.key,
+          types: result.stage ? { recipientValidationStage: result.stage } : {}
+        });
       } else {
         clearErrors('recipientAddress');
       }
@@ -905,6 +1239,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
+      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
       // Do not show an error in the middle of the entry: remove the one on
       // show, and validate RECIPIENT_VALIDATION_DEBOUNCE_MS after the last keystroke.
       cancelPendingValidation();
@@ -915,28 +1250,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
         applyRecipientValidationRef.current(address);
       }, RECIPIENT_VALIDATION_DEBOUNCE_MS);
     },
-    [onAction, cancelPendingValidation, clearErrors]
+    [onAction, saveCommandDraft, cancelPendingValidation, clearErrors]
   );
 
-  // Apply a scanned recipient address. Shared by the mobile native scanner and
-  // the extension webcam drawer so both go through the same validation — scanning
-  // your own receive QR is the easy way to self-send, and a QR from another
-  // network's wallet should surface the wrong-network message here.
-  const applyScannedAddress = useCallback(
+  const setRecipientAddress = useCallback(
     (address: string) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
       applyRecipientValidation(address);
+      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
     },
-    [onAction, applyRecipientValidation]
+    [onAction, applyRecipientValidation, saveCommandDraft]
   );
+
+  // Apply a scanned recipient address. Shared by the mobile native scanner and
+  // the extension webcam drawer so both go through the same validation — scanning
+  // your own receive QR is the easy way to self-send, and a QR from another
+  // network's wallet should surface the wrong-network message here.
+  const applyScannedAddress = useCallback((address: string) => setRecipientAddress(address), [setRecipientAddress]);
 
   // Surface a scan error (from either scan path) on the recipient field.
   const applyScanError = useCallback(
     (errorKey: string) => {
-      setError('recipientAddress', { type: 'manual', message: errorKey });
+      setError('recipientAddress', { type: 'manual', message: errorKey, types: {} });
     },
     [setError]
   );
@@ -986,8 +1324,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
+      saveCommandDraft({ recipientAddress: contact.id, bridgeNetwork: contact.network, bridgeRoute: 'epoch' });
     },
-    [onAction, applyRecipientValidation]
+    [onAction, applyRecipientValidation, saveCommandDraft]
   );
 
   // Opened from a contact's page (`/send?to=…&network=…`): start with that contact as the recipient.
@@ -1002,6 +1341,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     });
     if (network) setRecipientNetwork(network);
     applyRecipientValidation(preselectedRecipient);
+    saveCommandDraft({ recipientAddress: preselectedRecipient, bridgeNetwork: network });
     // Once per contact opened, not on every change of the callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselectedRecipient, preselectedNetwork]);
@@ -1011,27 +1351,27 @@ export const SendManager: React.FC<SendManagerProps> = ({
     (network: BridgeNetworkId) => {
       setRecipientNetwork(network);
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
+      saveCommandDraft({ bridgeNetwork: network });
     },
-    [onAction]
+    [onAction, saveCommandDraft]
   );
 
-  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
-  // link or draft carries one this network does not offer.
+  // Keep an offered destination the user chose. Select the effective network's default when there is none, or when a
+  // contact, link or draft carries one this network does not offer (Ethereum on mainnet, Arc Testnet or Sepolia on
+  // the test networks), else the first destination the document offers.
   useEffect(() => {
     if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+    const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
+    const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
+    if (next) onSelectNetwork(next.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
     (recipient: RecentRecipient) => {
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: recipient.address }
-      });
-      applyRecipientValidation(recipient.address);
+      setRecipientAddress(recipient.address);
     },
-    [onAction, applyRecipientValidation]
+    [setRecipientAddress]
   );
 
   const onAmountChange = useCallback(
@@ -1040,20 +1380,25 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { amount: amountString }
       });
+      saveCommandDraft({ amount: amountString });
 
-      const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
       } else if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
-      } else if (token && amount > spendableBalance) {
+      } else if (burnFeeUnmeasured) {
+        // A burn has no cap until its reserve is measured, so no keystroke may clear this.
+        setError('amount', { type: 'manual', message: burnFeeMessage });
+      } else if (token && amountExceedsTokenDecimals(amountString, token.decimals)) {
+        setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      } else if (token && typedAmountExceedsBalance(amountString, spendableBalance, token.decimals)) {
         // Between one base fee and the 30x reserve the whole native balance is held back,
         // so `Available` reads 0 and "amount must be less than balance" is true but useless:
         // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
-        // refuses only BELOW one base fee, and that asymmetry is deliberate — so name the
-        // reserve here rather than widen the refusal.
+        // refuses only BELOW one base fee. Name the reserve
+        // here rather than widen the refusal.
         const reserveHoldsWholeBalance = spendableBalance <= 0 && (token?.balance ?? 0) > 0;
         setError('amount', {
           type: 'manual',
@@ -1065,11 +1410,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
     },
     [
       onAction,
+      saveCommandDraft,
       token,
       setError,
       clearErrors,
       // The fee-reserved cap, not the raw balance (see `spendableBalance`).
       spendableBalance,
+      burnFeeUnmeasured,
+      burnFeeMessage,
       // These feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
@@ -1088,119 +1436,99 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  const renderStep = useCallback(
-    (route: Route) => {
-      switch (route.name) {
-        case SendFlowStep.SelectRecipient:
-          return (
-            <SelectRecipient
-              networks={offeredNetworks}
-              address={recipientAddress || ''}
-              resolvedAddress={effectiveRecipientAddress}
-              isValidAddress={isValidRecipient}
-              error={errors.recipientAddress?.message?.toString()}
-              chain={chain}
-              network={displayedNetwork}
-              recipientName={recipientName}
-              recents={recents}
-              canAddContact={canAddContact}
-              onAddressChange={onAddressChange}
-              onAddressBook={() => setShowContactsDrawer(true)}
-              onAddContact={() => setShowAddContactDrawer(true)}
-              onSelectRecent={onSelectRecent}
-              onSelectNetwork={onSelectNetwork}
-              onScan={isScanAvailable() ? onScan : undefined}
-              onPaste={isMobile() ? onPaste : undefined}
-              onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
-            />
-          );
-        case SendFlowStep.SelectAmount:
-          return (
-            <SendAmount
-              token={spendableToken}
-              amount={amount || ''}
-              isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
-              error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
-              errorValues={errors.amount ? undefined : payoutFeeShortfall}
-              recipientAddress={effectiveRecipientAddress || ''}
-              recipientName={recipientName}
-              network={displayedNetwork}
-              onAmountChange={onAmountChange}
-              onSelectToken={() => setShowTokenDrawer(true)}
-              onReceive={onReceive}
-              onBack={onStepBack}
-              onConfirm={onConfirmAmount}
-            />
-          );
-        case SendFlowStep.Route:
-          return (
-            <SendRoute
-              usdcxAvailable={usdcxAvailable}
-              usdcxPayout={usdcxPayout}
-              faucetId={spendableToken?.id ?? ''}
-              route={bridgeRoute ?? 'epoch'}
-              onRouteChange={onRouteChange}
-              fastFeeUsd={fastFeeUsd}
-              fastQuoteLoading={epochQuote.loading}
-              onBack={onStepBack}
-              onConfirm={goToReview}
-            />
-          );
-        default:
-          return <></>;
-      }
-    },
-    [
-      // Rendered as the Amount step's quoted balance. Omitted, the step keeps the
-      // first-render cap -- the full balance, before the fee resolved. `token` itself
-      // is no longer a dependency: it reaches the render only through this value.
-      spendableToken,
-      recipientAddress,
-      isValidRecipient,
-      recents,
-      canAddContact,
-      onSelectRecent,
-      onPaste,
-      errors.recipientAddress,
-      errors.amount,
-      payoutFeeShortfall,
-      onAddressChange,
-      onScan,
-      amount,
-      onAmountChange,
-      goToStep,
-      onConfirmAmount,
-      onStepBack,
-      onSelectNetwork,
-      onReceive,
-      chain,
-      displayedNetwork,
-      recipientName,
-      effectiveRecipientAddress,
-      offeredNetworks,
-      bridgeRoute,
-      usdcxAvailable,
-      usdcxPayout,
-      onRouteChange,
-      fastFeeUsd,
-      epochQuote.loading,
-      goToReview
-    ]
-  );
+  const recipientProps: SelectRecipientProps = {
+    networks: offeredNetworks,
+    address: recipientAddress || '',
+    resolvedAddress: effectiveRecipientAddress,
+    isValidAddress: isValidRecipient,
+    error: errors.recipientAddress?.message?.toString(),
+    errorDiagnostics: validateUiEvidence(errors.recipientAddress?.message, 'inline', {
+      kind: 'recipient_validation',
+      recipientValidationStage: errors.recipientAddress?.types?.recipientValidationStage
+    }),
+    chain,
+    network: displayedNetwork,
+    recipientName,
+    recents,
+    canAddContact,
+    onAddressChange,
+    onAddressBook: () => setShowContactsDrawer(true),
+    onAddContact: () => setShowAddContactDrawer(true),
+    onSelectRecent,
+    onSelectNetwork,
+    onScan: isScanAvailable() ? onScan : undefined,
+    onPaste: isMobile() ? onPaste : undefined,
+    onConfirm: () => goToStep(SendFlowStep.SelectAmount)
+  };
+  const amountProps: SendAmountProps = {
+    token: spendableToken,
+    amount: amount || '',
+    isValidAmount: !errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount),
+    error: errors.amount?.message?.toString() ?? (payoutFeeShortfall ? 'usdcxSendMoreThanPayoutFee' : undefined),
+    errorValues: errors.amount ? undefined : payoutFeeShortfall,
+    errorDiagnostics: validateUiEvidence(errors.amount?.message, 'field', {
+      kind: 'burn_fee',
+      burnFeeFailure: burnFee.failure
+    }),
+    recipientAddress: effectiveRecipientAddress || '',
+    recipientName,
+    network: displayedNetwork,
+    maxDisabled: burnFeeUnmeasured,
+    tokenHeld,
+    onAmountChange,
+    onSelectToken: () => setShowTokenDrawer(true),
+    tokenAnchorRef: command ? tokenAnchorRef : undefined,
+    onReceive,
+    onBack: onStepBack,
+    onConfirm: onConfirmAmount
+  };
+  const routeProps: SendRouteProps = {
+    eligibility: routeEligibility,
+    usdcxAvailable,
+    usdcxPayout,
+    route: bridgeRoute ?? 'epoch',
+    onRouteChange,
+    fastFeeUsd,
+    fastQuoteLoading: epochQuote.loading,
+    onBack: onStepBack,
+    onConfirm: goToReview
+  };
 
-  return (
-    // The shared home-group pane box. SendManager is rendered inside TabLayout >
-    // HomeSwipeContainer and inherits its size from that chain: hardcoded heights
-    // (h-[600px]/h-[640px]) overflow the parent, which loses ~50px to the top action bar, and
-    // clip the bottom CTA.
-    <HomeGroupPaneRoot testId="send-flow">
-      <Navigator renderRoute={renderStep} />
+  const renderStep = (route: Route) => {
+    switch (route.name) {
+      case SendFlowStep.SelectRecipient:
+        return <SelectRecipient {...recipientProps} />;
+      case SendFlowStep.SelectAmount:
+        return <SendAmount {...amountProps} />;
+      case SendFlowStep.Route:
+        return <SendRoute {...routeProps} />;
+      default:
+        return <></>;
+    }
+  };
+
+  const content = (
+    <>
+      {command ? (
+        <CommandSendComposer
+          recipient={recipientProps}
+          onRecipientChange={setRecipientAddress}
+          amount={amountProps}
+          onReview={goToReview}
+          routeBlocked={isBridge && routeEligibility.blocked}
+          route={isBridge ? <SendRoute {...routeProps} embedded /> : null}
+        />
+      ) : (
+        <Navigator renderRoute={renderStep} />
+      )}
 
       <SelectTokenDrawer
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
+        anchorRef={command ? tokenAnchorRef : undefined}
         onSelect={onSelectToken}
         usdcxOnly={usdcxOnly}
+        destinationChainId={destinationChainId}
       />
 
       <AccountsListDrawer
@@ -1226,7 +1554,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
         onDetected={applyScannedAddress}
         onError={applyScanError}
       />
-    </HomeGroupPaneRoot>
+    </>
+  );
+  // Compact owns the home pane frame; Command's workbench already supplies its only frame.
+  return command ? (
+    <div data-testid="send-flow">{content}</div>
+  ) : (
+    <HomeGroupPaneRoot testId="send-flow">{content}</HomeGroupPaneRoot>
   );
 };
 
@@ -1235,7 +1569,8 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // One-shot: a draft exists only when the user backed out of /send/review.
   // Restore their values and reopen on the Amount step; the token restores
   // through the preselect effect via its id.
-  const [draft] = useState(consumeSendDraft);
+  const commandDrafts = useOptionalCommandDrafts();
+  const [draft] = useState(() => (commandDrafts ? (commandDrafts.readDraft('send') ?? null) : consumeSendDraft()));
   const params = new URLSearchParams(search);
   const preselectedTokenId = draft?.tokenId ?? params.get('tokenId');
   // A restored draft already carries its recipient.

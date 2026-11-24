@@ -1,7 +1,7 @@
-import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
+import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
-import type { GuardianOption } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
 /**
@@ -24,11 +24,10 @@ export function useCurrentGuardianEndpoint(): { endpoint: string } {
 // success, history and settings all named it "OpenZeppelin" instead of the URL
 // the user typed. An endpoint that isn't this network's built-in is a custom
 // guardian and displays as its host (guardianEndpointDisplayName's fallback).
-export function guardianOptionForEndpoint(endpoint: string): GuardianOption | undefined {
-  return GUARDIAN_OPTIONS.find(o => {
-    const e = o.endpoint.get(getEffectiveNetworkName());
-    return e !== undefined && sameGuardianEndpoint(e, endpoint);
-  });
+// The network's operators are the config document's list, else the bundled one
+// (`getNetworkGuardians`), so an operator a document removed displays as its host too.
+export function guardianOptionForEndpoint(endpoint: string): ResolvedGuardianOption | undefined {
+  return getNetworkGuardians(getEffectiveNetworkName()).find(o => sameGuardianEndpoint(o.endpoint, endpoint));
 }
 
 // "https://guardian.miden.io/foo" -> "guardian.miden.io"; falls back to the raw

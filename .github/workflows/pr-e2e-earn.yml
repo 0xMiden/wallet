@@ -1,8 +1,6 @@
 name: Earn E2E (Chrome)
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 concurrency:
   group: earn-e2e-${{ github.ref }}
@@ -12,7 +10,7 @@ permissions:
   # The linked-PR injections list a dispatched branch's open pull request and read its description.
   pull-requests: read
 jobs:
-  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # Heavy job runs on workflow_dispatch (Release E2E's nightly on main), not on pull_request.
   # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
   # report green when the suite is skipped.
   earn-e2e:
@@ -50,18 +48,18 @@ jobs:
       MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       # Pinned exact (NOT @stable): a required gate must not drift with upstream
       # rustc -- a newer stable can reject the pinned older CLI crate and go red
       # on unrelated PRs. Bump this deliberately (and the cache key below).
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
       # Foundry provides `anvil` -- the local EVM node the earn spec boots for the
       # deposit's `getForcedWithdrawalStatus` read. AnvilInstance resolves the
       # binary from PATH / ~/.foundry/bin.
       - name: Install Foundry (anvil)
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
@@ -83,7 +81,7 @@ jobs:
           fi
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/bin
@@ -148,6 +146,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build
       - name: Install xvfb
@@ -192,10 +193,10 @@ jobs:
         if: failure()
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian logs --no-color | tail -400
-      - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        # Keep the screenshot filmstrip on dispatched runs (Release E2E's on main is the record);
         # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        if: ${{ github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: earn-e2e-report
           path: test-results/

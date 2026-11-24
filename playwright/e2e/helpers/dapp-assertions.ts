@@ -8,7 +8,13 @@ import {
   type VaultReading
 } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
-import { CellDeadlineExceeded, deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
+import {
+  CellDeadlineExceeded,
+  deadlineIn,
+  InfrastructureFault,
+  withFailureEvidence,
+  type CellContext
+} from './dapp-cells';
 import {
   canonicalAddress,
   isForeignConsume,
@@ -17,6 +23,7 @@ import {
   syncedSince,
   type NonCurrentRead
 } from './dapp-gates';
+import pinned from './dapp-pinned.json';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -27,7 +34,7 @@ import {
 } from './history';
 import { callDapp, ensureUnlocked, pendingNotes, selectAccountIfNeeded, unwrap, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
-import type { NoteTypeName, OutputNoteView } from '../test-dapp/protocol';
+import type { NoteTypeName, Outcome, OutputNoteView } from '../test-dapp/protocol';
 
 /**
  * The spec's assertion model (section 5): every write is asserted from the dApp's, the wallet's and the chain's side,
@@ -47,6 +54,15 @@ export interface WriteSide {
   nativeFaucetId: string;
   /** Who may send this account a note during the journey (`Journey.senders`); anyone else is a third party. */
   journeySenders(): readonly string[];
+  /**
+   * Asks for a write's result from the page that made it, when that is not `dapp` (the React page, spec section 4).
+   * The wallet answers waitForTransaction only to the origin that created the transaction, so `dapp` asking for
+   * another page's transaction would get NOT_GRANTED. Chain reads still go through `dapp`.
+   */
+  waitForTransaction?(
+    txId: string,
+    ctx: CellContext
+  ): Promise<Outcome<{ txHash: string; outputNotes: OutputNoteView[] }>>;
 }
 
 /** What a write is measured against, captured after the cell's quiesce and before the request. */
@@ -266,12 +282,13 @@ export async function expectWritesToTheEnd(
   for (const write of writes) {
     // 1. The dApp's view, right after approval, as a real dApp asks for it. A wait that outlives the cell still
     // records where the row stopped, so a known-bug signature can match it.
-    const waited = await callDapp(side.dapp, 'waitForTransaction', { txId: write.txId }, ctx.deadline).catch(
-      async (error: unknown) => {
-        await recordRow(side.wallet.page, write.txId, ctx);
-        throw error;
-      }
-    );
+    const waited = await (
+      side.waitForTransaction?.(write.txId, ctx) ??
+      callDapp(side.dapp, 'waitForTransaction', { txId: write.txId }, ctx.deadline)
+    ).catch(async (error: unknown) => {
+      await recordRow(side.wallet.page, write.txId, ctx);
+      throw error;
+    });
     const row = await recordRow(side.wallet.page, write.txId, ctx);
     const value = unwrap(waited, `waitForTransaction(${write.txId})`, ctx);
     expect(value.txHash, 'txHash').toMatch(/^0x[0-9a-f]{64}$/);
@@ -463,7 +480,7 @@ async function unlessAThirdPartyMovedIt(
 /**
  * M4-reads: a read served after its popup a vault other than its account's own, captured at `since`. A move by a third
  * party's note on that account explains it (`thirdPartyMoveFault`, the read making no row), unless the vault served is
- * the other account's: a leak stays the wallet's. Anything else is left to K9's per-read rule.
+ * the other account's: a leak stays the wallet's. Anything else is left to the per-read rule.
  */
 export async function unlessAThirdPartyMovedARead(
   owner: VaultOwner,
@@ -488,6 +505,21 @@ export const refusal = (name: string, message: string | RegExp, causeName?: stri
     ...(causeName === undefined ? {} : { causeName })
   })
 });
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The message of the refusal a custom request gets when the wallet cannot simulate it. The approval needs a
+ * simulation that succeeds, so the wallet refuses such a request before any prompt (`CustomTransactionNotSimulatedError`
+ * in dapp.ts). Only the start is pinned: the reason after it is the dry run's own failure text.
+ */
+export const NOT_SIMULATED_REFUSAL = new RegExp(
+  `^NOT_GRANTED: ${escapeRegExp(pinned.notSimulatedRefusal.text)} ${escapeRegExp(pinned.notSimulatedRefusal.reasonPrefix)}`
+);
+
+/** True when a not-simulated refusal names `error` as its reason. The reason is the dry run's failure text. */
+export const notSimulatedFor = (message: string, error: string): boolean =>
+  new RegExp(`${NOT_SIMULATED_REFUSAL.source}.*${escapeRegExp(error)}`).test(message);
 
 export async function expectNoNewRows(side: WriteSide, baseline: Baseline): Promise<void> {
   const added = (await readTransactionRows(side.wallet.page)).filter(
@@ -567,25 +599,51 @@ export async function expectFailedAfterEnqueue(
 }
 
 /**
- * Spec section 5, "Previews". Soft: a declared view is recorded (K4 on Guardian) and the cell goes on to approve, so
- * one run reports both K4 and K3.
+ * Spec section 5, "Previews". The user approves only the simulated view: the popup shows a spinner until it has the
+ * view, never a declared view, and keeps Approve disabled without it. So a popup that shows `tx-simulation-failed`
+ * instead fails the cell, because nothing can approve it. `amount: null` is a request that moves nothing but the fee
+ * (X8c); `storageChanged`, when set, is the value the "Storage changed" row must show, and any verified view must show
+ * the row.
  */
 export async function expectVerifiedPreview(
   popup: Page,
-  expected: { amount: RegExp; outputNotes: number; timeoutMs?: number },
+  expected: {
+    amount: RegExp | null;
+    heldNotesSpent?: number;
+    outputNotes: number;
+    storageChanged?: boolean;
+    timeoutMs?: number;
+  },
   ctx: CellContext
 ): Promise<void> {
   const verified = popup.locator('[data-testid="tx-asset-view"][data-mode="verified"]');
   const failed = popup.getByTestId('tx-simulation-failed');
-  // The declared view renders first while the simulation runs; wait for an outcome, not for the first paint.
+  // A spinner shows while the sheet asks for the simulated view; wait for an outcome, not for the first paint.
   await expect(verified.or(failed)).toBeVisible({ timeout: expected.timeoutMs ?? 60_000 });
   if ((await verified.count()) === 0) {
-    ctx.softFail('preview-verified', `declared view, simulation failed shown: ${await failed.isVisible()}`, {
-      previewSimulationFailed: await failed.isVisible()
-    });
-    return;
+    const previewSimulationFailed = await failed.isVisible();
+    ctx.evidence.previewSimulationFailed = previewSimulationFailed;
+    throw withFailureEvidence(
+      new Error(
+        `no simulated view, so the approval stays blocked; simulation failed shown: ${previewSimulationFailed}`
+      ),
+      { previewSimulationFailed }
+    );
   }
-  await expect(verified.locator('[data-verified="true"]').filter({ hasText: expected.amount })).toHaveCount(1);
+  // The heading appears once a row's token metadata resolves (or the view names a fee); the count retries until then.
+  const moves = expected.amount === null ? 0 : 1;
+  await expect(verified.getByText('Asset changes', { exact: true })).toHaveCount(moves);
+  const rows = verified.locator('[data-verified="true"]');
+  await expect(expected.amount === null ? rows : rows.filter({ hasText: expected.amount })).toHaveCount(moves);
   await expect(popup.getByTestId('tx-output-notes-created')).toHaveText(String(expected.outputNotes));
+  // Already-held notes the request spends: none unless the cell names a count, so no held-note line by default.
+  const held = expected.heldNotesSpent ?? 0;
+  const heldLine = verified.locator('[data-testid="tx-held-notes-spent"]');
+  const heldShown = held === 0 ? heldLine : heldLine.filter({ hasText: new RegExp(`^${held}$`) });
+  await expect(heldShown).toHaveCount(held === 0 ? 0 : 1);
+  const storage = popup.getByTestId('tx-storage-changed');
+  const changed = expected.storageChanged;
+  await expect(storage).toHaveAttribute('data-changed', changed === undefined ? /^(true|false)$/ : String(changed));
+  await expect(storage).toHaveText(changed === undefined ? /^(Yes|No)$/ : changed ? 'Yes' : 'No');
   await expect(failed).toHaveCount(0);
 }

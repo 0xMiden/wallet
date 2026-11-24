@@ -30,6 +30,17 @@ describe('FlowFooter', () => {
     const footer = screen.getByTestId('cta').parentElement!;
     expect(footer).toHaveClass('pt-2');
     expect(footer).not.toHaveClass('pt-3');
-    expect(footer.className).toMatch(/pb-\[max\(1rem,/);
+    expect(footer.className).toMatch(/pb-\[calc\(max\(1rem,/);
+  });
+  it('retains control safe-area clearance when opting out of navbar room', () => {
+    render(
+      <FlowFooter navbarCushion={false}>
+        <button data-testid="cta" />
+      </FlowFooter>
+    );
+    const footer = screen.getByTestId('cta').parentElement!;
+    expect(footer).not.toHaveAttribute('data-navbar-cushion');
+    expect(footer.className).toContain('--wallet-control-safe-bottom,0px');
+    expect(footer.className).not.toContain('--navbar-cushion');
   });
 });

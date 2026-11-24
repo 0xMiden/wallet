@@ -1,7 +1,7 @@
 /**
  * Bottom padding for a flow page's pinned CTA: the room the tab bar takes over the page. main.css declares
  * it on TabLayout's root (`--navbar-cushion`), so only a page inside the layout that draws the bar reserves
- * it; anywhere else (a slide page beside the covered tab layer, a route with no tab bar) it is the flat
+ * it; the remaining iOS control safe area is added separately. Outside that layout the cushion is the flat
  * 1rem. main.css also collapses it to 1rem whenever the bar is down (`body[data-hide-navbar]`).
  *
  * On iOS the keyboard term is the mechanism: `--keyboard-height` and the navbar flag are both
@@ -10,4 +10,4 @@
  * Android the native resize comes first, so the CTA takes two slides.
  */
 export const stepFooterCushionClass = (): string =>
-  'pb-[max(1rem,calc(var(--navbar-cushion,1rem)-var(--keyboard-height,0px)))]';
+  'pb-[calc(max(1rem,calc(var(--navbar-cushion,1rem)-var(--keyboard-height,0px)))+var(--wallet-control-safe-bottom,0px))]';

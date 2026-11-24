@@ -1,13 +1,17 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { spendsDigest, type SpendingLimitAssessment } from 'lib/miden/spending-limits/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
-import { formatUsdMicroAmount, SpendingLimitChallenge } from './SpendingLimitChallenge';
+import { SpendingLimitChallenge } from './SpendingLimitChallenge';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } })
+  useTranslation: () => ({
+    t: (key: string) => (key === 'smthWentWrong' ? 'Visible smthWentWrong' : key),
+    i18n: { language: 'en' }
+  })
 }));
 
 // The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
@@ -29,18 +33,38 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: any) => <h2>{children}</h2>
 }));
 
+let mockRealAuthentication = false;
+const mockGetProtectors = jest.fn();
+const mockVerify = jest.fn();
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: unknown) => unknown) =>
+    selector({ getStrictAuthenticationProtectors: mockGetProtectors, verifyStrictActionAuthentication: mockVerify })
+}));
+jest.mock('lib/platform', () => ({
+  getPlatform: () => 'extension',
+  isMobile: () => false,
+  isDesktop: () => false,
+  isExtension: () => true
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('./StrictActionAuthentication', () => ({
-  StrictActionAuthentication: ({ onResult, reason }: any) => (
-    <div data-testid="strict-authentication">
-      <span>{reason}</span>
-      <button type="button" onClick={() => onResult('authenticated')}>
-        authenticate
-      </button>
-      <button type="button" onClick={() => onResult('cancelled')}>
-        cancel-authentication
-      </button>
-    </div>
-  )
+  StrictActionAuthentication: ({ onResult, reason }: any) => {
+    if (mockRealAuthentication) {
+      const RealAuthentication = jest.requireActual('./StrictActionAuthentication').StrictActionAuthentication;
+      return <RealAuthentication reason={reason} onResult={onResult} />;
+    }
+    return (
+      <div data-testid="strict-authentication">
+        <span>{reason}</span>
+        <button type="button" onClick={() => onResult('authenticated')}>
+          authenticate
+        </button>
+        <button type="button" onClick={() => onResult('cancelled')}>
+          cancel-authentication
+        </button>
+      </div>
+    );
+  }
 }));
 
 const breachAssessment = (): SpendingLimitAssessment => ({
@@ -214,25 +238,83 @@ describe('SpendingLimitChallenge', () => {
   });
 });
 
-describe('formatUsdMicroAmount', () => {
-  it.each([
-    [0n, '$0.00'],
-    // A sub-cent breach must never render as $0.00 - that would show a limit and a total as equal
-    // when the account is actually over. This is the exact case the charge rounds up for too.
-    [1n, '$0.01'],
-    [10_000n, '$0.01'],
-    [1_000_000n, '$1.00'],
-    [1_500_000n, '$1.50'],
-    [1_234_567n, '$1.24'],
-    // Load-bearing case: 123.456789 rounds UP to $123.46 (third decimal is 6, so the cent below is
-    // never enough) - pins rounding, not truncation.
-    [123_456_789n, '$123.46']
-  ])('formats %s as %s', (value, expected) => {
-    expect(formatUsdMicroAmount(value)).toBe(expected);
+describe('spending-limit amount display', () => {
+  it('rounds a one-micro-dollar overage up to a cent and keeps whole cents unchanged', () => {
+    const assessment = breachAssessment();
+    assessment.usdAmount = 1_000_001n;
+    assessment.breach = {
+      spent: 0n,
+      proposedTotal: 1_000_001n,
+      limit: 1_000_000n,
+      overBy: 1n,
+      resetAt: 200
+    };
+
+    render(<SpendingLimitChallenge assessment={assessment} onResult={jest.fn()} />);
+
+    expect(screen.getByText('$1.01')).toBeInTheDocument();
+    expect(screen.getByText('$1.00')).toBeInTheDocument();
+    expect(screen.getByText('$0.01')).toBeInTheDocument();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('spending-limit presentation telemetry', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    mockRealAuthentication = true;
+    mockGetProtectors.mockResolvedValue({ hardware: false, password: true });
+    mockVerify.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    mockRealAuthentication = false;
+    jest.useRealTimers();
   });
 
-  it('throws RangeError for negative values', () => {
-    expect(() => formatUsdMicroAmount(-1n)).toThrow(RangeError);
-    expect(() => formatUsdMicroAmount(-1_000_000n)).toThrow(RangeError);
+  it.each(['breach', 'unpriced'])('does not report %s caution, reason, or authentication success', async context => {
+    const onResult = jest.fn();
+    render(
+      context === 'breach' ? (
+        <SpendingLimitChallenge assessment={breachAssessment()} spends={breachSpends} onResult={onResult} />
+      ) : (
+        <SpendingLimitChallenge unpriced={unpricedContext()} onResult={onResult} />
+      )
+    );
+    await act(async () => {});
+    expect(screen.getByText('spendingLimitTransactionAuthenticationReason')).toBeInTheDocument();
+    expect(screen.getByText(context === 'breach' ? '$10.00' : 'spendingLimitPriceUnavailable')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1000));
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'private password' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+    });
+    expect(onResult).toHaveBeenCalledTimes(1);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('reports only the real authentication failure inside the spending-limit challenge', async () => {
+    mockVerify.mockRejectedValueOnce(new Error('private verification failure'));
+    render(<SpendingLimitChallenge unpriced={unpricedContext()} onResult={jest.fn()} />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText('password'), { target: { value: 'wrong private password' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Visible smthWentWrong');
+    expect(screen.getByText('spendingLimitPriceUnavailable')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['smthWentWrong', 'inline']]);
   });
 });

@@ -102,6 +102,7 @@ describe('dapp-browser barrel — re-export identity', () => {
     ['useDappConfirmation', useDappConfirmationMod, 'useDappConfirmation'],
     // explore-catalog
     ['EXPLORE_FILTERS', exploreCatalog, 'EXPLORE_FILTERS'],
+    ['getExploreCategoryGroup', exploreCatalog, 'getExploreCategoryGroup'],
     ['getExploreCatalog', exploreCatalog, 'getExploreCatalog'],
     ['localizeExploreCatalog', exploreCatalog, 'localizeExploreCatalog'],
     ['resolveExploreSections', exploreCatalog, 'resolveExploreSections'],

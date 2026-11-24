@@ -78,7 +78,7 @@ cargo ndk \
   -t arm64-v8a \
   -t x86_64 \
   -o "$STAGING" \
-  build --release
+  build --release --locked
 cargo_status=$?
 set -e
 
@@ -101,7 +101,7 @@ for abi in arm64-v8a x86_64; do
   lib="$JNI_LIBS_DIR/$abi/libmiden_native_prover_jni.so"
   mkdir -p "$(dirname "$lib")"
   cp "$STAGING/$abi/libmiden_native_prover_jni.so" "$lib"
-  size_bytes=$(stat -f%z "$lib")
+  size_bytes=$(wc -c < "$lib")
   echo "  $abi → $((size_bytes / 1024 / 1024))MB ($size_bytes bytes)"
 done
 

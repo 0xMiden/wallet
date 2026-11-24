@@ -226,6 +226,7 @@ describe('variants', () => {
     ['xs', ['h-5', 'gap-1', 'px-2', 'text-badge', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
     ['sm', ['h-6', 'gap-1', 'px-2', 'text-badge'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
     ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
+    ['lg', ['h-10', 'gap-1.5', 'px-3.5', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
     ['tag', ['h-4.5', 'gap-1', 'px-1.5', 'text-tag'], ['-ml-0.5', 'h-3', 'w-3']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
     render(
@@ -275,6 +276,27 @@ it('becomes a polite live region when told it is live', () => {
   );
   expect(screen.getByTestId('pill')).toHaveAttribute('role', 'status');
   expect(screen.getByTestId('pill')).toHaveAttribute('aria-live', 'polite');
+});
+
+// The deposit status pill is a static span. A tappable pill is a button. Both copy `data-phase`.
+it('forwards data-phase on a static pill and on a button', () => {
+  const { rerender } = render(
+    <Pill data-testid="pill" data-phase="processing">
+      Processing
+    </Pill>
+  );
+  const span = screen.getByTestId('pill');
+  expect(span.tagName).toBe('SPAN');
+  expect(span).toHaveAttribute('data-phase', 'processing');
+
+  rerender(
+    <Pill data-testid="pill" data-phase="processing" onClick={jest.fn()}>
+      Processing
+    </Pill>
+  );
+  const button = screen.getByTestId('pill');
+  expect(button.tagName).toBe('BUTTON');
+  expect(button).toHaveAttribute('data-phase', 'processing');
 });
 
 // Only the static branch renders the live region, so a tappable pill can never be one: the props

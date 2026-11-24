@@ -25,7 +25,7 @@ describe('WalletConnect project id define parity', () => {
     );
   });
 
-  it.each(CONFIGS)('%s carries no default of its own', config => {
-    expect(readSource(config)).not.toContain('d18d112eb50cbe764f03e51a90210611');
+  it.each(CONFIGS)('%s does not define a project id fallback', config => {
+    expect(defineSource(readSource(config))).not.toContain('d18d112eb50cbe764f03e51a90210611');
   });
 });

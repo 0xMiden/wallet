@@ -7,14 +7,22 @@ import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
-import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { UsdAmount } from 'components/ui/TokenAmount';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel, MetricCard } from './components';
-import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
+import {
+  EarnAssetMark,
+  EarnSubjectSubtitle,
+  earnSubjectTitle,
+  EarnSummaryPanel,
+  MetricCard,
+  useEarnAssetFaucetId
+} from './components';
+import { formatApy, placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
+import { EarnLoading } from './EarnLoading';
+import { EarnPageLayout } from './EarnPageLayout';
 import { ChartDotProps, EarnPosition } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -24,7 +32,7 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const { summary, positions, isLoading, error, refetch } = useEarnPositions();
+  const { summary, positions, isLoading, isRefreshing, error, errorDiagnostics, refetch } = useEarnPositions();
   const found = useMemo(() => positions.find(item => item.id === positionId), [positions, positionId]);
   const position = useMemo(() => found ?? placeholderPosition(), [found]);
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error });
@@ -32,7 +40,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   return (
     // The shared pushed-page frame, so this page's header, section rhythm and pinned actions are
     // the vault page's.
-    <SubPageLayout
+    <EarnPageLayout
       data-testid="earn-position-detail-page"
       // Until the position is found the header names the route, never a placeholder position.
       title={found ? earnSubjectTitle(found) : t('earnPositionsTitle')}
@@ -56,7 +64,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
               variant={ButtonVariant.Primary}
               accent="earn"
               disabled={!position.id || position.stale || Number(position.withdrawable) <= 0}
-              onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
+              onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw`)}
               className="flex-1 max-w-none"
             />
           </>
@@ -65,10 +73,19 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
     >
       {/* A failed load never draws the placeholder position, or a $0 summary, as if it were real. */}
       {loadFailed && !found ? (
-        <EarnLoadError onRetry={refetch} className="mt-10" />
-      ) : pending ? null : (
+        <EarnLoadError
+          errorDiagnostics={errorDiagnostics}
+          isRetrying={isRefreshing}
+          onRetry={refetch}
+          className="mt-10"
+        />
+      ) : pending ? (
+        <EarnLoading />
+      ) : (
         <>
-          {loadFailed && <EarnLoadError onRetry={refetch} />}
+          {loadFailed && (
+            <EarnLoadError errorDiagnostics={errorDiagnostics} isRetrying={isRefreshing} onRetry={refetch} />
+          )}
           {/* As far under the divider as the vault page's caption and the Earn tab's. */}
           <EarnSummaryPanel
             summary={summary}
@@ -85,7 +102,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <PositionDetails position={position} />
         </>
       )}
-    </SubPageLayout>
+    </EarnPageLayout>
   );
 };
 
@@ -112,7 +129,9 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return <ChartValueTooltip value={`$${toAdaptiveFixed(point.value)}`} label={point.label} />;
+              return (
+                <ChartValueTooltip value={<UsdAmount amount={point.value} grouping={false} />} label={point.label} />
+              );
             }}
           />
           <Area
@@ -143,17 +162,20 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
 
 /** What the rest of the page is about: the position itself, under the account-wide summary, named
  *  as the header names it, the protocol over its asset and network beside the decorative mark. */
-const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => (
-  <div className="flex items-center gap-2">
-    <EarnAssetMark asset={position.asset} network={position.network} decorative />
-    <div className="min-w-0">
-      <h2 className="text-hero-name text-ink">{earnSubjectTitle(position)}</h2>
-      <p className="text-caption-heading text-muted">
-        <EarnSubjectSubtitle subject={position} />
-      </p>
+const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => {
+  const assetFaucetId = useEarnAssetFaucetId();
+  return (
+    <div className="flex items-center gap-2">
+      <EarnAssetMark asset={position.asset} network={position.network} faucetId={assetFaucetId} decorative />
+      <div className="min-w-0">
+        <h2 className="text-hero-name text-ink">{earnSubjectTitle(position)}</h2>
+        <p className="text-caption-heading text-muted">
+          <EarnSubjectSubtitle subject={position} />
+        </p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
@@ -162,13 +184,7 @@ const PositionStats: FC<{ position: EarnPosition }> = ({ position }) => {
     <div className="grid grid-cols-3 gap-2">
       <MetricCard
         label={t('earnMetricDeposited')}
-        value={
-          <AnimatedNumber
-            value={position.depositsUsd}
-            format={usdFigureFormatter(position.depositsUsd)}
-            placeholder={position.depositedAmount}
-          />
-        }
+        value={<UsdAmount amount={position.depositsUsd} placeholder={position.depositedAmount} animated />}
       />
       <MetricCard label={t('earnMetricTotalEarned')} value={position.rewards} valueClassName="text-positive-tint-ink" />
       <MetricCard
@@ -225,6 +241,8 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
         </span>
       )
     },
+    // A market with its own name (a Morpho market) says which of the protocol's markets holds the position.
+    ...(position.marketName ? [{ label: t('earnMarketLabel'), value: position.marketName }] : []),
     { label: t('network'), value: position.network },
     { label: t('position'), value: t('earnAssetOnNetwork', { asset: position.asset, network: position.network }) },
     { label: t('route'), value: position.route },

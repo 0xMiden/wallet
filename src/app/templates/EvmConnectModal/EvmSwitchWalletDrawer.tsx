@@ -59,6 +59,7 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
             <SectionHeader>{t('current')}</SectionHeader>
             <ListGroup>
               <ListRow
+                accent="receive"
                 title={name}
                 subtitle={truncateHash(address, 6, 4)}
                 avatar={
@@ -78,6 +79,7 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
 
           <ListGroup>
             <ListRow
+              accent="receive"
               title={t('connectAnotherWallet')}
               icon={<Icon name={IconName.Add} fill="currentColor" />}
               chevron

@@ -30,9 +30,6 @@
       "no-conditional-expect": 1,
       "no-long-bare-wait": 2
     },
-    "playwright/e2e/ios/tests/bridge-in-deposit-epoch.ios.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 1
-    },
     "playwright/e2e/ios/tests/guardian-send-consume.ios.spec.ts": {
       "no-unfalsifiable-balance-assertion": 4
     },

@@ -2,7 +2,13 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import {
+  CommandFlowBackProvider,
+  FlowPresentationProvider,
+  useCommandFlowBack
+} from 'components/flow/FlowPresentation';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+import { WorkbenchLayout } from 'components/flow/WorkbenchLayout';
 
 import { SubPageHeaderProvider, SubPageLayout, SubPageSection } from './SubPageLayout';
 
@@ -17,7 +23,54 @@ jest.mock('app/icons/v2', () => ({
 const body = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot="body"]')!;
 const footer = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-slot="footer"]');
 
+const CommandBack = ({ children }: { children: React.ReactNode }) => {
+  const back = useCommandFlowBack()?.activeBack;
+  return (
+    <WorkbenchLayout title="Earn" onBack={back} onMinimize={() => undefined}>
+      {children}
+    </WorkbenchLayout>
+  );
+};
+
 describe('SubPageLayout', () => {
+  it('routes the one visible Command header Back to the active Earn review and clears it on unmount', () => {
+    const reviewBack = jest.fn();
+    const { rerender } = render(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandBack>
+            <SubPageLayout title="Review withdrawal" onBack={reviewBack}>
+              Review
+            </SubPageLayout>
+          </CommandBack>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    expect(reviewBack).toHaveBeenCalledTimes(1);
+    rerender(
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandBack>
+            <SubPageLayout title="Other screen">Other</SubPageLayout>
+          </CommandBack>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    );
+    expect(screen.queryByRole('button', { name: 'back' })).not.toBeInTheDocument();
+  });
+  it('does not draw a duplicate page header inside a Command workbench', () => {
+    render(
+      <FlowPresentationProvider value="command">
+        <SubPageLayout title="Earn" footer={<button>Continue</button>}>
+          <p>Position</p>
+        </SubPageLayout>
+      </FlowPresentationProvider>
+    );
+    expect(screen.queryByRole('heading', { name: 'Earn' })).not.toBeInTheDocument();
+    expect(screen.getByText('Position')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
   it('renders the shared page header with the title and a back button that calls onBack', () => {
     const onBack = jest.fn();
     render(
@@ -33,6 +86,21 @@ describe('SubPageLayout', () => {
     expect(header.parentElement).toHaveClass('px-4');
     fireEvent.click(screen.getByTestId('page-back'));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves control clearance in a no-footer scroller without duplicating the footer floor', () => {
+    const { rerender } = render(
+      <SubPageLayout data-testid="page">
+        <button>Row</button>
+      </SubPageLayout>
+    );
+    expect(body(screen.getByTestId('page')).className).toContain('--wallet-control-safe-bottom,0px');
+    rerender(
+      <SubPageLayout data-testid="page" footer={<button>Continue</button>}>
+        <button>Row</button>
+      </SubPageLayout>
+    );
+    expect(body(screen.getByTestId('page')).className).not.toContain('--wallet-control-safe-bottom');
   });
 
   it('scrolls only the body, with the 16px gutter and 20px between sections', () => {
@@ -104,7 +172,7 @@ describe('SubPageLayout', () => {
     );
 
     const pinned = footer(screen.getByTestId('page'))!;
-    expect(pinned).toHaveClass('pb-4', 'pt-3');
+    expect(pinned).toHaveClass('pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]', 'pt-3');
     expect(pinned.className).not.toContain('var(--keyboard-height,0px)');
     expect(pinned).not.toHaveAttribute('data-navbar-cushion');
   });

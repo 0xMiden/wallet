@@ -171,7 +171,7 @@ describe('non-guardian register-name leaf', () => {
 
     expect(callOrder).toEqual(['guard', 'newTransaction']);
     expect(mockGuard).toHaveBeenCalledWith(expect.objectContaining({ id: row.id, type: 'register-name' }));
-    expect(mockNewTransaction).toHaveBeenCalledWith('acc-1', REQUEST_BYTES, true, signCallback);
+    expect(mockNewTransaction).toHaveBeenCalledWith('acc-1', REQUEST_BYTES, true, signCallback, undefined, undefined);
     expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
   });
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -10,18 +10,45 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { guardianOperatorCard } from './guardian-operator-card';
 
 /**
- * Who each listed operator is, in words: `about` is the sentence the guardian step shows under the
- * chosen operator's name, `kind` the short line on its card in this sheet. An operator missing here
- * falls back to its `operatedBy`.
+ * The bundled words for the operators the wallet ships with, by id: `about` is the sentence the guardian
+ * step shows under the chosen operator's name, `kind` the short line on its card in this sheet. The
+ * config document's own text for an operator comes first (`useGuardianOperatorText`).
  */
 const GUARDIAN_OPERATOR_COPY: Record<string, { aboutKey: string; kindKey: string }> = {
   'open-zeppelin': { aboutKey: 'guardianAboutOpenZeppelin', kindKey: 'guardianKindOpenZeppelin' },
   gateway: { aboutKey: 'guardianAboutGateway', kindKey: 'guardianKindGateway' },
   'lambda-class': { aboutKey: 'guardianAboutLambdaClass', kindKey: 'guardianKindLambdaClass' },
-  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' }
+  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' },
+  para: { aboutKey: 'guardianAboutPara', kindKey: 'guardianKindPara' }
 };
 
-export const guardianOperatorCopy = (id: string) => GUARDIAN_OPERATOR_COPY[id];
+export const guardianOperatorCopy = (id: string) =>
+  Object.prototype.hasOwnProperty.call(GUARDIAN_OPERATOR_COPY, id) ? GUARDIAN_OPERATOR_COPY[id] : undefined;
+
+export interface GuardianOperatorText {
+  about: string;
+  kind: string;
+}
+
+/**
+ * Who an operator is, in words. Each line is the config document's English text for the operator, else
+ * the bundled text for its id in the user's language, else its `operatedBy`.
+ */
+export function useGuardianOperatorText(): (option: ResolvedGuardianOption) => GuardianOperatorText {
+  const { t } = useTranslation();
+  return useCallback(
+    (option: ResolvedGuardianOption) => {
+      const bundled = guardianOperatorCopy(option.id);
+      const line = (text: string | undefined, bundledKey: string | undefined): string => {
+        if (text) return text;
+        if (bundledKey) return t(bundledKey);
+        return option.operatedBy;
+      };
+      return { about: line(option.about, bundled?.aboutKey), kind: line(option.kind, bundled?.kindKey) };
+    },
+    [t]
+  );
+}
 
 export interface GuardianProviderSheetProps {
   open: boolean;
@@ -56,25 +83,31 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
   onPick
 }) => {
   const { t } = useTranslation();
+  const operatorText = useGuardianOperatorText();
 
   const pick = (id: string) => {
     onPick(id);
     onOpenChange(false);
   };
 
-  const items: ChoiceCardItem[] = options.map(option => {
-    const copy = guardianOperatorCopy(option.id);
+  // The fastest operator, the one the step starts with, leads the list; the rest keep the network's order.
+  // `fastestId` never moves once set, so the cards do not reshuffle while the sheet is open.
+  const ordered = fastestId
+    ? [...options.filter(option => option.id === fastestId), ...options.filter(option => option.id !== fastestId)]
+    : options;
+
+  const items: ChoiceCardItem[] = ordered.map(option => {
     return guardianOperatorCard({
       option,
       // The region is kept on one line: a break inside "EU-NORTH" reads as two words.
       subtitle: (
         <>
-          {copy ? t(copy.kindKey) : option.operatedBy}
+          {operatorText(option).kind}
           {' · '}
           <span className="whitespace-nowrap">{option.location}</span>
         </>
       ),
-      tag: option.id === fastestId ? t('guardianFastest') : undefined,
+      edgeTag: option.id === fastestId ? t('guardianFastest') : undefined,
       offline: verdicts[option.endpoint]?.status === 'offline'
     });
   });
@@ -88,18 +121,26 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
         <DrawerHeader>
           <DrawerTitle>{t('guardianProviderSheetTitle')}</DrawerTitle>
         </DrawerHeader>
-        <DrawerDescription>{t('guardianProviderSheetDescription')}</DrawerDescription>
+        <DrawerDescription className="text-body font-semibold face-heading">
+          {t('guardianProviderSheetDescription')}
+        </DrawerDescription>
 
-        <div className="no-scrollbar flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pt-2 pb-4">
+        {/* 20px on top: room for the Fastest pill, which sits on the first card's top edge. */}
+        <div className="no-scrollbar flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pt-5 pb-4">
           <ChoiceCardGroup
             items={items}
             value={value}
             onChange={pick}
             onReselect={pick}
             arrowKeys="focus"
+            // White cards inside a hairline edge; only the chosen one fills, so the pick stands out.
+            surface="outline"
             aria-label={t('guardianProviderSheetTitle')}
           />
-          <p className="text-center text-caption text-muted">{t('guardianProviderSheetFootnote')}</p>
+          {/* A pill on the action-bar grey (#f9f9f9) in the cards' hairline edge, Nunito semibold. */}
+          <p className="mx-auto w-fit rounded-full border border-hairline bg-action-bar px-3 py-1.5 text-center text-caption font-semibold text-muted face-heading">
+            {t('guardianProviderSheetFootnote')}
+          </p>
         </div>
       </DrawerContent>
     </Drawer>

@@ -16,11 +16,19 @@ import App from 'app/App';
 import { WindowType } from 'app/env';
 import { getDesktopIntercomAdapter } from 'lib/intercom/desktop-adapter';
 import { initTheme } from 'lib/settings/theme';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
+import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
 initTheme();
 
+let startupErrorReported = false;
+
 // Show error on screen for debugging
-function showError(message: string, error?: unknown) {
+function showError(id: UserErrorId, message: string, error?: unknown) {
+  if (!startupErrorReported) {
+    startupErrorReported = true;
+    reportUserVisibleError(id, 'startup');
+  }
   console.error('Desktop app error:', message, error);
   const container = document.getElementById('root');
   if (container) {
@@ -53,7 +61,7 @@ async function initDesktop() {
     // Render the app
     const container = document.getElementById('root');
     if (!container) {
-      showError('Root container not found');
+      showError('raw_startup_root_missing', 'Root container not found');
       return;
     }
 
@@ -61,12 +69,12 @@ async function initDesktop() {
     root.render(<App env={{ windowType: WindowType.FullPage }} />);
     console.log('Desktop app: UI rendered');
   } catch (error) {
-    showError('Failed to initialize', error);
+    showError('raw_startup_init_failed', 'Failed to initialize', error);
     throw error;
   }
 }
 
 // Start the desktop app
 initDesktop().catch(error => {
-  showError('Unhandled initialization error', error);
+  showError('raw_startup_init_failed', 'Unhandled initialization error', error);
 });

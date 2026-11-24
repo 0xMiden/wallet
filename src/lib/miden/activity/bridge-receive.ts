@@ -1,10 +1,34 @@
 import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
-import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
+import { fetchDeposits, isAgglayerDepositClaimed, isAgglayerDepositReady } from 'lib/agglayer/status';
+import { walletBridgeProvider } from 'lib/bridge/core/provider';
+import { configKey } from 'lib/bridge/core/routes';
+import {
+  assertBridgeOperationCurrent,
+  bridgeOperationOf,
+  claimBridgeSourceAttempt,
+  findAdmittedBridgeOperation,
+  hasBridgeOperation,
+  type BridgeOperationSnapshot
+} from 'lib/bridge/operation';
+import { matchesAgglayerReceiveDeposit } from 'lib/bridge/providers/agglayer/agglayer-status';
+import {
+  assertOwnedCctpArcReceipt,
+  cctpSourceStillCurrent,
+  fetchOwnedAttestedCctpMessage,
+  ownedCctpSourceProof,
+  recoverOwnedCctpSourceProof
+} from 'lib/bridge/providers/xreserve/cctp-status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import {
+  type BridgeOrphanCheck,
+  type BridgeReceiveFailureStep,
+  type BridgeSourceRoute
+} from 'lib/telemetry/bridge-receive-failure';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -14,14 +38,15 @@ import {
 } from 'lib/usdcx/attestation';
 import {
   fetchAttestedCctpMessage,
-  isCctpForwardFailed,
+  cctpAllowsManualExecution,
   revertedExecuteLeg,
   stalledExecuteLeg,
   USDCX_EXECUTE_STALL_SEC
 } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxSourceChains, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
-import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
+import { EvmTransactionRevertedError, readEvmReceiptOutcome } from 'lib/walletconnect/receipt';
 
 import {
   BRIDGE_DELIVERY_TIMED_OUT,
@@ -65,30 +90,84 @@ function firstString(source: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileAgglayerRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
+  const operation = bridgeOperationOf(row);
+  const originalStillBound = async () => {
+    if (!hasBridgeOperation(row)) return true;
+    if (
+      !operation ||
+      operation.sourceAttempt?.phase !== 'known' ||
+      typeof operation.sourceAttempt.hash !== 'string' ||
+      !isHash(operation.sourceAttempt.hash) ||
+      operation.sourceAttempt.hash !== inputs.evmTxHash
+    )
+      return false;
+    const original = await findAdmittedBridgeOperation(operation).catch(() => undefined);
+    const recorded = original && bridgeOperationOf(original);
+    return (
+      original?.id === row.id &&
+      recorded?.revision === operation.revision &&
+      configKey(recorded.walletScope) === configKey(operation.walletScope)
+    );
+  };
+  if (!(await originalStillBound())) return;
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
-      await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+      await updateBridgedReceivePhase(row.id, 'failed', {
+        error: INTERRUPTED_BEFORE_HASH,
+        failure: { step: 'submission_interrupted', orphanCheck }
+      });
     }
     return;
   }
 
   if (inputs.phase === 'submitting') {
+    // A row saved before its route was is from DEFAULT_CHAIN_ID.
+    const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+    const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
+    if (!chain || !isHash(inputs.evmTxHash)) {
+      console.warn('[bridge-receive] AggLayer receipt not readable', row.id);
+      return;
+    }
+    // Only a confirmed revert fails the row: a failed row leaves reconciliation for good, so a deposit that
+    // lands after an unreadable receipt would stay Failed. The delivery window bounds a dropped transaction.
+    let outcome: Awaited<ReturnType<typeof readEvmReceiptOutcome>> = 'pending';
     try {
-      await waitForSepoliaReceipt(inputs.evmTxHash as `0x${string}`);
-      await updateBridgedReceivePhase(row.id, 'delivering');
+      outcome = await readEvmReceiptOutcome(inputs.evmTxHash, chain);
     } catch (error) {
+      console.warn('[bridge-receive] AggLayer receipt read failed', row.id, error);
+    }
+    if (!(await originalStillBound())) return;
+    if (outcome === 'reverted') {
+      const revert = new EvmTransactionRevertedError(chain.name);
       await updateBridgedReceivePhase(row.id, 'failed', {
-        error: error instanceof Error ? error.message : String(error)
+        error: revert.message,
+        failure: { step: 'reconciler_receipt', cause: revert }
       });
       return;
     }
+    if (outcome === 'success') await updateBridgedReceivePhase(row.id, 'delivering');
   }
 
   try {
-    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId));
-    const deposit = deposits.find(candidate => sameHash(candidate.tx_hash, inputs.evmTxHash!));
-    if (deposit && isAgglayerDepositReady(deposit)) {
+    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId), undefined, inputs.agglayerRoute);
+    const deposit = deposits.find(
+      candidate =>
+        sameHash(candidate.tx_hash, inputs.evmTxHash!) &&
+        (!hasBridgeOperation(row) ||
+          (operation &&
+            inputs.agglayerRoute &&
+            matchesAgglayerReceiveDeposit(candidate, operation, inputs.agglayerRoute)))
+    );
+    if (
+      deposit &&
+      (isAgglayerDepositReady(deposit) || isAgglayerDepositClaimed(deposit)) &&
+      (await originalStillBound())
+    ) {
       await updateBridgedReceivePhase(row.id, 'ready');
     }
   } catch (error) {
@@ -98,11 +177,16 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   }
 }
 
-async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileEpochRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   if (!inputs.intentNonce) {
     if (inputs.phase === 'submitting') {
       await updateBridgedReceivePhase(row.id, 'failed', {
-        error: 'Bridge submission was interrupted before an intent was recorded.'
+        error: 'Bridge submission was interrupted before an intent was recorded.',
+        failure: { step: 'submission_interrupted', orphanCheck }
       });
     }
     return;
@@ -114,18 +198,22 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     sourceSymbol: inputs.sourceSymbol,
     intentNonce: inputs.intentNonce,
     evmTxHash: inputs.evmTxHash,
-    bridgeReceiveTxId: row.id
+    bridgeReceiveTxId: row.id,
+    epochAllocatorUrl: inputs.epochAllocatorUrl
   });
 
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
-    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`);
+    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`, inputs.epochAllocatorUrl);
     const results = await readEpochIntentStatus(sdk, inputs.sourceAddress, inputs.intentNonce);
     const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
     const midenLeg = results.find(result => result.chainId === MIDEN_DESTINATION_CHAIN_ID);
     if (midenLeg && midenLeg.status.toLowerCase() === 'failed') {
-      await updateBridgedReceivePhase(row.id, 'failed', { error: 'The Epoch bridge intent failed.' });
+      await updateBridgedReceivePhase(row.id, 'failed', {
+        error: 'The Epoch bridge intent failed.',
+        failure: { step: 'epoch_intent_failed' }
+      });
     }
   } catch (error) {
     console.warn('[bridge-receive] Epoch reconcile poll failed', row.id, error);
@@ -137,6 +225,13 @@ const USDCX_MISMATCH_ERRORS: Record<UsdcxAttestationMismatchField, string> = {
   remoteToken: 'Circle attested this deposit to a different token.',
   recipient: 'Circle attested this deposit to a different Miden account.',
   amount: 'Circle attested this deposit to a different amount.'
+};
+
+const USDCX_MISMATCH_STEPS: Record<UsdcxAttestationMismatchField, BridgeReceiveFailureStep> = {
+  remoteDomain: 'usdcx_mismatch_domain',
+  remoteToken: 'usdcx_mismatch_token',
+  recipient: 'usdcx_mismatch_recipient',
+  amount: 'usdcx_mismatch_amount'
 };
 
 const warnedUsdcxRows = new Set<string>();
@@ -182,7 +277,10 @@ async function matchUsdcxDeposit(
   if (txHash === undefined || !isHash(txHash)) return undefined;
   const expected = usdcxExpectationOf(row, inputs);
   if (expected === undefined) return undefined;
-  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), expected);
+  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), {
+    ...expected,
+    remoteDomain: inputs.usdcxMidenDomain
+  });
 }
 
 /**
@@ -191,13 +289,22 @@ async function matchUsdcxDeposit(
  * screen before the source-chain receipt settles the same way. The consume of the minted note then moves the row to
  * `received` (`takeUsdcxBridgeInInfo`).
  */
-async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+async function reconcileUsdcxRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
   if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
-    await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: INTERRUPTED_BEFORE_HASH,
+      failure: { step: 'submission_interrupted', orphanCheck, sourceRoute: recordedSourceRoute(inputs) }
+    });
     return;
   }
-  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
+  const source =
+    inputs.usdcxSource ??
+    (inputs.sourceChainId === undefined ? undefined : usdcxSourceChains().get(inputs.sourceChainId));
   try {
     if (source?.route === 'cctp-executor') {
       await reconcileUsdcxExecutorRow(row, inputs, source);
@@ -210,7 +317,10 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
         await updateBridgedReceivePhase(row.id, 'ready');
         return;
       case 'mismatch':
-        await updateBridgedReceivePhase(row.id, 'failed', { error: USDCX_MISMATCH_ERRORS[verdict.field] });
+        await updateBridgedReceivePhase(row.id, 'failed', {
+          error: USDCX_MISMATCH_ERRORS[verdict.field],
+          failure: { step: USDCX_MISMATCH_STEPS[verdict.field] }
+        });
         return;
       case 'unreadable':
         warnUsdcxRowOnce(row.id, 'attestation unreadable', inputs.evmTxHash);
@@ -219,7 +329,8 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
         return;
     }
   } catch (error) {
-    console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
+    if (hasBridgeOperation(row)) console.warn('[bridge-receive] owned USDCx status unavailable');
+    else console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
   }
 }
 
@@ -233,9 +344,9 @@ function executeStalled(row: ITransaction, leg: IUsdcxCctpLeg): boolean {
 
 /**
  * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
- * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
- * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
- * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
+ * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a forward
+ * Circle gave up on, or a burn made before every burn was forwarded, keeps the attested message on the row,
+ * where the status screen and Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
  * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
  * deposit would. An Arc execute that reverted, seen here or by the foreground hook, or that stayed unmined past
  * the stall window, reopens the leg for the wallet to execute, and its hash is never adopted again.
@@ -248,7 +359,29 @@ async function reconcileUsdcxExecutorRow(
   const leg = inputs.cctp;
   if (!leg) return;
   const { target } = source;
+  const owned = hasBridgeOperation(row);
+  const original = owned ? ownedCctpSourceProof(row, source) : undefined;
+  if (owned && !original) return;
   if (leg.executeTxHash) {
+    let verifiedOutcome: 'success' | 'pending' | 'reverted' | undefined;
+    if (original) {
+      if (!isHash(leg.executeTxHash)) return;
+      const hash = leg.executeTxHash;
+      verifiedOutcome = await readEvmReceiptOutcome(hash, target.chain, receipt =>
+        assertOwnedCctpArcReceipt(row, source, original, hash, receipt)
+      );
+      if (verifiedOutcome !== 'success') {
+        if (verifiedOutcome === 'reverted')
+          await updateBridgedReceivePhase(row.id, 'delivering', {
+            cctp: revertedExecuteLeg(leg.sourceDomain, hash)
+          });
+        else if (executeStalled(row, leg))
+          await updateBridgedReceivePhase(row.id, 'delivering', {
+            cctp: stalledExecuteLeg(leg.sourceDomain, hash)
+          });
+        return;
+      }
+    }
     const verdict = await matchUsdcxDeposit(row, inputs, leg.executeTxHash, target.attestationApi);
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
@@ -261,7 +394,7 @@ async function reconcileUsdcxExecutorRow(
     }
     if (!isHash(leg.executeTxHash)) return;
     // The foreground hook sees a revert only while its screen is open.
-    const outcome = await readEvmReceiptOutcome(leg.executeTxHash, target.chain);
+    const outcome = verifiedOutcome ?? (await readEvmReceiptOutcome(leg.executeTxHash, target.chain));
     if (outcome === 'reverted') {
       await updateBridgedReceivePhase(row.id, 'delivering', {
         cctp: revertedExecuteLeg(leg.sourceDomain, leg.executeTxHash)
@@ -275,14 +408,48 @@ async function reconcileUsdcxExecutorRow(
   }
   // A stalled execute can still mine, and its deposit then lands the row.
   if (leg.stalledExecuteTxHash) {
-    const verdict = await matchUsdcxDeposit(row, inputs, leg.stalledExecuteTxHash, target.attestationApi);
+    const hash = leg.stalledExecuteTxHash;
+    const verified =
+      !original ||
+      (isHash(hash) &&
+        (await readEvmReceiptOutcome(hash, target.chain, receipt =>
+          assertOwnedCctpArcReceipt(row, source, original, hash, receipt)
+        )) === 'success');
+    const verdict = verified ? await matchUsdcxDeposit(row, inputs, hash, target.attestationApi) : undefined;
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
       return;
     }
   }
-  if (leg.attestation && !leg.forwarded) return;
-  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
+  const manual = leg.executeAttempt;
+  if (
+    original &&
+    leg.message &&
+    leg.attestation &&
+    manual?.phase === 'known' &&
+    typeof manual.hash === 'string' &&
+    isHash(manual.hash) &&
+    ![leg.revertedExecuteTxHash, leg.stalledExecuteTxHash].some(
+      hash => hash?.toLowerCase() === manual.hash?.toLowerCase()
+    )
+  ) {
+    await updateBridgedReceivePhase(
+      row.id,
+      'delivering',
+      { cctp: { sourceDomain: leg.sourceDomain, executeTxHash: manual.hash } },
+      undefined,
+      { onlyIfNoExecuteHash: true }
+    );
+    return;
+  }
+  const canUpdate = original ? (current: ITransaction) => cctpSourceStillCurrent(row, current) : undefined;
+  // Keep a historical pair as delivery evidence: clearing it can time out the row before Iris next answers.
+  // The CTA and wallet reservation both veto a pair that still belongs to Circle's forward.
+  const manualAllowed = cctpAllowsManualExecution(leg);
+  if (leg.attestation && !leg.forwarded && (!original || manualAllowed)) return;
+  const attested = original
+    ? await fetchOwnedAttestedCctpMessage(row, source, original)
+    : await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
   if (!attested) return;
   const forwardTxHash = attested.forwardTxHash;
   const forwardRefused =
@@ -298,36 +465,52 @@ async function reconcileUsdcxExecutorRow(
         cctp: {
           sourceDomain: leg.sourceDomain,
           executeTxHash: attested.forwardTxHash,
-          forwardState: attested.forwardState
+          forwardState: attested.forwardState,
+          ...(original && { message: attested.message, attestation: attested.attestation })
         }
       },
       undefined,
-      { onlyIfNoExecuteHash: true }
+      { onlyIfNoExecuteHash: true, ...(canUpdate && { canUpdate }) }
     );
     return;
   }
-  if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {
+  const keepStagedProof = forwardRefused && leg.attestation !== undefined;
+  if (keepStagedProof || !cctpAllowsManualExecution({ ...leg, forwardState: attested.forwardState })) {
     if (attested.forwardState !== leg.forwardState) {
-      await updateBridgedReceivePhase(row.id, 'delivering', {
-        cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState }
-      });
+      const progress = { cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState } };
+      if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', progress, undefined, { canUpdate });
+      else await updateBridgedReceivePhase(row.id, 'delivering', progress);
     }
     return;
   }
-  if (leg.attestation) return;
-  await updateBridgedReceivePhase(row.id, 'delivering', {
+  if (leg.attestation && manualAllowed) return;
+  const execution = {
     cctp: {
       sourceDomain: leg.sourceDomain,
       message: attested.message,
       attestation: attested.attestation,
       forwardState: attested.forwardState
     }
-  });
+  };
+  if (canUpdate) await updateBridgedReceivePhase(row.id, 'delivering', execution, undefined, { canUpdate });
+  else await updateBridgedReceivePhase(row.id, 'delivering', execution);
 }
 
-async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
+// Only the route the row itself recorded, never one the current config would pick for its chain.
+function recordedSourceRoute(inputs: IBridgedReceiveExtraInputs): BridgeSourceRoute {
+  const route: unknown = inputs.usdcxSource?.route;
+  if (route === 'xreserve') return 'xreserve';
+  return route === 'cctp-executor' ? 'cctp_executor' : 'unrecorded';
+}
+
+async function reconcileRow(
+  row: ITransaction,
+  cutoffSec: number,
+  resumeOrphans: boolean,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
-  if (inputs === undefined) return;
+  if (inputs === undefined || inputs.provider === 'near-intents') return;
   // Terminalize rather than skip. Resuming would register a pending bridge-in
   // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
   // no user action - but merely skipping strands the row: these rows are born
@@ -339,8 +522,38 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
+  if (hasBridgeOperation(row) && inputs.phase === 'submitting' && !inputs.evmTxHash && !inputs.intentNonce) {
+    const operation = bridgeOperationOf(row);
+    if (inputs.provider === 'agglayer' && operation?.approvals?.length && inputs.agglayerRoute) {
+      const { recoverAgglayerApprovals } = await import('lib/bridge/providers/agglayer/approval');
+      const { agglayerReadClient } = await import('lib/bridge/providers/agglayer/provider');
+      await recoverAgglayerApprovals(operation, agglayerReadClient(inputs.agglayerRoute.chainId));
+    } else if (inputs.provider === 'usdcx' && operation?.approvals?.length && inputs.sourceChainId !== undefined) {
+      const { recoverTokenApprovals } = await import('lib/bridge/evm/token-approval');
+      const { xreserveReadClient } = await import('lib/bridge/providers/xreserve/provider');
+      await recoverTokenApprovals(operation, xreserveReadClient(inputs.sourceChainId));
+    }
+    return;
+  }
+  const operation = bridgeOperationOf(row);
+  const originalSourceRoute =
+    operation?.review.route.recovery.config.supportedEvmChains[operation.review.route.source.network]?.bridges.usdcx
+      ?.deposit;
+  if (
+    hasBridgeOperation(row) &&
+    inputs.provider === 'usdcx' &&
+    inputs.evmTxHash &&
+    (inputs.usdcxSource?.route === 'cctp-executor' || originalSourceRoute?.route === 'executor') &&
+    (inputs.usdcxSource?.route !== 'cctp-executor' || !ownedCctpSourceProof(row, inputs.usdcxSource))
+  ) {
+    if (inputs.usdcxSource?.route === 'cctp-executor') await recoverOwnedCctpSourceProof(row, inputs.usdcxSource);
+    return;
+  }
   if (!withinDeliveryWindow(row, inputs, cutoffSec)) {
-    await updateBridgedReceivePhase(row.id, 'failed', { error: BRIDGE_DELIVERY_TIMED_OUT });
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: BRIDGE_DELIVERY_TIMED_OUT,
+      failure: { step: 'delivery_timed_out' }
+    });
     return;
   }
   // Circle already attested a ready row; only its mint's consume moves it on.
@@ -349,14 +562,16 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
 
   switch (inputs.provider) {
     case 'agglayer':
-      await reconcileAgglayerRow(row, inputs);
+      await reconcileAgglayerRow(row, inputs, orphanCheck);
       return;
     case 'usdcx':
-      await reconcileUsdcxRow(row, inputs);
+      await reconcileUsdcxRow(row, inputs, orphanCheck);
       return;
     case 'epoch':
+      await reconcileEpochRow(row, inputs, orphanCheck);
+      return;
     default:
-      await reconcileEpochRow(row, inputs);
+      return;
   }
 }
 
@@ -370,7 +585,13 @@ async function readUnsettledRows(): Promise<ITransaction[]> {
       // written row without `extraInputs` would silently disable reconciliation
       // for every genuine row, on every tick.
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-      if (inputs === undefined || inputs.phase === 'received' || inputs.phase === 'failed') return false;
+      if (
+        inputs === undefined ||
+        inputs.provider === 'near-intents' ||
+        inputs.phase === 'received' ||
+        inputs.phase === 'failed'
+      )
+        return false;
       // A ready USDCx row stays for the cutoff alone: no consume tagged it, so it could otherwise read Confirmed
       // forever. A restored one is left out, since reading it would fail it.
       if (inputs.phase === 'ready') return inputs.provider === 'usdcx' && tx.restoredFromBackup !== true;
@@ -398,7 +619,10 @@ export function createBridgeReceiveReconciler({
   let startedSubmissions = 0;
 
   /** Resolves with the new row's id as soon as `create` returns it; the lock is held until `drive` settles. */
-  function startSubmission(create: () => Promise<string>, drive: (txId: string) => Promise<void>): Promise<string> {
+  function startSubmission(
+    create: () => Promise<string>,
+    drive: (txId: string, claimed?: BridgeOperationSnapshot) => Promise<void>
+  ): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const run = async () => {
         let txId: string;
@@ -410,9 +634,46 @@ export function createBridgeReceiveReconciler({
         }
         resolve(txId);
         try {
+          const row = await Repo.transactions.get(txId);
+          if (!row) return;
+          if (hasBridgeOperation(row)) {
+            const operation = bridgeOperationOf(row);
+            const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+            if (
+              !operation ||
+              row.type !== 'bridged-receive' ||
+              row.restoredFromBackup ||
+              row.recovered ||
+              !inputs ||
+              operation.review.route.mode !== 'receive' ||
+              inputs.provider !== walletBridgeProvider(operation.review.route.provider)
+            )
+              return;
+            // Epoch's existing store is its irreversible source owner; claiming here as well would suppress its first solve.
+            if (inputs.provider !== 'epoch') {
+              if ((await claimBridgeSourceAttempt(operation.operationId, operation.revision)) !== 'claimed') return;
+              const claimedRow = await Repo.transactions.get(txId);
+              const claimed = claimedRow && bridgeOperationOf(claimedRow);
+              const claimedInputs: IBridgedReceiveExtraInputs | undefined = claimedRow?.extraInputs;
+              if (
+                !claimedRow ||
+                !claimed ||
+                claimed.operationId !== operation.operationId ||
+                claimed.revision === operation.revision ||
+                claimed.sourceAttempt?.phase !== 'running' ||
+                claimedInputs?.phase !== 'submitting' ||
+                claimedInputs.evmTxHash ||
+                claimedInputs.intentNonce
+              )
+                return;
+              assertBridgeOperationCurrent(claimedRow, operation);
+              await drive(txId, claimed);
+              return;
+            }
+          }
           await drive(txId);
-        } catch (error) {
-          console.error('[bridge-receive] deposit submission failed', error);
+        } catch {
+          console.error('[bridge-receive] deposit submission failed');
         }
       };
 
@@ -429,12 +690,18 @@ export function createBridgeReceiveReconciler({
     });
   }
 
-  async function readRows(): Promise<{ rows: ITransaction[]; resumeOrphans: boolean }> {
+  interface RowsRead {
+    rows: ITransaction[];
+    resumeOrphans: boolean;
+    orphanCheck: BridgeOrphanCheck;
+  }
+
+  async function readRows(): Promise<RowsRead> {
     const locks = getLocks();
     if (locks) {
-      let read: { rows: ITransaction[]; resumeOrphans: boolean } = { rows: [], resumeOrphans: false };
+      let read: RowsRead = { rows: [], resumeOrphans: false, orphanCheck: 'origin_lock' };
       await locks.request(SUBMISSION_LOCK, { ifAvailable: true }, async lock => {
-        read = { rows: await readUnsettledRows(), resumeOrphans: lock !== null };
+        read = { rows: await readUnsettledRows(), resumeOrphans: lock !== null, orphanCheck: 'origin_lock' };
       });
       return read;
     }
@@ -443,7 +710,11 @@ export function createBridgeReceiveReconciler({
     const idle = liveSubmissions === 0;
     const started = startedSubmissions;
     const rows = await readUnsettledRows();
-    return { rows, resumeOrphans: idle && liveSubmissions === 0 && startedSubmissions === started };
+    return {
+      rows,
+      resumeOrphans: idle && liveSubmissions === 0 && startedSubmissions === started,
+      orphanCheck: 'realm_idle'
+    };
   }
 
   /**
@@ -454,14 +725,17 @@ export function createBridgeReceiveReconciler({
    * index.
    */
   async function reconcile(): Promise<void> {
-    const { rows, resumeOrphans } = await readRows();
+    // The watcher's first pass can run before this realm read its stored copy, and a row with no saved route is
+    // classified (and timed out) by the document; from storage, never the network.
+    await initBridgeConfig();
+    const { rows, resumeOrphans, orphanCheck } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
     // All at once: each row waits only on its own provider, so a slow receipt or a timed-out status read never delays
     // another row. Each row writes only itself, and registry writes take the registry lock.
     await Promise.all(
       rows.map(row =>
-        reconcileRow(row, cutoffSec, resumeOrphans).catch((error: unknown) => {
+        reconcileRow(row, cutoffSec, resumeOrphans, orphanCheck).catch((error: unknown) => {
           // One row's failing write or registry call must not end the pass for the other rows.
           console.warn('[bridge-receive] reconcile failed', row.id, row.extraInputs?.provider, error);
         })

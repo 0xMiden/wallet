@@ -3,9 +3,10 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { beginBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess, syncFuseUntilMs } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -26,6 +27,7 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -34,6 +36,8 @@ import { balancePrice } from './balancePrice';
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
+  /** Plain provenance of the vault read; the caller tags the final rows only when they land. */
+  onSnapshot?: (snapshot: BalanceSnapshot) => void;
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
   /**
@@ -64,6 +68,19 @@ export interface FetchBalancesOptions {
  * behind another's read. It releases the address in `finally`.
  */
 export const fetchingAddresses = new Set<string>();
+
+/** Plain diagnostics only: observing a skipped E2E read must not take the lock or grant a fused probe. */
+export function balanceReadStateForTest(address: string) {
+  const hold = getCurrentWasmLockHold();
+  return {
+    inFlight: fetchingAddresses.has(address),
+    fused: isSyncFused('balances'),
+    fuseUntilMs: syncFuseUntilMs('balances'),
+    network: `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`,
+    lock:
+      hold === null ? null : { label: hold.label, pauseCount: hold.pauseCount, normalCeilingMs: hold.normalCeilingMs }
+  };
+}
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
 
@@ -184,6 +201,7 @@ export async function fetchBalances(
     faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
     onOverrideApplied,
     onDisplayFaucetId,
+    onSnapshot,
     tokenPrices = {},
     waitForLock = false
   } = options;
@@ -219,6 +237,7 @@ export async function fetchBalances(
   if (isSyncFused('balances')) return null;
 
   const readAccount = async (hold: WasmLockHold) => {
+    const finishSnapshot = beginBalanceSnapshot();
     const acc = await midenClientProxy.getAccount(address);
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
@@ -251,7 +270,7 @@ export async function fetchBalances(
     // `fungibleAssets()` is on the Account object (not the shared WebClient
     // RefCell); extract it here so the rest of the fn works off plain values.
     const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets, snapshot: finishSnapshot(acc) };
   };
   const lockOptions = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' };
   const reportFailure = (e: unknown): never => {
@@ -276,6 +295,7 @@ export async function fetchBalances(
   // The call went through, which is the one observation that puts this probe's fuse out.
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
+  onSnapshot?.(read.value.snapshot);
 
   // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
   await ensureTokensMetadataSchema(fetchFromStorage, putToStorage).catch(error =>
@@ -358,7 +378,8 @@ export async function fetchBalances(
         tokenSlug: nativeMetadata.symbol,
         metadata: nativeMetadata,
         ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-        balance: 0
+        balance: 0,
+        balanceBaseUnits: '0'
       }
     ];
   }
@@ -403,7 +424,8 @@ export async function fetchBalances(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       ...balancePrice(tokenPrices, tokenId, tokenMetadata.symbol),
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      balanceBaseUnits: asset.amount().toString()
     });
   }
 
@@ -417,7 +439,8 @@ export async function fetchBalances(
       tokenSlug: nativeMetadata.symbol,
       metadata: nativeMetadata,
       ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
-      balance: 0
+      balance: 0,
+      balanceBaseUnits: '0'
     });
   }
 

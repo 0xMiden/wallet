@@ -1,3 +1,5 @@
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+
 import fixture from './b2agg/exit-hash.vectors.json';
 import {
   AGGLAYER_EXIT_SEARCH_MAX_PAGES,
@@ -14,13 +16,14 @@ import {
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-const mockIndexerUrl = jest.fn(() => 'https://indexer.one.example/api');
+const mockIndexerUrl = jest.fn((_chainId?: number) => 'https://indexer.one.example/api');
 // The testnet's derived networks: rollup 86 files every Miden exit, bound for L1 network 0.
-const mockRollupId = jest.fn(() => 86);
+const mockRollupId = jest.fn((_chainId?: number) => 86);
+const mockEvmNetworkId = jest.fn((_chainId?: number) => 0);
 jest.mock('lib/remote-config/values', () => ({
-  getAgglayerIndexerUrl: () => mockIndexerUrl(),
-  getAgglayerRollupId: () => mockRollupId(),
-  getAgglayerEvmNetworkId: () => 0
+  getAgglayerIndexerUrl: (chainId?: number) => mockIndexerUrl(chainId),
+  getAgglayerRollupId: (chainId?: number) => mockRollupId(chainId),
+  getAgglayerEvmNetworkId: (chainId?: number) => mockEvmNetworkId(chainId)
 }));
 
 const deposit = (overrides: Record<string, unknown>) =>
@@ -29,14 +32,32 @@ const deposit = (overrides: Record<string, unknown>) =>
 describe('isAgglayerDepositReady', () => {
   it.each([
     { ready_for_claim: true },
-    { ready_to_claim: true },
-    { finalized: true },
-    { finalised: true },
-    { status: 'READY_TO_CLAIM' },
-    { status: 'finalised' }
-  ])('accepts a terminal AggLayer signal: %p', signal => {
+    { ready_for_claim: undefined, ready_to_claim: true },
+    { ready_for_claim: undefined, status: 'READY_TO_CLAIM' },
+    { ready_for_claim: true, ready_to_claim: false },
+    { ready_for_claim: false, ready_to_claim: true },
+    { ready_for_claim: false, status: 'READY_TO_CLAIM' }
+  ])('accepts an explicit destination-ready signal: %p', signal => {
     expect(isAgglayerDepositReady(deposit(signal))).toBe(true);
   });
+
+  it.each([
+    { finalized: true },
+    { finalised: true },
+    { status: 'finalized' },
+    { status: 'finalised' },
+    { ready_for_claim: undefined, finalized: true },
+    { ready_for_claim: undefined, status: 'finalized' }
+  ])('does not promote source finality to destination readiness: %p', signal => {
+    expect(isAgglayerDepositReady(deposit(signal))).toBe(false);
+  });
+
+  it.each(['ready_for_claim', 'ready_to_claim', 'finalized', 'finalised'])(
+    'does not treat a string %s as protocol readiness',
+    field => {
+      expect(isAgglayerDepositReady(deposit({ [field]: 'false' }))).toBe(false);
+    }
+  );
 
   it('keeps a merely indexed deposit pending', () => {
     expect(isAgglayerDepositReady(deposit({ status: 'BRIDGED' }))).toBe(false);
@@ -164,6 +185,17 @@ describe('findAgglayerExitDeposit (#1325)', () => {
   const SIBLING: AgglayerDeposit = { ...LIVE_16, deposit_cnt: 17, tx_hash: `0x${'5'.repeat(64)}` };
 
   beforeEach(() => jest.clearAllMocks());
+
+  it('refuses an exit hash filed against a different destination, including a pinned count', async () => {
+    const wrongRecipient = { ...LIVE_16, dest_addr: `0x${'7'.repeat(40)}` };
+    serve({ pinned: wrongRecipient, page: [wrongRecipient] });
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toBeNull();
+  });
+
+  it('refuses ambiguous copies of the same exit rather than selecting a claimed sibling', async () => {
+    serve({ page: [LIVE_16, { ...LIVE_16, deposit_cnt: 18, amount: '999' }] });
+    await expect(findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).rejects.toThrow();
+  });
 
   it('finds live deposit 16, claimed as the indexer serves it, by its exit hash', async () => {
     serve({ page: [SIBLING, LIVE_16] });
@@ -450,11 +482,63 @@ describe('the configured indexer', () => {
     ]);
   });
 
+  it('reads a row saved before its route on Sepolia, the chain every such row was made on', async () => {
+    await fetchDeposits('0xdest');
+    await searchAgglayerExitDeposit('0xdest', EXIT_16);
+    expect(mockIndexerUrl).toHaveBeenCalledWith(11155111);
+    expect(mockIndexerUrl.mock.calls.every(([chainId]) => chainId === 11155111)).toBe(true);
+    expect(mockRollupId).toHaveBeenCalledWith(11155111);
+    expect(mockEvmNetworkId).toHaveBeenCalledWith(11155111);
+  });
+
   it('sends nothing while the config names no indexer', async () => {
     mockIndexerUrl.mockImplementationOnce(() => {
       throw new Error('no indexer');
     });
     await expect(fetchDeposits('0xdest')).rejects.toThrow('no indexer');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('saved route recovery', () => {
+  const route: AgglayerRecoveryConfig = {
+    chainId: 84532,
+    contractAddress: '0x00000000000000000000000000000000000000b3',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 73,
+    evmNetworkId: 6
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('uses the saved indexer and network IDs after the published route changes', async () => {
+    const savedDeposit = { ...LIVE_16, network_id: 73, dest_net: 6 };
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ deposit: savedDeposit }) });
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16, route)).toEqual(savedDeposit);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://saved-indexer.example/api/bridge?net_id=73&deposit_cnt=16',
+      expect.any(Object)
+    );
+    expect(mockIndexerUrl).not.toHaveBeenCalled();
+    expect(mockRollupId).not.toHaveBeenCalled();
+  });
+
+  it('does not share in-flight exit lookups between saved indexers', async () => {
+    const first = { ...LIVE_16, network_id: 73, dest_net: 6, tx_hash: '0xshared-recovery-exit' };
+    const second = { ...first, deposit_cnt: 22 };
+    fetchMock.mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({ deposits: [url.startsWith(route.indexerUrl) ? first : second], total_cnt: '1' })
+    }));
+    const results = await Promise.all([
+      findAgglayerExitDeposit(first.dest_addr, first.tx_hash, undefined, route),
+      findAgglayerExitDeposit(first.dest_addr, first.tx_hash, undefined, {
+        ...route,
+        indexerUrl: 'https://other-indexer.example/api'
+      })
+    ]);
+    expect(results).toEqual([first, second]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

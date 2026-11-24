@@ -5,18 +5,24 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
-import { formatBigInt } from 'lib/i18n/numbers';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { getCurrentLocale } from 'lib/i18n/core';
+import { formatHoldDeadline } from 'lib/i18n/hold-deadline';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { pendingNoteUnreadKey } from './activityUnread';
@@ -32,6 +38,16 @@ export interface PendingActivityItem {
   held?: boolean;
   /** The refusal its last Retry met, shown in place of the hint. */
   retryError?: string;
+  /** Stable for one producer failure, including when the note's details refresh. */
+  failure?: { id: UserErrorId; diagnostics?: UiEvidenceInput };
+  /** Accepting it is certain to fail on the network fee, so Accept is withheld and the card says why. */
+  cannotPayFee?: boolean;
+  /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
+  guardianBusy?: true;
+  /** A stored proof-submission outcome for this claim. Absent while the submit is still in progress. */
+  submission?: SubmissionFeedback;
+  /** When the Guardian hold on its finished row clears, while one applies: Retry stays off until then (#2060). */
+  holdUntil?: number;
 }
 
 interface PendingActivityCardProps {
@@ -39,6 +55,7 @@ interface PendingActivityCardProps {
   onAccept: (note: ClaimableNoteWithMetadata) => void;
   onReject?: (note: ClaimableNoteWithMetadata) => void;
   onRetryHeld?: (item: PendingActivityItem) => void;
+  initiallyExpanded?: boolean;
 }
 
 function formatDateTime(unixSeconds: number): string {
@@ -62,7 +79,13 @@ function formatDateTime(unixSeconds: number): string {
 // same component as every other settled transaction and carrying that component's own navigation
 // to the transaction page. `ActivityPendingHistory` drops a `claimed` item from the card list and
 // `History` stops standing its consume row down, so the two swap cleanly with nothing in between.
-export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: PendingActivityCardProps) => {
+export const PendingActivityCard = ({
+  item,
+  onAccept,
+  onReject,
+  onRetryHeld,
+  initiallyExpanded = false
+}: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
   const transition = useMotion(springs.standard);
@@ -76,15 +99,30 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const unreadKey = pendingNoteUnreadKey(note.id);
   const unread = !isActivityRead(readState, unreadKey, note.receivedAt ?? Number.NaN);
   const detailsId = useId();
-  const [expanded, setExpanded] = useState(false);
+  const feeNoticeId = useId();
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
-  const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
+  const amount = hasKnownScale(note.metadata)
+    ? formatAmountDisplay(BigInt(note.amount), {
+        decimals: note.metadata.decimals,
+        rounding: 'down',
+        minimumFractionDigits: 3
+      })
+    : undefined;
   const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
   const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
+  // Separate from `canAccept`: Decline costs no fee, so it stays.
+  const feeBlocked = canAccept && item.cannotPayFee === true;
   const held = status === 'claiming' && item.held === true;
+  const submission = item.retryError === undefined ? item.submission : undefined;
+  // Retry runs only for a held claim (`onRetryHeld`). A claim still in flight keeps its spinner even
+  // with a stored submit outcome, and the notice below explains it.
   const busy = (status === 'claiming' && !held) || status === 'checking';
+  const { holdUntil } = item;
+  const heldByGuardian = holdUntil !== undefined;
+  const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
   // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
@@ -110,11 +148,49 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   // failure; the words say it too, so the block is never colour alone.
   // A held claim awaits its verdict and may already have gone through, and its only action is Retry, so it says it
   // is not confirmed rather than inviting a review (#1081).
+  // A stored submit outcome has its own notice outside the fold, so the hint never repeats it.
+  const submissionText = submission !== undefined ? (submission.rowCopy ?? t(submission.messageKey)) : undefined;
   let hint = t('activityNotYetAccepted');
   if (item.retryError !== undefined) hint = item.retryError;
   else if (held) hint = t('transactionNotConfirmedHint');
-  else if (status === 'failed') hint = t('noteClaimFailedRetry');
-  const negative = status === 'failed' || item.retryError !== undefined;
+  else if (status === 'failed' && heldByGuardian) {
+    hint = t('guardianHoldRetryRefused', { time: formatHoldDeadline(holdUntil, { locale: getCurrentLocale() }) });
+  } else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
+  else if (waitingOnGuardian) hint = t('guardianBusyDescription');
+  const negative =
+    item.retryError !== undefined ||
+    (submission !== undefined ? submission.kind === 'rejected' : status === 'failed' && !heldByGuardian);
+  const failureId =
+    item.retryError !== undefined ? (item.failure?.id ?? null) : status === 'failed' ? 'noteClaimFailedRetry' : null;
+  const [observedFailure, setObservedFailure] = useState<{
+    noteId: string;
+    status: PendingActivityStatus;
+    failure: PendingActivityItem['failure'];
+    errorId: UserErrorId | null;
+  }>({ noteId: note.id, status, failure: item.failure, errorId: null });
+  // A restored failure is a baseline; only a transition or a new producer failure is live on this mount.
+  if (
+    observedFailure.noteId !== note.id ||
+    observedFailure.status !== status ||
+    observedFailure.failure !== item.failure
+  ) {
+    setObservedFailure({
+      noteId: note.id,
+      status,
+      failure: item.failure,
+      errorId: observedFailure.noteId === note.id ? failureId : null
+    });
+  }
+
+  const failureDiagnostics =
+    observedFailure.failure?.diagnostics ??
+    (observedFailure.errorId === 'noteClaimFailedRetry'
+      ? ({
+          kind: 'note_claim',
+          noteClaimFailureOrigin: 'transaction_row',
+          uiFailureKind: 'unavailable'
+        } satisfies UiEvidenceInput)
+      : undefined);
 
   // A refusal's message lives in the folded section, so it opens with it (#1081).
   useEffect(() => {
@@ -134,7 +210,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       testId="pending-activity-row"
       entryKey={note.id}
       className="min-w-0 flex-1 py-3"
-      icon={<Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />}
+      icon={<Icon name={IconName.Receive} size="sm" className="text-pure-white" />}
       iconBg="bg-tx-received"
       title={t('received')}
       subtitle={`${t('from')}: ${sender}`}
@@ -147,92 +223,137 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
     />
   );
 
-  // The dot belongs to the card's left margin, not to the row's content, so it hangs off whichever
-  // control the header currently is rather than shifting the avatar beside it.
-  const header = (
-    <>
-      <UnreadDot unread={unread} label={t('activityUnread')} data-testid="pending-activity-unread" />
-      {headerRow}
-    </>
-  );
-
   return (
-    <Card asChild surface="outline" padding="none">
-      <article className="flex flex-col overflow-hidden" data-pending-status={status}>
-        <button
-          type="button"
-          className="relative flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
-          aria-expanded={expanded}
-          aria-controls={detailsId}
-          onClick={() => {
-            hapticLight();
-            setExpanded(open => !open);
-          }}
-        >
-          {header}
-          {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
+    // The unread dot sits on the card's top-right corner, outside the card's own box: the card clips
+    // its content to its rounded edge (`overflow-hidden`), which would cut the dot off. It is hidden
+    // from assistive tech there; the header button carries the same label, so the card is still
+    // announced as unread.
+    <div className="relative">
+      <span aria-hidden="true">
+        <UnreadDot
+          unread={unread}
+          placement="corner"
+          label={t('activityUnread')}
+          className="z-1"
+          data-testid="pending-activity-unread"
+        />
+      </span>
+      <Card asChild surface="outline" padding="none">
+        <article className="flex flex-col overflow-hidden" data-pending-status={status}>
+          <button
+            type="button"
+            className="relative flex w-full items-center gap-2 px-4 text-left focus-visible:outline-accent-primary"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => {
+              hapticLight();
+              setExpanded(open => !open);
+            }}
+          >
+            {unread && <span className="sr-only">{t('activityUnread')}</span>}
+            {headerRow}
+            {/* The only motion left on the card, and it cannot replay on a remount: `initial={false}`
               mounts the glyph at its `animate` value instead of tweening to it, and `expanded`
               starts false anyway, so a card rebuilt by a filter change draws an unrotated chevron
               with nothing in flight. It turns only in answer to a tap. */}
-          <motion.span
-            aria-hidden
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
-            initial={false}
-            animate={{ rotate: expanded ? 180 : 0 }}
-            transition={transition}
-          >
-            <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
-          </motion.span>
-        </button>
+            <motion.span
+              aria-hidden
+              className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary-token"
+              initial={false}
+              animate={{ rotate: expanded ? 180 : 0 }}
+              transition={transition}
+            >
+              <Icon name={IconName.ChevronDown} size="sm" className="w-4! h-4!" fill="currentColor" />
+            </motion.span>
+          </button>
 
-        {/* The disclosure unfolds and folds away on the design system's `reveal` preset, the one
+          {/* The disclosure unfolds and folds away on the design system's `reveal` preset, the one
             written for exactly this (height 0 <-> auto plus opacity, `springs.standard`), reduced-
             motion aware through `usePreset`, so no duration is spelled out here. A card rebuilt by
             a filter change mounts closed and renders no section, so there is nothing for an entry
             animation to act on. */}
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              id={detailsId}
-              initial={reveal.initial}
-              animate={reveal.animate}
-              exit={reveal.exit}
-              transition={disclosureTransition}
-              className="overflow-hidden"
-            >
-              <dl className="border-t border-hairline divide-y divide-hairline text-sm">
-                {rows.map(row => (
-                  <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                    <dt className="font-heading text-text-secondary-token">{row.label}</dt>
-                    <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
-                      {row.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+          <AnimatePresence>
+            {expanded && (
+              <motion.div
+                id={detailsId}
+                initial={reveal.initial}
+                animate={reveal.animate}
+                exit={reveal.exit}
+                transition={disclosureTransition}
+                className="overflow-hidden"
+              >
+                <dl className="border-t border-hairline divide-y divide-hairline text-sm">
+                  {rows.map(row => (
+                    <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
+                      <dt className="font-heading text-text-secondary-token">{row.label}</dt>
+                      <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
+                        {row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
 
-              {/* The shared inline explanation, not a hand-rolled grey band: one 13px size for
+                {/* The shared inline explanation, not a hand-rolled grey band: one 13px size for
                 both lines, the explanation in the tone's ink and the deadline under it in the
                 quieter one, left-aligned and upright like every other block of copy in the app.
                 It sits in the card's own margin with 12px above and below, so it no longer shares
                 an edge with the buttons under it. */}
-              <div className="px-4 py-3">
-                <Notice
-                  data-testid="pending-activity-hint"
-                  tone={negative ? 'negative' : 'neutral'}
-                  role={negative ? 'alert' : 'status'}
-                  title={hint}
-                >
-                  {note.recallableAtMs === undefined
-                    ? undefined
-                    : t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
-                </Notice>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                <div className="px-4 py-3">
+                  <Notice
+                    errorId={observedFailure.errorId}
+                    errorOccurrence={observedFailure.failure}
+                    errorDiagnostics={failureDiagnostics}
+                    data-testid="pending-activity-hint"
+                    tone={negative ? 'negative' : 'neutral'}
+                    role={negative ? 'alert' : 'status'}
+                    title={hint}
+                  >
+                    {note.recallableAtMs === undefined
+                      ? undefined
+                      : t('noteReturnsToSenderBy', { date: new Date(note.recallableAtMs).toLocaleString() })}
+                  </Notice>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
+          {/* Outside the fold, so a claim the Guardian holds back and a withheld Accept are never left without
+            their reason. */}
+          {waitingOnGuardian && (
+            <div className="px-4 pb-3">
+              <Notice variant="inline" tone="neutral" role="status" data-testid="pending-activity-guardian-wait">
+                {t('guardianBusyStep')}
+              </Notice>
+            </div>
+          )}
+          {submissionText !== undefined && submission !== undefined && (
+            <div className="px-4 pb-3">
+              <Notice
+                variant="inline"
+                tone={submission.kind === 'rejected' ? 'negative' : 'neutral'}
+                role={submission.kind === 'rejected' ? 'alert' : 'status'}
+                errorId={submission.rowCopy === undefined ? submission.messageKey : undefined}
+                errorDiagnostics={submission.errorDiagnostics}
+                data-testid="pending-activity-submission"
+              >
+                {submissionText}
+              </Notice>
+            </div>
+          )}
+          {heldByGuardian && (
+            <div className="px-4 pb-3">
+              <GuardianHoldNotice clearsAtSec={holdUntil} variant="inline" />
+            </div>
+          )}
+          {feeBlocked && (
+            <div className="px-4 pb-3">
+              <Notice id={feeNoticeId} variant="inline" tone="warning" data-testid="pending-activity-fee-notice">
+                {t('insufficientFeeAssetShort')}
+              </Notice>
+            </div>
+          )}
+
+          {/* The actions are ordinary design-system buttons: the app's pill, with the card's own
             padding around them. `className` here sets width only; nothing restyles a Button from
             the call site.
             They are `sm`, the same size as the Pending list's own Accept All — a row-level
@@ -246,39 +367,43 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
             for what is present when that `AnimatePresence` FIRST mounts. Switching the Activity
             filter renders a different list, so every card remounted and the width tween replayed
             from zero on each tab change, reflowing the whole footer. */}
-        {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
+          {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
             the card's own rounded clip shapes the outer corners. */}
-        <div className="flex border-t border-hairline">
-          {onReject && status !== 'claiming' && (
-            <Button
-              variant={ButtonVariant.Ghost}
-              size="sm"
-              className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
-              title={t('activityRejectTransfer')}
-              disabled={!canAccept}
-              onClick={() => onReject(note)}
-            />
-          )}
-          {/* A claim in flight is the Button's own loading state: the accent fill stays, the
+          <div className="flex border-t border-hairline">
+            {onReject && status !== 'claiming' && (
+              <Button
+                variant={ButtonVariant.Ghost}
+                size="sm"
+                className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
+                title={t('activityRejectTransfer')}
+                disabled={!canAccept}
+                onClick={() => onReject(note)}
+              />
+            )}
+            {/* A claim in flight is the Button's own loading state: the accent fill stays, the
               label is swapped for the spinner at the label's width and taps are refused. It is
               NOT `disabled`, which would grey the one action in progress. */}
-          <Button
-            size="sm"
-            className="h-12 min-w-0 flex-1 rounded-none"
-            title={actionLabel}
-            disabled={!canAccept && !held && status !== 'claiming'}
-            isLoading={status === 'claiming' && !held}
-            aria-busy={busy}
-            onClick={() => {
-              // Accepting IS the decision, so the transfer is read from here on even though no
-              // detail page was opened.
-              markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
-              if (held) onRetryHeld?.(item);
-              else onAccept(note);
-            }}
-          />
-        </div>
-      </article>
-    </Card>
+            <Button
+              size="sm"
+              className="h-12 min-w-0 flex-1 rounded-none"
+              title={actionLabel}
+              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian}
+              isLoading={status === 'claiming' && !held}
+              aria-busy={busy}
+              aria-describedby={feeBlocked ? feeNoticeId : undefined}
+              onClick={() => {
+                // A loading Button refuses only pointer taps, so a keyboard press on a claim in flight stops here.
+                if (busy) return;
+                // Accepting IS the decision, so the transfer is read from here on even though no
+                // detail page was opened.
+                markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
+                if (held) onRetryHeld?.(item);
+                else onAccept(note);
+              }}
+            />
+          </div>
+        </article>
+      </Card>
+    </div>
   );
 };

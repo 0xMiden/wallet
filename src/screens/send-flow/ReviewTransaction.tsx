@@ -1,33 +1,48 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { formatUnits, parseUnits } from 'viem';
+import { parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
+import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
+import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { TokenUsdValue } from 'components/TokenUsdValue';
+import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TokenAmount } from 'components/ui/TokenAmount';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
+import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { assertEpochReviewedOutput, reviewedEpochMinimum } from 'lib/epoch/bridge';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
+import { getDateFnsLocale } from 'lib/i18n';
+import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
-import { IConsumedAssetTotal } from 'lib/miden/db/types';
+import { IConsumedAssetTotal, type IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { CalendarRecallReviewRequiredError, MAX_RECALL_BLOCKS, parseCalendarRecallTarget } from 'lib/miden/helpers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
@@ -39,21 +54,28 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { BridgeFeature } from 'lib/remote-config/availability';
+import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
+import { epochOutputIsBridgeUsdc, evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
-import { USDCX_DECIMALS, usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
-import { useBurnPreflight } from 'lib/usdcx/use-burn-preflight';
-import { isUsdcxWithdrawalAvailable, UsdcxBurnError } from 'lib/usdcx/withdrawal';
+import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
+import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
+import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
+import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { approxFiatAmount } from './amount-format';
 import {
   getBridgeNetwork,
   BridgeNetworkId,
@@ -61,14 +83,31 @@ import {
   isEpochBridgeNetwork,
   isUsdcxBridgeNetwork
 } from './bridge-networks';
-import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
+import { CommandSendReview } from './CommandSendReview';
+import {
+  combineDateAndTime,
+  dateTimeToRecallBlocks,
+  RecallCalendarDrawer,
+  SECONDS_PER_BLOCK
+} from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
+import { TransferType, TransferTypeDrawer } from './TransferTypeDrawer';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
+import { useIsNewRecipient } from './useIsNewRecipient';
+
+const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> = ({ message, errorId }) => {
+  useUserVisibleError(message ? errorId : null, 'review');
+  return (
+    <p data-testid="review-error" className="text-center text-sm text-red-500">
+      {message}
+    </p>
+  );
+};
 
 /**
  * Return the formatted Miden Name (`alice.miden`) of the `name` URL value when
@@ -120,20 +159,47 @@ function useVerifiedMidenName(nameParam: string, to: string): string | undefined
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
-  const networkFee = useNetworkFeeEstimate();
+  const command = useFlowPresentation() === 'command';
+  const backToComposer = useBackWithFallback('/send');
+  const formId = useId();
+  const commandDrafts = useOptionalCommandDrafts();
+  const [restoredDraft] = useState(() => (command ? commandDrafts?.readDraft('send') : undefined));
+  const [reviewRevision] = useState(() => (command ? commandDrafts?.readSendDraftRevision() : undefined));
+  const networkFeeDetails = useNetworkFeeEstimateDetails();
+  const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const { search } = useLocation();
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();
+  const activeAccount = useRef(publicKey);
+  activeAccount.current = publicKey;
+  const networkName = getEffectiveNetworkName();
+  const rpcUrl = getEffectiveRpcUrl();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const isCurrentSubmission = useCallback(
+    () =>
+      mounted.current &&
+      activeAccount.current === publicKey &&
+      getEffectiveNetworkName() === networkName &&
+      getEffectiveRpcUrl() === rpcUrl,
+    [publicKey, networkName, rpcUrl]
+  );
 
   const { signTransaction } = useMidenContext();
 
-  const { amount, to, tokenId, network, route, nameParam } = useMemo<{
-    nameParam: string;
+  const { amount, to, tokenId, network, route, nameParam, commandReviewId } = useMemo<{
     amount: string;
     to: string;
     tokenId: string;
     network?: BridgeNetworkId;
     route?: BridgeRoute;
+    nameParam: string;
+    commandReviewId?: string;
   }>(() => {
     const params = new URLSearchParams(search);
     const networkParam = params.get('network');
@@ -142,11 +208,14 @@ export const ReviewTransaction: React.FC = () => {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
+      commandReviewId: params.get('commandReviewId') ?? undefined,
       network: isBridgeNetworkId(networkParam) ? networkParam : undefined,
       route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined,
       nameParam: params.get('name') ?? ''
     };
   }, [search]);
+  const sendIntent = JSON.stringify([commandReviewId ?? null, amount, to, tokenId, network, route]);
+  const sendAdmission = command ? commandDrafts?.readSendAdmission() : undefined;
 
   // The Miden Name of the recipient, for display only. The URL is not trusted:
   // the name shows only when the network has a Miden Name deployment and a new
@@ -156,14 +225,32 @@ export const ReviewTransaction: React.FC = () => {
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
+  const isNewRecipient = useIsNewRecipient(publicKey, to);
   const bridgeNetworkObj = getBridgeNetwork(network);
+  const bridgeFeature = (): BridgeFeature => {
+    switch (route) {
+      case 'agglayer':
+        return 'bridgeOut';
+      case 'usdcx':
+        return 'usdcxWithdrawal';
+      default:
+        return 'fastBridgeOut';
+    }
+  };
+  const selectedBridgeFeature = bridgeFeature();
+  const bridgeAvailability = useFeatureAvailability(selectedBridgeFeature, {
+    hold: isBridge,
+    chainId: bridgeNetworkObj?.chainId
+  });
+  const bridgeBlocked = isBridge && isFeatureBlocked(bridgeAvailability);
 
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  // Loaded here too: a review held for want of the document resolves only once one arrives.
+  const bridgeConfig = useBridgeConfigSnapshot();
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
@@ -171,14 +258,46 @@ export const ReviewTransaction: React.FC = () => {
   const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
   // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
   const nativeFaucetId = useNativeFeeFaucetId();
+  // Held, not left: the review stays on screen, unconfirmable, until the document says whether it is retired.
+  const tokenHeld = isNewTransferTokenHeld(bridgeConfig, tokenId, nativeFaucetId);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+  const nativeMetadata = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId);
+  const nativeSymbol = nativeMetadata.symbol;
+  const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
-  const burnPreflight = useBurnPreflight(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
+  const burnFee = useBurnFeeReserve(
+    isUsdcxBurn && publicKey && bridgeNetworkObj
+      ? {
+          accountPublicKey: publicKey,
+          destinationChainId: bridgeNetworkObj.chainId
+        }
+      : undefined
+  );
+  const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
+    if (
+      !isUsdcxBurn ||
+      !nativeScaleKnown ||
+      burnFee.status !== 'measured' ||
+      burnFee.reserve === undefined ||
+      !burnFee.faucetId ||
+      !burnFee.scope
+    )
+      return undefined;
+    return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
+  }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
+  const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
+  useUserVisibleError(isUsdcxBurn && burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null, 'review');
+  const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
+  // A burn keeps its own 6-decimal refusal. Every other review refuses a finer amount
+  // before `stringToBigInt` can truncate it into a smaller transfer.
+  const amountExceedsPrecision = useMemo(
+    () => !isUsdcxBurn && !!token && amountExceedsTokenDecimals(amount, token.decimals),
+    [isUsdcxBurn, token, amount]
+  );
   const amountBaseUnits = useMemo(() => {
-    if (!token || !amount) return undefined;
+    if (!token || !amount || amountExceedsPrecision) return undefined;
     try {
       if (isUsdcxBurn) {
         if (!/^\d+(\.\d{1,6})?$/.test(amount)) return undefined;
@@ -188,24 +307,64 @@ export const ReviewTransaction: React.FC = () => {
     } catch {
       return undefined;
     }
-  }, [token, amount, isUsdcxBurn]);
+  }, [token, amount, isUsdcxBurn, amountExceedsPrecision]);
 
-  // Forward-quote the USDC output for the Fast (Epoch) route — drives the
+  // Forward-quote the EVM output for the Fast (Epoch) route on the chosen chain — drives the
   // "you receive" row.
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: to,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge && !isUsdcxBurn
+    enabled: isBridge && !isUsdcxBurn,
+    destinationChainId: bridgeNetworkObj?.chainId
   });
 
-  // Private by default; the per-send toggle was removed from the UI. Only the
-  // E2E hook below can flip it.
-  const [sharePrivately, setSharePrivately] = useState(true);
+  const epochMinimumOutput = useMemo(() => {
+    if (
+      epochQuote.loading ||
+      epochQuote.error ||
+      epochQuote.amount === undefined ||
+      epochQuote.decimals === undefined ||
+      epochQuote.address === undefined ||
+      epochQuote.validity === undefined
+    )
+      return 0n;
+    try {
+      const minimum = reviewedEpochMinimum(epochQuote.amount, epochQuote.decimals);
+      assertEpochReviewedOutput({
+        minimumOutputBaseUnits: minimum.toString(),
+        outputTokenAddress: epochQuote.address,
+        outputTokenDecimals: epochQuote.decimals,
+        validity: epochQuote.validity
+      });
+      return minimum;
+    } catch {
+      return 0n;
+    }
+  }, [
+    epochQuote.amount,
+    epochQuote.decimals,
+    epochQuote.address,
+    epochQuote.validity,
+    epochQuote.loading,
+    epochQuote.error
+  ]);
+  const epochQuoteUnavailable = isBridge && route !== 'agglayer' && route !== 'usdcx' && epochMinimumOutput === 0n;
 
-  // E2E-only hook: the harness can't pick a PUBLIC send by clicking (no UI
-  // toggle), so expose a setter while the review page is mounted. Mirrors the
+  // Private by default. The user changes it under Advanced options (the "Transfer type" row
+  // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
+  const [sharePrivately, setSharePrivately] = useState(restoredDraft?.privacy !== 'public');
+  const transferType: TransferType = sharePrivately ? 'private' : 'public';
+  const [showTransferType, setShowTransferType] = useState(false);
+  // Collapsed by default: the rows under it are the choices most sends never touch, and the
+  // header's summary keeps the current choice in view while it is closed.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const reveal = usePreset('reveal');
+  const fade = usePreset('fade');
+
+  // E2E-only hook: the harness drives the transfer type without opening the
+  // sheet, so expose a setter while the review page is mounted. Mirrors the
   // __TEST_STORE__ gate. Zero production impact.
   useEffect(() => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
@@ -215,17 +374,65 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
-  const [recallTime, setRecallTime] = useState('12:00');
-  const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
+  const [calendarTarget, setCalendarTarget] = useState<string | undefined>(
+    restoredDraft?.recall?.kind === 'calendar' ? (restoredDraft.recall.target ?? '') : undefined
+  );
+  const restoredCalendarDate = parseCalendarRecallTarget(calendarTarget);
+  const [recallDate, setRecallDate] = useState<Date | undefined>(
+    () =>
+      restoredCalendarDate ??
+      (restoredDraft?.recall?.kind === 'scheduled' && restoredDraft.recall.date
+        ? new Date(restoredDraft.recall.date)
+        : undefined)
+  );
+  const [recallTime, setRecallTime] = useState(
+    restoredCalendarDate
+      ? format(restoredCalendarDate, 'HH:mm')
+      : restoredDraft?.recall?.kind === 'scheduled'
+        ? restoredDraft.recall.time
+        : '12:00'
+  );
+  const [recallBlocks, setRecallBlocks] = useState<string | undefined>(
+    restoredDraft?.recall?.kind === 'scheduled' ? restoredDraft.recall.blocks : undefined
+  );
   const [showCalendar, setShowCalendar] = useState(false);
   // "Never" = no reclaim height → the send goes out as a plain P2ID note. Tracked
   // separately from `recallDate` (undefined both before seeding AND when "Never" is
   // chosen) so the expiration label can tell the two apart.
-  const [recallNever, setRecallNever] = useState(false);
+  const [recallNever, setRecallNever] = useState(restoredDraft?.recall?.kind === 'never');
   // Marks the recall height as user-chosen (a date or "Never") so the async
   // default-seeding effect below never clobbers an explicit choice (race guard).
-  const recallTouchedRef = useRef(false);
+  const recallTouchedRef = useRef(!!restoredDraft?.recall);
+
+  // Only unsigned choices join the in-memory input draft; a fee, assessment or authorization never does.
+  const writeCommandDraft = commandDrafts?.writeDraft;
+  const readCommandDraft = commandDrafts?.readDraft;
+  useEffect(() => {
+    if (!command || !writeCommandDraft || !readCommandDraft) return;
+    const current = readCommandDraft('send');
+    if (!current) return;
+    writeCommandDraft('send', {
+      ...current,
+      privacy: sharePrivately ? 'private' : 'public',
+      recall: recallTouchedRef.current
+        ? recallNever
+          ? { kind: 'never' }
+          : calendarTarget !== undefined
+            ? { kind: 'calendar', target: calendarTarget }
+            : { kind: 'scheduled', date: recallDate?.toISOString(), time: recallTime, blocks: recallBlocks }
+        : current.recall
+    });
+  }, [
+    command,
+    writeCommandDraft,
+    readCommandDraft,
+    sharePrivately,
+    recallNever,
+    recallDate,
+    recallTime,
+    recallBlocks,
+    calendarTarget
+  ]);
 
   // E2E-only hook: the shortest window RecallCalendarDrawer offers is 30 minutes,
   // so no click path produces a recall a test can wait out — and without one, the
@@ -249,6 +456,7 @@ export const ReviewTransaction: React.FC = () => {
       setRecallNever(true);
       setRecallDate(undefined);
       setRecallBlocks(undefined);
+      setCalendarTarget(undefined);
       return;
     }
     const date = addSeconds(new Date(), armed * SECONDS_PER_BLOCK);
@@ -256,6 +464,7 @@ export const ReviewTransaction: React.FC = () => {
     setRecallDate(date);
     setRecallTime(format(date, 'HH:mm'));
     setRecallBlocks(String(armed));
+    setCalendarTarget(undefined);
   }, [isBridge]);
 
   // Default every same-chain send to a 7-day reclaim (expiration) offset. The
@@ -273,23 +482,67 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
 
+  // From the press until the send settles, the choices it carries are frozen: the sheets stay
+  // closed and ignore a change, so the page never shows anything but what the send carries.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Recall-height handlers. All mark the choice as user-made so the seeding
   // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
-  const handleRecallDateChange = useCallback((date: Date | undefined) => {
-    recallTouchedRef.current = true;
-    if (date) setRecallNever(false);
-    setRecallDate(date);
-  }, []);
-  const handleRecallBlocksChange = useCallback((blocks: string) => {
-    recallTouchedRef.current = true;
-    setRecallBlocks(blocks);
-  }, []);
+  const handleRecallDateChange = useCallback(
+    (date: Date | undefined) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      if (date) setRecallNever(false);
+      setRecallDate(date);
+    },
+    [isSubmitting]
+  );
+  const handleRecallBlocksChange = useCallback(
+    (blocks: string) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      setRecallBlocks(blocks);
+      if (!showCalendar) setCalendarTarget(undefined);
+    },
+    [isSubmitting, showCalendar]
+  );
+  const handleRecallTimeChange = useCallback(
+    (time: string) => {
+      if (isSubmitting) return;
+      setRecallTime(time);
+    },
+    [isSubmitting]
+  );
+  const handleCalendarTargetChange = useCallback(
+    (date: Date, time: string) => {
+      if (!command || isSubmitting || !showCalendar) return;
+      const target = combineDateAndTime(date, time);
+      recallTouchedRef.current = true;
+      setCalendarTarget(
+        /^\d{2}:\d{2}$/.test(time) &&
+          Number.isFinite(target.getTime()) &&
+          target.getHours() === Number(time.slice(0, 2)) &&
+          target.getMinutes() === Number(time.slice(3, 5))
+          ? target.toISOString()
+          : ''
+      );
+      setSubmitError(undefined);
+      setSubmitErrorId(undefined);
+    },
+    [command, isSubmitting, showCalendar]
+  );
   const handleRecallNever = useCallback(() => {
+    if (isSubmitting) return;
     recallTouchedRef.current = true;
     setRecallNever(true);
     setRecallDate(undefined);
     setRecallBlocks(undefined);
-  }, []);
+    setCalendarTarget(undefined);
+    if (command) {
+      setSubmitError(undefined);
+      setSubmitErrorId(undefined);
+    }
+  }, [isSubmitting, command]);
 
   // Leaving review without submitting ends the `send` flow the form began.
   // Without this the handle would stay open past the send flow entirely and the
@@ -307,10 +560,11 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
-  const [spendingLimitChallenge, setSpendingLimitChallenge] =
-    useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
+  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
+  const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
+    Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
+  >();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
@@ -321,13 +575,14 @@ export const ReviewTransaction: React.FC = () => {
     async (spends: readonly IConsumedAssetTotal[]): Promise<boolean> => {
       if (!publicKey) return false;
       const configuration = await readSpendingLimit(publicKey);
-      if (configuration === undefined) return false;
+      if (configuration === undefined || !isCurrentSubmission()) return false;
       setSpendingLimitChallenge({
-        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
+        unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision },
+        reviewedCalendarTarget: calendarTarget
       });
       return true;
     },
-    [publicKey, readSpendingLimit]
+    [publicKey, readSpendingLimit, isCurrentSubmission, calendarTarget]
   );
   // `token` is undefined until balances load; an absent token is handled by the
   // deep-link guard below, so only a LOADED token with an unreadable scale
@@ -344,30 +599,94 @@ export const ReviewTransaction: React.FC = () => {
       // The single success funnel for all three submit paths (Miden, Agglayer,
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
+      if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
       settleSendFlow(flow => flow.complete());
-      clearSendDraft();
+      if (!isCurrentSubmission()) return;
+      if (!command) clearSendDraft();
+      else if (
+        commandDrafts?.readDraft('send') &&
+        commandDrafts.readSendDraftRevision() === reviewRevision &&
+        commandDrafts.readSendAdmission()?.intent !== sendIntent
+      )
+        commandDrafts.clearDraft('send');
       navigate(
         `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     },
-    [fullPage]
+    [fullPage, command, commandDrafts, isCurrentSubmission, reviewRevision, sendIntent]
   );
 
   const runSameChainSend = useCallback(
-    async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+    async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string) => {
+      if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission()) return;
+      const approvedCalendarTarget = authorization === undefined ? calendarTarget : reviewedCalendarTarget;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
       }
+      const currentDraft = commandDrafts?.readDraft('send');
+      const currentIntent =
+        currentDraft &&
+        JSON.stringify([
+          currentDraft.reviewId ?? null,
+          currentDraft.amount,
+          currentDraft.recipientAddress,
+          currentDraft.tokenId,
+          currentDraft.bridgeNetwork,
+          currentDraft.bridgeRoute
+        ]);
+      if (
+        command &&
+        (approvedCalendarTarget !== calendarTarget ||
+          (approvedCalendarTarget !== undefined &&
+            (commandDrafts?.readSendDraftRevision() !== reviewRevision ||
+              currentIntent !== sendIntent ||
+              currentDraft?.recall?.kind !== 'calendar' ||
+              currentDraft.recall.target !== approvedCalendarTarget)))
+      ) {
+        setSubmitError(t('recallReviewChanged'));
+        setSubmitErrorId('raw_send_submit_failed');
+        setIsSubmitting(false);
+        return;
+      }
+      let queueRecallBlocks = recallBlocks ? parseInt(recallBlocks) : undefined;
+      if (command && approvedCalendarTarget !== undefined) {
+        const target = parseCalendarRecallTarget(approvedCalendarTarget);
+        if (!target || target <= new Date()) {
+          setSubmitError(t('recallTimeInPast'));
+          setSubmitErrorId('recallTimeInPast');
+          setIsSubmitting(false);
+          return;
+        }
+        queueRecallBlocks = dateTimeToRecallBlocks(target);
+        if (target <= new Date()) {
+          setSubmitError(t('recallTimeInPast'));
+          setSubmitErrorId('recallTimeInPast');
+          setIsSubmitting(false);
+          return;
+        }
+        if (
+          !Number.isSafeInteger(queueRecallBlocks) ||
+          queueRecallBlocks < 1 ||
+          queueRecallBlocks > MAX_RECALL_BLOCKS
+        ) {
+          setSubmitError(t('recallReviewChanged'));
+          setSubmitErrorId('raw_send_submit_failed');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
       setIsSubmitting(true);
       setSubmitError(undefined);
+      setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
       // Biometrics already passed, or this is the spending-limit authorization
       // that actually submits. Re-open a flow a previous error already settled.
       enterSendFlow();
       reportSendStep('submitting');
+      let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         const commonArguments = [
@@ -376,22 +695,58 @@ export const ReviewTransaction: React.FC = () => {
           token.id,
           sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
           amountBaseUnits,
-          recallBlocks ? parseInt(recallBlocks) : undefined,
+          queueRecallBlocks,
           isDelegateProofEnabled()
         ] as const;
-        const txId = verifiedName
-          ? await initiateSendTransaction(...commonArguments, authorization, verifiedName)
-          : authorization === undefined
-            ? await initiateSendTransaction(...commonArguments)
-            : await initiateSendTransaction(...commonArguments, authorization);
-        if (isExtension()) requestSWTransactionProcessing();
+        if (command && approvedCalendarTarget !== undefined) {
+          txId = verifiedName
+            ? await initiateSendTransaction(
+                ...commonArguments,
+                authorization,
+                undefined,
+                undefined,
+                approvedCalendarTarget,
+                verifiedName
+              )
+            : await initiateSendTransaction(
+                ...commonArguments,
+                authorization,
+                undefined,
+                undefined,
+                approvedCalendarTarget
+              );
+        } else if (verifiedName) {
+          txId = await initiateSendTransaction(
+            ...commonArguments,
+            authorization,
+            undefined,
+            undefined,
+            undefined,
+            verifiedName
+          );
+        } else {
+          txId =
+            authorization === undefined
+              ? await initiateSendTransaction(...commonArguments)
+              : await initiateSendTransaction(...commonArguments, authorization);
+        }
+        if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
+        if (isExtension()) {
+          try {
+            requestSWTransactionProcessing();
+          } catch (error) {
+            console.error(error);
+          }
+        }
         goToGeneratingTransaction(txId);
       } catch (error) {
+        if (txId !== undefined) return;
+        if (command) commandDrafts?.abortSendAdmission(sendIntent);
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          setSpendingLimitChallenge({ assessment, spends });
+          setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: approvedCalendarTarget });
           setIsSubmitting(false);
           return;
         }
@@ -409,42 +764,77 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
-        setSubmitError(error instanceof Error ? error.message : String(error));
+        setSubmitError(
+          error instanceof CalendarRecallReviewRequiredError
+            ? t('recallReviewChanged')
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        );
+        setSubmitErrorId('raw_send_submit_failed');
         setIsSubmitting(false);
       }
     },
     [
       amountBaseUnits,
+      calendarTarget,
+      command,
+      commandDrafts,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
       recallBlocks,
+      reviewRevision,
       sharePrivately,
       verifiedName,
       to,
-      token
+      token,
+      sendIntent,
+      isCurrentSubmission,
+      t
     ]
   );
 
   const runBridgeSend = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable || !isCurrentSubmission())
+        return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
       }
+      if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
       setIsSubmitting(true);
       setSubmitError(undefined);
+      setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
-      // Biometrics already passed, or this is the spending-limit authorization
-      // that actually submits. Re-open a flow a previous error already settled.
+      // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
+      let admittedId: string | undefined;
+      const recordAdmission = (txId: string) => {
+        if (admittedId !== undefined) return;
+        admittedId = txId;
+        goToGeneratingTransaction(txId);
+      };
+      const wakeWorker = () => {
+        if (isExtension()) {
+          try {
+            requestSWTransactionProcessing();
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      };
       enterSendFlow();
       reportSendStep('submitting');
+      let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'usdcx') {
           if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
             throw new UsdcxBurnError('usdcxUnsupportedFaucet');
+          }
+          if (!burnNetworkFeeBudget || !isCurrentUsdcxFeeBudget(burnNetworkFeeBudget)) {
+            throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
           }
           const txId = await initiateUsdcxBurn({
             senderPublicKey: publicKey,
@@ -452,16 +842,23 @@ export const ReviewTransaction: React.FC = () => {
             amount: amountBaseUnits,
             destinationAddress: to,
             destinationChainId: bridgeNetworkObj.chainId,
+            networkFeeBudget: burnNetworkFeeBudget,
             spendingLimitAuthorization: authorization
           });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
+          recordAdmission(txId);
+          wakeWorker();
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
-          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
+            failureId = 'agglayerTokenUnsupported';
             throw new Error(t('agglayerTokenUnsupported'));
           }
+          if (!isCurrentSubmission()) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            return;
+          }
           const txId = await initiateB2AggBridge({
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -469,20 +866,40 @@ export const ReviewTransaction: React.FC = () => {
             guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
-          if (isExtension()) requestSWTransactionProcessing();
-          goToGeneratingTransaction(txId);
+          recordAdmission(txId);
+          wakeWorker();
         } else {
-          await bridgeEpochSend({
+          if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            setIsSubmitting(false);
+            return;
+          }
+          const { txId } = await bridgeEpochSend({
+            minimumOutputBaseUnits: epochMinimumOutput,
+            reviewedQuote: {
+              validity: epochQuote.validity,
+              outputTokenAddress: epochQuote.address,
+              outputTokenDecimals: epochQuote.decimals
+            },
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             deps: { signTransaction, guardianProvider: zustandProvider },
-            onRowCreated: goToGeneratingTransaction,
+            onRowCreated: recordAdmission,
             spendingLimitAuthorization: authorization
           });
+          if (txId !== undefined) recordAdmission(txId);
+          else if (admittedId === undefined) {
+            if (command) commandDrafts?.abortSendAdmission(sendIntent);
+            setIsSubmitting(false);
+          }
         }
       } catch (error) {
+        if (admittedId !== undefined) return;
+        // The queue's rejection before a returned or observed row leaves nothing admitted.
+        if (command) commandDrafts?.abortSendAdmission(sendIntent);
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -504,12 +921,21 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
+        setSubmitErrorId(
+          error instanceof EpochReviewChangedError
+            ? error.translationKey
+            : error instanceof UsdcxBurnError && isUserErrorId(error.translationKey)
+              ? error.translationKey
+              : failureId
+        );
         setSubmitError(
-          error instanceof UsdcxBurnError
-            ? t(error.translationKey, error.values)
-            : error instanceof Error
-              ? error.message
-              : String(error)
+          error instanceof EpochReviewChangedError
+            ? t(error.translationKey)
+            : error instanceof UsdcxBurnError
+              ? t(error.translationKey, error.values)
+              : error instanceof Error
+                ? error.message
+                : String(error)
         );
         setIsSubmitting(false);
       }
@@ -517,34 +943,79 @@ export const ReviewTransaction: React.FC = () => {
     [
       amountBaseUnits,
       bridgeNetworkObj,
+      burnNetworkFeeBudget,
+      command,
+      commandDrafts,
+      epochMinimumOutput,
+      epochQuote.address,
+      epochQuote.decimals,
+      epochQuote.validity,
+      epochQuoteUnavailable,
       goToGeneratingTransaction,
       openUnpricedChallenge,
       publicKey,
       route,
+      sendIntent,
       signTransaction,
       t,
       to,
-      token
+      token,
+      isCurrentSubmission
     ]
   );
 
+  const selectedCalendarDate = parseCalendarRecallTarget(calendarTarget);
+  const recallInvalid =
+    command &&
+    !isBridge &&
+    !recallNever &&
+    (calendarTarget !== undefined
+      ? !selectedCalendarDate ||
+        selectedCalendarDate <= new Date() ||
+        !recallDate ||
+        !/^\d{2}:\d{2}$/.test(recallTime) ||
+        combineDateAndTime(recallDate, recallTime).getTime() !== selectedCalendarDate.getTime()
+      : restoredDraft?.recall?.kind === 'scheduled' &&
+        (!recallDate ||
+          !Number.isFinite(recallDate.getTime()) ||
+          !/^\d{2}:\d{2}$/.test(recallTime) ||
+          combineDateAndTime(recallDate, recallTime) <= new Date() ||
+          !recallBlocks ||
+          !/^[1-9]\d*$/.test(recallBlocks)));
+  const submittingRef = useRef(false);
   const onSubmit = useCallback(async () => {
+    if (
+      submittingRef.current ||
+      bridgeBlocked ||
+      tokenHeld ||
+      epochQuoteUnavailable ||
+      recallInvalid ||
+      (command && sendAdmission?.status === 'pending')
+    )
+      return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
+      setSubmitErrorId('unknownTokenScale');
       return;
     }
     const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(undefined);
+    setSubmitErrorId(undefined);
     try {
       const assessment = await assessSpendingLimit(publicKey, spends);
-      if (assessment !== undefined && assessment.breach !== undefined) {
-        setSpendingLimitChallenge({ assessment, spends });
+      if (!isCurrentSubmission()) {
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
+      if (assessment !== undefined && assessment.breach !== undefined) {
+        setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: calendarTarget });
+        setIsSubmitting(false);
+        return;
+      }
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector)) || !isCurrentSubmission()) {
         setIsSubmitting(false);
         return;
       }
@@ -568,9 +1039,19 @@ export const ReviewTransaction: React.FC = () => {
         return;
       }
       setSubmitError(error instanceof Error ? error.message : String(error));
+      setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
+    } finally {
+      submittingRef.current = false;
     }
   }, [
+    bridgeBlocked,
+    tokenHeld,
+    epochQuoteUnavailable,
+    recallInvalid,
+    calendarTarget,
+    command,
+    sendAdmission,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -580,7 +1061,8 @@ export const ReviewTransaction: React.FC = () => {
     runBridgeSend,
     runSameChainSend,
     t,
-    token
+    token,
+    isCurrentSubmission
   ]);
 
   const handleSpendingLimitResult = useCallback(
@@ -590,11 +1072,11 @@ export const ReviewTransaction: React.FC = () => {
         if (isBridge) {
           void runBridgeSend(authorization);
         } else {
-          void runSameChainSend(authorization);
+          void runSameChainSend(authorization, spendingLimitChallenge?.reviewedCalendarTarget);
         }
       }
     },
-    [isBridge, runBridgeSend, runSameChainSend]
+    [isBridge, runBridgeSend, runSameChainSend, spendingLimitChallenge]
   );
 
   // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
@@ -609,213 +1091,418 @@ export const ReviewTransaction: React.FC = () => {
     }
   }, [publicKey, spendingLimitChallenge]);
 
-  // Deep-link guards — after all hooks. Address/amount are checkable
-  // immediately; token existence and balance only once balances load. A 0x
-  // recipient is valid here too: it routes through the bridge. Self-sends are
-  // rejected (SendManager blocks them at entry; this covers direct routing).
-  const paramsInvalid =
-    !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
-  // A cross-chain send must know its destination network, otherwise the review
-  // rows and the submit path have nothing to act on.
-  const bridgeParamsInvalid =
-    isBridge &&
-    (!bridgeNetworkObj ||
-      !route ||
-      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
-      (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
-  const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
-  if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
-    return <Redirect to="/send" />;
-  }
-
-  // Label is derived from recallBlocks — the single source of truth for the send:
-  //   undefined → plain P2ID (no recall) → "None" (or "Never" if explicitly chosen)
-  //   set        → P2IDE, recallable ~(recallBlocks * SECONDS_PER_BLOCK) after SUBMIT
-  // The offset is RELATIVE and gets converted to an absolute height at send time, so
-  // reading the window off the offset (not the picked absolute instant) keeps the
-  // displayed value matching what's actually broadcast no matter how long the user
-  // lingers here. Near windows render precisely (< 3 min in seconds, < 30 min in
-  // minutes), longer ones as a coarse relative phrase.
-  const expirationLabel = (() => {
-    if (!recallBlocks) return recallNever ? t('never') : t('none');
-    const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
-    if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
-    if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
-    const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
-    return rel.charAt(0).toUpperCase() + rel.slice(1);
-  })();
-
-  // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
-  // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
-  // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
-  const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
-  const youReceiveAmount =
-    route === 'agglayer'
-      ? formatMoneyAmount(amount, 'typed')
-      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
-  // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
-  const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
-  const youReceiveLabel =
-    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
-  const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  // Circle takes its fee from the payout, so a burn must exceed its destination's fee allowance.
-  const payoutFeeShortfall =
-    isUsdcxBurn && bridgeNetworkObj && amountBaseUnits !== undefined
-      ? usdcxPayoutFeeShortfall(bridgeNetworkObj.chainId, amountBaseUnits)
-      : undefined;
-  const burnValidationError = !isUsdcxBurn
-    ? undefined
-    : burnPreflight.error
-      ? t(burnPreflight.error instanceof UsdcxBurnError ? burnPreflight.error.translationKey : 'usdcxFaucetUnavailable')
+  function renderReview(): React.ReactElement {
+    const minimumBurnShortfall =
+      isUsdcxBurn && amountBaseUnits !== undefined
+        ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum)
+        : undefined;
+    const burnValidationErrorId = !isUsdcxBurn
+      ? undefined
       : amountBaseUnits === undefined || amountBaseUnits <= 0n
-        ? t('usdcxInvalidAmount')
-        : burnPreflight.minimum !== undefined && amountBaseUnits < burnPreflight.minimum
-          ? t('usdcxBelowMinimumBurn')
-          : payoutFeeShortfall
-            ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
-            : undefined;
+        ? 'usdcxInvalidAmount'
+        : minimumBurnShortfall
+          ? 'usdcxBelowMinimumBurn'
+          : undefined;
+    const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
 
-  const fiatValue =
-    token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg">
-      <NetworkModeBanner />
-      <SendStepLayout
-        title={t('reviewDetails')}
-        onBack={() => goBack()}
-        footer={
-          <div className="flex flex-col gap-2">
-            {(scaleIsUnknown || submitError || burnValidationError) && (
-              <p data-testid="review-error" className="text-center text-sm text-red-500">
-                {scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError)}
-              </p>
-            )}
-            <Button
-              type="button"
-              title={t('sendPayment')}
-              variant={ButtonVariant.Primary}
-              accent="send"
-              onClick={onSubmit}
-              isLoading={isSubmitting}
-              // Disabled rather than merely rejected on press: the reason is known
-              // before the user reaches for the button, and letting them tap a live
-              // CTA only to be refused reads as a wallet fault rather than a
-              // deliberate refusal.
-              disabled={
-                isSubmitting || scaleIsUnknown || (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
-              }
-              data-testid="send-review-submit"
-              className="w-full max-w-none"
-            />
-          </div>
-        }
-      >
-        {/* The amount is the page's hero, in the same place as on the amount step. */}
-        <Hero
-          data-testid="review-amount"
-          className="mt-3"
-          visual={<TokenLogo symbol={token?.name ?? ''} faucetId={token?.id} size="2xl" />}
-          value={`${amount} ${tokenLabel}`}
-          subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
+    // Deep-link guards — after all hooks. Address/amount are checkable
+    // immediately; token existence and balance only once balances load. A 0x
+    // recipient is valid here too: it routes through the bridge. Self-sends are
+    // rejected (SendManager blocks them at entry; this covers direct routing).
+    const paramsInvalid =
+      !tokenId ||
+      !(parseFloat(amount) > 0) ||
+      !isValidRecipientAddress(to) ||
+      sameWalletAccountId(to, publicKey ?? '') ||
+      (command &&
+        !!restoredDraft &&
+        (restoredDraft.tokenId !== tokenId ||
+          restoredDraft.amount !== amount ||
+          restoredDraft.recipientAddress !== to ||
+          (isBridge && (restoredDraft.bridgeNetwork !== network || restoredDraft.bridgeRoute !== route))));
+    // A cross-chain send must know its destination network, otherwise the review
+    // rows and the submit path have nothing to act on.
+    const bridgeParamsInvalid =
+      isBridge &&
+      (!bridgeNetworkObj ||
+        !route ||
+        (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
+        (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
+    const tokenInvalid =
+      isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
+      (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
+    const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
+    const reviewError = scaleIsUnknown
+      ? t('unknownTokenScale')
+      : (submitError ??
+        (precisionErrorId ? t(precisionErrorId) : recallInvalid ? t('recallTimeInPast') : burnValidationError));
+    const reviewErrorId = scaleIsUnknown
+      ? 'unknownTokenScale'
+      : submitError !== undefined
+        ? submitErrorId
+        : (precisionErrorId ?? (recallInvalid ? 'recallTimeInPast' : burnValidationErrorId));
+    if (
+      command &&
+      sendAdmission?.status === 'admitted' &&
+      sendAdmission.intent === sendIntent &&
+      sendAdmission.revision === reviewRevision &&
+      sendAdmission.txId
+    ) {
+      return (
+        <Redirect
+          to={`${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(sendAdmission.txId)}`}
         />
+      );
+    }
+    if (
+      paramsInvalid ||
+      bridgeParamsInvalid ||
+      tokenInvalid ||
+      (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId))
+    ) {
+      return <Redirect to="/send" />;
+    }
 
-        <DetailCard className="mt-6">
-          {/* The full address, never truncated: this is the last look before funds move. Set in body
-              text rather than the bold value face, so it reads as something to check, not a headline. */}
-          <DetailRow label={t('to')} stacked data-testid="review-row-to">
-            {verifiedName && (
-              <span data-testid="review-recipient-name" className="block font-semibold text-ink">
-                {verifiedName}
+    // Only an explicitly authored Command calendar choice has a stable estimated instant.
+    // Default, manual/E2E relative choices and Never retain their original offset labels.
+    const expirationLabel = (() => {
+      if (command && calendarTarget !== undefined)
+        return selectedCalendarDate
+          ? `${t('recallEstimated')} ${format(selectedCalendarDate, 'dd MMM yyyy, HH:mm', { locale: getDateFnsLocale() })}`
+          : t('recallTimeInPast');
+      if (!recallBlocks) return recallNever ? t('never') : t('none');
+      const secs = parseInt(recallBlocks, 10) * SECONDS_PER_BLOCK;
+      if (secs < 180) return t('expiresInSeconds', { seconds: String(Math.max(1, secs)) });
+      if (secs < 1800) return t('expiresInMinutes', { minutes: String(Math.ceil(secs / 60)) });
+      const rel = formatDistanceToNow(addSeconds(new Date(), secs), { addSuffix: true });
+      return rel.charAt(0).toUpperCase() + rel.slice(1);
+    })();
+
+    // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
+    // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
+    // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
+    const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
+    const youReceiveAmount =
+      route === 'agglayer'
+        ? formatMoneyAmount(amount, 'typed')
+        : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
+    // AggLayer receives the sent token. A Fast output takes the bridge USDC label only when it is that token.
+    const youReceiveSymbol =
+      route === 'agglayer'
+        ? (token?.name ?? '')
+        : epochOutputIsBridgeUsdc(bridgeConfig, bridgeNetworkObj?.chainId, epochQuote.symbol, epochQuote.address)
+          ? evmUsdcLabel(bridgeConfig, epochQuote.symbol)
+          : epochQuote.symbol;
+    const youReceiveLabel =
+      youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
+    const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
+    const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+
+    const submitDisabled =
+      bridgeBlocked ||
+      tokenHeld ||
+      epochQuoteUnavailable ||
+      isSubmitting ||
+      (command && sendAdmission?.status === 'pending') ||
+      scaleIsUnknown ||
+      amountExceedsPrecision ||
+      (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
+      recallInvalid;
+    const ReviewLayout = command ? CommandSendReview : SendStepLayout;
+    return (
+      <div className={command ? 'flex flex-col' : 'flex h-full min-h-0 flex-col bg-app-bg'}>
+        <NetworkModeBanner />
+        <ReviewLayout
+          title={t('reviewDetails')}
+          onBack={command ? backToComposer : goBack}
+          formId={command ? formId : undefined}
+          onFormSubmit={() => {
+            if (!submitDisabled) void onSubmit();
+          }}
+          // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
+          onClose={() => {
+            if (!command) clearSendDraft();
+            else commandDrafts?.clearDraft('send');
+            navigate('/');
+          }}
+          footer={
+            <div className="flex flex-col gap-2">
+              {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
+                <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
+              )}
+              <Button
+                type={command ? 'submit' : 'button'}
+                form={command ? formId : undefined}
+                // The CTA names the consequence of a non-default choice, so a public send is never
+                // confirmed by a button that reads like a private one.
+                title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
+                variant={ButtonVariant.Primary}
+                accent="send"
+                onClick={command ? undefined : onSubmit}
+                isLoading={isSubmitting || (command && sendAdmission?.status === 'pending')}
+                // Disabled rather than merely rejected on press: the reason is known
+                // before the user reaches for the button, and letting them tap a live
+                // CTA only to be refused reads as a wallet fault rather than a
+                // deliberate refusal.
+                disabled={submitDisabled}
+                data-testid="send-review-submit"
+                className="w-full max-w-none"
+              />
+            </div>
+          }
+        >
+          {isBridge && <FeatureUnavailableNotice feature={selectedBridgeFeature} availability={bridgeAvailability} />}
+          {/* A held token never reaches a rendered bridge review, so this never stacks on the notice above. */}
+          {tokenHeld && (
+            <Notice
+              tone="warning"
+              icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+              data-testid="review-held-notice"
+            >
+              {t('sendTokenAvailabilityChecking')}
+            </Notice>
+          )}
+          {/* The amount is the page's hero, in the same place as on the amount step. */}
+          <Hero
+            data-testid="review-amount"
+            className="mt-3"
+            visual={<TokenLogo faucetId={tokenId} size="2xl" />}
+            value={<TokenAmount amount={amount} symbol={tokenLabel} formatting="exact" />}
+            subtitle={
+              token?.scaleIsKnown && (
+                <span className="font-heading text-base leading-[22px] font-bold">
+                  <TokenUsdValue amount={amount} decimals={token.decimals} faucetId={token.id} symbol={token.name} />
+                </span>
+              )
+            }
+          />
+
+          <DetailCard surface="outline" face="heading" className="tx-stage-list mt-6">
+            {/* The full address, never truncated: this is the last look before funds move. Right-aligned
+              like the other rows, small enough to sit on one line; the short label drops the label column's
+              minimum width to leave it room, and it wraps rather than overflow. A first-time recipient
+              carries a tag beside the label. */}
+            <DetailRow
+              label={t('to')}
+              className="[&>span:first-child]:min-w-0"
+              data-testid="review-row-to"
+              badge={
+                isNewRecipient ? (
+                  <motion.span {...fade}>
+                    <Pill size="tag" tone="muted" data-testid="review-new-recipient">
+                      {t('newRecipient')}
+                    </Pill>
+                  </motion.span>
+                ) : undefined
+              }
+            >
+              {verifiedName ? (
+                <div className="flex min-w-0 flex-col items-end text-right">
+                  <span data-testid="review-recipient-name" className="block font-semibold text-ink">
+                    {verifiedName}
+                  </span>
+                  <span className="min-w-0 text-[11px] break-all">{to}</span>
+                </div>
+              ) : (
+                <span className="min-w-0 text-[11px] break-all">{to}</span>
+              )}
+            </DetailRow>
+            {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
+            <DetailRow label={t('network')}>
+              <span className="flex items-center gap-1.5">
+                <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
+                {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
               </span>
-            )}
-            <span className="text-body-sm break-all text-ink">{to}</span>
-          </DetailRow>
-          {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
-          <DetailRow label={t('network')}>
-            <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
-            </span>
-          </DetailRow>
+            </DetailRow>
 
-          {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
+            {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && !isUsdcxBurn && (
-            // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
-            <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>
-          )}
+            {networkFee && !isUsdcxBurn && (
+              // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
+              <DetailRow
+                label={t('networkFeeMax')}
+                sub={
+                  networkFeeDetails && (
+                    <TokenUsdValue {...networkFeeDetails} faucetId={networkFeeDetails.faucetId ?? undefined} />
+                  )
+                }
+              >
+                {networkFee}
+              </DetailRow>
+            )}
 
-          {isBridge ? (
-            <>
-              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
-              {isUsdcxBurn ? (
-                <>
-                  <DetailRow label={t('usdcxMinimumBurn')}>
-                    {burnPreflight.minimum === undefined ? (
-                      <Skeleton className="h-6 w-28" />
-                    ) : (
-                      `${formatUnits(burnPreflight.minimum, USDCX_DECIMALS)} USDCx`
+            {isBridge ? (
+              <>
+                <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+                {isUsdcxBurn ? (
+                  <>
+                    <DetailRow
+                      label={t('usdcxMinimumBurn')}
+                      sub={
+                        token?.scaleIsKnown && (
+                          <TokenUsdValue
+                            amount={burnMinimum}
+                            decimals={USDCX_DECIMALS}
+                            faucetId={token.id}
+                            symbol={token.name}
+                          />
+                        )
+                      }
+                    >
+                      <TokenAmount amount={burnMinimum} decimals={USDCX_DECIMALS} symbol="USDCx" formatting="exact" />
+                    </DetailRow>
+                    <DetailRow label={t('networkFeeMax')} sub={t('usdcxSponsorshipFee', { symbol: nativeSymbol })}>
+                      {burnFeeReady && burnNetworkFeeBudget ? (
+                        <TokenAmount
+                          amount={BigInt(burnNetworkFeeBudget.maxAmount)}
+                          decimals={nativeMetadata.decimals}
+                          symbol={nativeSymbol}
+                          formatting="exact"
+                        />
+                      ) : (
+                        <span role="status">
+                          {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {bridgeNetworkObj && amountBaseUnits !== undefined && (
+                      <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} />
                     )}
+                  </>
+                ) : (
+                  <DetailRow
+                    label={t('youReceive')}
+                    sub={
+                      !youReceiveLoading && route === 'agglayer' && token?.scaleIsKnown ? (
+                        <TokenUsdValue
+                          amount={amount}
+                          decimals={token.decimals}
+                          faucetId={token.id}
+                          symbol={token.name}
+                        />
+                      ) : !youReceiveLoading && route === 'epoch' && epochQuote.amount !== undefined ? (
+                        <EvmUsdValue
+                          amount={epochQuote.amount}
+                          decimals={epochQuote.decimals ?? USDCX_DECIMALS}
+                          chainId={bridgeNetworkObj?.chainId}
+                          address={epochQuote.address}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
                   </DetailRow>
-                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
-                  {bridgeNetworkObj && amountBaseUnits !== undefined && (
-                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} amount={amountBaseUnits} />
-                  )}
-                </>
-              ) : (
-                <DetailRow label={t('youReceive')}>
-                  {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+                )}
+              </>
+            ) : (
+              // The transfer type and the expiration are the two choices a same-chain send offers;
+              // both fold under one row, whose summary line names them while it is closed.
+              <DetailDisclosure
+                title={t('advancedOptions')}
+                summary={t(transferType)}
+                summarySub={expirationLabel}
+                summaryPlacement="end"
+                summaryEmphasis={!sharePrivately}
+                open={advancedOpen}
+                onOpenChange={setAdvancedOpen}
+                data-testid="review-advanced-options"
+              >
+                <DetailRow
+                  label={t('transferType')}
+                  onClick={() => setShowTransferType(true)}
+                  aria-haspopup="dialog"
+                  disabled={isSubmitting}
+                  data-testid="review-row-transfer-type"
+                >
+                  {t(transferType)}
                 </DetailRow>
-              )}
-            </>
-          ) : (
-            <DetailRow
-              label={t('expires')}
-              action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
-              data-testid="review-row-expiration"
-            >
-              {expirationLabel}
-            </DetailRow>
+                <DetailRow
+                  label={t('expires')}
+                  action={{
+                    label: t('edit'),
+                    onClick: () => setShowCalendar(true),
+                    'aria-haspopup': 'dialog',
+                    disabled: isSubmitting,
+                    'data-testid': 'review-expiration-edit'
+                  }}
+                  data-testid="review-row-expiration"
+                >
+                  {expirationLabel}
+                </DetailRow>
+              </DetailDisclosure>
+            )}
+          </DetailCard>
+          {/* What a public note gives away stays on the page whether or not Advanced options is open:
+            the choice is made in a sheet, and the consequence must survive closing both. */}
+          <AnimatePresence initial={false}>
+            {!isBridge && !sharePrivately && (
+              <motion.div key="public-transfer-notice" className="overflow-hidden" {...reveal}>
+                <Notice
+                  tone="warning"
+                  title={t('publicTransfer')}
+                  icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                  className="mt-3"
+                  data-testid="review-public-notice"
+                >
+                  {t('publicTransferNotice')}
+                </Notice>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {isUsdcxBurn && (
+            <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
+              {t('usdcxWithdrawalNotice')}
+            </p>
           )}
-        </DetailCard>
-        {isUsdcxBurn && (
-          <p className="mt-3 px-4 text-caption text-muted" data-testid="usdcx-burn-notice">
-            {t('usdcxWithdrawalNotice')}
-          </p>
-        )}
-        {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
+          {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
-        {!isBridge && recallBlocks ? (
-          <p className="mt-3 px-4 text-caption text-muted" data-testid="review-recall-note">
-            {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
-          </p>
-        ) : null}
-      </SendStepLayout>
+          {!isBridge && (recallBlocks || (command && calendarTarget !== undefined)) ? (
+            <p
+              className="mt-3 px-4 text-base leading-[22px] font-semibold face-heading text-muted"
+              data-testid="review-recall-note"
+            >
+              {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
+            </p>
+          ) : null}
+        </ReviewLayout>
 
-      {!isBridge && (
-        <RecallCalendarDrawer
-          open={showCalendar}
-          onOpenChange={setShowCalendar}
-          recallDate={recallDate}
-          recallTime={recallTime}
-          onRecallBlocksChange={handleRecallBlocksChange}
-          onRecallDateChange={handleRecallDateChange}
-          onRecallTimeChange={setRecallTime}
-          onRecallNever={handleRecallNever}
-        />
-      )}
-      {spendingLimitChallenge !== undefined && (
-        <SpendingLimitChallenge
-          assessment={spendingLimitChallenge.assessment}
-          spends={spendingLimitChallenge.spends}
-          unpriced={spendingLimitChallenge.unpriced}
-          onResult={handleSpendingLimitResult}
-        />
-      )}
-    </div>
-  );
+        {!isBridge && (
+          <TransferTypeDrawer
+            open={showTransferType && !isSubmitting}
+            onOpenChange={setShowTransferType}
+            value={transferType}
+            onChange={next => {
+              if (isSubmitting) return;
+              setSharePrivately(next === 'private');
+            }}
+          />
+        )}
+        {!isBridge && (
+          <RecallCalendarDrawer
+            open={showCalendar && !isSubmitting}
+            onOpenChange={setShowCalendar}
+            recallDate={recallDate}
+            recallTime={recallTime}
+            onRecallBlocksChange={handleRecallBlocksChange}
+            onRecallDateChange={handleRecallDateChange}
+            onRecallTimeChange={handleRecallTimeChange}
+            onCalendarTargetChange={handleCalendarTargetChange}
+            skipUnchangedConfirm={command}
+            onRecallNever={handleRecallNever}
+          />
+        )}
+        {spendingLimitChallenge !== undefined && (
+          <SpendingLimitChallenge
+            assessment={spendingLimitChallenge.assessment}
+            spends={spendingLimitChallenge.spends}
+            unpriced={spendingLimitChallenge.unpriced}
+            onResult={handleSpendingLimitResult}
+          />
+        )}
+      </div>
+    );
+  }
+  return renderReview();
 };

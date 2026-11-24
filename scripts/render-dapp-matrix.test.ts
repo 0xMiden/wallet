@@ -6,8 +6,12 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { coverageOf } from '../playwright/e2e/helpers/dapp-mobile-journey';
+
 const script = resolve(__dirname, 'render-dapp-matrix.mjs');
 const TITLE = 'dApp custom requests - guardian account';
+const IOS_TITLE = 'dApp in the in-app browser on iOS - guardian account';
+const ANDROID_TITLE = 'dApp in the in-app browser on Android - guardian account';
 
 type Cell = {
   id: string;
@@ -18,15 +22,23 @@ type Cell = {
   error?: string;
 };
 
-function records(cells: Cell[], extra: { infra?: string; title?: string } = {}): string {
+type Coverage = { presentationPath: string; detail: string };
+
+function records(
+  cells: Cell[],
+  extra: { infra?: string; title?: string; surface?: string; coverage?: Coverage } = {}
+): string {
   const dir = mkdtempSync(join(tmpdir(), 'dapp-cells-'));
+  const surface = extra.surface ?? 'extension';
   writeFileSync(
-    join(dir, 'writes-guardian-X.json'),
+    join(dir, `${surface}-writes-guardian-X.json`),
     JSON.stringify({
+      surface,
       part: 'writes',
       axis: 'guardian',
       journey: 'X',
       testTitle: extra.title ?? TITLE,
+      ...(extra.coverage === undefined ? {} : { coverage: extra.coverage }),
       cells: cells.map(cell => ({
         knownBugs: [],
         staleKnownBugs: [],
@@ -221,5 +233,72 @@ describe('render-dapp-matrix', () => {
     );
     expect(run.status).toBe(1);
     expect(run.stderr.split('\n')[0]).toBe('infrastructure: Public faucet answered 502');
+  });
+
+  it('labels a mobile leg with the presentation path its page reported', () => {
+    const out = render(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'android',
+        title: ANDROID_TITLE,
+        coverage: { presentationPath: 'fallback', detail: 'Native presentation is unsupported in this WebView' }
+      }),
+      results([ANDROID_TITLE])
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain('Presentation path: fallback, the browserFallback path only');
+    expect(out.stdout).toContain('(Native presentation is unsupported in this WebView)');
+  });
+
+  it('fails the gate on a mobile leg that recorded no presentation path', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], { surface: 'ios', title: IOS_TITLE }),
+      results([IOS_TITLE])
+    );
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`${IOS_TITLE}: no presentation path recorded`);
+  });
+
+  it('fails the gate when a mobile journey presentation event never arrived', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'android',
+        title: ANDROID_TITLE,
+        coverage: coverageOf(null)
+      }),
+      results([ANDROID_TITLE])
+    );
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`${ANDROID_TITLE}: no presentation path recorded`);
+  });
+
+  it('passes the gate for an observed unknown presentation answer', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'android',
+        title: ANDROID_TITLE,
+        coverage: coverageOf({
+          key: 'A/one',
+          kind: 'presentation',
+          at: 1,
+          receivedAt: 2,
+          visibility: 'visible',
+          data: { path: 'unexpected', detail: 'an observed answer' }
+        })
+      }),
+      results([ANDROID_TITLE])
+    );
+    expect([run.status, run.stderr]).toEqual([0, '']);
+  });
+
+  it('passes the gate on a labelled mobile leg whose cells passed', () => {
+    const run = gate(
+      records([{ id: 'S1', verdict: 'pass' }], {
+        surface: 'ios',
+        title: IOS_TITLE,
+        coverage: { presentationPath: 'gated', detail: 'ready() resolved' }
+      }),
+      results([IOS_TITLE])
+    );
+    expect([run.status, run.stderr]).toEqual([0, '']);
   });
 });

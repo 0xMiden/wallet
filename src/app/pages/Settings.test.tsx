@@ -1,14 +1,14 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { PlatformUnlockState } from 'lib/platform-auth/types';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
-import { PRIVACY_POLICY_URL } from '../constants';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
 import Settings from './Settings';
 
@@ -16,7 +16,7 @@ import Settings from './Settings';
 // Mutable state used by the store / platform / motion mocks. Names are
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
-type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
+type MockAccount = { type?: string; hotPublicKey?: string; hdIndex?: number } | undefined;
 const mockWalletState: {
   currentAccount: MockAccount;
   accounts: NonNullable<MockAccount>[];
@@ -27,8 +27,27 @@ const mockWalletState: {
   seedPhraseStatus: 'stored'
 };
 let mockIsMobile = false;
+let mockIsExtension = false;
 let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
+let mockPlatformState: PlatformUnlockState = { available: false, hasPassword: false, credential: null };
+let mockPlatformLoading = false;
+
+jest.mock(
+  'app/hooks/usePlatformUnlock',
+  () => ({
+    usePlatformUnlock: () => ({ state: mockPlatformState, loading: mockPlatformLoading, refresh: jest.fn() })
+  }),
+  { virtual: true }
+);
+jest.mock(
+  'app/templates/PasskeyUnlockSettings',
+  () => ({
+    __esModule: true,
+    default: mockLayoutPage('passkey-settings')
+  }),
+  { virtual: true }
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -79,7 +98,8 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isExtension: () => mockIsExtension
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -297,6 +317,10 @@ jest.mock('./Networks', () => ({
   __esModule: true,
   default: mockLayoutPage('networks-settings')
 }));
+jest.mock('./RecoverLockedFunds', () => ({
+  __esModule: true,
+  default: mockLayoutPage('recover-locked-funds')
+}));
 
 const mockNavigate = navigate as jest.Mock;
 const mockGoBack = goBack as jest.Mock;
@@ -312,10 +336,13 @@ function setAccount(account: MockAccount) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
+  mockIsExtension = false;
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
   mockMidenNameSupported = false;
+  mockPlatformState = { available: false, hasPassword: false, credential: null };
+  mockPlatformLoading = false;
   mockWalletState.seedPhraseStatus = 'stored';
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
@@ -328,7 +355,58 @@ afterEach(() => {
   document.body.removeAttribute('data-edge-to-edge');
 });
 
-describe('Settings page — root menu (non-guardian)', () => {
+describe('Settings passkey availability', () => {
+  it('keeps the settings entry discoverable on Chromium extensions even if capability detection fails', () => {
+    const target = process.env.TARGET_BROWSER;
+    process.env.TARGET_BROWSER = 'chrome';
+    mockIsExtension = true;
+    try {
+      render(<Settings />);
+      expect(screen.getByRole('button', { name: 'passkeyUnlock' })).toBeVisible();
+    } finally {
+      if (target === undefined) delete process.env.TARGET_BROWSER;
+      else process.env.TARGET_BROWSER = target;
+    }
+  });
+  it('offers the passkey settings route for an eligible password wallet', () => {
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    render(<Settings />);
+    expect(screen.getByRole('button', { name: 'passkeyUnlock' })).toHaveAttribute(
+      'data-slug',
+      '/settings/passkey-unlock'
+    );
+  });
+
+  it('resolves an eligible direct route with its shared page header', () => {
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    render(<Settings tabSlug="passkey-unlock" />);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('passkeyUnlock');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it.each<PlatformUnlockState>([
+    { available: false, hasPassword: true, credential: null },
+    { available: true, hasPassword: false, credential: null }
+  ])('hides both the row and direct route when unavailable: %j', state => {
+    mockPlatformState = state;
+    const view = render(<Settings />);
+    expect(screen.queryByRole('button', { name: 'passkeyUnlock' })).not.toBeInTheDocument();
+    view.rerender(<Settings tabSlug="passkey-unlock" />);
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
+  });
+
+  it('does not discard a direct route while eligibility is still loading', () => {
+    mockPlatformLoading = true;
+    const view = render(<Settings tabSlug="passkey-unlock" />);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    mockPlatformLoading = false;
+    mockPlatformState = { available: true, hasPassword: true, credential: null };
+    view.rerender(<Settings tabSlug="passkey-unlock" />);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('passkeyUnlock');
+  });
+});
+
+describe('Settings page - root menu (non-guardian)', () => {
   it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
     'hides recovery phrase settings when seed status is %s',
     status => {
@@ -353,7 +431,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
       expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
       // invalidTab would bounce the user back to the menu instead.
-      expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+      expect(mockNavigate).not.toHaveBeenCalledWith('/me', expect.anything());
     }
   );
 
@@ -366,7 +444,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     render(<Settings tabSlug="reveal-private-key" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('removes the recovery phrase settings when the seed status changes', () => {
@@ -379,43 +457,53 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
   });
 
-  it('renders the settings header and version footer', () => {
-    render(<Settings tabSlug={null} />);
+  describe('the version line', () => {
+    // The count reads the event's own time stamp; React falls back to Date.now() for a zero one.
+    const tapVersionAt = (timeStamp: number) => {
+      const line = screen.getByText('settingsVersion');
+      const event = createEvent.click(line);
+      Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+      fireEvent(line, event);
+    };
+    const tapVersion = (times: number, start: number, gap: number) => {
+      for (let i = 0; i < times; i++) tapVersionAt(start + i * gap);
+    };
 
-    // The root wears the same TabRootHeader as Activity and Explore — a plain
-    // heading, not the sub-page PageHeader.
-    const heading = screen.getByRole('heading', { level: 1, name: 'settings' });
-    expect(heading).toBeInTheDocument();
-    // ...ending in the same inset rule, not a hairline.
-    const header = heading.closest('header')!;
-    expect(header).not.toHaveClass('border-b');
-    expect(header.nextElementSibling).toHaveClass('mx-4', 'h-1', 'rounded-full', 'bg-fill');
-    expect(screen.queryByTestId('nav-header')).toBeNull();
+    it('opens Developer Settings after seven taps, each within two seconds of the one before', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(7, 10_000, 2_000);
+      expect(navigate).toHaveBeenCalledWith('/developer-settings');
+    });
+
+    it('opens nothing after six taps', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing when the seventh tap comes more than two seconds after the sixth', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      tapVersionAt(10_000 + 5 * 300 + 2_001);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('looks and reads as plain text: no style, role or focus stop of a control', () => {
+      render(<Settings tabSlug={null} />);
+      const line = screen.getByText('settingsVersion');
+      expect(line.tagName).toBe('P');
+      expect(line).toHaveAttribute('class', 'px-1 text-caption text-muted');
+      expect(line).not.toHaveAttribute('role');
+      expect(line).not.toHaveAttribute('tabindex');
+    });
+  });
+
+  it('renders the Profile settings menu without a standalone header or back button', () => {
+    render(<Settings />);
+    expect(screen.getByTestId('profile-settings-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nav-back')).not.toBeInTheDocument();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
-  });
-
-  // The Settings half of the tab-root parity check; Activity's and Explore's is
-  // `TabRootHeaderParity.test.tsx`, which compares against this same reference band.
-  it('draws the shared tab-root band, class for class, with no filter row of its own', () => {
-    const reference = render(<TabRootHeader title="settings" />);
-    const referenceHeader = reference.container.querySelector('header')!.className;
-    reference.unmount();
-
-    const { container } = render(<Settings tabSlug={null} />);
-
-    expect(container.querySelector('header')!.className).toBe(referenceHeader);
-    // The same 4px rule, and the same 8px under it, as Activity and Explore — from the shared
-    // header, not from the page.
-    expect(container.querySelector('header + div')).toHaveClass('mx-4', 'mb-2', 'h-1', 'rounded-full', 'bg-fill');
-    // Settings does not filter, so the band is the title row alone.
-    expect(screen.queryByRole('radiogroup')).toBeNull();
-  });
-
-  it('gives the root no back affordance, since it is a tab destination', () => {
-    render(<Settings tabSlug={null} />);
-
-    expect(screen.queryByTestId('nav-back')).toBeNull();
-    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('renders all four group headings', () => {
@@ -532,13 +620,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
-    // Deliberately pinning a KNOWN BUG, so that it is a bug this test describes
-    // rather than one it endorses: `TERMS_OF_USE_URL` in app/constants is set to
-    // the same string as `PRIVACY_POLICY_URL`, so the Terms of Service row links
-    // to the privacy policy. Whoever gives Terms its own URL should change the
-    // expectation on the next line to it and delete this comment — the red build
-    // is a reminder, not a verdict on the fix.
-    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
+    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/tos/');
   });
 
   it('renders a discoverable "Support" row in the about group as a button (no route, keyboard-accessible)', () => {
@@ -624,50 +706,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(scroller!.contains(header)).toBe(false);
   });
 
-  it('gives each page its own scroll container so offsets do not carry across', () => {
-    const { rerender } = render(<Settings tabSlug={null} />);
-    const listScroller = document.querySelector('.overflow-y-auto');
-
+  it('leaves menu scrolling to Profile and gives sub-pages their own scroll area', () => {
+    const { rerender } = render(<Settings />);
+    expect(document.querySelector('.overflow-y-auto')).toBeNull();
     rerender(<Settings tabSlug="language" />);
-
-    // Same route, so React would otherwise reconcile one container and keep its
-    // scrollTop: the sub-page opened at the list's offset and vice versa.
-    expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
-  });
-
-  it('restores the list scroll position when the user comes back from a sub-page', () => {
-    const rootScrollTop = { current: 0 };
-    const { unmount } = render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
-    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
-    if (!listScroller) throw new Error('List scroller did not render');
-
-    listScroller.scrollTop = 420;
-    fireEvent.scroll(listScroller);
-
-    // Root and sub-pages use different layouts, so Settings itself remounts.
-    unmount();
-    const subpage = render(<Settings tabSlug="language" />);
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
-    subpage.unmount();
-    render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
-
-    // The key that gives each page its own scroller is also what loses the list's
-    // place: returning built a fresh one at the top, so a user who opened Language
-    // from the bottom of a long list came back to the top. The drawers this
-    // replaced kept the list mounted underneath.
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(420);
-  });
-
-  it('does not carry the list offset into the sub-page it opens', () => {
-    const { rerender } = render(<Settings tabSlug={null} />);
-    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
-    listScroller!.scrollTop = 420;
-    fireEvent.scroll(listScroller!);
-
-    rerender(<Settings tabSlug="language" />);
-
-    // The restore is for the root only — a sub-page still opens at its top.
-    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
+    expect(document.querySelector('.overflow-y-auto')).not.toBeNull();
   });
 
   it('takes focus to the sub-page title, which a route change does not announce', () => {
@@ -727,15 +770,9 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
   });
 
-  it('leaves focus alone on the settings list itself', () => {
-    render(<Settings tabSlug={null} />);
-
-    // Arriving from the wallet home, not from within Settings — stealing focus
-    // here would fight the navigation the user already made. The root's
-    // TabHeader has no focus-on-mount behaviour at all, so there is nothing to
-    // steal it.
-    expect(screen.queryByTestId('nav-header')).toBeNull();
-    expect(document.activeElement).toBe(document.body);
+  it('uses the Profile header for the settings menu', () => {
+    render(<Settings />);
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
   });
 
   it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
@@ -785,7 +822,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('replaces an unknown slug with the Settings root route so the footer is restored', () => {
     render(<Settings tabSlug="does-not-exist" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
@@ -796,7 +833,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it.each(['support', 'send-feedback'])('replaces the action-only slug %s instead of rendering a blank page', slug => {
     render(<Settings tabSlug={slug} />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
   });
 });
@@ -810,7 +847,7 @@ describe('Settings page — Miden Name', () => {
   it('bounces the miden-name slug when the network has no deployment', () => {
     render(<Settings tabSlug="miden-name" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('miden-name-settings')).not.toBeInTheDocument();
   });
 
@@ -829,7 +866,7 @@ describe('Settings page — Miden Name', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('midenName');
     expect(screen.getByTestId('miden-name-settings')).toBeInTheDocument();
-    expect(mockNavigate).not.toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/me', 'replace');
   });
 });
 
@@ -844,6 +881,13 @@ describe('Settings page — guardian account', () => {
     expect(row).toHaveAttribute('data-slug', '/settings/guardian-settings');
     expect(row).toHaveAttribute('data-selector', 'Settings/GuardianSettingsButton');
     expect(row).toHaveAttribute('data-external', 'false');
+  });
+
+  it('offers the encrypted wallet file to a wallet of seed-derived Guardian accounts only', () => {
+    setAccount({ type: 'guardian', hdIndex: 0 });
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
   });
 
   it('shows the guardian settings entry for guardian accounts', () => {
@@ -871,7 +915,7 @@ describe('Settings page — guardian account', () => {
 
     // Redirect out of the full-screen layout to the root's tab layout.
     expect(screen.queryByTestId('guardian-settings-body')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 
@@ -901,7 +945,7 @@ describe('Settings page — recovery phrase row', () => {
 
     view.rerender(<Settings tabSlug="remove-seed-phrase" />);
     expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
-    expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).not.toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('renders no overlay on the Settings root when the row is tapped, with a single haptic', () => {
@@ -956,7 +1000,7 @@ describe('Settings page — active tab routing', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
-  it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
+  it('sends back to Profile, replacing, when a sub-page was opened cold', () => {
     // A deep link or a reload lands on the sub-page at the first history entry,
     // where goBack() is a no-op - the back button has to route instead, and replace so
     // forward does not walk back into the page just left.
@@ -966,7 +1010,7 @@ describe('Settings page — active tab routing', () => {
     fireEvent.click(screen.getByTestId('nav-back'));
 
     expect(mockGoBack).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('renders the edit-miden-faucet-id tab', () => {
@@ -982,6 +1026,13 @@ describe('Settings page — active tab routing', () => {
     expect(screen.getByTestId('export-account-file')).toBeInTheDocument();
   });
 
+  it('renders the hidden recover-funds tab under its own title', () => {
+    render(<Settings tabSlug="recover-funds" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('recoverLockedFunds');
+    expect(screen.getByTestId('recover-locked-funds')).toBeInTheDocument();
+  });
+
   it('resolves the hidden dapps slug to the connected-dApps list page', () => {
     render(<Settings tabSlug="dapps" />);
 
@@ -995,12 +1046,15 @@ describe('Settings page — active tab routing', () => {
     expect(screen.getByTestId('dapp-drawer-settings')).toBeInTheDocument();
   });
 
-  it('routes to an external "about" tab (renders its empty Component under a header)', () => {
-    render(<Settings tabSlug={PRIVACY_POLICY_URL} />);
+  it.each([
+    [PRIVACY_POLICY_URL, 'privacyPolicy'],
+    [TERMS_OF_USE_URL, 'termsOfService']
+  ])('routes to the external about tab %s', (url, title) => {
+    render(<Settings tabSlug={url} />);
 
     // Every tab's slug resolves to an active tab now, external ones included
     // whose Component renders nothing under the navigation header.
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('privacyPolicy');
+    expect(screen.getByTestId('nav-title')).toHaveTextContent(title);
     expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
@@ -1019,7 +1073,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-private-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
   it('reveals the hot key for a guardian with an activated hot key', () => {
@@ -1034,7 +1088,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-hot-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 
   it('does not expose the hot key page for a non-guardian account', () => {
@@ -1042,7 +1096,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-hot-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
   });
 });
 
@@ -1064,15 +1118,26 @@ describe('Settings page — developer endpoints row', () => {
 });
 
 describe('Settings page — mobile body attribute effects', () => {
-  it('marks the body edge-to-edge on the root view and clears it on unmount', () => {
+  it('embeds the unchanged settings groups without a second header or hiding tab navigation', () => {
     mockIsMobile = true;
-    const { unmount } = render(<Settings tabSlug={null} />);
-
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(true);
+    render(<Settings />);
+    expect(screen.getByTestId('profile-settings-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
+    for (const title of ['generalSettings', 'addressBook', 'language', 'keys', 'advancedSettings', 'privacyPolicy']) {
+      expect(screen.getByTestId(`row-${title}`)).toBeInTheDocument();
+    }
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
+  it('releases dApp trays when a settings sub-page unmounts', () => {
+    mockIsMobile = true;
+    const { unmount } = render(<Settings tabSlug="networks" />);
+
+    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
     unmount();
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
   it('does not mark the body edge-to-edge when an active tab is open', () => {
@@ -1092,7 +1157,7 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('does not park dApp trays on the root when the recovery phrase row is tapped', () => {
+  it('leaves Profile dApp trays visible until the settings sub-page opens', () => {
     mockIsMobile = true;
     render(<Settings tabSlug={null} />);
 
@@ -1136,9 +1201,6 @@ describe('Settings page — mobile body attribute effects', () => {
 //   • The module-level `isDevnet ? …Devnet : …Orange` icon selectors (one per
 //     settings icon) are decided once from the build-time DEFAULT_NETWORK
 //     constant, so only one side is reachable within a single test process.
-//   • `Component: () => null` on the Terms-of-Service tab is dead because
-//     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
-//     always resolves the Privacy tab first.
 //   Covering these would require changing the source, which the task forbids.
 
 it('has one rendering path for every sub-page: the page draws its own frame, the host adds none', () => {
@@ -1171,19 +1233,19 @@ describe('Settings page — encrypted wallet file gate', () => {
     );
   });
 
-  it('offers neither the row nor the route when every account is a Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers neither the row nor the route when every account is a key-imported Guardian account', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 
     mockNavigate.mockClear();
     view.rerender(<Settings tabSlug="encrypted-wallet-file" />);
     expect(screen.queryByTestId('encrypted-file-flow')).not.toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+    expect(mockNavigate).toHaveBeenCalledWith('/me', expect.anything());
   });
 
-  it('offers the row as soon as the wallet gains a non-Guardian account', () => {
-    setAccount({ type: 'guardian' });
+  it('offers the row as soon as the wallet gains an account the file restores', () => {
+    setAccount({ type: 'guardian', hdIndex: -1 });
     const view = render(<Settings tabSlug={null} />);
     expect(screen.queryByTestId('row-encryptedWalletFile')).not.toBeInTheDocument();
 

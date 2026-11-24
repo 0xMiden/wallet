@@ -1,6 +1,7 @@
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { AssetMetadata } from 'lib/miden/metadata/types';
-import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _resetNormalizedFaucetIdsForTest, _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -10,6 +11,23 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { UIToken } from './types';
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
+
+// This verified-list fixture assigns explicit price assets to the test faucets.
+const mockVerifiedPriceAssets = new Map<string, string>();
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+}));
+beforeEach(() => {
+  mockVerifiedPriceAssets.clear();
+  for (const token of TEST_SWAP_TOKENS) {
+    if (token.priceSymbol) mockVerifiedPriceAssets.set(token.faucetId, token.priceSymbol);
+  }
+});
+
+// Install swap fixtures for tests that also read swap metadata.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
@@ -60,7 +78,7 @@ describe('uiTokenFromBalance', () => {
     expect(uiTokenFromBalance(row('U1', { symbol: 'UNLISTED' }), { TKN: { price: 3 } } as any).fiatPrice).toBe(0);
   });
 
-  it.each([TOKEN_IETH.faucetId, `bech32:${TOKEN_IETH.faucetId}`])(
+  it.each([TEST_TOKEN_IETH.faucetId, `bech32:${TEST_TOKEN_IETH.faucetId}`])(
     'prices a swap-registry row at its priceSymbol (id %s)',
     id => {
       const prices = { ETH: { price: 3000 }, IETH: { price: 7 } } as any;
@@ -104,6 +122,29 @@ describe('uiTokenFromBalance', () => {
   });
 });
 
+describe('uiTokenFromBalance quote expiry', () => {
+  it('records when a market quote goes stale, and none for a quote with no age', () => {
+    const observedAt = Date.now();
+    const quote = { price: 3, observedAt };
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: quote } as any)
+        .fiatPriceExpiresAt
+    ).toBe(observedAt + 10 * 60_000 + 1);
+    expect(
+      uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), { USDC: { price: 3 } } as any)
+    ).not.toHaveProperty('fiatPriceExpiresAt');
+  });
+
+  it('reads an expired market quote as no price', () => {
+    const stale = { price: 3, observedAt: Date.now() - 10 * 60_000 - 1 };
+    const token = uiTokenFromBalance(row(MIDEN_USDC_FAUCET, { symbol: 'TKN', decimals: 4 }, 42), {
+      USDC: stale
+    } as any);
+    expect(token.fiatPrice).toBe(0);
+    expect(token).not.toHaveProperty('fiatPriceExpiresAt');
+  });
+});
+
 describe('sameUIToken', () => {
   const base: UIToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 5, fiatPrice: 3, scaleIsKnown: true };
 
@@ -118,7 +159,8 @@ describe('sameUIToken', () => {
     ['balance', 6],
     ['fiatPrice', 4],
     ['scaleIsKnown', false],
-    ['fiatPriceIsNominal', true]
+    ['fiatPriceIsNominal', true],
+    ['fiatPriceExpiresAt', 1_000]
   ])('is false when only %s differs', (field, value) => {
     expect(sameUIToken(base, { ...base, [field]: value })).toBe(false);
   });

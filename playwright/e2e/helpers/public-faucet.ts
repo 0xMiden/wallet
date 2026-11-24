@@ -78,8 +78,11 @@ export function publicFaucetFailure(error: unknown, what: string): PublicFaucetE
  * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
  * settles, which ends any body it left unread.
  */
-async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
+async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>, signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.throwIfAborted();
+  signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(
     () => controller.abort(new DOMException(`Request timed out after ${FETCH_TIMEOUT_MS} ms`, 'TimeoutError')),
     FETCH_TIMEOUT_MS
@@ -87,6 +90,7 @@ async function faucetFetch<T>(url: string, read: (response: Response) => Promise
   try {
     return await read(await fetch(url, { signal: controller.signal }));
   } finally {
+    signal?.removeEventListener('abort', abort);
     clearTimeout(timer);
     controller.abort();
   }
@@ -101,6 +105,9 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
+/** A solve ran out its deadline, which matches the faucet's challenge expiry, so only a fresh challenge can succeed. */
+class PowUnsolvedError extends Error {}
+
 /**
  * A nonce solves the challenge when the first 8 bytes of
  * `SHA-256(challenge ‖ nonce_as_be_u64)`, read big-endian, are below `target`.
@@ -113,7 +120,8 @@ function hexToBytes(hex: string): Uint8Array {
 export async function solvePow(
   challengeHex: string,
   target: bigint,
-  deadlineMs: number = POW_SOLVE_DEADLINE_MS
+  deadlineMs: number = POW_SOLVE_DEADLINE_MS,
+  signal?: AbortSignal
 ): Promise<number> {
   const challengeBytes = hexToBytes(challengeHex);
   const buffer = Buffer.alloc(challengeBytes.length + 8);
@@ -121,6 +129,7 @@ export async function solvePow(
   const deadline = Date.now() + deadlineMs;
 
   for (;;) {
+    signal?.throwIfAborted();
     for (let i = 0; i < POW_HASHES_PER_SLICE; i++) {
       const nonce = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
       buffer.writeBigUInt64BE(BigInt(nonce), challengeBytes.length);
@@ -132,7 +141,7 @@ export async function solvePow(
     // slow the machine is. A `target` of 0 is unsatisfiable by any nonce; bound the solve rather than spin.
     await new Promise<void>(resolve => setTimeout(resolve, 0));
     if (Date.now() >= deadline) {
-      throw new Error(
+      throw new PowUnsolvedError(
         `Public faucet PoW unsolved within ${deadlineMs}ms (target=${target}); ` +
           'the challenge is malformed or the difficulty was raised.'
       );
@@ -140,7 +149,7 @@ export async function solvePow(
   }
 }
 
-/** Grant attempts when the faucet answers 5xx; each starts from a fresh challenge. */
+/** Grant attempts when the faucet answers 5xx or a solve runs out of time; each starts from a fresh challenge. */
 const GRANT_ATTEMPTS = 3;
 const GRANT_RETRY_DELAY_MS = 5_000;
 /**
@@ -189,7 +198,13 @@ async function failedResponse(label: string, response: Response): Promise<Error>
   return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
 }
 
-async function requestGrant(baseUrl: string, accountId: string, amount: bigint): Promise<{ noteId: string }> {
+async function requestGrant(
+  baseUrl: string,
+  accountId: string,
+  amount: bigint,
+  powDeadlineMs: number,
+  signal?: AbortSignal
+): Promise<{ noteId: string }> {
   const { challenge, target } = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
     async response => {
@@ -198,9 +213,10 @@ async function requestGrant(baseUrl: string, accountId: string, amount: bigint):
       }
       const json: { challenge: string; target: number } = await response.json();
       return json;
-    }
+    },
+    signal
   );
-  const nonce = await solvePow(challenge, BigInt(target));
+  const nonce = await solvePow(challenge, BigInt(target), powDeadlineMs, signal);
 
   const params = new URLSearchParams({
     account_id: accountId,
@@ -208,17 +224,55 @@ async function requestGrant(baseUrl: string, accountId: string, amount: bigint):
     challenge,
     nonce: nonce.toString()
   });
-  return faucetFetch(`${baseUrl}/get_tokens?${params}`, async response => {
-    if (!response.ok) {
-      throw await failedResponse('Public faucet mint failed', response);
-    }
-    const json: unknown = await response.json();
-    const noteId = json && typeof json === 'object' ? Reflect.get(json, 'note_id') : undefined;
-    if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
-      throw new Error('Public faucet returned an invalid note ID');
-    }
-    return { noteId };
-  });
+  return faucetFetch(
+    `${baseUrl}/get_tokens?${params}`,
+    async response => {
+      if (!response.ok) {
+        throw await failedResponse('Public faucet mint failed', response);
+      }
+      const json: unknown = await response.json();
+      const noteId = json && typeof json === 'object' ? Reflect.get(json, 'note_id') : undefined;
+      if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
+        throw new Error('Public faucet returned an invalid note ID');
+      }
+      return { noteId };
+    },
+    signal
+  );
+}
+
+/** Try one grant for a round trip that already has enough funds. Keep invalid replies as test failures. */
+export async function optionalPublicFaucetGrant(
+  baseUrl: string,
+  accountId: string,
+  amount: bigint,
+  signal: AbortSignal
+): Promise<{ kind: 'granted'; noteId: string } | { kind: 'unavailable'; reason: string }> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  signal.throwIfAborted();
+  signal.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Optional grant exceeded 30 seconds', 'TimeoutError')),
+    30_000
+  );
+  try {
+    const grant = await requestGrant(baseUrl, accountId, amount, POW_SOLVE_DEADLINE_MS, controller.signal);
+    return { kind: 'granted', noteId: grant.noteId };
+  } catch (error) {
+    signal.throwIfAborted();
+    const unavailable =
+      error instanceof FaucetServerError ||
+      error instanceof FaucetRateLimitedError ||
+      error instanceof PowUnsolvedError ||
+      (error instanceof DOMException && error.name === 'TimeoutError') ||
+      (error instanceof TypeError && error.message === 'fetch failed');
+    if (!unavailable) throw error;
+    return { kind: 'unavailable', reason: error.message };
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', abort);
+  }
 }
 
 async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
@@ -265,7 +319,9 @@ export async function publicFaucetAccountId(
  *
  * A 5xx is the faucet's own failure (testnet answered `500 Internal error` and `502 Bad Gateway`
  * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
- * that may have expired. A 429 is waited out for as long as the faucet asks, within
+ * that may have expired. A proof of work still unsolved when its challenge expires (parallel jobs
+ * granting at once can slow a solve that far) is retried the same way and spends the same attempts.
+ * A 429 is waited out for as long as the faucet asks, within
  * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. A 400 naming a cap below an
  * amount the helper chose is asked once more at that cap, as the wallet does; it was refused before
  * anything was minted, so the ask spends neither the 5xx attempts nor the 429 budget. Any other 4xx
@@ -276,16 +332,17 @@ export async function mintFromPublicFaucet(
   accountId: string,
   amount?: bigint,
   retryDelayMs: number = GRANT_RETRY_DELAY_MS,
-  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
+  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  powDeadlineMs: number = POW_SOLVE_DEADLINE_MS
 ): Promise<{ noteId: string }> {
   let resolvedAmount = amount;
-  let serverFailures = 0;
+  let failedAttempts = 0;
   let rateLimitedMs = 0;
   let mayAskAtCap = amount === undefined;
   for (;;) {
     try {
       resolvedAmount ??= await advertisedGrantAmount(baseUrl);
-      return await requestGrant(baseUrl, accountId, resolvedAmount);
+      return await requestGrant(baseUrl, accountId, resolvedAmount, powDeadlineMs);
     } catch (error) {
       if (error instanceof FaucetRateLimitedError && rateLimitedMs + error.retryAfterMs <= RATE_LIMIT_BUDGET_MS) {
         rateLimitedMs += error.retryAfterMs;
@@ -304,10 +361,11 @@ export async function mintFromPublicFaucet(
         resolvedAmount = error.cap;
         continue;
       }
-      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) {
+      const retryable = error instanceof FaucetServerError || error instanceof PowUnsolvedError;
+      if (!retryable || ++failedAttempts >= GRANT_ATTEMPTS) {
         throw publicFaucetFailure(error, 'grant');
       }
-      await sleep(retryDelayMs * serverFailures);
+      await sleep(retryDelayMs * failedAttempts);
     }
   }
 }

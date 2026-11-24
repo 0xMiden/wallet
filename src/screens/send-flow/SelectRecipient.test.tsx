@@ -1,8 +1,13 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MotionConfig } from 'framer-motion';
+
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -56,6 +61,21 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
+  it.each<Partial<SelectRecipientProps> & { isValidAddress: boolean }>([
+    { address: '', isValidAddress: false, chain: 'miden' },
+    { address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' },
+    { address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' }
+  ])('labels the recipient step Continue for $chain ($isValidAddress)', overrides => {
+    const props = renderRecipient(overrides);
+    const button = screen.getByRole('button', { name: 'continue' });
+
+    expect(button).toBe(screen.getByTestId('send-recipient-confirm'));
+    expect(screen.queryByRole('button', { name: 'confirm' })).not.toBeInTheDocument();
+    expect(button.hasAttribute('disabled')).toBe(!overrides.isValidAddress);
+    fireEvent.click(button);
+    expect(props.onConfirm).toHaveBeenCalledTimes(overrides.isValidAddress ? 1 : 0);
+  });
+
   it('titles the step as the tab, with the entry below it over pills that wrap rather than scroll', () => {
     renderRecipient({ onScan: jest.fn() });
     const title = screen.getByRole('heading', { level: 1 });
@@ -139,16 +159,17 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
     const chip = screen.getByTestId('send-network-sepolia');
-    expect(chip.tagName).toBe('SPAN');
+    expect(chip.tagName).not.toBe('BUTTON');
     expect(chip).toHaveTextContent('Sepolia');
   });
 
-  it('offers the bridge networks as chips once there is more than one', () => {
+  it('offers bridge networks in a picker once there is more than one', () => {
     mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
     try {
       const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
       expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('send-network-picker'));
       expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
       fireEvent.click(screen.getByTestId('send-network-base'));
       expect(props.onSelectNetwork).toHaveBeenCalledWith('base');
@@ -412,5 +433,151 @@ describe('SelectRecipient — address field growth', () => {
     rerender(<SelectRecipient {...baseRecipientProps()} address="mtst1abcdefghijklmnop" />);
 
     expect(writes).toEqual(['auto', '90px', '150px']);
+  });
+});
+
+describe('SelectRecipient user-visible errors', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    jest.mocked(reportUserVisibleError).mockClear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const settleMotion = async () => {
+    await act(async () => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+  };
+
+  it('forwards only the current invalid recipient stage after the existing dwell', async () => {
+    const view = render(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'prefix_rejected' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    view.rerender(
+      <MotionConfig skipAnimations>
+        <SelectRecipient
+          {...baseRecipientProps()}
+          error="invalidMidenAccountId"
+          {...{
+            errorDiagnostics: {
+              kind: 'recipient_validation' as const,
+              recipientValidationStage: 'decoder_throw' as const
+            }
+          }}
+        />
+      </MotionConfig>
+    );
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(reportUserVisibleError).toHaveBeenCalledWith('invalidMidenAccountId', 'inline', {
+      kind: 'recipient_validation',
+      recipientValidationStage: 'decoder_throw'
+    });
+  });
+
+  it.each(['invalidEthereumAddress', 'cannotSendToSelf', 'midenAddressWrongNetwork', 'invalidMidenAccountId'])(
+    'reports the visible %s recipient refusal without the address',
+    async error => {
+      const Owner = () => {
+        const [address, setAddress] = React.useState('');
+        return (
+          <SelectRecipient
+            {...baseRecipientProps()}
+            address={address}
+            error={address ? error : undefined}
+            onAddressChange={event => setAddress(event.target.value)}
+          />
+        );
+      };
+      render(
+        <MotionConfig skipAnimations>
+          <Owner />
+        </MotionConfig>
+      );
+      fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: MIDEN_ADDRESS } });
+      await settleMotion();
+      expect(screen.getByText(error)).toBeVisible();
+      expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+
+      await act(async () => jest.advanceTimersByTimeAsync(999));
+      expect(screen.getByText(error)).toBeVisible();
+      expect(reportUserVisibleError).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTimeAsync(1));
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[error, 'inline']]);
+      await act(async () => jest.advanceTimersByTimeAsync(1000));
+      expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('reports the camera denial passed back after pressing Scan QR code', async () => {
+    const Owner = () => {
+      const [error, setError] = React.useState<string>();
+      return (
+        <SelectRecipient {...baseRecipientProps()} error={error} onScan={() => setError('cameraPermissionDenied')} />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.click(screen.getByTestId('send-scan-icon').closest('button')!);
+    await settleMotion();
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    expect(screen.getByText('cameraPermissionDenied')).toBeVisible();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTimeAsync(1));
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['cameraPermissionDenied', 'inline']]);
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+    expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels reporting when correcting the recipient removes the error before 1000 ms', async () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState('');
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          error={address ? 'invalidMidenAccountId' : undefined}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(
+      <MotionConfig skipAnimations>
+        <Owner />
+      </MotionConfig>
+    );
+    fireEvent.change(screen.getByTestId('send-recipient-input'), { target: { value: 'mtst1bad' } });
+    await settleMotion();
+    expect(screen.getByText('invalidMidenAccountId')).toBeVisible();
+    await act(async () => jest.advanceTimersByTimeAsync(999));
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await settleMotion();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.queryByText('invalidMidenAccountId')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
 });

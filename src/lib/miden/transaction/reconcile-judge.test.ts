@@ -1,5 +1,5 @@
 import { judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
-import { AccountState, NodeReads } from './reconcile-reads';
+import { AccountState, NodeReads, RPC_READ_TIMEOUT_MS } from './reconcile-reads';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -20,6 +20,8 @@ interface FakeChain {
   headers?: Record<number, string | undefined>;
   history?: Record<number, AccountState | 'pruned'>;
   notes?: Record<string, number>;
+  /** The account that created a note: a read naming another sender gets no answer, as the real read's. */
+  creators?: Record<string, string>;
   spent?: Record<string, number>;
   tipFails?: boolean;
   notesFail?: boolean;
@@ -34,12 +36,16 @@ interface FakeChain {
   tipAfterChange?: AccountState;
 }
 
-const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
+const chain = (
+  fake: FakeChain
+): NodeReads & { calls: string[]; noteReads: Parameters<NodeReads['noteInclusions']>[] } => {
   const calls: string[] = [];
+  const noteReads: Parameters<NodeReads['noteInclusions']>[] = [];
   let headerReads = 0;
   const swapped = () => fake.headerChangesAfter !== undefined && headerReads > fake.headerChangesAfter;
   return {
     calls,
+    noteReads,
     blockCommitment: async block => {
       calls.push(`header:${block}`);
       headerReads += 1;
@@ -59,12 +65,17 @@ const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
       if (state === 'pruned') return { ok: false, pruned: true, timedOut: false };
       return state === undefined ? { ok: false, pruned: false, timedOut: false } : { ok: true, state };
     },
-    noteInclusions: async ids => {
+    noteInclusions: async (...args) => {
+      const [ids, , sender] = args;
       calls.push('notes');
+      noteReads.push(args);
       if (fake.notesFail) return undefined;
       const found = new Map<string, number>();
       for (const id of ids) {
         const block = fake.notes?.[id];
+        const creator = fake.creators?.[id];
+        if (block !== undefined && sender !== undefined && creator !== undefined && creator !== sender)
+          return undefined;
         if (block !== undefined) found.set(id, block);
       }
       return found;
@@ -242,6 +253,64 @@ describe('row 2: an attributable output note on chain', () => {
       await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } }, [dapp])
     ).toBe('pending');
   });
+});
+
+describe('the account that created an execute`s attempt note (#2147)', () => {
+  // A dApp's row stores the bare address; the read compares the sender in canonical form.
+  const DAPP_ACCOUNT = 'mtst1acct';
+  const execute = () =>
+    row('t', { type: 'execute', accountId: DAPP_ACCOUNT, submitEvidence: [entry({ fromExecute: true })] });
+  const onChain = (creator: string): FakeChain => ({
+    tip: { blockNum: 150, commitment: OTHER },
+    notes: { [NOTE]: 140 },
+    creators: { [NOTE]: creator }
+  });
+  const judgedWith = async (target: ITransaction, fake: FakeChain) => {
+    const node = chain(fake);
+    const judged = await judgeSubmitEvidence(target, { node, accountRows: [target], nowSec: NOW, cadenceMs: 3_000 });
+    return { judged, noteReads: node.noteReads };
+  };
+
+  it('a note the node holds only as another account`s gives no read, never a landing', async () => {
+    const { judged, noteReads } = await judgedWith(execute(), onChain('mtst1other'));
+    expect(judged.entries).toEqual([{ attemptId: 'a1', result: 'no-read', readsFailed: true }]);
+    expect(judged.landed).toBeUndefined();
+    expect(judged.allDead).toBe(false);
+    expect(judged.landingHeld).toBe(false);
+    expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+  });
+
+  it('nor does that note read as absent: X passed with the account at E.initial there proves nothing', async () => {
+    const fake: FakeChain = {
+      ...onChain('mtst1other'),
+      tip: { blockNum: 720, commitment: OTHER },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    };
+    const { judged } = await judgedWith(execute(), fake);
+    expect(judged.entries).toEqual([{ attemptId: 'a1', result: 'no-read', readsFailed: true }]);
+    expect(judged.allDead).toBe(false);
+    expect(judged.neverCommittedBy).toBeUndefined();
+  });
+
+  it('a note its own account created still lands and binds it', async () => {
+    const { judged, noteReads } = await judgedWith(execute(), onChain(DAPP_ACCOUNT));
+    expect(judged.entries[0]).toMatchObject({
+      result: 'landed',
+      proof: { kind: 'note', noteId: NOTE },
+      landingRecord: { block: 140, by: 2 }
+    });
+    expect(judged.landed?.boundTransactionId).toBe(hex(2));
+    expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS, DAPP_ACCOUNT]]);
+  });
+
+  it.each(['send', 'swap'] as const)(
+    'a %s`s note read names no sender, so a copy under another sender still lands it',
+    async type => {
+      const { judged, noteReads } = await judgedWith(row('t', { type }), onChain('mtst1other'));
+      expect(judged.entries[0]).toMatchObject({ result: 'landed', proof: { kind: 'note', noteId: NOTE } });
+      expect(noteReads).toStrictEqual([[[NOTE], RPC_READ_TIMEOUT_MS]]);
+    }
+  );
 });
 
 describe('row 3: E`s nullifier spent at h with the account at E.final there', () => {
@@ -550,6 +619,29 @@ describe('rows 8 and 9 (S-1): no proof either way', () => {
     expect(await resultOf(seen, { tip: { blockNum: 150, commitment: OTHER } })).toBe('unresolvable');
   });
 
+  it('stays pending on a private account while X is still readable', async () => {
+    const fake = { tip: { blockNum: 739, commitment: OTHER }, history: { 700: { blockNum: 700, commitment: OTHER } } };
+    expect(await resultOf(row('t'), fake)).toBe('pending');
+  });
+
+  it('turns unresolvable once X is past reading and the tip left E.initial: no later pass can read more', async () => {
+    const node = chain({ tip: { blockNum: 740, commitment: OTHER } });
+    const target = row('t');
+    const judged = await judgeSubmitEvidence(target, { node, accountRows: [target], nowSec: NOW, cadenceMs: 3_000 });
+
+    expect(judged.entries[0]?.result).toBe('unresolvable');
+    expect(node.calls).not.toContain('account@700');
+  });
+
+  it('does not give up on an entry with no X, which a later pass can still see land', async () => {
+    const target = row('t', { submitEvidence: [entry({ expirationBlock: undefined })] });
+    expect(await resultOf(target, { tip: { blockNum: 900, commitment: OTHER } })).toBe('pending');
+  });
+
+  it('proves a tip still at E.initial expired, however far past X the first pass ran', async () => {
+    expect(await resultOf(row('t'), { tip: { blockNum: 900, commitment: INITIAL } })).toBe('never-committed');
+  });
+
   it('a landed send whose note a batch erased becomes unresolvable, never never-committed', async () => {
     const erased = row('t', { submitEvidence: [entry({ expirationBlock: undefined, initialSeenAtBlock: 101 })] });
     expect(await resultOf(erased, { tip: { blockNum: 150, commitment: FINAL } })).toBe('unresolvable');
@@ -772,6 +864,83 @@ describe('the row`s verdict', () => {
       submitEvidence: [entry(), { attemptId: 'b', capturedAt: 1, source: 'end', verdict: 'never-committed' }]
     });
     expect((await judge(target, { tip: { blockNum: 750, commitment: INITIAL } })).allDead).toBe(false);
+  });
+});
+
+describe('the check that proved the row never committed', () => {
+  it('names row 4 expired, row 5 superseded and row 6 spent elsewhere', async () => {
+    const expired = await judge(row('t'), { tip: { blockNum: 750, commitment: INITIAL } });
+    const superseded = await judge(row('t', { submitEvidence: [entry({ expirationBlock: undefined })] }), {
+      tip: { blockNum: 150, commitment: OTHER, nonce: '6' }
+    });
+    const spent = await judge(
+      row('t', { type: 'consume', submitEvidence: [consumeEntry({ expirationBlock: undefined })] }),
+      { tip: { blockNum: 160, commitment: INITIAL }, spent: { [NULLIFIER]: 150 } }
+    );
+    expect(
+      [expired, superseded, spent].map(judged => [
+        judged.allDead,
+        judged.entries[0]?.neverCommittedBy,
+        judged.neverCommittedBy
+      ])
+    ).toEqual([
+      [true, 'expired', 'expired'],
+      [true, 'superseded', 'superseded'],
+      [true, 'spent_elsewhere', 'spent_elsewhere']
+    ]);
+  });
+
+  it('names attempts proven dead by different checks mixed', async () => {
+    // The one-off read at X proves the first expired; the second has no X, so only the nonce + 1 read speaks for it.
+    const target = row('t', { submitEvidence: [entry(), entry({ attemptId: 'b', expirationBlock: undefined })] });
+    const judged = await judge(target, {
+      tip: { blockNum: 720, commitment: OTHER, nonce: '6' },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    });
+    expect(judged.entries.map(judgement => [judgement.result, judgement.neverCommittedBy])).toEqual([
+      ['never-committed', 'expired'],
+      ['never-committed', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBe('mixed');
+  });
+
+  it('names nothing for a row that is not all dead', async () => {
+    const target = row('t', { submitEvidence: [entry(), entry({ attemptId: 'b', expirationBlock: undefined })] });
+    const judged = await judge(target, { tip: { blockNum: 750, commitment: INITIAL } });
+    expect(judged.entries.map(judgement => [judgement.result, judgement.neverCommittedBy])).toEqual([
+      ['never-committed', 'expired'],
+      ['pending', undefined]
+    ]);
+    expect(judged.allDead).toBe(false);
+    expect(judged.neverCommittedBy).toBeUndefined();
+  });
+
+  it('aggregates the rule an earlier pass stored with the one this pass proves', async () => {
+    const target = row('t', {
+      submitEvidence: [
+        entry({ verdict: 'never-committed', neverCommittedBy: 'expired' }),
+        entry({ attemptId: 'b', expirationBlock: undefined })
+      ]
+    });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: OTHER, nonce: '6' } });
+    expect(judged.entries.map(judgement => [judgement.attemptId, judgement.neverCommittedBy])).toEqual([
+      ['b', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBe('mixed');
+  });
+
+  it('leaves the rule unset beside an earlier verdict stored with none', async () => {
+    const target = row('t', {
+      submitEvidence: [entry({ verdict: 'never-committed' }), entry({ attemptId: 'b', expirationBlock: undefined })]
+    });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: OTHER, nonce: '6' } });
+    expect(judged.entries.map(judgement => [judgement.attemptId, judgement.neverCommittedBy])).toEqual([
+      ['b', 'superseded']
+    ]);
+    expect(judged.allDead).toBe(true);
+    expect(judged.neverCommittedBy).toBeUndefined();
   });
 });
 

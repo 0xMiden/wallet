@@ -16,21 +16,38 @@ const SERVED_BASE = 'http://127.0.0.1:8550/config';
 const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
   network: 'testnet',
   version,
-  epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true },
+  'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
+  // Earn off: Earn on needs an `earn.vaults` list on an Epoch route, which this document has none of.
+  features: { earn: false, nearIntents: false },
   ...overrides
 });
 const parsed = (version: number) => ({
   network: 'testnet',
   version,
-  evm: {},
-  agglayer: {},
-  epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false },
-  mainnetCountdown: { enabled: false }
+  supportedEvmChains: {},
+  'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
+  features: { earn: false, nearIntents: false },
+  mainnetCountdown: { enabled: false },
+  swap: {}
 });
 // A document an E2E harness serves, pointing at its local fakes.
-const localDoc = (version: number) => doc(version, { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } });
+const localDoc = (version: number) =>
+  doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
+const nearIntentsDoc = (version: number) =>
+  doc(version, {
+    network: 'localnet',
+    nearIntents: {
+      serviceUrl: 'http://127.0.0.1:8550',
+      midenAssets: { usdcx: { assetId: 'miden:usdc', faucetId: '0x537c15a622074e91188aa894456c52', decimals: 6 } },
+      chains: {
+        eth: {
+          name: 'Ethereum',
+          addressKind: 'evm',
+          tokens: { ETH: { assetId: 'nep141:eth.omft.near', decimals: 18, miden: ['usdcx'] } }
+        }
+      }
+    }
+  });
 
 const memoryStorage = (initial: Record<string, unknown> = {}) => {
   const data: Record<string, unknown> = { ...initial };
@@ -63,18 +80,32 @@ const setup = (initial: Record<string, unknown> = {}) => {
   _setBridgeConfigSourceDepsForTest({ storage, fetch: fetchMock, now: () => NOW });
 };
 
-const setEnv = (e2e: string | undefined, url: string | undefined) => {
+const setEnv = (
+  e2e: string | undefined,
+  url: string | undefined,
+  oneClickE2e: string | undefined = undefined,
+  network: string | undefined = undefined
+) => {
   if (e2e === undefined) delete process.env.MIDEN_E2E_TEST;
   else process.env.MIDEN_E2E_TEST = e2e;
   if (url === undefined) delete process.env.MIDEN_REMOTE_CONFIG_URL;
   else process.env.MIDEN_REMOTE_CONFIG_URL = url;
+  if (oneClickE2e === undefined) delete process.env.MIDEN_E2E_ONE_CLICK_TESTNET;
+  else process.env.MIDEN_E2E_ONE_CLICK_TESTNET = oneClickE2e;
+  if (network === undefined) delete process.env.MIDEN_NETWORK;
+  else process.env.MIDEN_NETWORK = network;
 };
-const savedEnv = { e2e: process.env.MIDEN_E2E_TEST, url: process.env.MIDEN_REMOTE_CONFIG_URL };
+const savedEnv = {
+  e2e: process.env.MIDEN_E2E_TEST,
+  url: process.env.MIDEN_REMOTE_CONFIG_URL,
+  oneClickE2e: process.env.MIDEN_E2E_ONE_CLICK_TESTNET,
+  network: process.env.MIDEN_NETWORK
+};
 
 beforeEach(() => setEnv(undefined, undefined));
 
 afterAll(() => {
-  setEnv(savedEnv.e2e, savedEnv.url);
+  setEnv(savedEnv.e2e, savedEnv.url, savedEnv.oneClickE2e, savedEnv.network);
   _setBridgeConfigSourceDepsForTest();
 });
 
@@ -105,6 +136,31 @@ describe('bridgeConfigUrl', () => {
 });
 
 describe('fetchAndStoreBridgeConfig', () => {
+  it('keeps localnet NEAR Intents hidden without the dedicated E2E compile flags', async () => {
+    setEnv('true', `${SERVED_BASE}/`, undefined, 'localhost');
+    setup();
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
+  });
+
+  it('allows localnet NEAR Intents only when both E2E gates and the localhost build target are explicit', async () => {
+    setEnv('true', `${SERVED_BASE}/`, 'true', 'localhost');
+    setup();
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    await expect(fetchAndStoreBridgeConfig('localnet')).resolves.toMatchObject({
+      config: { nearIntents: { serviceUrl: 'http://127.0.0.1:8550' } }
+    });
+  });
+
+  it('keeps localnet NEAR Intents hidden when the build network is not localhost', async () => {
+    setEnv('true', `${SERVED_BASE}/`, 'true', 'testnet');
+    setup();
+    fetchMock.mockResolvedValue(response(nearIntentsDoc(1)));
+    const { config } = await fetchAndStoreBridgeConfig('localnet');
+    expect(config.nearIntents).toBeUndefined();
+  });
+
   it('fetches past the browser cache, then stores the body as fetched and raises the floor', async () => {
     setup();
     fetchMock.mockResolvedValue(response(doc(3)));
@@ -125,7 +181,9 @@ describe('fetchAndStoreBridgeConfig', () => {
     fetchMock.mockResolvedValue(response(doc(3)));
     await fetchAndStoreBridgeConfig('testnet');
     storage.set.mockClear();
-    fetchMock.mockResolvedValue(response(doc(3, { epoch: { allocatorUrl: 'https://other.example' } })));
+    fetchMock.mockResolvedValue(
+      response(doc(3, { 'bridge-providers': { epoch: { allocatorUrl: 'https://other.example' } } }))
+    );
     await expect(fetchAndStoreBridgeConfig('testnet')).rejects.toThrow('differs from the accepted');
     expect(storage.set).not.toHaveBeenCalled();
     expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(3) });
@@ -181,7 +239,7 @@ describe('fetchAndStoreBridgeConfig', () => {
     setup();
     fetchMock.mockResolvedValue(response(localDoc(1)));
     await expect(fetchAndStoreBridgeConfig('testnet')).resolves.toMatchObject({
-      config: { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } }
+      config: { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } }
     });
     expect(fetchMock).toHaveBeenCalledWith(`${SERVED_BASE}/testnet.json`, expect.anything());
   });
@@ -275,7 +333,7 @@ describe('readStoredBridgeConfig', () => {
     await expect(readStoredBridgeConfig('testnet')).resolves.toBeNull();
     setEnv('true', SERVED_BASE);
     await expect(readStoredBridgeConfig('testnet')).resolves.toMatchObject({
-      config: { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } }
+      config: { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } }
     });
   });
 });

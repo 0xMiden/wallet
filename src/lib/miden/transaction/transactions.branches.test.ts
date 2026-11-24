@@ -26,7 +26,9 @@ import { isLockedError } from './helper';
 import {
   completeSendTransaction,
   getCompletedTransactions,
+  getCompletedTransactionsPage,
   getSwapSettlementNotes,
+  getSwapSettlementNotesForOrders,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
@@ -56,38 +58,107 @@ _g.__txBrTest = {
 };
 
 const txStore: any[] = _g.__txBrTest.rows;
+const transactionQueryMetrics = { rowsVisited: 0 };
+type HistoryRepoTestMock = {
+  openTransactionIndexCursor: jest.Mock<Promise<unknown>, [unknown, string, boolean, unknown?]>;
+  transactions: { filter: jest.Mock };
+};
 
-jest.mock('lib/miden/repo', () => ({
-  db: {
-    transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
-  },
-  transactions: {
-    add: jest.fn(async (tx: any) => {
-      txStore.push({ ...tx });
-    }),
-    filter: jest.fn((fn: (tx: any) => boolean) => ({
-      toArray: jest.fn(async () => txStore.filter(fn))
-    })),
-    where: jest.fn((query: any) => {
-      if (query === 'extraInputs.swapOrderTxId') {
-        return {
-          equals: jest.fn((value: string) => ({
-            filter: jest.fn((fn: (tx: any) => boolean) => ({
-              toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
-            }))
-          }))
-        };
-      }
-      return {
-        first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-        modify: jest.fn(async (fn: (tx: any) => void) => {
-          const tx = txStore.find(t => t.id === query.id);
-          if (tx) fn(tx);
-        })
-      };
-    })
-  }
+// Stable across `where()` calls so a per-id `.equals` loop is zero calls here, not a fresh mock each time.
+const settlementAnyOf = jest.fn((values: readonly string[]) => ({
+  filter: jest.fn((fn: (tx: any) => boolean) => ({
+    toArray: jest.fn(async () => txStore.filter(tx => values.includes(tx.extraInputs?.swapOrderTxId)).filter(fn))
+  }))
 }));
+
+jest.mock('lib/miden/repo', () => {
+  const db = {
+    transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
+  };
+  // Ordered stand-in for the `completedAt` / `initiatedAt` indexes. Each landed row counts as a visit,
+  // including rows the merge skips, and rows the cursor never reaches do not.
+  const openTransactionIndexCursor = jest.fn(
+    async (
+      _table: unknown,
+      indexName: string,
+      reverse: boolean,
+      bound?: { lower?: number; lowerOpen?: boolean; upper?: number; upperOpen?: boolean }
+    ) => {
+      const keyOf = (tx: ITransaction): number | undefined => {
+        const value =
+          indexName === 'completedAt' ? tx.completedAt : indexName === 'initiatedAt' ? tx.initiatedAt : undefined;
+        return typeof value === 'number' && !Number.isNaN(value) ? value : undefined;
+      };
+      const inBound = (key: number): boolean => {
+        if (bound?.lower !== undefined && (bound.lowerOpen ? key <= bound.lower : key < bound.lower)) return false;
+        if (bound?.upper !== undefined && (bound.upperOpen ? key >= bound.upper : key > bound.upper)) return false;
+        return true;
+      };
+      const indexed: Array<{ key: number; tx: ITransaction }> = [];
+      for (const tx of txStore) {
+        const key = keyOf(tx);
+        if (key === undefined || !inBound(key)) continue;
+        indexed.push({ key, tx });
+      }
+      indexed.sort((a, b) => a.key - b.key || (a.tx.id < b.tx.id ? -1 : a.tx.id > b.tx.id ? 1 : 0));
+      const rows = indexed.map(entry => entry.tx);
+      if (reverse) rows.reverse();
+      if (rows.length === 0) return null;
+      let index = 0;
+      transactionQueryMetrics.rowsVisited += 1;
+      return {
+        done: false,
+        get value() {
+          return rows[index];
+        },
+        async next(this: { done: boolean }) {
+          index += 1;
+          if (index >= rows.length) {
+            this.done = true;
+            return this;
+          }
+          transactionQueryMetrics.rowsVisited += 1;
+          return this;
+        }
+      };
+    }
+  );
+  return {
+    db,
+    openTransactionIndexCursor,
+    transactions: {
+      db,
+      add: jest.fn(async (tx: any) => {
+        txStore.push({ ...tx });
+      }),
+      filter: jest.fn((fn: (tx: any) => boolean) => ({
+        toArray: jest.fn(async () => {
+          transactionQueryMetrics.rowsVisited += txStore.length;
+          return txStore.filter(fn);
+        })
+      })),
+      where: jest.fn((query: any) => {
+        if (query === 'extraInputs.swapOrderTxId') {
+          return {
+            equals: jest.fn((value: string) => ({
+              filter: jest.fn((fn: (tx: any) => boolean) => ({
+                toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
+              }))
+            })),
+            anyOf: settlementAnyOf
+          };
+        }
+        return {
+          first: jest.fn(async () => txStore.find(t => t.id === query.id)),
+          modify: jest.fn(async (fn: (tx: any) => void) => {
+            const tx = txStore.find(t => t.id === query.id);
+            if (tx) fn(tx);
+          })
+        };
+      })
+    }
+  };
+});
 
 jest.mock('dexie', () => ({
   liveQuery: jest.fn((cb: () => any) => ({
@@ -140,6 +211,30 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+// A checked write decides the chain fee before it runs.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: jest.fn(async () => 0),
+  refreshVerificationBaseFee: jest.fn(async () => 0)
+}));
+
+jest.mock('lib/miden/swap/fee-context', () => ({
+  readSwapFeeContext: jest.fn(async () => ({
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native',
+    feeFaucetId: null,
+    baseFee: 0n
+  })),
+  assertSwapFeeContextMatches: jest.fn((_queued: unknown, current: unknown) => current),
+  getSwapFeeContextSync: jest.fn(() => ({
+    scope: 'testnet|rpc',
+    nativeAssetId: 'native',
+    feeFaucetId: null,
+    baseFee: 0n
+  })),
+  assertSwapFeeContextCurrent: jest.fn()
+}));
+
 // Default to non-Guardian so generateTransaction takes the standard
 // signCallback dispatch path. generateTransaction now guards on
 // isGuardianAccount(accountId, guardianProvider); these branch tests drive
@@ -175,12 +270,13 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
   // Needed once a test enters the Guardian branch of generateTransaction
   // (isGuardianAccount → true): the per-account lock key is canonicalized and
   // wallet-account matching is done via these helpers.
-  canonicalWalletAccountId: (id: string) => id,
-  sameWalletAccountId: (a: string, b: string) => a === b
+  canonicalWalletAccountId: (id: string) => id
 }));
 
 // The guardian branch wraps generateGuardianTransaction in a per-account lock;
@@ -225,6 +321,7 @@ const stubGuardianProvider = {
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
+  transactionQueryMetrics.rowsVisited = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
 
@@ -291,7 +388,7 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks failed when extractFullNote returns undefined for private note', async () => {
+  it('rejects when extractFullNote returns undefined for a private note and writes no Failed row', async () => {
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     // Need to make the helpers mock return 'private' for this test
@@ -299,9 +396,11 @@ describe('completeSendTransaction', () => {
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('unavailable');
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }
@@ -374,6 +473,120 @@ describe('completeSendTransaction', () => {
     } finally {
       helpers.toNoteTypeString = orig;
     }
+  });
+
+  // 'confirming' is the commit wait and 'delivering' the relay, so the screen can say which one the user waits
+  // on; stamping 'delivering' before the wait booked the wait under the relay and announced the two in reverse
+  // (#1492).
+  it('stamps confirming for the commit wait and delivering only once the relay starts', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+    let rowDuringWait: ITransaction | undefined;
+    let rowDuringRelay: ITransaction | undefined;
+    mockWaitForTransactionCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+
+    expect(rowDuringWait!.stage).toBe('confirming');
+    expect(rowDuringWait!.stageTimestamps?.delivering).toBeUndefined();
+    // The owed relay is still on record before the wait.
+    expect(rowDuringWait!.noteDelivery).toBe('pending');
+    expect(rowDuringRelay!.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  it('still relays the note when the delivering stamp cannot be written', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    // Fails the write that would stamp 'delivering', judged on a copy of the row, and counts the commit waits run by
+    // then, so the case fails on an unguarded stamp and on one written before the wait.
+    let waitsBeforeFailure: number | undefined;
+    where.mockImplementation((query: any) => {
+      const real = realWhere(query);
+      if (typeof query === 'string') return real;
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          const row = txStore.find(t => t.id === query.id);
+          if (waitsBeforeFailure === undefined && row) {
+            const after = { ...row, stageTimestamps: { ...row.stageTimestamps } };
+            fn(after);
+            if (after.stage === 'delivering' && row.stage !== 'delivering') {
+              waitsBeforeFailure = mockWaitForTransactionCommit.mock.calls.length;
+              throw new Error('dexie write failed');
+            }
+          }
+          return real.modify(fn);
+        }
+      };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+    } finally {
+      where.mockImplementation(realWhere);
+    }
+
+    expect(waitsBeforeFailure).toBe(1);
+    expect(txStore[0]!.stageTimestamps?.delivering).toBeUndefined();
+    expect(mockSendPrivateNote).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  // The relay hands over the inclusion proof only the commit wait produces, so a lost display stamp must not skip
+  // the wait.
+  it('still waits for the commit and relays the note when the confirming stamp cannot be written', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const where = jest.requireMock('lib/miden/repo').transactions.where as jest.Mock;
+    const realWhere = where.getMockImplementation()!;
+    // The first row write after the pending record is the confirming stamp.
+    let pendingRecorded = false;
+    let failNextWrite = false;
+    where.mockImplementation((query: any) => {
+      const real = realWhere(query);
+      return {
+        ...real,
+        modify: async (fn: (row: any) => unknown) => {
+          if (failNextWrite) {
+            failNextWrite = false;
+            throw new Error('dexie write failed');
+          }
+          const written = await real.modify(fn);
+          if (!pendingRecorded && txStore[0]!.noteDelivery === 'pending') {
+            pendingRecorded = true;
+            failNextWrite = true;
+          }
+          return written;
+        }
+      };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+    } finally {
+      where.mockImplementation(realWhere);
+    }
+
+    expect(mockWaitForTransactionCommit).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateNote).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+    // The failed write was the confirming stamp; the delivering stamp after the wait still landed.
+    expect(txStore[0]!.stageTimestamps?.confirming).toBeUndefined();
+    expect(txStore[0]!.stageTimestamps?.delivering).toBeDefined();
   });
 
   it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
@@ -450,20 +663,20 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('records undelivered when the full note is unavailable for a landed private send', async () => {
-    // Failed, but the transaction LANDED — so a private note exists on chain that
-    // was never relayed. "Failed" and "undelivered" are different claims and only
-    // the second says value is sitting somewhere unreachable.
+  it('rejects when the full note is unavailable for a private send and writes no Failed row', async () => {
+    // The landed arm records the stamp. This direct call throws and writes nothing, so the row stays
+    // unfailed and never shows "Send failed: note unavailable".
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
     try {
-      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.transactionId).toBeTruthy();
+      await expect(completeSendTransaction(tx, makeResult({ hasOutputNote: false }))).rejects.toThrow(
+        'Missing full note for private send'
+      );
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.displayMessage).not.toBe('Send failed: note unavailable');
     } finally {
       helpers.toNoteTypeString = orig;
     }
@@ -490,19 +703,10 @@ describe('completeSendTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('catches update status error gracefully (console.error logged)', async () => {
-    const spy = jest.spyOn(console, 'error').mockImplementation();
+  it('lets a failed Completed write leave the tail, so the landed arm records the row', async () => {
     const tx = makeSendTx();
-    // Don't push to txStore — updateTransactionStatus will throw 'No transaction found'
-    try {
-      await completeSendTransaction(tx, makeResult());
-    } catch {
-      // May or may not throw depending on the error path
-    }
-    // `toBeDefined` on a spy is always true: it held whether the failure was
-    // logged or the path was never reached at all.
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    // Not in txStore, so updateTransactionStatus throws 'No transaction found'
+    await expect(completeSendTransaction(tx, makeResult())).rejects.toThrow('No transaction found');
   });
 });
 
@@ -593,6 +797,461 @@ describe('getCompletedTransactions', () => {
     }
     expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
     expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects page limit %p before opening history cursors',
+    async limit => {
+      const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+
+      await expect(getCompletedTransactionsPage({ accountId: 'acc-1', limit })).rejects.toThrow(RangeError);
+
+      expect(repo.openTransactionIndexCursor).not.toHaveBeenCalled();
+    }
+  );
+
+  it('stops the indexed scan after enough account and token matches', async () => {
+    const history = Array.from({ length: 2000 }, (_, index) => {
+      const isAccountMatch = index % 4 !== 0;
+      const isTokenMatch = index % 3 !== 0;
+      return {
+        id: `tx-${String(index).padStart(4, '0')}`,
+        status: ITransactionStatus.Completed,
+        accountId: isAccountMatch ? 'acc-1_tag' : 'acc-2_tag',
+        type: 'send',
+        faucetId: isTokenMatch ? 'f1' : 'f2',
+        completedAt: index % 2 === 0 ? index + 1000 : 0,
+        initiatedAt: index + 1000
+      };
+    });
+    txStore.push(...history);
+
+    const pageLimit = 8;
+    const probeBound = 64;
+    const expected = history
+      .filter(tx => tx.accountId === 'acc-1_tag' && tx.faucetId === 'f1')
+      .sort((a, b) => (a.completedAt || a.initiatedAt) - (b.completedAt || b.initiatedAt) || a.id.localeCompare(b.id))
+      .slice(0, pageLimit);
+    const page = await getCompletedTransactions('acc-1', 0, pageLimit, false, 'f1');
+
+    expect(page.map(tx => tx.id)).toEqual(expected.map(tx => tx.id));
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(pageLimit + probeBound);
+    const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+    const indexes = repo.openTransactionIndexCursor.mock.calls.map(([, indexName]) => indexName);
+    expect(indexes).toEqual(expect.arrayContaining(['completedAt', 'initiatedAt']));
+    expect(repo.transactions.filter).not.toHaveBeenCalled();
+  });
+
+  it('merges completion, fallback, status and token matches without reading the whole table', async () => {
+    const repo = jest.requireMock<HistoryRepoTestMock>('lib/miden/repo');
+    const rows = [
+      {
+        id: 'neg',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        completedAt: -5
+      },
+      {
+        id: 'miss',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 10
+      },
+      {
+        id: 'zero-a',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'consume',
+        faucetId: 'other',
+        initiatedAt: 10,
+        completedAt: 0,
+        assetTotals: [{ faucetId: 'f1', amount: 1n }]
+      },
+      {
+        id: 'zero-b',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'swap',
+        faucetId: 'f2',
+        initiatedAt: 10,
+        completedAt: 0,
+        extraInputs: { requestedFaucetId: 'f1' }
+      },
+      {
+        id: 'fail',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 15
+      },
+      {
+        id: 'fall-20',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 20,
+        completedAt: 0
+      },
+      {
+        id: 'prim',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 20
+      },
+      {
+        id: 'tie-a',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 3,
+        completedAt: 20
+      },
+      {
+        id: 'tie-b',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 50,
+        completedAt: 20
+      },
+      {
+        id: 'unconf',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1_tag',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 30,
+        completedAt: 30
+      },
+      {
+        id: 'other-acct',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-2',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 1,
+        completedAt: 1
+      },
+      {
+        id: 'other-tok',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f2',
+        initiatedAt: 12,
+        completedAt: 12
+      },
+      {
+        id: 'queued',
+        status: ITransactionStatus.Queued,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 16,
+        completedAt: 16
+      },
+      {
+        id: 'newer-wrong',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        faucetId: 'f2',
+        initiatedAt: 90,
+        completedAt: 90
+      },
+      {
+        id: 'newer-other',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-2',
+        type: 'send',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        completedAt: 100
+      }
+    ];
+    txStore.push(...rows);
+    const ascending = ['neg', 'miss', 'zero-a', 'zero-b', 'fail', 'fall-20', 'prim', 'tie-a', 'tie-b', 'unconf'];
+
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      fromEnd: true,
+      limit: 3
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['unconf', 'tie-b', 'tie-a']);
+    expect(newest.rawCount).toBe(3);
+    expect(newest.hasMore).toBe(true);
+    expect(newest.nextCursor).toEqual({
+      effectiveTimestamp: 20,
+      transactionId: 'tie-a',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 3
+    });
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(rows.length);
+
+    const older = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      limit: 3,
+      cursor: newest.nextCursor
+    });
+    expect(older.transactions.map(tx => tx.id)).toEqual(['prim', 'fall-20', 'fail']);
+    expect(older.nextCursor).toEqual({
+      effectiveTimestamp: 15,
+      transactionId: 'fail',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 1
+    });
+    expect(older.hasMore).toBe(true);
+
+    const rest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      tokenId: 'f1',
+      includeFailed: true,
+      limit: 10,
+      cursor: older.nextCursor
+    });
+    expect(rest.transactions.map(tx => tx.id)).toEqual(['zero-b', 'zero-a', 'miss', 'neg']);
+    expect(rest.hasMore).toBe(false);
+    expect(rest.rawCount).toBe(4);
+    expect([...newest.transactions, ...older.transactions, ...rest.transactions].map(tx => tx.id).reverse()).toEqual(
+      ascending
+    );
+
+    const completedOnly = await getCompletedTransactions('acc-1', undefined, 20, false, 'f1');
+    expect(completedOnly.map(tx => tx.id)).toEqual([
+      'neg',
+      'miss',
+      'zero-a',
+      'zero-b',
+      'fall-20',
+      'prim',
+      'tie-a',
+      'tie-b'
+    ]);
+    expect(repo.transactions.filter).not.toHaveBeenCalled();
+  });
+
+  it('pages equal-time status groups in deterministic id order', async () => {
+    txStore.push(
+      {
+        id: 'z-completed',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 1,
+        completedAt: 50
+      },
+      {
+        id: 'a-failed',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 2,
+        completedAt: 50
+      },
+      {
+        id: 'b-unconfirmed',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 3,
+        completedAt: 50
+      }
+    );
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true);
+    const newestFirst: ITransaction[] = [];
+    let page = await getCompletedTransactionsPage({ accountId: 'acc-1', includeFailed: true, fromEnd: true, limit: 1 });
+    for (;;) {
+      newestFirst.push(...page.transactions);
+      if (!page.hasMore || page.nextCursor === null) break;
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 1,
+        cursor: page.nextCursor
+      });
+    }
+
+    const oldestFirstPageIds = ['a-failed', 'b-unconfirmed', 'z-completed'];
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(oldestFirstPageIds);
+    expect(unlimited.map(tx => tx.id)).toEqual(['z-completed', 'a-failed', 'b-unconfirmed']);
+  });
+
+  it('pages equal-time fallback and failed rows in deterministic id order', async () => {
+    txStore.push(
+      {
+        id: 'z-done',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 1,
+        completedAt: 50
+      },
+      {
+        id: 'a-fail',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 2,
+        completedAt: 50
+      },
+      {
+        id: 'b-fall',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 50,
+        completedAt: 0
+      },
+      {
+        id: 'm-open',
+        status: ITransactionStatus.Unconfirmed,
+        accountId: 'acc-1',
+        type: 'send',
+        initiatedAt: 3,
+        completedAt: 50
+      }
+    );
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true);
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      includeFailed: true,
+      fromEnd: true,
+      limit: 1
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['z-done']);
+
+    const newestFirst: ITransaction[] = [...newest.transactions];
+    let page = newest;
+    for (;;) {
+      if (!page.hasMore || page.nextCursor === null) break;
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 1,
+        cursor: page.nextCursor
+      });
+      newestFirst.push(...page.transactions);
+    }
+
+    const oldestFirstPageIds = ['a-fail', 'b-fall', 'm-open', 'z-done'];
+    expect(newestFirst.reverse().map(tx => tx.id)).toEqual(oldestFirstPageIds);
+    expect(unlimited.map(tx => tx.id)).toEqual(['z-done', 'a-fail', 'b-fall', 'm-open']);
+  });
+
+  it('reads only the requested rows from a large equal-time bucket and resumes by id', async () => {
+    const rows = Array.from({ length: 64 }, (_, index) => ({
+      id: `tie-${String(index).padStart(3, '0')}`,
+      status:
+        index % 3 === 0
+          ? ITransactionStatus.Completed
+          : index % 3 === 1
+            ? ITransactionStatus.Failed
+            : ITransactionStatus.Unconfirmed,
+      accountId: 'acc-1',
+      type: 'send',
+      initiatedAt: 1,
+      completedAt: 50
+    }));
+    txStore.push(...rows);
+
+    const newest = await getCompletedTransactionsPage({
+      accountId: 'acc-1',
+      includeFailed: true,
+      limit: 3,
+      fromEnd: true
+    });
+    expect(newest.transactions.map(tx => tx.id)).toEqual(['tie-063', 'tie-062', 'tie-061']);
+    expect(newest.nextCursor).toEqual({
+      effectiveTimestamp: 50,
+      transactionId: 'tie-061',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 1
+    });
+    expect(newest.hasMore).toBe(true);
+    expect(transactionQueryMetrics.rowsVisited).toBeLessThanOrEqual(8);
+
+    const newestFirst = [...newest.transactions];
+    let page = newest;
+    while (page.hasMore && page.nextCursor !== null) {
+      page = await getCompletedTransactionsPage({
+        accountId: 'acc-1',
+        includeFailed: true,
+        limit: 3,
+        cursor: page.nextCursor
+      });
+      newestFirst.push(...page.transactions);
+    }
+
+    expect(newestFirst.map(tx => tx.id)).toEqual(rows.map(tx => tx.id).sort((a, b) => b.localeCompare(a)));
+    expect(new Set(newestFirst.map(tx => tx.id)).size).toBe(rows.length);
+  });
+
+  it('reads the whole table when history is not bounded', async () => {
+    const history: Array<
+      Pick<ITransaction, 'id' | 'status' | 'accountId' | 'type' | 'initiatedAt'> & Partial<ITransaction>
+    > = Array.from({ length: 40 }, (_, index) => ({
+      id: `full-${String(index).padStart(2, '0')}`,
+      status: index % 7 === 0 ? ITransactionStatus.Failed : ITransactionStatus.Completed,
+      accountId: index % 11 === 0 ? 'acc-1_tag' : 'acc-2',
+      type: 'send',
+      faucetId: 'f1',
+      initiatedAt: 1_000 - index,
+      completedAt: index % 2 === 0 ? 0 : 1_000 - index
+    }));
+    history.push({
+      id: 'full-unconfirmed',
+      status: ITransactionStatus.Unconfirmed,
+      accountId: 'acc-1',
+      type: 'swap',
+      faucetId: 'other',
+      initiatedAt: 50,
+      completedAt: 50,
+      extraInputs: { requestedFaucetId: 'f1' }
+    });
+    txStore.push(...history);
+
+    const unlimited = await getCompletedTransactions('acc-1', undefined, undefined, true, 'f1');
+    const matches = history.filter(
+      tx =>
+        (tx.accountId === 'acc-1_tag' || tx.accountId === 'acc-1') &&
+        (tx.faucetId === 'f1' || tx.extraInputs?.requestedFaucetId === 'f1') &&
+        (tx.status === ITransactionStatus.Completed ||
+          tx.status === ITransactionStatus.Failed ||
+          tx.status === ITransactionStatus.Unconfirmed)
+    );
+    expect(unlimited.map(tx => tx.id).sort()).toEqual(matches.map(tx => tx.id).sort());
+    expect(unlimited).toHaveLength(matches.length);
+    expect(transactionQueryMetrics.rowsVisited).toBe(history.length * 3);
+
+    transactionQueryMetrics.rowsVisited = 0;
+    const completedOnly = await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1');
+    expect(completedOnly).toHaveLength(3);
+    expect(completedOnly.map(tx => tx.id)).toEqual(['full-33', 'full-22', 'full-11']);
+    expect(completedOnly.map(tx => tx.status)).toEqual([
+      ITransactionStatus.Completed,
+      ITransactionStatus.Completed,
+      ITransactionStatus.Completed
+    ]);
+    expect(transactionQueryMetrics.rowsVisited).toBe(history.length);
   });
 });
 
@@ -808,6 +1467,67 @@ describe('getSwapSettlementNotes', () => {
       settledTransactions: [],
       reclaimedTransactions: []
     });
+  });
+
+  it('loads both orders with one indexed query', async () => {
+    txStore.push(
+      {
+        id: 'c-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-shared'],
+        transactionId: 'chain-a',
+        amount: 10n,
+        faucetId: 'requested',
+        completedAt: 10,
+        extraInputs: { swapOrderTxId: 'swap-a', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-shared'],
+        transactionId: 'chain-b',
+        amount: 4n,
+        faucetId: 'offered',
+        completedAt: 11,
+        extraInputs: { swapOrderTxId: 'swap-b', swapSettleKind: 'reclaim' }
+      },
+      {
+        id: 'c-send',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-send'],
+        extraInputs: { swapOrderTxId: 'swap-noise' }
+      },
+      {
+        id: 'c-open',
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        noteIds: ['n-open'],
+        extraInputs: { swapOrderTxId: 'swap-noise', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotesForOrders(['swap-a', 'swap-b', 'swap-noise', 'swap-absent']);
+    const anyOf = settlementAnyOf;
+    expect(anyOf).toHaveBeenCalledTimes(1);
+    expect(anyOf).toHaveBeenCalledWith(['swap-a', 'swap-b', 'swap-noise', 'swap-absent']);
+    // The same note id on two orders stays on both: each order keeps its own claimed-note set.
+    expect(notes.get('swap-a')?.settled).toEqual(['n-shared']);
+    expect(notes.get('swap-a')?.reclaimed).toEqual([]);
+    expect(notes.get('swap-a')?.settledTransactions.map(tx => tx.id)).toEqual(['c-a']);
+    expect(notes.get('swap-b')?.settled).toEqual([]);
+    expect(notes.get('swap-b')?.reclaimed).toEqual(['n-shared']);
+    expect(notes.get('swap-b')?.reclaimedTransactions.map(tx => tx.id)).toEqual(['c-b']);
+    const empty = {
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    };
+    expect(notes.get('swap-noise')).toEqual(empty);
+    expect(notes.get('swap-absent')).toEqual(empty);
   });
 });
 
@@ -1030,6 +1750,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([51, 52, 53]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1057,6 +1779,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([54, 55, 56]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: {
         provider: 'epoch',
         claimStatus: 'not-applicable',
@@ -1109,6 +1833,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([57, 58, 59]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1156,6 +1882,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([61, 62, 63]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'epoch', recallBlocks: 1200 }
     });
 
@@ -1199,6 +1927,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([9]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
     });
 
@@ -1227,7 +1956,12 @@ describe('generateTransactionsLoop error paths', () => {
       },
       'Swapped'
     ],
-    ['execute', { type: 'execute', requestBytes: new Uint8Array([8]) }, 'Executed']
+    // No private-note count is known, so the execute may owe one.
+    [
+      'execute',
+      { type: 'execute', requestBytes: new Uint8Array([8]) },
+      'Executed - the private note could not be delivered'
+    ]
   ])(
     'labels a landed %s as its completion handler would on the apply-after-submit error (#1233)',
     async (_label, fields, label) => {
@@ -1350,6 +2084,7 @@ describe('generateTransactionsLoop error paths', () => {
       type: 'send',
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
+      lastDeferral: 'preflight_sync_failed',
       accountId: 'acc-1'
     });
 
@@ -1362,6 +2097,7 @@ describe('generateTransactionsLoop error paths', () => {
     // account until the stuck reaper Failed it (30 min desktop / 2 min mobile).
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.processingStartedAt).toBeUndefined();
+    expect(txStore[0]!.lastDeferral).toBe('wallet_locked');
     // Backed off so a still-locked wallet doesn't re-attempt every ~5s poll.
     expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
     // The in-progress set is empty, so the very next loop pass can pick up
@@ -1508,6 +2244,84 @@ describe('generateTransactionsLoop error paths', () => {
     ]);
   });
 
+  const parsedIndefinite = (transactionId: string) =>
+    new Error(
+      `failed to submit proven transaction: submission of transaction ${transactionId} came back without a definite ` +
+        'outcome, so the node may or may not have accepted it; nothing was recorded locally: grpc request failed for ' +
+        'submit_proven_transaction: Miden node is unavailable; check that the node is running and reachable: ' +
+        'TypeError: Load failed'
+    );
+
+  it('keeps the pickup attempt submit context when a cancelled send later comes back indefinite (#1081)', async () => {
+    const indefiniteId = `0x${'cd'.repeat(32)}`;
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite-context', USER_CANCELLED_TRANSACTION_REASON);
+        throw parsedIndefinite(indefiniteId);
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite-context',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(USER_CANCELLED_TRANSACTION_REASON);
+    expect(row.rawError).toBeUndefined();
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: row.attemptId,
+        transactionId: indefiniteId,
+        submitContext: expect.objectContaining({ endpoint: 'submit_proven_transaction', status: 'unavailable' })
+      })
+    ]);
+  });
+
+  it('does not store submit context on a replaced attempt when the pickup attempt differs (#1081)', async () => {
+    const indefiniteId = `0x${'ef'.repeat(32)}`;
+    const replacedAttempt = 'replaced-attempt';
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite-replaced', USER_CANCELLED_TRANSACTION_REASON);
+        const index = txStore.findIndex(entry => entry.id === 'tx-cancelled-indefinite-replaced');
+        const stored = txStore[index];
+        txStore[index] = {
+          ...stored,
+          attemptId: replacedAttempt,
+          submitEvidence: stored.submitEvidence?.map((entry: { attemptId: string }) => ({ ...entry }))
+        };
+        throw parsedIndefinite(indefiniteId);
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite-replaced',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    const replaced = row.submitEvidence.find((entry: { attemptId: string }) => entry.attemptId === replacedAttempt);
+    const pickup = row.submitEvidence.find((entry: { attemptId: string }) => entry.attemptId !== replacedAttempt);
+    expect(replaced).toBeDefined();
+    expect(pickup).toBeDefined();
+    expect(replaced.transactionId).toBe(indefiniteId);
+    expect(replaced.submitContext).toBeUndefined();
+    expect(pickup.submitContext).toBeUndefined();
+  });
+
   // The Unconfirmed write's terminal-row branch is for the indefinite outcome on a row that can await a verdict;
   // any other cancelled row keeps exactly what its cancel wrote.
   const cancelMidLeafThenThrow = (id: string, error: Error): (() => Record<string, unknown>) => {
@@ -1566,6 +2380,7 @@ describe('generateTransactionsLoop error paths', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
       requestBytes: new Uint8Array([1]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { recallBlocks: 25 }
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -1679,7 +2494,8 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'guardian-acc',
       secondaryAccountId: 'allocator',
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' },
-      requestBytes: earnBytes
+      requestBytes: earnBytes,
+      approvedOutputNoteIds: ['note:recorded']
     });
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -1714,6 +2530,8 @@ describe('generateTransactionsLoop error paths', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: Math.floor(Date.now() / 1000),
       accountId: 'acc-1',
+      requestBytes: new Uint8Array([64, 65, 66]),
+      approvedOutputNoteIds: ['note:recorded'],
       extraInputs: { ...extraInputs }
     });
 

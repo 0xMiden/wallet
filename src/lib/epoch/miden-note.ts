@@ -1,5 +1,7 @@
-import { AccountId } from '@miden-sdk/miden-sdk';
-
+import { assertReviewedBridge } from 'lib/bridge/core/review';
+import type { SubmissionChecks } from 'lib/bridge/core/submission';
+import { captureBridgeWalletScope, type BridgeOperationInput } from 'lib/bridge/operation';
+import { EpochReviewChangedError } from 'lib/epoch/review-error';
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -8,16 +10,18 @@ import {
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
-import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { isExtension } from 'lib/platform';
 
 import { buildEpochCollateralRequestBytes } from './collateral-note';
+import type { EpochReviewedOutput } from './types';
 
 export interface BridgeNoteDeps {
   /**
-   * `signTransaction` action from `useMidenContext()` — needed by the
+   * `signTransaction` action from `useMidenContext()` - needed by the
    * background processor on mobile/desktop where there's no service worker.
    */
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
@@ -32,7 +36,7 @@ export interface BridgeNoteDeps {
  * The Epoch SDK's `createMidenP2IDNote` callback is handed HEX ids (earn.ts /
  * epoch-send.ts pass `normalizeMidenIdToHex` output), while every other producer
  * of a stored faucet/account id writes bech32 and every consumer matches on it
- * verbatim — `getTokenMetadata` looks the row's `faucetId` up in a store keyed by
+ * verbatim - `getTokenMetadata` looks the row's `faucetId` up in a store keyed by
  * the bech32 ids `fetchBalances` produces (an unknown key silently yields
  * "Unknown" / 6 decimals, it never triggers a fetch), and `matchesTokenId`
  * compares `tx.faucetId === tokenId` with the bech32 id of the open token.
@@ -41,15 +45,15 @@ export interface BridgeNoteDeps {
  * `getBech32AddressFromAccountId` does via `getNetworkId()`. A hardcoded testnet
  * HRP wrote `mtst1…` rows on localnet/devnet/mainnet builds (and under a
  * dev-settings endpoint override), where the same faucet is keyed `mlcl1…` etc.
- * The on-chain note is unaffected either way — `Address.fromBech32` recovers the
- * same AccountId regardless of HRP — so this is purely a lookup-key concern.
+ * The on-chain note is unaffected either way - `Address.fromBech32` recovers the
+ * same AccountId regardless of HRP - so this is purely a lookup-key concern.
  *
  * Non-hex input is already bech32 (callers pass the wallet's own `publicKey`) and
  * is returned untouched.
  */
 export function ifHextoBech32(addr: string) {
-  if (addr.startsWith('0x')) {
-    return getBech32AddressFromAccountId(AccountId.fromHex(addr));
+  if (/^0x/i.test(addr)) {
+    return getBech32AddressFromAccountId(accountRefToSdk(addr));
   }
   return addr;
 }
@@ -58,11 +62,11 @@ export interface CreateBridgeP2IDENoteArgs {
   faucetId: string;
   amount: string;
   allocatorId: string;
-  /** SDK-supplied RELATIVE reclaim window — used exactly as provided (never hardcoded). */
+  /** SDK-supplied RELATIVE reclaim window - used exactly as provided (never hardcoded). */
   recallBlocks: number;
-  /** SDK-supplied mandate-binding felts — written verbatim as the note attachment. */
+  /** SDK-supplied mandate-binding felts - written verbatim as the note attachment. */
   bindingAttachmentFelts: bigint[];
-  /** 0x EVM recipient — recorded on the bridge row (the note goes to the allocator). */
+  /** 0x EVM recipient - recorded on the bridge row (the note goes to the allocator). */
   destinationAddress: string;
   /** EVM destination chain id (Epoch). */
   destinationNetwork: number;
@@ -70,12 +74,17 @@ export interface CreateBridgeP2IDENoteArgs {
   /**
    * Fired the instant the `bridged-send` row is created (before proving/submit).
    * The send flow uses this to navigate to the generating-transaction screen
-   * WITH the txId — like a normal send — so the screen tracks the real row
+   * WITH the txId - like a normal send - so the screen tracks the real row
    * instead of racing an empty queue. Not provided by callers that drive their
    * own progress UI (e.g. the EvmConnectModal).
    */
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  allocatorUrl?: string;
+  operation?: BridgeOperationInput;
+  reviewedOutput?: EpochReviewedOutput;
+  expectedWalletScope?: Pick<AccountScope, 'network' | 'rpcUrl'>;
+  checks?: Pick<SubmissionChecks, 'readCurrent' | 'now'>;
 }
 
 /**
@@ -83,14 +92,14 @@ export interface CreateBridgeP2IDENoteArgs {
  * `createMidenP2IDENote` callback for Miden→EVM intents:
  *
  * - SDK passes the faucet, amount, the allocator's Miden account id, the reclaim
- *   window (`recallBlocks`, allocator minimum + SDK drift buffer — used exactly
- *   as provided), and the mandate-binding attachment felts (smallocator PR #38 —
+ *   window (`recallBlocks`, allocator minimum + SDK drift buffer - used exactly
+ *   as provided), and the mandate-binding attachment felts (smallocator PR #38 -
  *   the allocator rejects notes whose attachment doesn't commit to the mandate).
  * - The public P2IDE note (with the binding attachment) is built HERE via
  *   `buildEpochCollateralRequestBytes` and persisted on the row as
  *   `requestBytes`, so both the standard pipeline (`newTransaction`) and the
  *   guardian custom-proposal path submit the exact same note. This row IS the
- *   bridge — the send pipeline proves + submits it and
+ *   bridge - the send pipeline proves + submits it and
  *   `completeBridgedSendTransaction` marks it "Bridged to EVM". There is no
  *   separate outer row.
  * - Service worker (extension) or in-page background processor
@@ -114,8 +123,19 @@ export async function createBridgeP2IDENote(
     onRowCreated,
     spendingLimitAuthorization
   } = args;
+  let ownedTxId: string | undefined;
+  let queuedSendId: string | undefined;
   try {
-    console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
+    const expectedWalletScope =
+      args.expectedWalletScope === undefined
+        ? args.operation
+          ? captureBridgeWalletScope()
+          : undefined
+        : { ...args.expectedWalletScope };
+    if (args.operation) {
+      if (!args.checks) throw new EpochReviewChangedError();
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    }
     const {
       requestBytes,
       reclaimHeight,
@@ -128,6 +148,13 @@ export async function createBridgeP2IDENote(
       recallBlocks,
       bindingAttachmentFelts
     });
+    if (args.operation && args.checks)
+      assertReviewedBridge(args.operation.review, await args.checks.readCurrent(), args.checks.now());
+    if (expectedWalletScope) {
+      const current = captureBridgeWalletScope();
+      if (expectedWalletScope.network !== current.network || expectedWalletScope.rpcUrl !== current.rpcUrl)
+        throw new EpochReviewChangedError();
+    }
     const txId = await initiateBridgedSendTransaction(
       ifHextoBech32(senderAccountId),
       BigInt(amount),
@@ -135,6 +162,7 @@ export async function createBridgeP2IDENote(
       destinationAddress,
       destinationNetwork,
       'epoch',
+      reclaimNoteId,
       requestBytes,
       // Delegate to the remote prover. Local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
@@ -146,10 +174,29 @@ export async function createBridgeP2IDENote(
         reclaimHeight,
         reclaimNoteId
       },
-      spendingLimitAuthorization
+      spendingLimitAuthorization,
+      undefined,
+      undefined,
+      undefined,
+      args.allocatorUrl,
+      args.operation,
+      args.reviewedOutput
     );
+    // A regular Send insert returned its own durable row; reading it is still required before solving.
+    if (!args.operation) queuedSendId = txId;
+    const admitted = await Repo.transactions.where({ id: txId }).first();
+    const originalRequestBytes = admitted?.extraInputs?.epochCollateralRequestBytes;
+    if (
+      admitted?.approvedOutputNoteIds?.length !== 1 ||
+      admitted.approvedOutputNoteIds[0] !== reclaimNoteId ||
+      !(originalRequestBytes instanceof Uint8Array) ||
+      originalRequestBytes.length !== requestBytes.length ||
+      !requestBytes.every((byte, index) => originalRequestBytes[index] === byte)
+    )
+      return queuedSendId ? { success: false, txId: queuedSendId } : { success: false };
+    ownedTxId = txId;
 
-    // Row exists now (Queued) — let the caller navigate to the progress screen
+    // Row exists now (Queued) - let the caller navigate to the progress screen
     // before we block on proving/submission below.
     onRowCreated?.(txId);
 
@@ -171,11 +218,12 @@ export async function createBridgeP2IDENote(
       console.error('[epoch] bridge note tx completed but no outputNoteIds');
       return { success: false, txId };
     }
-    console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
-    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
+    const originalId = ownedTxId ?? queuedSendId;
+    if (!originalId && (spendingLimitAssessmentFromError(err) !== undefined || err instanceof EpochReviewChangedError))
+      throw err;
     console.error('[epoch] createBridgeP2IDENote threw', err);
-    return { success: false };
+    return originalId ? { success: false, txId: originalId } : { success: false };
   }
 }

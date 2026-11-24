@@ -1,9 +1,16 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { easings } from './easings';
-import { springToLinearEasing } from './spring-easing';
+import { springKeyframeStops, springToLinearEasing } from './spring-easing';
 import { springs } from './springs';
-import { resolveTabBarMotion, tabBarMotion, tabBarSwap, useTabBarMotion, useTabIconPop } from './tab-bar';
+import {
+  resolveTabBarMotion,
+  tabBarMotion,
+  tabBarSwap,
+  useCompositorTabIconPop,
+  useTabBarMotion,
+  useTabIconPop
+} from './tab-bar';
 
 let mockReduce: boolean | null = false;
 jest.mock('framer-motion', () => ({
@@ -176,5 +183,105 @@ describe('lib/animation/tab-bar', () => {
       rerender({ on: true, swap: false });
       expect(result.current.phase).toBe('pop');
     });
+  });
+});
+
+describe('useCompositorTabIconPop', () => {
+  interface Played {
+    keyframes: Keyframe[];
+    options: KeyframeAnimationOptions;
+    cancel: jest.Mock;
+  }
+  const played: Played[] = [];
+
+  // jsdom has no DOMMatrixReadOnly; this reads the 2D scale of a matrix() or a scale().
+  class TestMatrix {
+    a = 1;
+    b = 0;
+    constructor(transform: string) {
+      const matrix = /matrix\(([^)]+)\)/.exec(transform);
+      if (matrix?.[1]) [this.a = 1, this.b = 0] = matrix[1].split(',').map(Number);
+      const scale = /scale\(([^)]+)\)/.exec(transform);
+      if (scale?.[1]) this.a = Number(scale[1]);
+    }
+  }
+
+  const el = document.createElement('span');
+  const ref = { current: el };
+  const render = (on: boolean) =>
+    renderHook(({ on }: { on: boolean }) => useCompositorTabIconPop(ref, on), { initialProps: { on } });
+  const drawnAt = (transform: string) =>
+    jest.spyOn(window, 'getComputedStyle').mockReturnValue({ transform } as CSSStyleDeclaration);
+  const firstScale = (animation: Played) =>
+    Number(/scale\(([^)]+)\)/.exec(String(animation.keyframes[0]!.transform))![1]);
+
+  beforeEach(() => {
+    mockReduce = false;
+    played.length = 0;
+    el.removeAttribute('style');
+    Object.defineProperty(globalThis, 'DOMMatrixReadOnly', { configurable: true, value: TestMatrix });
+    Object.defineProperty(Element.prototype, 'animate', {
+      configurable: true,
+      value: (keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
+        const animation = { cancel: jest.fn() };
+        played.push({ keyframes, options, cancel: animation.cancel });
+        return animation;
+      }
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    Reflect.deleteProperty(Element.prototype, 'animate');
+    Reflect.deleteProperty(globalThis, 'DOMMatrixReadOnly');
+  });
+
+  it('settles from the drawn scale when the tab stops being active mid-pop', () => {
+    const { rerender } = render(false);
+    rerender({ on: true });
+    expect(played).toHaveLength(1);
+    expect(played[0]!.keyframes).toContainEqual(expect.objectContaining({ transform: 'scale(1.12)' }));
+
+    drawnAt('matrix(1.06, 0, 0, 1.06, 0, 0)');
+    rerender({ on: false });
+
+    expect(played).toHaveLength(2);
+    expect(played[0]!.cancel).toHaveBeenCalledTimes(1);
+    const settle = played[1]!;
+    expect(firstScale(settle)).toBeCloseTo(1.06);
+    expect(settle.keyframes[0]!.offset).toBe(0);
+    expect(settle.keyframes.at(-1)).toEqual({ transform: 'scale(1)', offset: 1 });
+    expect(settle.options.duration).toBe(
+      springKeyframeStops(tabBarMotion.iconPopSettle, { distance: (firstScale(settle) - 1) * 100 })!.duration
+    );
+    expect(settle.keyframes).not.toContainEqual(expect.objectContaining({ transform: 'scale(1.12)' }));
+  });
+
+  it('a rise still drawn at 1 is cancelled and plays nothing further', () => {
+    const { rerender } = render(false);
+    rerender({ on: true });
+    drawnAt('matrix(1, 0, 0, 1, 0, 0)');
+    rerender({ on: false });
+
+    expect(played).toHaveLength(1);
+    expect(played[0]!.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a running pop when reduced motion turns on', () => {
+    const { rerender } = render(false);
+    rerender({ on: true });
+    mockReduce = true;
+    rerender({ on: true });
+
+    expect(played).toHaveLength(1);
+    expect(played[0]!.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays nothing on mount, or for a tab that was never active', () => {
+    render(true);
+    const { rerender } = render(false);
+    rerender({ on: false });
+
+    expect(played).toHaveLength(0);
   });
 });

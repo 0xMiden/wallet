@@ -6,12 +6,16 @@ import { BridgeIntentWatcher, BridgeWatcherDocument, startBridgeIntentPolling } 
 
 const mockReconcileReceives = jest.fn();
 const mockReconcileSends = jest.fn();
+const mockReconcileOneClick = jest.fn();
 
 jest.mock('./bridge-receive', () => ({
   reconcileBridgedReceives: (...args: unknown[]) => mockReconcileReceives(...args)
 }));
 jest.mock('lib/wallet-prompts', () => ({
   reconcileBridgedSends: (...args: unknown[]) => mockReconcileSends(...args)
+}));
+jest.mock('lib/one-click/tracking', () => ({
+  reconcileOneClickSwaps: (...args: unknown[]) => mockReconcileOneClick(...args)
 }));
 
 const tick = async (ms: number) => {
@@ -128,6 +132,7 @@ describe('BridgeIntentWatcher', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockReconcileReceives.mockResolvedValue(undefined);
     mockReconcileSends.mockResolvedValue(undefined);
+    mockReconcileOneClick.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -140,14 +145,17 @@ describe('BridgeIntentWatcher', () => {
     await act(async () => {});
     expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
     expect(mockReconcileSends).toHaveBeenCalledTimes(1);
+    expect(mockReconcileOneClick).toHaveBeenCalledTimes(1);
 
     await tick(8_000);
     expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
     expect(mockReconcileSends).toHaveBeenCalledTimes(2);
+    expect(mockReconcileOneClick).toHaveBeenCalledTimes(2);
 
     await tick(8_000);
     expect(mockReconcileReceives).toHaveBeenCalledTimes(3);
     expect(mockReconcileSends).toHaveBeenCalledTimes(3);
+    expect(mockReconcileOneClick).toHaveBeenCalledTimes(3);
   });
 
   it('skips receives while their pass is in flight and keeps polling sends on every tick', async () => {
@@ -186,6 +194,26 @@ describe('BridgeIntentWatcher', () => {
     });
     await tick(8_000);
     expect(mockReconcileSends).toHaveBeenCalledTimes(2);
+  });
+
+  it('guards a slow 1Click pass independently from both bridge directions', async () => {
+    let release: () => void = () => {};
+    mockReconcileOneClick.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
+
+    render(<BridgeIntentWatcher />);
+    await act(async () => {});
+    await tick(8_000);
+    await tick(8_000);
+
+    expect(mockReconcileOneClick).toHaveBeenCalledTimes(1);
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(3);
+    expect(mockReconcileSends).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      release();
+    });
+    await tick(8_000);
+    expect(mockReconcileOneClick).toHaveBeenCalledTimes(2);
   });
 
   it('still polls sends when receives reject, and keeps polling afterwards', async () => {

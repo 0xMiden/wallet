@@ -4,9 +4,14 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { SubPageHeaderConfig, SubPageHeaderProvider } from 'components/ui/SubPageLayout';
+import { SECRET_REVEAL_MS } from 'components/ui/TextField';
 import { SeedPhraseStatus } from 'lib/shared/types';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import RevealSecret from './RevealSecret';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 // The private-key reveal names its account in a real ListRow. It used to be an
 // AccountBanner rendered without an `account` prop, which crashed on
@@ -56,31 +61,48 @@ jest.mock('components/Button', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Wallet: 'Wallet' }
+  IconName: { Wallet: 'Wallet', Eye: 'Eye', EyeOff: 'EyeOff' }
 }));
 
 // Mobile passcode-protected vaults render the numpad instead of a password
 // field. Mock it so we can drive its onChange/onSubmit callbacks.
-jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({
-    onSubmit,
-    onChange,
-    disabled
-  }: {
-    onSubmit: (code: string) => void;
-    onChange: (code: string) => void;
-    disabled?: boolean;
-  }) => (
-    <div>
-      <button data-testid="passcode-change" onClick={() => onChange('1')}>
-        passcode-change
-      </button>
-      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
-        passcode-submit
-      </button>
-    </div>
-  )
-}));
+let mockRenderActualPasscode = false;
+jest.mock('components/PasscodeEntry', () => {
+  const stub = {
+    PasscodeEntry: ({
+      onSubmit,
+      onChange,
+      disabled
+    }: {
+      onSubmit: (code: string) => void;
+      onChange: (code: string) => void;
+      disabled?: boolean;
+    }) => (
+      <div>
+        <button data-testid="passcode-change" onClick={() => onChange('1')}>
+          passcode-change
+        </button>
+        <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+          passcode-submit
+        </button>
+      </div>
+    )
+  };
+  return {
+    PasscodeEntry: (
+      props: import('components/PasscodeEntry').PasscodeEntryProps & { onChange: (code: string) => void }
+    ) => {
+      const RealPasscodeEntry =
+        jest.requireActual<typeof import('components/PasscodeEntry')>('components/PasscodeEntry').PasscodeEntry;
+      return (
+        <>
+          <stub.PasscodeEntry {...props} />
+          {mockRenderActualPasscode && <RealPasscodeEntry {...props} />}
+        </>
+      );
+    }
+  };
+});
 
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
@@ -143,6 +165,7 @@ describe('RevealSecret', () => {
   });
 
   beforeEach(() => {
+    mockRenderActualPasscode = false;
     jest.clearAllMocks();
     mockWalletState.seedPhraseStatus = 'stored';
     mockSecret = null;
@@ -171,15 +194,17 @@ describe('RevealSecret', () => {
     }
   });
 
-  const renderReveal = async (reveal: Reveal) => {
+  // `header` stands in for the Settings route that hands the page its title and focus policy.
+  const renderReveal = async (reveal: Reveal, header?: SubPageHeaderConfig) => {
     testContainer = document.createElement('div');
     // Attached: a detached subtree cannot hold focus in jsdom, so `.focus()` is a
     // silent no-op there and `document.activeElement` stays on <body>. Every
     // focus assertion in this suite would pass or fail for that reason alone.
     document.body.appendChild(testContainer);
     testRoot = createRoot(testContainer);
+    const page = <RevealSecret reveal={reveal} />;
     await act(async () => {
-      testRoot!.render(<RevealSecret reveal={reveal} />);
+      testRoot!.render(header ? <SubPageHeaderProvider value={header}>{page}</SubPageHeaderProvider> : page);
     });
     // Flush the Vault.hasHardwareProtector() promise so the body mounts
     // (until hasHardwareProtector resolves, the component renders its header over an empty body).
@@ -278,7 +303,7 @@ describe('RevealSecret', () => {
     expect(check).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('covers a revealed secret in the shared field until it is looked at', async () => {
+  it('shows a revealed secret in the shared field and leaves it legible when focus leaves', async () => {
     const container = await renderReveal('seed-phrase');
     await typePassword(container, 'pass');
     await act(async () => {
@@ -286,9 +311,15 @@ describe('RevealSecret', () => {
     });
     await flush();
 
+    const mask = container.querySelector('[data-testid="reveal-secret-mask"]')!;
+    expect(mask).toHaveAttribute('data-slot', 'masked-secret');
+    expect(mask).toHaveAttribute('aria-label', 'recoveryPhraseHidden');
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]')!.click();
+    });
     const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
-    // The shared multi-line field on `fill`. Off mobile the page focuses it on reveal, so the
-    // words are readable; they go back behind the design system's cover the moment focus leaves.
+    // The shared multi-line field on `fill`, focused and selected on Show. Off mobile the mask is
+    // its only visibility state, so focus leaving the field does not frost it.
     expect(field.tagName).toBe('TEXTAREA');
     expect(field.closest('div.bg-fill')).not.toBeNull();
     expect(document.activeElement).toBe(field);
@@ -297,7 +328,8 @@ describe('RevealSecret', () => {
     await act(async () => {
       field.blur();
     });
-    expect(container.querySelector('[data-slot="secret-cover"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+    expect(container.querySelector('#reveal-secret-secret')).toBe(field);
   });
 
   it('keeps the header frame while the protector check is pending, with no body or footer yet', async () => {
@@ -520,16 +552,244 @@ describe('RevealSecret', () => {
       const container = await renderReveal('private-key');
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
-      expect(container.querySelector('#reveal-secret-secret')).toBeTruthy();
+      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toBeTruthy();
     });
 
+    // Off mobile the mask alone keeps the key out of the DOM, so each case also checks what
+    // only the guard withholds: the mask and its Show control, or on mobile the key itself.
     it('withholds the secret field until the native guard reports it is enabled', async () => {
       mockGuardReady = false;
       mockSecret = 'PRIVATE_KEY_HEX';
       const container = await renderReveal('private-key');
 
       expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
-      expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.querySelector('[data-testid="reveal-secret-mask"]')).toBeNull();
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
+    });
+
+    it('withholds the secret field on mobile until the native guard reports it is enabled', async () => {
+      mockIsMobile = true;
+      mockGuardReady = false;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+    });
+
+    it.each([false, true])('withholds the hot key until the native guard is enabled (mobile=%s)', async mobile => {
+      mockIsMobile = mobile;
+      mockGuardReady = false;
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked]')).toBeNull();
+      expect(container.querySelector('[data-testid="seed-reveal-toggle"]')).toBeNull();
+    });
+  });
+
+  // Off mobile a revealed key stays masked until Show, as the recovery phrase does.
+  describe('reveal mask', () => {
+    const toggleOf = (container: HTMLElement) =>
+      container.querySelector<HTMLButtonElement>('[data-testid="seed-reveal-toggle"]');
+    const pressShow = async (container: HTMLElement) => {
+      await act(async () => {
+        toggleOf(container)!.click();
+      });
+    };
+
+    it('keeps a private key out of the DOM until Show, then hides it again on blur', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+      const mask = container.querySelector('[data-testid="reveal-secret-mask"]')!;
+      expect(mask).toHaveAttribute('data-masked', 'true');
+      expect(mask).toHaveAttribute('data-slot', 'masked-secret');
+      expect(mask).toHaveAttribute('aria-label', 'privateKeyHidden');
+      expect(mask.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+
+      await pressShow(container);
+      expect(container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!.value).toBe('PRIVATE_KEY_HEX');
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+
+      await act(async () => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+      expect(container.innerHTML).not.toContain('PRIVATE_KEY_HEX');
+    });
+
+    it('hides a shown private key when the document is hidden', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      await pressShow(container);
+      try {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+        await act(async () => {
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+      } finally {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      }
+      expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+    });
+
+    it('keeps a shown private key legible when focus leaves the field', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      await pressShow(container);
+      const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+      expect(document.activeElement).toBe(field);
+
+      await act(async () => {
+        field.blur();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+      expect(container.querySelector('#reveal-secret-secret')).toBe(field);
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('masks the private key again SECRET_REVEAL_MS after Show', async () => {
+      jest.useFakeTimers();
+      try {
+        mockSecret = 'PRIVATE_KEY_HEX';
+        const container = await renderReveal('private-key');
+        await pressShow(container);
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS - 1);
+        });
+        expect(container.querySelector('#reveal-secret-secret')).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+
+        act(() => {
+          jest.advanceTimersByTime(1);
+        });
+        expect(container.querySelector('#reveal-secret-secret')).toBeNull();
+        expect(container.querySelector('[data-testid="reveal-secret-mask"]')).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    // Only the private key, whose field had the cover's 30 s window, keeps a timer under the mask.
+    it.each<[Reveal, string, string]>([
+      ['hot-key', `${'ab'.repeat(32)}:${'cd'.repeat(32)}`, '[role="img"]'],
+      ['seed-phrase', 'word1 word2 word3', '#reveal-secret-secret']
+    ])('keeps a shown %s on screen past SECRET_REVEAL_MS', async (reveal, secret, shown) => {
+      jest.useFakeTimers();
+      try {
+        mockSecret = secret;
+        const container = await renderReveal(reveal);
+        await pressShow(container);
+        act(() => {
+          jest.advanceTimersByTime(SECRET_REVEAL_MS + 1);
+        });
+        expect(container.querySelector(shown)).not.toBeNull();
+        expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'true');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps the field cover for a private key on mobile, where no mask applies', async () => {
+      mockIsMobile = true;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+      const field = container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!;
+
+      expect(container.querySelector('[data-slot="secret-cover"]')).not.toBeNull();
+      await act(async () => {
+        field.focus();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).toBeNull();
+      await act(async () => {
+        field.blur();
+      });
+      expect(container.querySelector('[data-slot="secret-cover"]')).not.toBeNull();
+    });
+
+    it('shows a private key at once with no Show control on mobile', async () => {
+      mockIsMobile = true;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(container.querySelector<HTMLTextAreaElement>('#reveal-secret-secret')!.value).toBe('PRIVATE_KEY_HEX');
+      expect(toggleOf(container)).toBeNull();
+    });
+
+    it('keeps a hot key out of the DOM until Show, then hides it again on blur', async () => {
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+      expect(toggleOf(container)).toHaveAttribute('aria-pressed', 'false');
+
+      await pressShow(container);
+      expect(container.querySelector('[role="img"]')).not.toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).toBeNull();
+
+      await act(async () => {
+        window.dispatchEvent(new Event('blur'));
+      });
+      expect(container.querySelector('[role="img"]')).toBeNull();
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+    });
+
+    it('shows a hot key at once with no Show control on mobile', async () => {
+      mockIsMobile = true;
+      mockSecret = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const container = await renderReveal('hot-key');
+
+      expect(container.querySelector('[role="img"]')).not.toBeNull();
+      expect(toggleOf(container)).toBeNull();
+    });
+  });
+
+  // A reveal that starts masked leaves no field to focus and unmounts the control that held
+  // focus, so the page title takes it, as the recovery phrase's reveal does.
+  describe('focus after a masked reveal', () => {
+    const hotKeyPair = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+
+    it.each<[Reveal, string]>([
+      ['private-key', 'PRIVATE_KEY_HEX'],
+      ['hot-key', hotKeyPair],
+      ['seed-phrase', 'word1 word2 word3']
+    ])('moves focus to the page title once the %s is revealed', async (reveal, secret) => {
+      mockRevealHotKey.mockResolvedValue(hotKeyPair);
+      const container = await renderReveal(reveal, { title: 'Private key', focusTitleOnMount: true });
+      if (reveal === 'private-key') await acknowledge(container);
+      await typePassword(container, 'pass');
+      expect(document.activeElement).toBe(container.querySelector('input[name="password"]'));
+
+      await act(async () => {
+        buttonWithText(container, 'continue')!.click();
+      });
+      await flush();
+
+      expect(document.activeElement).toBe(container.querySelector('h1'));
+      expect(container.querySelector('[data-masked="true"]')).not.toBeNull();
+      expect(container.innerHTML).not.toContain(secret);
+    });
+
+    it('moves focus to the page title even under a host that does not focus it', async () => {
+      const container = await renderReveal('hot-key', { title: 'Private key', focusTitleOnMount: false });
+      mockRevealHotKey.mockResolvedValue(hotKeyPair);
+      await typePassword(container, 'pass');
+      expect(document.activeElement).toBe(container.querySelector('input[name="password"]'));
+
+      await act(async () => {
+        buttonWithText(container, 'continue')!.click();
+      });
+      await flush();
+
+      expect(document.activeElement).toBe(container.querySelector('h1'));
     });
   });
 
@@ -584,6 +844,10 @@ describe('RevealSecret', () => {
       await new Promise(res => setTimeout(res, 350));
     });
 
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith('raw_secret_reveal_failed', 'field');
     expect(mockRevealPrivateKey).toHaveBeenCalled();
     expect(mockSetSecret).not.toHaveBeenCalled();
   });
@@ -606,6 +870,29 @@ describe('RevealSecret', () => {
 
     expect(mockRevealPrivateKey).toHaveBeenCalledWith('deadbeef', '123456');
     expect(mockSetSecret).toHaveBeenCalledWith('PRIVATE_KEY_HEX');
+  });
+
+  it.each(['hardware', 'passcode'])('reports the %s secret-reveal error on its visible surface', async mode => {
+    mockRenderActualPasscode = mode === 'passcode';
+    mockIsMobile = mode === 'passcode';
+    mockHasHardwareProtector.mockResolvedValue(mode === 'hardware');
+    mockRevealPrivateKey.mockRejectedValue(new Error('private reveal failure'));
+    const container = await renderReveal('private-key');
+    await acknowledge(container);
+    await act(async () => {
+      if (mode === 'hardware') buttonWithText(container, 'unlock')!.click();
+      else (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 350));
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1050));
+    });
+    expect(reportUserVisibleError).toHaveBeenCalledWith(
+      'raw_secret_reveal_failed',
+      mode === 'hardware' ? 'notice' : 'passcode'
+    );
   });
 
   it('clears any revealed secret on unmount', async () => {

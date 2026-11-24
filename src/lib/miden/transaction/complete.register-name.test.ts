@@ -18,13 +18,16 @@ jest.mock('lib/miden/repo', () => ({
 }));
 
 jest.mock('../activity/fee', () => ({
-  feeFieldsFromResult: () => ({}),
-  splitExecutedOutputNotes: jest.fn()
+  feeFieldsFromResult: () => ({})
+}));
+
+jest.mock('../activity/fee-notes', () => ({
+  splitLandedOutputNotes: jest.fn()
 }));
 
 const mockSplit = jest.requireMock<{
-  splitExecutedOutputNotes: jest.Mock<{ userNotes: { id: () => { toString: () => string } }[] }, [object]>;
-}>('../activity/fee').splitExecutedOutputNotes;
+  splitLandedOutputNotes: jest.Mock<{ userNotes: { id: () => { toString: () => string } }[] }, [object, string?]>;
+}>('../activity/fee-notes').splitLandedOutputNotes;
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('../../../../__mocks__/wasmMock.js'));
 

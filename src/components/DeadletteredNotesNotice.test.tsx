@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { DeadletteredNotesNotice } from './DeadletteredNotesNotice';
 
@@ -10,7 +11,12 @@ import { DeadletteredNotesNotice } from './DeadletteredNotesNotice';
 // is real ("$count$" placeholders live in en.json).
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { count?: number }) => (params?.count !== undefined ? `${key}:${params.count}` : key)
+    t: (key: string, params?: { count?: number; reasons?: string }) =>
+      ['deadletteredNotesBody', 'deadletteredNotesBodyOne'].includes(key)
+        ? `Visible ${key}${params?.count === undefined ? '' : `:${params.count}`}`
+        : key === 'deadletteredNotesReasonSummary'
+          ? `Visible ${key}:${params?.reasons ?? ''}`
+          : key
   })
 }));
 
@@ -27,7 +33,7 @@ const mockCountStore = jest.fn(async () => stored.length);
 const mockList = jest.fn(async () => stored);
 let stored: Array<{ bytes: string; reason: string; failedAt: number; attempts: number }> = [];
 jest.mock('lib/miden/note-deadletter', () => ({
-  countDeadletteredNotes: () => mockCountStore(),
+  getNoteDeadletterSummary: () => mockCountStore().then(count => ({ count, reasons: ['transport', 'rejected'] })),
   listDeadletteredNotes: () => mockList()
 }));
 
@@ -36,12 +42,12 @@ jest.mock('lib/miden/note-deadletter', () => ({
 // captured rather than discarded, so what the component actually asks storage
 // for stays under test.
 const mockMutate = jest.fn();
-let mockCount = 0;
+let mockSummary: { count: number; reasons: string[] } | undefined = { count: 0, reasons: [] };
 let capturedFetcher: () => Promise<unknown> = async () => undefined;
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (_key: string, fetcher: () => Promise<unknown>) => {
     capturedFetcher = fetcher;
-    return { data: mockCount, mutate: mockMutate };
+    return { data: mockSummary, mutate: mockMutate };
   }
 }));
 
@@ -53,7 +59,7 @@ jest.mock('app/icons/v2', () => ({
 describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCount = 0;
+    mockSummary = { count: 0, reasons: [] };
     stored = [];
   });
 
@@ -70,13 +76,26 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('shows the count and a retry CTA when notes are dead-lettered', () => {
-    mockCount = 2;
+    mockSummary = { count: 2, reasons: ['transport', 'rejected'] };
 
     render(<DeadletteredNotesNotice />);
 
     expect(screen.getByText('deadletteredNotesTitle')).toBeInTheDocument();
-    expect(screen.getByText('deadletteredNotesBody:2')).toBeInTheDocument();
+    expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'connectivityRetry' })).toBeInTheDocument();
+  });
+
+  it('renders only the localized closed reason categories for mixed records', () => {
+    mockSummary = { count: 3, reasons: ['transport', 'malformed', 'unavailable'] };
+
+    render(<DeadletteredNotesNotice />);
+
+    expect(
+      screen.getByText(
+        'Visible deadletteredNotesReasonSummary:deadletteredNotesReasonTransport, deadletteredNotesReasonMalformed, deadletteredNotesReasonUnavailable'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/secret-|attempts|failedAt/i)).not.toBeInTheDocument();
   });
 
   // Nothing here renders the note bytes, and those bytes may be the only copy
@@ -90,7 +109,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
     ];
     render(<DeadletteredNotesNotice />);
 
-    await expect(capturedFetcher()).resolves.toBe(2);
+    await expect(capturedFetcher()).resolves.toEqual({ count: 2, reasons: ['transport', 'rejected'] });
     // The counting happens inside the store's module. Reading the records here
     // and taking `.length` would give the same number while decoding every note
     // body into this realm on a ten-second poll.
@@ -98,16 +117,16 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('says "note", not "notes", for a single dead-lettered note', () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
 
     render(<DeadletteredNotesNotice />);
 
     expect(screen.getByText('deadletteredNotesTitleOne')).toBeInTheDocument();
-    expect(screen.getByText('deadletteredNotesBodyOne')).toBeInTheDocument();
+    expect(screen.getByText('Visible deadletteredNotesBodyOne')).toBeInTheDocument();
   });
 
   it('retry drains via the intercom action, then revalidates the signal', async () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
 
     render(<DeadletteredNotesNotice />);
     fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
@@ -118,7 +137,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   });
 
   it('ignores a second press while the drain is in flight', async () => {
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
     mockRequest.mockImplementationOnce(() => new Promise(() => {}));
 
     render(<DeadletteredNotesNotice />);
@@ -136,7 +155,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   // press again.
   it('re-enables retry when the drain never answers', async () => {
     jest.useFakeTimers();
-    mockCount = 1;
+    mockSummary = { count: 1, reasons: ['transport'] };
     mockRequest.mockImplementationOnce(() => new Promise(() => {}));
 
     render(<DeadletteredNotesNotice />);
@@ -150,5 +169,85 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
 
     expect(button).not.toBeDisabled();
     jest.useRealTimers();
+  });
+});
+
+jest.mock('lib/telemetry/user-visible-error', () => ({
+  ...jest.requireActual('lib/telemetry/user-visible-error'),
+  reportUserVisibleError: jest.fn()
+}));
+
+const mockReport = jest.mocked(reportUserVisibleError);
+
+describe('user-visible dead-letter errors', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockReport.mockClear();
+    mockSummary = { count: 0, reasons: [] };
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    [1, 'deadletteredNotesBodyOne', 'Visible deadletteredNotesBodyOne'],
+    [3, 'deadletteredNotesBody', 'Visible deadletteredNotesBody:3']
+  ] as const)('reports the fixed %s-note body identity %s after 1000 ms', (count, id, copy) => {
+    mockSummary = { count, reasons: ['transport'] };
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText(copy)).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    view.rerender(<DeadletteredNotesNotice className="layout-only" />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+  });
+
+  it('keeps the plural episode through a count-only refresh', () => {
+    mockSummary = { count: 2, reasons: ['transport'] };
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBody:2')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    expect(mockReport.mock.calls).toEqual([]);
+    mockSummary = { count: 4, reasons: ['rejected'] };
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBody:4')).toBeInTheDocument();
+    expect(
+      screen.getByText('Visible deadletteredNotesReasonSummary:deadletteredNotesReasonRejected')
+    ).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([['deadletteredNotesBody', 'inline']]);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([['deadletteredNotesBody', 'inline']]);
+  });
+
+  it('does not report an empty or still-loading store', () => {
+    mockSummary = undefined;
+    const view = render(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    mockSummary = { count: 0, reasons: [] };
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
+  });
+
+  it('does not report a dead-letter notice cleared by a completed drain before dwell', async () => {
+    mockSummary = { count: 1, reasons: ['transport'] };
+    mockRequest.mockResolvedValueOnce({ type: 'RETRY_DEADLETTERED_NOTES_RESPONSE', requeued: 1 });
+    const view = render(<DeadletteredNotesNotice />);
+    expect(screen.getByText('Visible deadletteredNotesBodyOne')).toBeInTheDocument();
+    act(() => jest.advanceTimersByTime(999));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'connectivityRetry' }));
+    });
+    mockSummary = { count: 0, reasons: [] };
+    view.rerender(<DeadletteredNotesNotice />);
+    expect(view.container).toBeEmptyDOMElement();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(mockReport.mock.calls).toEqual([]);
   });
 });

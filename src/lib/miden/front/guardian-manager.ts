@@ -1,10 +1,16 @@
 import { MultisigService } from 'lib/miden/guardian';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { RecoveryPreparation, WalletAccount } from 'lib/shared/types';
+import { annotateCrash, withProposalStep, type ProposalGuard } from 'lib/telemetry/crash-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
+import {
+  getSignerCommitmentsFromAccount,
+  getSignerDetailsFromAccount,
+  resolveGuardianEndpoint
+} from '../guardian/account';
+import { readGuardianAuthFacts, withGuardianAuthFacts } from '../guardian/auth-facts';
 import { canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
@@ -79,6 +85,22 @@ export interface GuardianAccountProvider {
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Persist the verdict that another device rotated the account's hot key away
+   * from `hotPublicKey` (`HotKeyRotatedOutVerdict`). Both realms implement it:
+   * the guardian sync's self-heal detects it in the app realm, the direct
+   * guardian switch in whichever realm runs the pipeline.
+   */
+  markHotKeyRotatedOut?: (
+    accountPublicKey: string,
+    hotPublicKey: string,
+    onChainHotCommitment: string
+  ) => Promise<void>;
+}
+
+function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {
+  annotateCrash(error, { proposalStep: 'service_select', proposalGuard });
+  return error;
 }
 
 /**
@@ -140,19 +162,22 @@ export async function getOrCreateMultisigService(
   const owner = {};
   const initPromise = (async () => {
     // Verify this is a Guardian account
-    const accounts = await provider.getAccounts();
+    const accounts = await withProposalStep('service_select', () => provider.getAccounts());
     // Match tolerant of id form: dApp-initiated txs arrive with the bare bech32
     // address while WalletAccount.publicKey is a composite `<address>_<suffix>`.
     const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
     if (!account || account.type !== WalletType.Guardian) {
-      throw new Error('Account is not a Guardian account');
+      throw refusedAtSelection(new Error('Account is not a Guardian account'), 'account_not_guardian');
     }
     // Hot pubkey lives on the WalletAccount record (set at create time). A
     // Guardian account without one has no usable local signer, and this caller
     // needs to sign right now: it must fail loudly here rather than silently
     // fall back.
     if (!account.hotPublicKey) {
-      throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
+      throw refusedAtSelection(
+        new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey - re-create the wallet`),
+        'hot_key_missing'
+      );
     }
     const hotPublicKey = account.hotPublicKey;
     // Per-account guardian endpoint, resolved once and reused for both the cache
@@ -197,14 +222,19 @@ export async function getOrCreateMultisigService(
     const buildLockOptions = boundAtSyncCeiling
       ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
       : { label: 'guardian-service-build' };
-    const { sdkAccount, commitment, accountIdHex } = await withWasmClientLock(async hold => {
+    const { sdkAccount, commitment, accountIdHex, signerCommitments } = await withWasmClientLock(async hold => {
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined };
+      const sdkAccount = await withProposalStep('service_account_read', () =>
+        midenClientProxy.getAccount(account.publicKey)
+      );
+      if (!sdkAccount)
+        return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined, signerCommitments: [] };
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
       // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-      const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+      const { commitment } = await withProposalStep('service_signer_read', () =>
+        getSignerDetailsFromAccount(sdkAccount)
+      );
       // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The comment above
       // calls that a genuine WASM call rather than a field access, which is exactly the
       // category every sibling merged hold in this change re-checks after: the direct-switch
@@ -217,25 +247,45 @@ export async function getOrCreateMultisigService(
       // comment above forbids - and a `console.log` is a silly place to take a
       // double borrow: an eviction in the gap made it throw `isDisposed` and
       // aborted a service build that had otherwise succeeded.
-      return { sdkAccount, commitment, accountIdHex: sdkAccount.id().toString() };
+      return {
+        sdkAccount,
+        commitment,
+        accountIdHex: sdkAccount.id().toString(),
+        signerCommitments: getSignerCommitmentsFromAccount(sdkAccount)
+      };
     }, buildLockOptions);
 
     if (!sdkAccount || commitment === undefined) {
-      throw new Error('Account not found in local storage');
+      const missing = new Error('Account not found in local storage');
+      annotateCrash(missing, { proposalStep: sdkAccount ? 'service_signer_read' : 'service_account_read' });
+      throw missing;
     }
 
     // Bind the service to the hot signer — the popup signs with the hot key.
     console.log('creating guardian service', accountIdHex);
-    const service = await MultisigService.init(
-      sdkAccount,
-      `0x${hotPublicKey}`,
-      `0x${commitment}`,
-      provider.signWord,
-      currentEndpoint,
-      boundAtSyncCeiling
-        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
-        : { label: 'guardian-service-init' }
+    // The signer commitment above is the chain's, so it always matches; the Guardian checks the key this device signs
+    // with, which is the vault's and can differ.
+    const authFacts = await readGuardianAuthFacts(
+      hotPublicKey,
+      signerCommitments,
+      'hot',
+      account.requiresHotKeyRotation === true
     );
+    const service = await withProposalStep('service_load', () =>
+      withGuardianAuthFacts(authFacts, () =>
+        MultisigService.init(
+          sdkAccount,
+          `0x${hotPublicKey}`,
+          `0x${commitment}`,
+          provider.signWord,
+          currentEndpoint,
+          boundAtSyncCeiling
+            ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+            : { label: 'guardian-service-init' }
+        )
+      )
+    );
+    service.authFacts = authFacts;
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
     // next access can detect rotation and force a re-init, and with the client

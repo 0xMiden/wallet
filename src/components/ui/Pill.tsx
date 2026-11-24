@@ -7,10 +7,11 @@ import { cn } from 'lib/ui/util';
 
 /**
  * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
- * status pill in detail headers; `md` (32px) is every other chip, badge and action; `tag` (18px, a
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action; `lg` (40px) is
+ * a row of page-level shortcut chips (Arcade's Rankings / Coins / Activity); `tag` (18px, a
  * step under `xs`) is a mark after a row's name, such as a token's Unverified tag.
  */
-export type PillSize = 'xs' | 'sm' | 'md' | 'tag';
+export type PillSize = 'xs' | 'sm' | 'md' | 'lg' | 'tag';
 
 /**
  * What the pill says about its content:
@@ -71,6 +72,8 @@ export type PillProps = PillBehaviourProps & {
   trailingIcon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
+  /** Soft corners for network tags; other pills retain their capsule shape. */
+  shape?: 'capsule' | 'rounded';
   /**
    * Which haptic the tap fires: `'light'` (default) for an ordinary action, or `false` to fire
    * none and let the caller manage it. A single choice in a row is a `SegmentedControl`, which
@@ -86,16 +89,19 @@ export type PillProps = PillBehaviourProps & {
   'aria-haspopup'?: 'dialog' | 'menu';
   'aria-expanded'?: boolean;
   'data-testid'?: string;
+  'data-phase'?: string;
 };
 
 // Literal class strings, so Tailwind generates them.
-const pillVariants = cva('relative inline-flex max-w-full items-center rounded-full border', {
+const pillVariants = cva('relative inline-flex max-w-full items-center border', {
   variants: {
+    shape: { capsule: 'rounded-full', rounded: 'rounded-xl' },
     size: {
       // Semibold: at 20px the bold face reads heavier than the row title beside it.
       xs: 'h-5 gap-1 px-2 text-badge font-semibold',
       sm: 'h-6 gap-1 px-2 text-badge',
       md: 'h-8 gap-1.5 px-3 text-pill',
+      lg: 'h-10 gap-1.5 px-3.5 text-pill',
       tag: 'h-4.5 gap-1 px-1.5 text-tag'
     } satisfies Record<PillSize, string>,
     tone: {
@@ -118,7 +124,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
     } satisfies Record<PillTone, string>
   },
-  defaultVariants: { size: 'md', tone: 'neutral' }
+  defaultVariants: { size: 'md', tone: 'neutral', shape: 'capsule' }
 });
 
 /**
@@ -134,6 +140,7 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
       xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
       md: '-ml-1 h-4 w-4',
+      lg: '-ml-1 h-4 w-4',
       tag: '-ml-0.5 h-3 w-3'
     } satisfies Record<PillSize, string>
   },
@@ -149,6 +156,7 @@ const pillTrailingIconVariants = cva(
         xs: '-mr-0.5 h-3 w-3',
         sm: '-mr-0.5 h-3.5 w-3.5',
         md: '-mr-1 h-4 w-4',
+        lg: '-mr-1 h-4 w-4',
         tag: '-mr-0.5 h-3 w-3'
       } satisfies Record<PillSize, string>
     },
@@ -170,6 +178,7 @@ export const Pill: React.FC<PillProps> = ({
   trailingIcon,
   size = 'md',
   tone = 'neutral',
+  shape = 'capsule',
   onClick,
   haptic = 'light',
   selected,
@@ -179,7 +188,8 @@ export const Pill: React.FC<PillProps> = ({
   'aria-label': ariaLabel,
   'aria-haspopup': ariaHasPopup,
   'aria-expanded': ariaExpanded,
-  'data-testid': dataTestId
+  'data-testid': dataTestId,
+  'data-phase': dataPhase
 }) => {
   // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
   // `className` has to REPLACE the tone default it conflicts with, not just coexist with it —
@@ -187,7 +197,7 @@ export const Pill: React.FC<PillProps> = ({
   // by utility name) can then pick the tone default over the caller's class regardless of
   // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
   const classes = cn(
-    pillVariants({ size, tone }),
+    pillVariants({ size, tone, shape }),
     onClick && !disabled && 'cursor-pointer',
     disabled && 'opacity-50',
     className
@@ -215,6 +225,7 @@ export const Pill: React.FC<PillProps> = ({
         aria-live={live ? 'polite' : undefined}
         aria-label={ariaLabel}
         data-testid={dataTestId}
+        data-phase={dataPhase}
       >
         {content}
       </span>
@@ -236,6 +247,7 @@ export const Pill: React.FC<PillProps> = ({
       aria-haspopup={ariaHasPopup}
       aria-expanded={ariaExpanded}
       data-testid={dataTestId}
+      data-phase={dataPhase}
       className={classes}
     >
       {content}

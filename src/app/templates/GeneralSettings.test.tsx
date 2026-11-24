@@ -2,7 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { isMobile } from 'lib/platform';
+import { backgroundLockDelay } from 'lib/lock-up';
+import { isDesktop, isMobile } from 'lib/platform';
+import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -24,19 +26,23 @@ import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
 // is assertable by key.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, opts?: { minutes?: string }) => (opts?.minutes ? `${key}:${opts.minutes}` : key)
+  })
 }));
 
 // `lib/platform` gates the mobile-only haptic toggle via `isMobile()`. Mock it
 // as a jest.fn() so each test steers the branch it exercises.
 jest.mock('lib/platform', () => ({
-  isMobile: jest.fn(() => false)
+  isMobile: jest.fn(() => false),
+  isDesktop: jest.fn(() => false)
 }));
 
 // `lib/settings/helpers` is the localStorage-backed settings layer. Mock every
 // getter/setter GeneralSettings imports so we can drive initial state and
 // assert the persisted writes without touching real storage.
 jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual<typeof import('lib/settings/helpers')>('lib/settings/helpers'),
   getThemeSetting: jest.fn(() => 'system'),
   isAutoConsumeEnabled: jest.fn(() => true),
   isDelegateProofEnabled: jest.fn(() => true),
@@ -45,19 +51,22 @@ jest.mock('lib/settings/helpers', () => ({
   setAutoConsumeSetting: jest.fn(),
   setDelegateProofSetting: jest.fn(),
   setHapticFeedbackSetting: jest.fn(),
-  setTelemetrySetting: jest.fn()
+  setTelemetrySetting: jest.fn(() => Promise.resolve())
 }));
 
-// The telemetry queue lives in the sink and the Sentry client in `crash`.
-// Withdrawing consent has to reach BOTH — stopping new events is not the same
-// as stopping the sharing already under way — so both are spied on directly.
+// The usage-data queue is withdrawn independently of the running crash reporter.
+let mockCrashReportingActive = false;
 jest.mock('lib/telemetry/sink', () => ({
   dropQueue: jest.fn()
 }));
 
 jest.mock('lib/telemetry/crash', () => ({
-  initCrashReporting: jest.fn(),
-  stopCrashReporting: jest.fn()
+  initCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = true;
+  }),
+  stopCrashReporting: jest.fn(() => {
+    mockCrashReportingActive = false;
+  })
 }));
 
 // ListRow's routed branch imports the wallet Link, whose analytics barrel reaches
@@ -105,6 +114,7 @@ jest.mock('./SettingToggle', () => ({
 }));
 
 const mockIsMobile = isMobile as jest.Mock;
+const mockIsDesktop = isDesktop as jest.Mock;
 const mockGetThemeSetting = getThemeSetting as jest.Mock;
 const mockIsAutoConsumeEnabled = isAutoConsumeEnabled as jest.Mock;
 const mockIsDelegateProofEnabled = isDelegateProofEnabled as jest.Mock;
@@ -116,11 +126,8 @@ const mockSetHapticFeedbackSetting = setHapticFeedbackSetting as jest.Mock;
 const mockSetTelemetrySetting = setTelemetrySetting as jest.Mock;
 
 /**
- * The telemetry handler AWAITS the consent write before starting the crash
- * reporter, so the background cannot still read the old value while navigation
- * ends a flow. Anything after that await lands a microtask later. The mock must
- * therefore be thenable — a bare `jest.fn()` returning undefined would still be
- * awaitable, but keeping it a promise matches the real signature.
+ * The telemetry handler awaits the background usage-consent write. Let that
+ * promise settle before asserting the completed toggle change.
  */
 const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
 const mockDropQueue = dropQueue as jest.Mock;
@@ -130,7 +137,10 @@ const mockSetTheme = setTheme as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCrashReportingActive = false;
   mockIsMobile.mockReturnValue(false);
+  mockIsDesktop.mockReturnValue(false);
+  localStorage.clear();
   mockGetThemeSetting.mockReturnValue('system');
   mockIsAutoConsumeEnabled.mockReturnValue(true);
   mockIsDelegateProofEnabled.mockReturnValue(true);
@@ -141,6 +151,40 @@ beforeEach(() => {
 });
 
 describe('GeneralSettings', () => {
+  it('shows the auto-lock choice on mobile with 10 minutes selected', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    expect(screen.getByTestId(GeneralSettingsSelectors.AutoLockSelector)).toBeInTheDocument();
+    expect(screen.getByText('autoLockDescription')).toBeInTheDocument();
+    for (const minutes of ['1', '5', '10', '30']) {
+      expect(screen.getByText(`autoLockMinutes:${minutes}`)).toBeInTheDocument();
+    }
+    expect(screen.getByText('autoLockMinutes:10').closest('[role="radio"]')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('stores the chosen delay', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    fireEvent.click(screen.getByText('autoLockMinutes:1'));
+
+    expect(backgroundLockDelay.get()).toBe('1');
+  });
+
+  it('shows the auto-lock choice on desktop', () => {
+    mockIsDesktop.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    expect(screen.getByTestId(GeneralSettingsSelectors.AutoLockSelector)).toBeInTheDocument();
+  });
+
+  it('hides it on the extension', () => {
+    render(<GeneralSettings />);
+
+    expect(screen.queryByTestId(GeneralSettingsSelectors.AutoLockSelector)).not.toBeInTheDocument();
+  });
+
   it('renders the theme selector with the three theme options and system selected by default', () => {
     render(<GeneralSettings />);
 
@@ -194,16 +238,38 @@ describe('GeneralSettings', () => {
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
   });
 
-  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+  it('shows the hide-dust switch on by default and saves each change', () => {
+    localStorage.removeItem(HIDE_DUST_TOKENS_STORAGE_KEY);
+    render(<GeneralSettings />);
+
+    const hideDust = screen.getByTestId(GeneralSettingsSelectors.HideDustToggle);
+    expect(hideDust).toBeChecked();
+    expect(screen.getByText('hideDustTokensDescription').closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HideDustToggle}-row`)
+    );
+
+    fireEvent.click(hideDust);
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('off');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle));
+    expect(localStorage.getItem(HIDE_DUST_TOKENS_STORAGE_KEY)).toBe('on');
+    expect(screen.getByTestId(GeneralSettingsSelectors.HideDustToggle)).toBeChecked();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described control in its own', () => {
     mockIsMobile.mockReturnValue(true);
     render(<GeneralSettings />);
 
     const page = screen.getByTestId('general-settings');
     const body = page.querySelector('[data-slot="body"]')!;
     expect(body).toHaveClass('px-4', 'gap-5');
-    // Four since the telemetry consent joined: theme+haptics share one, then delegate,
+    // Six on the apps: theme+haptics share one, then auto-lock, hide dust, delegate,
     // auto-consume and telemetry each get their own described section.
-    expect(body.querySelectorAll(':scope > section')).toHaveLength(4);
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(6);
+    expect(screen.getByText('autoLockDescription').closest('section')).not.toBe(
+      screen.getByText('hideDustTokensDescription').closest('section')
+    );
 
     // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
@@ -221,6 +287,7 @@ describe('GeneralSettings', () => {
     );
     // Every group on the page is plain, the telemetry consent's included.
     for (const id of [
+      GeneralSettingsSelectors.HideDustToggle,
       GeneralSettingsSelectors.DelegateToggle,
       GeneralSettingsSelectors.AutoConsumeToggle,
       GeneralSettingsSelectors.TelemetryToggle
@@ -416,7 +483,9 @@ describe('GeneralSettings', () => {
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
     });
 
-    it('turning it on persists the opt-in, starts crash reporting, and checks the toggle', async () => {
+    it('turning it on persists usage consent without restarting crash reporting', async () => {
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
@@ -427,31 +496,38 @@ describe('GeneralSettings', () => {
       // Exact argument: an inverted consent write is the bug the old logger
       // shipped, so `true` here is asserted rather than just "was called".
       expect(mockSetTelemetrySetting).toHaveBeenCalledWith(true);
-      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
-      // Opting IN must not also tear down what it just started.
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
       expect(mockDropQueue).not.toHaveBeenCalled();
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).toBeChecked();
     });
 
-    it('turning it off persists the opt-out, drops the queue, stops crash reporting, and unchecks the toggle', () => {
+    it('turning it off drops queued usage before persisting refusal and keeps crash reporting active', async () => {
       mockIsTelemetryEnabled.mockReturnValue(true);
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
       fireEvent.click(toggle);
+      await flushConsentWrite();
 
       expect(mockSetTelemetrySetting).toHaveBeenCalledTimes(1);
       expect(mockSetTelemetrySetting).toHaveBeenCalledWith(false);
-      // Withdrawing consent stops sharing that is already under way, not just
-      // the next event: the pending queue goes, and so does the crash client.
       expect(mockDropQueue).toHaveBeenCalledTimes(1);
-      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockDropQueue.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSetTelemetrySetting.mock.invocationCallOrder[0]!
+      );
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
       expect(mockInitCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).not.toBeChecked();
     });
 
-    it('survives a full opt-in / opt-out round trip', async () => {
+    it('keeps crash reporting active through a full usage opt-in / opt-out round trip', async () => {
+      initCrashReporting();
+      mockInitCrashReporting.mockClear();
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
@@ -461,9 +537,10 @@ describe('GeneralSettings', () => {
       await flushConsentWrite();
 
       expect(mockSetTelemetrySetting.mock.calls).toEqual([[true], [false]]);
-      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
       expect(mockDropQueue).toHaveBeenCalledTimes(1);
-      expect(mockStopCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockStopCrashReporting).not.toHaveBeenCalled();
+      expect(mockCrashReportingActive).toBe(true);
       expect(toggle).not.toBeChecked();
     });
   });

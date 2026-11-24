@@ -12,6 +12,7 @@ import UIKit
 /// `WebViewRegistry.defaultInstanceId` ("default") so the legacy code
 /// path works unchanged.
 @objc public class WKWebViewInstance: NSObject {
+    var managedClose: ManagedHostClose?
     @objc public let id: String
     @objc public let controller: WKWebViewController
     @objc public let navigationController: UINavigationController
@@ -33,12 +34,23 @@ import UIKit
     /// presentation flow.
     @objc public var containerWindow: UIWindow?
 
+    weak var morphContainer: BreadMorphContainerViewController?
+
     @objc public init(id: String,
                       controller: WKWebViewController,
                       navigationController: UINavigationController) {
         self.id = id
         self.controller = controller
         self.navigationController = navigationController
+        self.isVisible = controller.initiallyVisible
         super.init()
+    }
+    func installContainerWindow(_ window: UIWindow, hostWindow: UIWindow?) {
+        containerWindow = window
+        if let presentation = controller.breadPresentation {
+            presentation.attach(self, hostWindow: hostWindow)
+        } else {
+            window.isHidden = !isVisible
+        }
     }
 }

@@ -1,0 +1,483 @@
+import React from 'react';
+
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { HistoryAction } from 'lib/woozie';
+
+import RecoverLockedFundsLock from './RecoverLockedFundsLock';
+
+// Echo the key, and the parameters when there are some, so the copy is assertable without the catalog.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key)
+  })
+}));
+
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
+
+const SPONSOR = '0x00000000000000000000000000000000000000AA';
+const OTHER = '0x00000000000000000000000000000000000000bb';
+const LOCK_ID = '42';
+const REF = { chainId: 11155111, lockId: LOCK_ID, sponsorAddress: SPONSOR };
+
+const mockLocation = { search: `?address=${SPONSOR}` };
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({
+  HistoryAction: jest.requireActual<typeof import('lib/woozie')>('lib/woozie').HistoryAction,
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  useLocation: () => mockLocation
+}));
+const mockBack = jest.fn();
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBack }));
+
+const mockConnection: { address: string | undefined; connected: boolean } = { address: SPONSOR, connected: true };
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({ useEvmWalletConnection: () => mockConnection }));
+const mockOpenPicker = jest.fn();
+const mockPicker: { error: string | undefined } = { error: undefined };
+jest.mock('lib/walletconnect/useEvmWalletPicker', () => ({
+  useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: mockPicker.error })
+}));
+// The real bridge-in-recovery module, which supplies the pure retry rule below, loads the rest of this module.
+jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual<typeof import('lib/walletconnect/config')>('lib/walletconnect/config'),
+  getChain: () => ({ name: 'Sepolia' })
+}));
+jest.mock('lib/walletconnect/signing-error', () => ({
+  nativeSigningErrorMessage: (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
+  nativeSigningErrorId: () => undefined
+}));
+
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+const USDC_TOKEN = {
+  key: 'USDC',
+  address: '0x0000000000000000000000000000000000000002',
+  chainId: 11155111,
+  symbol: 'USDC',
+  decimals: 6
+};
+const mockSelectTokens = jest.fn();
+jest.mock('lib/remote-config/values', () => ({
+  selectEpochTokens: (...args: unknown[]) => mockSelectTokens(...args)
+}));
+
+const mockReadState = jest.fn();
+jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
+  compactLockToken: () => '0x0000000000000000000000000000000000000002',
+  readCompactLockState: (...args: unknown[]) => mockReadState(...args)
+}));
+
+const mockReadRecord = jest.fn();
+jest.mock('lib/epoch/forced-withdrawal-record', () => ({
+  readForcedWithdrawalRecord: (...args: unknown[]) => mockReadRecord(...args)
+}));
+
+const mockStart = jest.fn();
+const mockFinish = jest.fn();
+const mockCancel = jest.fn();
+const mockRetry = jest.fn();
+const mockDepositsOnLock = jest.fn();
+jest.mock('lib/epoch/bridge-in-recovery', () => {
+  class LockedDepositError extends Error {
+    constructor(
+      readonly reason: string,
+      message: string
+    ) {
+      super(message);
+    }
+  }
+  return {
+    LockedDepositError,
+    sponsorWalletRefusal: (connected: string | undefined, sponsor: string) => {
+      if (!connected) return 'walletDisconnected';
+      return connected.toLowerCase() === sponsor.toLowerCase() ? undefined : 'wrongAccount';
+    },
+    startLockWithdrawal: (...args: unknown[]) => mockStart(...args),
+    finishLockWithdrawal: (...args: unknown[]) => mockFinish(...args),
+    cancelLockWithdrawal: (...args: unknown[]) => mockCancel(...args),
+    retryLockedDeposit: (...args: unknown[]) => mockRetry(...args),
+    // The pure rule comes from the real module, so the page derives Retry from the rows that it read.
+    retryableLockedDepositId:
+      jest.requireActual<typeof import('lib/epoch/bridge-in-recovery')>('lib/epoch/bridge-in-recovery')
+        .retryableLockedDepositId,
+    lockedDepositsOnLock: (...args: unknown[]) => mockDepositsOnLock(...args)
+  };
+});
+
+async function renderLock(chainId = '11155111', lockId = LOCK_ID) {
+  const view = render(<RecoverLockedFundsLock chainId={chainId} lockId={lockId} />);
+  // Let the reads settle.
+  await act(async () => undefined);
+  return view;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  mockLocation.search = `?address=${SPONSOR}`;
+  mockPicker.error = undefined;
+  mockSelectTokens.mockReturnValue([USDC_TOKEN]);
+  mockConnection.address = SPONSOR;
+  mockConnection.connected = true;
+  mockReadState.mockResolvedValue({ balance: 2_500_000n, withdrawal: { status: 'Disabled' } });
+  mockReadRecord.mockResolvedValue(undefined);
+  mockDepositsOnLock.mockResolvedValue([]);
+  mockStart.mockResolvedValue(4900);
+  mockFinish.mockResolvedValue('0xwithdraw');
+  mockCancel.mockResolvedValue(undefined);
+  mockRetry.mockResolvedValue('77');
+});
+afterEach(() => jest.restoreAllMocks());
+
+describe('RecoverLockedFundsLock', () => {
+  it('shows the lock and starts the forced withdrawal for the sponsor', async () => {
+    await renderLock();
+
+    expect(mockReadState).toHaveBeenCalledWith(11155111, SPONSOR, 42n);
+    expect(screen.getByTestId('recover-funds-lock-balance')).toHaveTextContent('2.5 USDC');
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('recoverFundsWithdrawOff');
+    expect(screen.getByText(/recoverFundsWithdrawBlocksBridge/)).toBeInTheDocument();
+    expect(screen.queryByTestId('recover-funds-lock-retry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(mockStart).toHaveBeenCalledWith(REF);
+    expect(mockFinish).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    // The action asks for a fresh read of the lock.
+    expect(mockReadState).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the exact amount of a listed token, with no rounding', async () => {
+    mockReadState.mockResolvedValue({ balance: 123_456_789_123_456n, withdrawal: { status: 'Disabled' } });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-balance')).toHaveTextContent('123456789.123456 USDC');
+  });
+
+  it('shows the unknown-scale text, never base units, for a token the document does not list', async () => {
+    mockSelectTokens.mockReturnValue([]);
+    await renderLock();
+
+    const balance = screen.getByTestId('recover-funds-lock-balance');
+    expect(balance).toHaveTextContent('assetValueUnknownScale');
+    expect(balance).not.toHaveTextContent('2500000');
+    expect(balance).not.toHaveTextContent('2.5');
+  });
+
+  it('counts down a pending withdrawal from the chain, and cancels it', async () => {
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1065 } });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent(
+      'epochDepositWithdrawStarted:{"time":"1:05"}'
+    );
+    expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeDisabled();
+
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
+    expect(mockCancel).toHaveBeenCalledWith(REF);
+  });
+
+  it('withdraws the whole lock once the withdrawal is due and shows the success confirmation', async () => {
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+    await renderLock();
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('epochDepositWithdrawReady');
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(mockFinish).toHaveBeenCalledWith(REF);
+    expect(mockReadState).toHaveBeenCalledTimes(1);
+    expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+    expect(mockReadRecord).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+    expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toHaveTextContent(
+      'bridgeWithdrawalSuccessful'
+    );
+    expect(screen.getByTestId('recover-funds-lock-notice')).toHaveTextContent('recoverFundsWithdrawBlocksBridge');
+    expect(screen.getByTestId('recover-funds-lock-notice')).toHaveClass('bg-status-pending/10');
+    expect(screen.getByTestId('recover-funds-lock-cancel')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('recover-funds-return-to-list'));
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/recover-funds', HistoryAction.Replace);
+
+    fireEvent.click(screen.getByTestId('recover-funds-return-home'));
+    expect(mockNavigate).toHaveBeenCalledWith('/', HistoryAction.Replace);
+  });
+
+  it('disables the forced withdrawal from the confirmation view and hides cancellation controls once completed', async () => {
+    const { LockedDepositError } = jest.requireMock('lib/epoch/bridge-in-recovery');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+      const view = await renderLock();
+
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+      expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+
+      mockConnection.connected = false;
+      mockConnection.address = undefined;
+      mockPicker.error = 'picker failed';
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('connectEvmWallet');
+      expect(screen.getByText(/epochDepositConnectSponsor/)).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('picker failed');
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('recover-funds-lock-connect'));
+      expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+
+      mockConnection.connected = true;
+      mockConnection.address = OTHER;
+      mockPicker.error = undefined;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('switchWallet');
+      expect(screen.getByText(/epochDepositWrongWallet/)).toBeInTheDocument();
+
+      mockConnection.address = SPONSOR;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      mockCancel.mockRejectedValueOnce(new LockedDepositError('wrongChain', 'switch'));
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
+      expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('epochDepositErrorWrongChain');
+      expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-notice')).toBeInTheDocument();
+      expect(screen.getByTestId('recover-funds-lock-cancel')).toBeEnabled();
+
+      mockPicker.error = 'stale picker error';
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
+      expect(mockCancel).toHaveBeenCalledWith(REF);
+      expect(mockReadState).toHaveBeenCalledTimes(1);
+      expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+      expect(mockReadRecord).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-notice')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-connect')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-error')).not.toBeInTheDocument();
+      expect(screen.queryByText(/epochDepositConnectSponsor/)).not.toBeInTheDocument();
+
+      mockConnection.connected = false;
+      mockConnection.address = undefined;
+      view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+      expect(screen.queryByTestId('recover-funds-lock-notice')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-connect')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recover-funds-lock-error')).not.toBeInTheDocument();
+      expect(screen.queryByText(/epochDepositConnectSponsor/)).not.toBeInTheDocument();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('uses the recorded enable time when The Compact does not answer', async () => {
+    mockReadState.mockResolvedValue({});
+    mockReadRecord.mockResolvedValue({ enabledAt: 990, withdrawableAt: 1010 });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-balance')).toHaveTextContent('recoverFundsCouldNotCheckShort');
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent(
+      'epochDepositWithdrawStarted:{"time":"0:10"}'
+    );
+  });
+
+  it('prefers a locked history row over the storage record', async () => {
+    mockReadState.mockResolvedValue({});
+    mockDepositsOnLock.mockResolvedValue([
+      { id: 'row-1', lock: { taskTypeString: '', intentData: {}, withdrawEnabledAt: 950, withdrawableAt: 1030 } }
+    ]);
+    mockReadRecord.mockResolvedValue({ enabledAt: 990, withdrawableAt: 1010 });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('"time":"0:30"');
+  });
+
+  it('offers Retry bridge only when a row still holds the intent', async () => {
+    mockDepositsOnLock.mockResolvedValue([
+      { id: 'row-0', lock: { taskTypeString: '', intentData: {} } },
+      { id: 'row-1', lock: { taskTypeString: 'task', intentData: { amount: '1' } } }
+    ]);
+    await renderLock();
+
+    // One read of the rows feeds both the retry choice and the recorded times.
+    expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-retry')));
+    expect(mockRetry).toHaveBeenCalledWith('row-1');
+  });
+
+  it('shows the could-not-check text when the balance read behind Withdraw failed', async () => {
+    const { LockedDepositError } = jest.requireMock('lib/epoch/bridge-in-recovery');
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+    mockFinish.mockRejectedValue(new LockedDepositError('balanceUnreadable', 'unreadable'));
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderLock();
+
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('recoverFundsCouldNotCheckShort');
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+  });
+
+  it('asks for the sponsor wallet when none is connected', async () => {
+    mockConnection.connected = false;
+    mockConnection.address = undefined;
+    await renderLock();
+
+    expect(screen.queryByTestId('recover-funds-lock-withdraw')).not.toBeInTheDocument();
+    expect(screen.getByText(/epochDepositConnectSponsor/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('recover-funds-lock-connect'));
+    expect(mockOpenPicker).toHaveBeenCalled();
+    expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('connectEvmWallet');
+  });
+
+  it('refuses another wallet with the wrong-wallet text', async () => {
+    mockConnection.address = OTHER;
+    await renderLock();
+
+    expect(screen.queryByTestId('recover-funds-lock-withdraw')).not.toBeInTheDocument();
+    expect(screen.getByText(/epochDepositWrongWallet/)).toBeInTheDocument();
+    expect(screen.getByTestId('recover-funds-lock-connect')).toHaveTextContent('switchWallet');
+  });
+
+  it('shows the refusal of an action', async () => {
+    const { LockedDepositError } = jest.requireMock('lib/epoch/bridge-in-recovery');
+    mockStart.mockRejectedValue(new LockedDepositError('wrongChain', 'switch'));
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await renderLock();
+
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(screen.getByTestId('recover-funds-lock-error')).toHaveTextContent('epochDepositErrorWrongChain');
+  });
+
+  it('has nothing to do on an empty lock', async () => {
+    mockReadState.mockResolvedValue({ balance: 0n, withdrawal: { status: 'Disabled' } });
+    await renderLock();
+
+    expect(screen.getByTestId('recover-funds-lock-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('recover-funds-lock-withdraw')).not.toBeInTheDocument();
+  });
+
+  it('refuses a link with a bad lock id or address', async () => {
+    mockLocation.search = '?address=nope';
+    await renderLock();
+    expect(screen.getByTestId('recover-funds-lock-invalid')).toBeInTheDocument();
+    expect(mockReadState).not.toHaveBeenCalled();
+  });
+
+  it('stops the countdown interval once due and withdrawn, and skips rescan reads after withdrawal', async () => {
+    jest.useFakeTimers();
+    try {
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1002 } });
+      await renderLock();
+
+      expect(jest.getTimerCount()).toBe(1);
+      expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeDisabled();
+
+      dateSpy.mockReturnValue(1_003_000);
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+      });
+      expect(jest.getTimerCount()).toBe(0);
+      expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
+
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+      expect(mockFinish).toHaveBeenCalledWith(REF);
+      expect(mockReadState).toHaveBeenCalledTimes(1);
+      expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+      expect(mockReadRecord).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start a countdown interval for Disabled or un-enabled locks with stale local withdrawableAt', async () => {
+    jest.useFakeTimers();
+    try {
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Disabled' } });
+      mockReadRecord.mockResolvedValue({ enabledAt: 900, withdrawableAt: 2000 });
+      const firstView = await renderLock();
+      expect(jest.getTimerCount()).toBe(0);
+      firstView.unmount();
+
+      mockReadState.mockResolvedValue({});
+      mockReadRecord.mockResolvedValue({ withdrawableAt: 2000 });
+      await renderLock();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows ready immediately when an async read settles after withdrawableAt has passed without starting a timer', async () => {
+    let resolveState!: (value: { balance: bigint; withdrawal: { status: string; withdrawableAt: number } }) => void;
+    mockReadState.mockReturnValue(
+      new Promise(resolve => {
+        resolveState = resolve;
+      })
+    );
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    render(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    dateSpy.mockReturnValue(1_002_000);
+    await act(async () => {
+      resolveState({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1001 } });
+    });
+
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('epochDepositWithdrawReady');
+    expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+  });
+
+  const completeDueWithdrawal = async () => {
+    mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
+    const view = await renderLock();
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+    expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
+    return view;
+  };
+
+  it('invokes header back navigation from the withdrawal confirmation view', async () => {
+    await completeDueWithdrawal();
+
+    fireEvent.click(screen.getByTestId('page-back'));
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets confirmation state when only sponsorAddress changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    mockLocation.search = `?address=${OTHER}`;
+    view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(11155111, OTHER, 42n);
+  });
+
+  it('resets confirmation state when only lockId changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    view.rerender(<RecoverLockedFundsLock chainId="11155111" lockId="43" />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(11155111, SPONSOR, 43n);
+  });
+
+  it('resets confirmation state when only chainId changes in the route', async () => {
+    const view = await completeDueWithdrawal();
+
+    view.rerender(<RecoverLockedFundsLock chainId="1" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    expect(screen.queryByTestId('recover-funds-withdrawal-success')).not.toBeInTheDocument();
+    expect(mockReadState).toHaveBeenCalledWith(1, SPONSOR, 42n);
+  });
+});
