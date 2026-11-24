@@ -1268,7 +1268,6 @@ body[data-home-band]::before {
 
 .tx-notes-disclosure-inner {
   min-height: 0;
-  min-width: 0;
 }
 
 .tx-story-hop {

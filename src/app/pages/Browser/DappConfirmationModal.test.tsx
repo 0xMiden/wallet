@@ -1091,12 +1091,65 @@ describe('DappConfirmationModal horizontal overflow protection (#2045)', () => {
     const messages = screen.getAllByTestId('dapp-confirmation-message');
     const detailRow = messages[1]!;
     expect(detailRow).toHaveTextContent(longErrorToken);
-    expect(detailRow).toHaveClass('min-w-0', 'wrap-anywhere');
-    expect(detailRow.parentElement).toHaveClass('min-w-0');
-    expect(detailRow.parentElement!.parentElement).toHaveClass('min-w-0', 'overflow-x-hidden');
+
+    const body = detailRow.parentElement!.parentElement!;
+    expect(body).toHaveClass('min-w-0', 'overflow-x-hidden', 'wrap-anywhere');
+    expect(detailRow).not.toHaveClass('min-w-0');
+    expect(detailRow).not.toHaveClass('wrap-anywhere');
+    expect(detailRow.parentElement).not.toHaveClass('min-w-0');
 
     const approvalError = screen.getByTestId('dapp-approval-error');
     expect(approvalError).toHaveClass('wrap-anywhere');
+    expect(Array.from(body.querySelectorAll('.wrap-anywhere'))).toEqual([approvalError]);
+
+    const networkValue = screen.getByTestId('dapp-confirmation-network');
+    expect(networkValue).not.toHaveClass('wrap-anywhere');
+    expect(networkValue.parentElement).not.toHaveClass('min-w-0');
+  });
+
+  it('inherits wrap-anywhere across confirmation variants without redundant wrapping classes or no-op min-w-0', () => {
+    const bodyOf = () => screen.getByTestId('dapp-confirmation-network').parentElement!.parentElement!;
+
+    const { rerender } = render(
+      <DappConfirmationModal request={autoRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+    expect(bodyOf()).toHaveClass('min-w-0', 'overflow-x-hidden', 'wrap-anywhere');
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+    expect(screen.getByTestId('private-data-scope')).not.toHaveClass('min-w-0');
+    expect(screen.getByText(truncateAddress(FULL_ACCOUNT_ID)).parentElement).not.toHaveClass('min-w-0');
+    expect(screen.getByText('confirmRisk')).toHaveClass('min-w-0');
+
+    rerender(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+
+    rerender(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'loginSign',
+          origin: 'https://example.org',
+          appMeta: { name: 'example.org' },
+          domain: 'example.org',
+          accountId: FULL_ACCOUNT_ID
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
+
+    rerender(
+      <DappConfirmationModal
+        request={buildRequest({
+          type: 'transaction',
+          sourcePublicKey: FULL_ACCOUNT_ID,
+          noteFlow: null,
+          transactionMessages: []
+        })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+    expect(Array.from(bodyOf().querySelectorAll('.wrap-anywhere'))).toEqual([]);
   });
 
   it('wraps network mismatch warning text without breaking domain display', () => {

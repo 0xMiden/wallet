@@ -288,15 +288,13 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               </div>
 
               {/* Body */}
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5">
-                <p className="mb-4 text-sm text-text-muted wrap-anywhere">
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5 wrap-anywhere">
+                <p className="mb-4 text-sm text-text-muted">
                   {t(confirmationPromptKey(request.type), confirmationPromptValues(request))}
                 </p>
 
                 {request.type === 'loginSign' && (
-                  <p className="mb-4 text-body-sm text-ink wrap-anywhere">
-                    {t('loginSignatureNote', { domain: request.domain })}
-                  </p>
+                  <p className="mb-4 text-body-sm text-ink">{t('loginSignatureNote', { domain: request.domain })}</p>
                 )}
 
                 {isTransaction && transactionMessages.length > 0 && !request.noteFlow && (
@@ -304,12 +302,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {isTransaction && transactionMessages.length > 0 && (
-                  <div className="tx-stage-list mb-4 min-w-0 rounded-xl bg-fill p-4">
+                  <div className="tx-stage-list mb-4 rounded-xl bg-fill p-4">
                     {transactionMessages.map((msg, i) => (
                       <div
                         key={i}
                         data-testid="dapp-confirmation-message"
-                        className="min-w-0 border-b border-border-light py-1 text-xs text-text-muted wrap-anywhere last:border-b-0 last:pb-0 first:pt-0"
+                        className="border-b border-border-light py-1 text-xs text-text-muted last:border-b-0 last:pb-0 first:pt-0"
                       >
                         {msg}
                       </div>
@@ -322,30 +320,28 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   (request.noteFlow ? (
                     <TransactionNoteFlow flow={request.noteFlow} account={accountId ?? undefined} />
                   ) : (
-                    <p className="mb-4 text-sm text-muted wrap-anywhere">{t('verifiedNoteDetailsUnavailable')}</p>
+                    <p className="mb-4 text-sm text-muted">{t('verifiedNoteDetailsUnavailable')}</p>
                   ))}
 
                 {!isTransaction && (
-                  <div className="mb-4 min-w-0 rounded-xl bg-grey-50 p-4">
+                  <div className="mb-4 rounded-xl bg-grey-50 p-4">
                     <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
-                    <p className="font-inter text-sm text-grey-900 wrap-anywhere">
+                    <p className="font-inter text-sm text-grey-900">
                       {shownAccountId ? truncateAddress(shownAccountId) : t('noAccountSelected')}
                     </p>
                   </div>
                 )}
 
                 {request.type === 'connect' && (
-                  <div className="mb-4 min-w-0 rounded-xl bg-grey-50 p-4" data-testid="private-data-scope">
-                    <p className="text-sm font-semibold text-grey-900 wrap-anywhere">
+                  <div className="mb-4 rounded-xl bg-grey-50 p-4" data-testid="private-data-scope">
+                    <p className="text-sm font-semibold text-grey-900">
                       {requestsStandingPrivateData ? t('privateDataAccessAuto') : t('privateDataAccessUponRequest')}
                     </p>
                     {requestsStandingPrivateData ? (
                       <>
-                        <p className="mt-1 text-xs text-grey-500 wrap-anywhere">{t('accessWillBeGranted')}</p>
-                        <p className="text-xs font-semibold text-grey-900 wrap-anywhere">{allowedPrivateDataList}</p>
-                        <p className="mt-2 text-xs text-grey-500 wrap-anywhere">
-                          {t('confirmPrivateDataPermissionDescription')}
-                        </p>
+                        <p className="mt-1 text-xs text-grey-500">{t('accessWillBeGranted')}</p>
+                        <p className="text-xs font-semibold text-grey-900">{allowedPrivateDataList}</p>
+                        <p className="mt-2 text-xs text-grey-500">{t('confirmPrivateDataPermissionDescription')}</p>
                         <label
                           className="mt-3 flex items-start gap-2 text-xs text-grey-900"
                           htmlFor="dapp-standing-private-data"
@@ -356,19 +352,19 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                             checked={standingAccessAcknowledged}
                             onChange={event => setStandingAccessAcknowledged(event.target.checked)}
                           />
-                          <span className="min-w-0 wrap-anywhere">{t('confirmRisk')}</span>
+                          <span className="min-w-0">{t('confirmRisk')}</span>
                         </label>
                       </>
                     ) : (
-                      <p className="mt-1 text-xs text-grey-500 wrap-anywhere">{t('confirmationRequired')}</p>
+                      <p className="mt-1 text-xs text-grey-500">{t('confirmationRequired')}</p>
                     )}
                   </div>
                 )}
 
-                <div className="min-w-0 rounded-xl bg-fill p-4">
+                <div className="rounded-xl bg-fill p-4">
                   <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
                   {/* Every request runs on the wallet's own network; `request.network` is only the dApp's claim. */}
-                  <p className="text-sm text-ink wrap-anywhere" data-testid="dapp-confirmation-network">
+                  <p className="text-sm text-ink" data-testid="dapp-confirmation-network">
                     {t(getEffectiveNetworkName())}
                   </p>
                 </div>
