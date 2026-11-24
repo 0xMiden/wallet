@@ -496,7 +496,8 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
           if (finished) {
             try {
               if (!wasmTrapped && attempt !== winningAttempt) resolved?.free?.();
-            } catch {
+            } catch (err) {
+              if (isWasmTrap(err)) wasmTrapped = true;
               // Ignore cleanup errors on late-settling WASM handles.
             } finally {
               freeRpcIfDone();
@@ -527,21 +528,28 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
       if (isWasmTrap(err)) wasmTrapped = true;
       throw err;
     } finally {
-      if (!wasmTrapped) proof.free?.();
+      if (!wasmTrapped) {
+        try {
+          proof.free?.();
+        } catch (err) {
+          if (isWasmTrap(err)) wasmTrapped = true;
+          throw err;
+        }
+      }
     }
   } finally {
     finished = true;
     try {
-      if (!wasmTrapped) {
-        for (const attempt of attempts) {
-          if (attempt !== winningAttempt && attempt.proof) {
-            const staleProof = attempt.proof;
-            attempt.proof = undefined;
-            try {
-              staleProof.free?.();
-            } catch {
-              // Ignore cleanup errors on stale WASM handles.
-            }
+      for (const attempt of attempts) {
+        if (wasmTrapped) break;
+        if (attempt !== winningAttempt && attempt.proof) {
+          const staleProof = attempt.proof;
+          attempt.proof = undefined;
+          try {
+            staleProof.free?.();
+          } catch (err) {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            // Ignore cleanup errors on stale WASM handles.
           }
         }
       }

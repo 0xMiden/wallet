@@ -96,7 +96,14 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
         if (isWasmTrap(err)) wasmTrapped = true;
         throw err;
       } finally {
-        if (!wasmTrapped) proof.free?.();
+        if (!wasmTrapped) {
+          try {
+            proof.free?.();
+          } catch (err) {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            throw err;
+          }
+        }
       }
 
       if (!hasHeader) {
@@ -125,7 +132,8 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
             if (wasmTrapped) return;
             try {
               if (resolved !== proof) resolved?.free?.();
-            } catch {
+            } catch (err) {
+              if (isWasmTrap(err)) wasmTrapped = true;
               // Ignore cleanup errors on late-settling WASM handles.
             } finally {
               if (!wasmTrapped) {

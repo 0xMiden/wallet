@@ -1726,6 +1726,128 @@ describe('deriveBridgeConfig default I/O', () => {
     }
   });
 
+  it('does not free RpcClient when the winning AccountProof free traps', async () => {
+    const trapped = trackedFaucetProof();
+    trapped.proofFree.mockImplementation(() => {
+      throw new WebAssembly.RuntimeError('unreachable');
+    });
+    const rpcFree = mockTrackedRpcClient();
+    mockGetAccountProof.mockResolvedValueOnce(trapped.proof);
+    await expect(readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC)).rejects.toThrow(
+      WebAssembly.RuntimeError
+    );
+    expect(trapped.proofFree).toHaveBeenCalledTimes(1);
+    expect(rpcFree).not.toHaveBeenCalled();
+  });
+
+  it('does not free RpcClient when a stale AccountProof free traps', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveAttempt0!: (proof: unknown) => void;
+      let resolveAttempt1!: (proof: unknown) => void;
+      const stale = trackedFaucetProof();
+      stale.proofFree.mockImplementation(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      });
+      const ok = trackedFaucetProof();
+      const rpcFree = mockTrackedRpcClient();
+      mockGetAccountProof
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveAttempt0 = resolve;
+            })
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveAttempt1 = resolve;
+            })
+        );
+
+      const pending = readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC);
+      await jest.advanceTimersByTimeAsync(15_000);
+      resolveAttempt0(stale.proof);
+      await Promise.resolve();
+      resolveAttempt1(ok.proof);
+      await expect(pending).resolves.toEqual({ symbol: 'TEST', decimals: 8 });
+
+      expect(ok.proofFree).toHaveBeenCalledTimes(1);
+      expect(stale.proofFree).toHaveBeenCalledTimes(1);
+      expect(rpcFree).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops freeing stale AccountProofs and RpcClient after a stale AccountProof free traps', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveAttempt0!: (proof: unknown) => void;
+      const first = trackedFaucetProof();
+      first.proofFree.mockImplementation(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      });
+      const second = trackedFaucetProof();
+      const rpcFree = mockTrackedRpcClient();
+      mockGetAccountProof
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveAttempt0 = resolve;
+            })
+        )
+        // Settles on the same tick its timeout fires, so it is recorded but never wins.
+        .mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(second.proof), 15_000)));
+
+      const pending = readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC).catch((err: unknown) => err);
+      await jest.advanceTimersByTimeAsync(15_000);
+      resolveAttempt0(first.proof);
+      await Promise.resolve();
+      jest.advanceTimersByTime(15_000);
+      expect(await pending).toMatchObject({ name: 'RpcTimeoutError' });
+
+      expect(first.proofFree).toHaveBeenCalledTimes(1);
+      expect(second.proofFree).not.toHaveBeenCalled();
+      expect(rpcFree).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not free RpcClient when a late-resolving AccountProof free traps', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveAttempt0!: (proof: unknown) => void;
+      const late = trackedFaucetProof();
+      late.proofFree.mockImplementation(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      });
+      const ok = trackedFaucetProof();
+      const rpcFree = mockTrackedRpcClient();
+      mockGetAccountProof
+        .mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveAttempt0 = resolve;
+            })
+        )
+        .mockResolvedValueOnce(ok.proof);
+
+      const pending = readMidenFaucetMetadata('0x537c15a622074e91188aa894456c52', RPC);
+      await jest.advanceTimersByTimeAsync(15_000);
+      await expect(pending).resolves.toEqual({ symbol: 'TEST', decimals: 8 });
+      expect(ok.proofFree).toHaveBeenCalledTimes(1);
+
+      resolveAttempt0(late.proof);
+      await Promise.resolve();
+      expect(late.proofFree).toHaveBeenCalledTimes(1);
+      expect(rpcFree).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('reads Sepolia over the wallet RPC for the chain', async () => {
     mockPublicClient.getCode.mockResolvedValue('0x6080604052');
     mockPublicClient.readContract.mockImplementation(async ({ functionName }: { functionName: string }) =>

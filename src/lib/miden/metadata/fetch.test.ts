@@ -853,6 +853,48 @@ describe('metadata/fetch', () => {
       expect(rpcTrapFree).not.toHaveBeenCalled();
     });
 
+    it('does not free RpcClient when the winning AccountProof free traps', async () => {
+      const trapped = trackedFaucetProof();
+      trapped.proofFree.mockImplementation(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      });
+      const rpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockResolvedValueOnce(trapped.proof);
+      await expect(fetchTokenMetadata('trap-proof-free')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(trapped.proofFree).toHaveBeenCalledTimes(1);
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+      expect(rpcFree).not.toHaveBeenCalled();
+    });
+
+    it('does not free RpcClient when a late-resolving AccountProof free traps', async () => {
+      jest.useFakeTimers();
+      try {
+        let resolveLate!: (proof: unknown) => void;
+        const late = trackedFaucetProof();
+        late.proofFree.mockImplementation(() => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        });
+        const lateRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveLate = resolve;
+            })
+        );
+        const settled = fetchTokenMetadata('late-trap').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settled).toBeInstanceOf(NotFoundTokenMetadata);
+
+        resolveLate(late.proof);
+        await Promise.resolve();
+        expect(late.proofFree).toHaveBeenCalledTimes(1);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+        expect(lateRpcFree).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('defers freeing late-resolving AccountProof and RpcClient on timed-out attempt until settled', async () => {
       jest.useFakeTimers();
       try {
