@@ -21,7 +21,15 @@ beforeEach(() => {
 
 it('offers every production external chain on Mainnet', () => {
   const { result } = renderHook(() => useContactBridgeNetworks());
-  expect(result.current.map(network => network.id)).toEqual(['ethereum', 'base', 'arbitrum', 'arc', 'optimism']);
+  expect(result.current.map(network => network.id)).toEqual([
+    'ethereum',
+    'base',
+    'arbitrum',
+    'arc',
+    'optimism',
+    'polygon',
+    'robinhood'
+  ]);
 });
 
 it.each(['testnet', 'devnet', 'localnet'])('keeps test-chain choices on %s', network => {
@@ -51,7 +59,15 @@ it('updates choices when the effective network changes without a remount', () =>
     mockNetwork = 'mainnet';
     mockListeners.forEach(listener => listener());
   });
-  expect(result.current.map(network => network.id)).toEqual(['ethereum', 'base', 'arbitrum', 'arc', 'optimism']);
+  expect(result.current.map(network => network.id)).toEqual([
+    'ethereum',
+    'base',
+    'arbitrum',
+    'arc',
+    'optimism',
+    'polygon',
+    'robinhood'
+  ]);
 });
 
 it('retains a saved test-chain contact on Mainnet without offering other test chains', () => {
@@ -62,7 +78,9 @@ it('retains a saved test-chain contact on Mainnet without offering other test ch
     'base',
     'arbitrum',
     'arc',
-    'optimism'
+    'optimism',
+    'polygon',
+    'robinhood'
   ]);
   expect(contactNetwork('0xsynthetic', 'base-sepolia').bridgeNetwork?.id).toBe('base-sepolia');
 });
@@ -83,5 +101,13 @@ it('keeps legacy default resolution and Miden contacts unchanged', () => {
   expect(contactNetwork('0xsynthetic').bridgeNetwork?.id).toBe('ethereum');
   expect(contactNetwork('mm1synthetic', 'sepolia')).toEqual({ kind: 'miden' });
   const { result } = renderHook(() => useContactBridgeNetworks('unknown'));
-  expect(result.current.map(network => network.id)).toEqual(['ethereum', 'base', 'arbitrum', 'arc', 'optimism']);
+  expect(result.current.map(network => network.id)).toEqual([
+    'ethereum',
+    'base',
+    'arbitrum',
+    'arc',
+    'optimism',
+    'polygon',
+    'robinhood'
+  ]);
 });
