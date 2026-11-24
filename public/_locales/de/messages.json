@@ -2337,8 +2337,8 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden- oder Ethereum-Adresse eingeben",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Geben Sie die Adresse ein",
+    "englishSource": "Enter the address"
   },
   "selectAmount": {
     "message": "Betrag auswählen",
@@ -9902,5 +9902,174 @@
   "loginSignatureTitle": {
     "message": "Damit melden Sie sich lediglich an",
     "englishSource": "This only signs you in"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR-Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ Sek.",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ Minuten",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Sie erhalten $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents bietet diesen Token in diesem Netzwerk nicht an.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Dieser Betrag ist für NEAR Intents zu gering. Geben Sie einen höheren Betrag ein.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents können nicht an diese Adresse gesendet werden. Überprüfen Sie die Adresse und das Netzwerk.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Das Angebot hat sich geändert und bietet nun weniger als das, was Sie geprüft haben. Prüfen Sie das neue Angebot und bestätigen Sie es anschließend erneut.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Das Angebot ist abgelaufen, bevor die Zahlung eingeleitet wurde. Überprüfen Sie das neue Angebot und bestätigen Sie es anschließend erneut.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Wenn der Swap fehlschlägt, erstattet NEAR Intents den Betrag auf dieses Miden-Konto zurück.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Einzahlungsadresse generiert",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Senden an die Einzahlungsadresse",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Eine neue Überweisung starten",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Die Zahlung an die Einzahlungsadresse ist fehlgeschlagen, daher wurden keine Gelder überwiesen. Starten Sie eine neue Überweisung, um eine neue Einzahlungsadresse zu erhalten.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Einzahlungsadresse generieren",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Die Gelder werden an NEAR Intents gesendet. Die Überweisung an $network$ wird fortgesetzt. Verfolgen Sie den Status unter „Activity“.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents hat die Zahlung über $network$ abgewickelt.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Empfänger erhält (Schätzung)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Lieferstatus",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Senden an NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "An den Empfänger zugestellt",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Abgelaufen",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Zahlung zurückerstattet",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents konnte den Swap nicht abschließen und hat den Betrag auf Ihr Miden-Konto zurückerstattet.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Lieferung fehlgeschlagen",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents konnte diese Zahlung nicht ausführen. Öffnen Sie die Aktivität, um die Details anzuzeigen.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Lieferfrist abgelaufen",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents hat diese Zahlung nicht rechtzeitig verarbeitet. Öffnen Sie die Aktivität, um die Details anzuzeigen.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Empfänger erhielt",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Im $network$-Explorer anzeigen",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Diese Wallet kann keine Transaktionen an diese Adresse senden",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   }
 }
