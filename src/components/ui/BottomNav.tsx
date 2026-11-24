@@ -192,7 +192,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
           aria-hidden
           className={cn(
             'pointer-events-none absolute inset-x-1 bottom-1 truncate',
-            'text-center text-[10px] leading-none font-semibold',
+            'text-center text-tag font-semibold',
             'motion-safe:transition-opacity motion-safe:duration-150',
             presentation === 'condensed' && 'opacity-0'
           )}
