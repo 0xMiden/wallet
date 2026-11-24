@@ -18,6 +18,7 @@ import { getEligibilityFixtureOrigin, resetEligibilityFixtureOrigin } from '../.
 import { DappBrowserDriver } from '../../harness/dapp-browser-driver';
 import { runDappBrowserJourney } from '../../harness/dapp-browser-scenario';
 import { startDappFixtureServer, type DappFixtureServer } from '../../harness/dapp-fixture-server';
+import { runNavbarPresentationScenario } from '../../harness/navbar-presentation-scenario';
 import { expect, test } from '../fixtures/two-simulators';
 
 test.describe('dApp Browser (iOS)', () => {
@@ -58,6 +59,8 @@ test.describe('dApp Browser (iOS)', () => {
       contentType: 'application/json'
     });
     await walletA.unlockWallet();
+
+    await runNavbarPresentationScenario({ target: walletA, device: { udid: walletA.udid }, steps });
 
     const driver = new DappBrowserDriver({
       target: walletA,

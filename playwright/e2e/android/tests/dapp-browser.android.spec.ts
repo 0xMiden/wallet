@@ -17,6 +17,7 @@ import * as path from 'path';
 import { DappBrowserDriver } from '../../harness/dapp-browser-driver';
 import { runDappBrowserJourney } from '../../harness/dapp-browser-scenario';
 import { startDappFixtureServer, type DappFixtureServer } from '../../harness/dapp-fixture-server';
+import { runNavbarPresentationScenario } from '../../harness/navbar-presentation-scenario';
 import { test } from '../fixtures/two-emulators';
 
 test.describe('dApp Browser (Android)', () => {
@@ -36,6 +37,8 @@ test.describe('dApp Browser (Android)', () => {
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
     });
+
+    await runNavbarPresentationScenario({ target: walletA, device: { serial: walletA.serial }, steps });
 
     const driver = new DappBrowserDriver({
       target: walletA,
