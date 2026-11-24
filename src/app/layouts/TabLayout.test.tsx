@@ -725,6 +725,21 @@ describe('TabLayout mobile navbar presentation', () => {
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
   });
 
+  it('expands when the tracked scroll region shrinks to fit', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/browser';
+    renderLayout();
+    const region = scrollRegion();
+    scrollTo(region, 0, 80);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+
+    Object.defineProperty(region, 'scrollHeight', { value: region.clientHeight });
+    region.scrollTop = 0;
+    fireEvent.scroll(region);
+
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+  });
+
   it('starts a new baseline when a different region scrolls', () => {
     mockPlatform.isMobile = true;
     mockLocation.pathname = '/history';
