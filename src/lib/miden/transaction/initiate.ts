@@ -1073,7 +1073,6 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  oneClick?: IOneClickTrackingData,
   calendarRecallTarget?: string
 ): Promise<string> => {
   // Every send funnels through here - the wallet's own review screen and the
@@ -1086,7 +1085,7 @@ export const initiateSendTransaction = async (
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
   if (calendarRecallTarget !== undefined) {
-    if (dappOrigin !== undefined || oneClick !== undefined) throw new CalendarRecallReviewRequiredError();
+    if (dappOrigin !== undefined) throw new CalendarRecallReviewRequiredError();
     resolveSendReclaimHeight(0, recallBlocks, calendarRecallTarget);
   }
 
@@ -1106,7 +1105,6 @@ export const initiateSendTransaction = async (
     delegateTransaction
   );
   if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
-  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },

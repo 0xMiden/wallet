@@ -20,7 +20,7 @@ import {
   normalizeGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { IBridgedSendExtraInputs, IOneClickPhase, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -39,6 +39,7 @@ import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper'
 import type { ConsumableNote } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { isOneClickTerminalPhase } from 'lib/one-click/expiry';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
 import { isUsdcxDestinationPending, pollUsdcxDestination } from 'lib/usdcx/destination-status';
@@ -143,26 +144,13 @@ function isBridgePromptActive(tx: ITransaction): boolean {
     case 'near-intents':
       // A NEAR Intents send has no claim: 1Click delivers or refunds it, and `reconcileOneClickSwaps` records that
       // in its tracking. The card stays only while the swap is open.
-      return isOneClickPhaseOpen(inputs.oneClick?.phase);
+      return inputs.oneClick?.phase === undefined || !isOneClickTerminalPhase(inputs.oneClick.phase);
     // A row with no provider keeps the Agglayer rule it always had.
     case 'agglayer':
     default:
       // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
       if (isAgglayerExitUnfindable(inputs)) return false;
       return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
-  }
-}
-
-/** True while a 1Click swap is open. A row with no phase yet is open; the four end phases are not. */
-function isOneClickPhaseOpen(phase: IOneClickPhase | undefined): boolean {
-  switch (phase) {
-    case 'delivered':
-    case 'refunded':
-    case 'failed':
-    case 'expired':
-      return false;
-    default:
-      return true;
   }
 }
 
