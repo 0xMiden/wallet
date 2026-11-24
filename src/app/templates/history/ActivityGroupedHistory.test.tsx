@@ -355,6 +355,17 @@ describe('ActivityGroupedHistory', () => {
     expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
   });
 
+  it('keeps the sender group when search matches its waiting transfer token', () => {
+    mockRealGroupList = true;
+    mockClaims.items = [claim('first-transfer', 'pending')];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="tok" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
+  });
+
   it('groups equivalent hex and Bech32 counterparties under the saved contact name', () => {
     const restoreDecoder = mockActivityCounterpartyDecode();
     const savedContacts = contacts.value;
