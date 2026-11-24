@@ -86,3 +86,11 @@ test('lockout keeps the field and disabled Unlock aligned', async ({ page }, inf
   await expect(input).toBeDisabled();
   await expect(page.getByTestId('unlock-error')).toContainText('blocked');
 });
+
+test('a pending admission message leaves Unlock enabled', async ({ page }, info) => {
+  const { input, submit } = await openUnlock(page, info, 'admission-pending');
+  await input.fill('Synthetic layout password');
+  await submit.click();
+  await expect(page.getByTestId('unlock-error')).toHaveText('We could not confirm Mainnet access. Try again later.');
+  await expect(submit).toBeEnabled();
+});

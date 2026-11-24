@@ -41,8 +41,13 @@ export function useLocalStorage(key: string, fallback: number): [number, (next: 
   return [value, set];
 }
 
-const unlock = (): Promise<void> =>
-  params.has('loading') ? new Promise(() => {}) : Promise.reject(new Error('Synthetic incorrect password'));
+const unlock = (): Promise<void> => {
+  if (params.has('loading')) return new Promise(() => {});
+  if (params.has('admission-pending')) {
+    return Promise.reject(Object.assign(new Error('Synthetic admission pending'), { code: 'MAINNET_ADMISSION_PENDING' }));
+  }
+  return Promise.reject(new Error('Synthetic incorrect password'));
+};
 export const useMidenContext = () => ({ unlock });
 export const isExtension = () => true;
 export const isMobile = () => false;
