@@ -9,6 +9,7 @@
  */
 
 import type { ITransactionType } from 'lib/miden/db/types';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
@@ -113,6 +114,29 @@ export interface ActivityGroup extends ActivityGroupKey {
 /** Resolves a counterparty address to a contact's or an own account's name, or `undefined`. */
 export type ActivityCounterpartyName = (address: string) => string | undefined;
 
+const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/i;
+
+function activityCounterpartyKey(address: string): string {
+  const fallback = address.trim().toLowerCase();
+  if (fallback.startsWith('0x')) return fallback;
+  const canonical = canonicalWalletAccountId(fallback);
+  // The SDK helper can fall back to a tag-stripped string when parsing fails.
+  return MIDEN_ACCOUNT_HEX.test(canonical) ? canonical.toLowerCase() : fallback;
+}
+
+export function activityCounterpartyNames(
+  contacts: readonly { address: string; name: string }[]
+): ActivityCounterpartyName {
+  const names = new Map<string, string>();
+  for (const contact of contacts) {
+    const name = contact.name?.trim();
+    if (!name) continue;
+    const key = activityCounterpartyKey(contact.address);
+    if (!names.has(key)) names.set(key, name);
+  }
+  return address => names.get(activityCounterpartyKey(address));
+}
+
 /** An entry the wallet has queued or is generating: the rows the pending badge counts. */
 export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
   return entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
@@ -143,12 +167,8 @@ function activityAddressGroupKey(counterparty?: string): ActivityGroupKey {
   return { kind: 'other', id: 'other' };
 }
 
-/**
- * Two addresses that differ only in case are one counterparty: a `0x` address is routinely
- * written both ways, and the address book stores whichever the user pasted.
- */
 function addressBucket(key: ActivityGroupKey): string {
-  return key.kind === 'address' ? `address:${key.id.toLowerCase()}` : key.kind;
+  return key.kind === 'address' ? `address:${activityCounterpartyKey(key.id)}` : key.kind;
 }
 
 /**
@@ -167,7 +187,12 @@ export function groupActivityEntries(
   const getGroup = (key: ActivityGroupKey): ActivityGroup => {
     const bucket = addressBucket(key);
     const existing = groups.get(bucket);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.kind === 'address' && MIDEN_ACCOUNT_HEX.test(existing.id) && !MIDEN_ACCOUNT_HEX.test(key.id)) {
+        existing.id = key.id;
+      }
+      return existing;
+    }
 
     const group: ActivityGroup = {
       ...key,
@@ -235,8 +260,8 @@ export function activityClaimMatcher(
 }
 
 function groupKeyMatcher(kind: ActivityGroupKind, id?: string): (key: ActivityGroupKey) => boolean {
-  const wanted = kind === 'address' ? id?.trim().toLowerCase() : undefined;
-  return key => key.kind === kind && (kind !== 'address' || key.id.toLowerCase() === wanted);
+  const wanted = kind === 'address' && id !== undefined ? activityCounterpartyKey(id) : undefined;
+  return key => key.kind === kind && (kind !== 'address' || activityCounterpartyKey(key.id) === wanted);
 }
 
 /** The route of a group's page. A category group needs no id; an address carries one. */

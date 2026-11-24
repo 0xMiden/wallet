@@ -368,7 +368,9 @@ describe('ActivityGroupedHistory', () => {
       render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
       expect(screen.getAllByTestId('activity-group-row')).toHaveLength(1);
-      expect(screen.getByRole('link', { name: /Saved counterparty/ })).toHaveAttribute('data-group-count', '2');
+      const group = screen.getByRole('link', { name: /Saved counterparty/ });
+      expect(group).toHaveAttribute('data-group-count', '2');
+      expect(group).toHaveAttribute('href', `/activity/group/address/${ACTIVITY_COUNTERPARTY_BECH32}`);
     } finally {
       contacts.value = savedContacts;
       restoreDecoder();
