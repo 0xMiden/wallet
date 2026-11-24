@@ -120,6 +120,159 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR 인텐트",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$초",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$분",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "$amount$ $symbol$를 수령합니다.",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents는 이 네트워크에서 해당 토큰을 제공하지 않습니다.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "이 금액은 NEAR 인텐트(Intents)에 사용하기에 너무 적습니다. 더 큰 금액을 입력하십시오.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents는 이 주소로 전송할 수 없습니다. 주소와 네트워크를 확인해 주십시오.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "견적 내용이 변경되어 현재 귀하가 검토하신 금액보다 적게 제시되고 있습니다. 새로운 견적을 검토하신 후 다시 확인해 주십시오.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "결제가 시작되기 전에 호가가 만료되었습니다. 새로운 호가를 확인한 후 다시 확인해 주십시오.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "스왑이 실패할 경우, NEAR Intents는 해당 금액을 이 Miden 계정으로 환불합니다.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "생성된 입금 주소",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "입금 주소로 전송",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "새로운 송금 시작",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "입금 주소로의 결제가 실패했으므로 자금이 이체되지 않았습니다. 새로운 입금 주소를 받으려면 송금을 다시 시작하십시오.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "입금 주소 생성",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "자금은 NEAR Intents로 전송됩니다. $network$로의 전송이 계속 진행 중입니다. Activity에서 진행 상황을 확인하세요.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents가 $network$를 통해 결제를 처리했습니다.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "수취인은 (예상)을 받습니다.",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "인도 상태",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "NEAR 인텐트로 전송",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "수신자에게 전달됨",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "만료됨",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "결제 환불",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents에서 스왑을 완료할 수 없어 해당 금액을 귀하의 Miden 계정으로 환불했습니다.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "전달 실패",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents에서 이 결제를 처리할 수 없었습니다. 자세한 내용은 활동을 열어 확인하십시오.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "인도 기한 만료",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents가 이 결제를 제때 처리하지 못했습니다. 자세한 내용은 활동 내역을 확인하십시오.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "수신자가 받았습니다",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "$network$ 탐색기에서 보기",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "이 이체에는 이 경로를 사용할 수 없습니다. 사용 가능한 다른 경로를 통해 계속 진행할 수 있습니다. 이 화면에서는 아직 거래가 제출되지 않았습니다.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -2338,6 +2491,22 @@
   "sendRecipientPlaceholder": {
     "message": "주소를 입력하세요",
     "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "이 지갑은 이 주소로 송금할 수 없습니다",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "솔라나",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "비트코인",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "금액 선택",
@@ -9892,174 +10061,5 @@
   "loginSignatureTitle": {
     "message": "이것은 단순히 로그인하는 것일 뿐입니다",
     "englishSource": "This only signs you in"
-  },
-  "bridgeRouteNearIntents": {
-    "message": "NEAR 인텐트",
-    "englishSource": "NEAR Intents"
-  },
-  "nearIntentsSendArrivalSeconds": {
-    "message": "~$seconds$초",
-    "englishSource": "~$seconds$ sec",
-    "placeholders": {
-      "seconds": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendArrivalMinutes": {
-    "message": "~$minutes$분",
-    "englishSource": "~$minutes$ mins",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendYouReceive": {
-    "message": "$amount$ $symbol$를 수령합니다.",
-    "englishSource": "You receive $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "nearIntentsSendUnsupported": {
-    "message": "NEAR Intents는 이 네트워크에서 해당 토큰을 제공하지 않습니다.",
-    "englishSource": "NEAR Intents does not offer this token on this network."
-  },
-  "nearIntentsSendNoLiquidity": {
-    "message": "이 금액은 NEAR 인텐트(Intents)에 사용하기에 너무 적습니다. 더 큰 금액을 입력하십시오.",
-    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
-  },
-  "nearIntentsSendInvalidRecipient": {
-    "message": "NEAR Intents는 이 주소로 전송할 수 없습니다. 주소와 네트워크를 확인해 주십시오.",
-    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
-  },
-  "nearIntentsSendQuoteChanged": {
-    "message": "견적 내용이 변경되어 현재 귀하가 검토하신 금액보다 적게 제시되고 있습니다. 새로운 견적을 검토하신 후 다시 확인해 주십시오.",
-    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendQuoteExpired": {
-    "message": "결제가 시작되기 전에 호가가 만료되었습니다. 새로운 호가를 확인한 후 다시 확인해 주십시오.",
-    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendRefundNote": {
-    "message": "스왑이 실패할 경우, NEAR Intents는 해당 금액을 이 Miden 계정으로 환불합니다.",
-    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
-  },
-  "transactionStepNearIntentsDepositAddress": {
-    "message": "생성된 입금 주소",
-    "englishSource": "Deposit address generated"
-  },
-  "transactionStepNearIntentsSend": {
-    "message": "입금 주소로 전송",
-    "englishSource": "Sending to deposit address"
-  },
-  "nearIntentsSendStartNew": {
-    "message": "새로운 송금 시작",
-    "englishSource": "Start a new send"
-  },
-  "nearIntentsSendNotSentDescription": {
-    "message": "입금 주소로의 결제가 실패했으므로 자금이 이체되지 않았습니다. 새로운 입금 주소를 받으려면 송금을 다시 시작하십시오.",
-    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
-  },
-  "nearIntentsSendGeneratingDepositAddress": {
-    "message": "입금 주소 생성",
-    "englishSource": "Generating deposit address"
-  },
-  "nearIntentsSendSentDescription": {
-    "message": "자금은 NEAR Intents로 전송됩니다. $network$로의 전송이 계속 진행 중입니다. Activity에서 진행 상황을 확인하세요.",
-    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendDeliveredDescription": {
-    "message": "NEAR Intents가 $network$를 통해 결제를 처리했습니다.",
-    "englishSource": "NEAR Intents delivered the payment on $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendExpectedAmount": {
-    "message": "수취인은 (예상)을 받습니다.",
-    "englishSource": "Recipient gets (estimate)"
-  },
-  "nearIntentsSendDeliveryStatus": {
-    "message": "인도 상태",
-    "englishSource": "Delivery status"
-  },
-  "nearIntentsSendStatusSending": {
-    "message": "NEAR 인텐트로 전송",
-    "englishSource": "Sending to NEAR Intents"
-  },
-  "nearIntentsSendStatusDelivered": {
-    "message": "수신자에게 전달됨",
-    "englishSource": "Delivered to the recipient"
-  },
-  "nearIntentsSendStatusExpired": {
-    "message": "만료됨",
-    "englishSource": "Expired"
-  },
-  "nearIntentsSendRefundedTitle": {
-    "message": "결제 환불",
-    "englishSource": "Payment refunded"
-  },
-  "nearIntentsSendRefundedDescription": {
-    "message": "NEAR Intents에서 스왑을 완료할 수 없어 해당 금액을 귀하의 Miden 계정으로 환불했습니다.",
-    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
-  },
-  "nearIntentsSendFailedTitle": {
-    "message": "전달 실패",
-    "englishSource": "Delivery failed"
-  },
-  "nearIntentsSendFailedDescription": {
-    "message": "NEAR Intents에서 이 결제를 처리할 수 없었습니다. 자세한 내용은 활동을 열어 확인하십시오.",
-    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
-  },
-  "nearIntentsSendExpiredTitle": {
-    "message": "인도 기한 만료",
-    "englishSource": "Delivery expired"
-  },
-  "nearIntentsSendExpiredDescription": {
-    "message": "NEAR Intents가 이 결제를 제때 처리하지 못했습니다. 자세한 내용은 활동 내역을 확인하십시오.",
-    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
-  },
-  "nearIntentsYouReceived": {
-    "message": "수신자가 받았습니다",
-    "englishSource": "Recipient got"
-  },
-  "nearIntentsViewOnExplorer": {
-    "message": "$network$ 탐색기에서 보기",
-    "englishSource": "View on the $network$ explorer",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "recipientNetworkUnsupported": {
-    "message": "이 지갑은 이 주소로 송금할 수 없습니다",
-    "englishSource": "This wallet cannot send to this address"
-  },
-  "networkSolana": {
-    "message": "솔라나",
-    "englishSource": "Solana"
-  },
-  "networkBitcoin": {
-    "message": "비트코인",
-    "englishSource": "Bitcoin"
-  },
-  "networkNear": {
-    "message": "NEAR",
-    "englishSource": "NEAR"
   }
 }

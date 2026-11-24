@@ -120,6 +120,159 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ sec",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ mins",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "You receive $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents does not offer this token on this network.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "This amount is too small for NEAR Intents. Enter a larger amount.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents cannot deliver to this address. Check the address and the network.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "The quote expired before the payment started. Review the new quote, then confirm again.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "If the swap fails, NEAR Intents refunds the amount to this Miden account.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Deposit address generated",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Sending to deposit address",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Start a new send",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Generating deposit address",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents delivered the payment on $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Recipient gets (estimate)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Delivery status",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Sending to NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Delivered to the recipient",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Expired",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Payment refunded",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents could not complete the swap and refunded the amount to your Miden account.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Delivery failed",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents could not deliver this payment. Open Activity for the details.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Delivery expired",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents did not process this payment in time. Open Activity for the details.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Recipient got",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "View on the $network$ explorer",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -2338,6 +2491,22 @@
   "sendRecipientPlaceholder": {
     "message": "Enter the address",
     "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "This wallet cannot send to this address",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Select Amount",
@@ -9892,174 +10061,5 @@
   "loginSignatureTitle": {
     "message": "This only signs you in",
     "englishSource": "This only signs you in"
-  },
-  "bridgeRouteNearIntents": {
-    "message": "NEAR Intents",
-    "englishSource": "NEAR Intents"
-  },
-  "nearIntentsSendArrivalSeconds": {
-    "message": "~$seconds$ sec",
-    "englishSource": "~$seconds$ sec",
-    "placeholders": {
-      "seconds": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendArrivalMinutes": {
-    "message": "~$minutes$ mins",
-    "englishSource": "~$minutes$ mins",
-    "placeholders": {
-      "minutes": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendYouReceive": {
-    "message": "You receive $amount$ $symbol$",
-    "englishSource": "You receive $amount$ $symbol$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      },
-      "symbol": {
-        "content": "$2"
-      }
-    }
-  },
-  "nearIntentsSendUnsupported": {
-    "message": "NEAR Intents does not offer this token on this network.",
-    "englishSource": "NEAR Intents does not offer this token on this network."
-  },
-  "nearIntentsSendNoLiquidity": {
-    "message": "This amount is too small for NEAR Intents. Enter a larger amount.",
-    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
-  },
-  "nearIntentsSendInvalidRecipient": {
-    "message": "NEAR Intents cannot deliver to this address. Check the address and the network.",
-    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
-  },
-  "nearIntentsSendQuoteChanged": {
-    "message": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again.",
-    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendQuoteExpired": {
-    "message": "The quote expired before the payment started. Review the new quote, then confirm again.",
-    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
-  },
-  "nearIntentsSendRefundNote": {
-    "message": "If the swap fails, NEAR Intents refunds the amount to this Miden account.",
-    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
-  },
-  "transactionStepNearIntentsDepositAddress": {
-    "message": "Deposit address generated",
-    "englishSource": "Deposit address generated"
-  },
-  "transactionStepNearIntentsSend": {
-    "message": "Sending to deposit address",
-    "englishSource": "Sending to deposit address"
-  },
-  "nearIntentsSendStartNew": {
-    "message": "Start a new send",
-    "englishSource": "Start a new send"
-  },
-  "nearIntentsSendNotSentDescription": {
-    "message": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address.",
-    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
-  },
-  "nearIntentsSendGeneratingDepositAddress": {
-    "message": "Generating deposit address",
-    "englishSource": "Generating deposit address"
-  },
-  "nearIntentsSendSentDescription": {
-    "message": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
-    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendDeliveredDescription": {
-    "message": "NEAR Intents delivered the payment on $network$.",
-    "englishSource": "NEAR Intents delivered the payment on $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "nearIntentsSendExpectedAmount": {
-    "message": "Recipient gets (estimate)",
-    "englishSource": "Recipient gets (estimate)"
-  },
-  "nearIntentsSendDeliveryStatus": {
-    "message": "Delivery status",
-    "englishSource": "Delivery status"
-  },
-  "nearIntentsSendStatusSending": {
-    "message": "Sending to NEAR Intents",
-    "englishSource": "Sending to NEAR Intents"
-  },
-  "nearIntentsSendStatusDelivered": {
-    "message": "Delivered to the recipient",
-    "englishSource": "Delivered to the recipient"
-  },
-  "nearIntentsSendStatusExpired": {
-    "message": "Expired",
-    "englishSource": "Expired"
-  },
-  "nearIntentsSendRefundedTitle": {
-    "message": "Payment refunded",
-    "englishSource": "Payment refunded"
-  },
-  "nearIntentsSendRefundedDescription": {
-    "message": "NEAR Intents could not complete the swap and refunded the amount to your Miden account.",
-    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
-  },
-  "nearIntentsSendFailedTitle": {
-    "message": "Delivery failed",
-    "englishSource": "Delivery failed"
-  },
-  "nearIntentsSendFailedDescription": {
-    "message": "NEAR Intents could not deliver this payment. Open Activity for the details.",
-    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
-  },
-  "nearIntentsSendExpiredTitle": {
-    "message": "Delivery expired",
-    "englishSource": "Delivery expired"
-  },
-  "nearIntentsSendExpiredDescription": {
-    "message": "NEAR Intents did not process this payment in time. Open Activity for the details.",
-    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
-  },
-  "nearIntentsYouReceived": {
-    "message": "Recipient got",
-    "englishSource": "Recipient got"
-  },
-  "nearIntentsViewOnExplorer": {
-    "message": "View on the $network$ explorer",
-    "englishSource": "View on the $network$ explorer",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "recipientNetworkUnsupported": {
-    "message": "This wallet cannot send to this address",
-    "englishSource": "This wallet cannot send to this address"
-  },
-  "networkSolana": {
-    "message": "Solana",
-    "englishSource": "Solana"
-  },
-  "networkBitcoin": {
-    "message": "Bitcoin",
-    "englishSource": "Bitcoin"
-  },
-  "networkNear": {
-    "message": "NEAR",
-    "englishSource": "NEAR"
   }
 }
