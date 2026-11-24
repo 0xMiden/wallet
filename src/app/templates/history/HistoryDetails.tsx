@@ -246,6 +246,9 @@ const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy
   };
 };
 
+const allowOutboundBridgeDetails = (entry: IHistoryEntry): boolean =>
+  (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+
 /**
  * Explicit section and address-role policy for `HistoryDetails`, switched exhaustively over
  * `entry.txType` so new transaction types cannot silently inherit another type's sections.
@@ -256,7 +259,7 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
       return {
         bridgeClaim: false,
         inboundBridge: false,
-        oneClick: entry.oneClickTracking !== undefined,
+        oneClick: entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
         from: 'account',
         to: 'secondary'
       };
@@ -270,15 +273,15 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
       };
     case 'bridged-send': {
       const isNearIntents = entry.bridgeProvider === 'near-intents';
-      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim UI
+      const allowOutbound = allowOutboundBridgeDetails(entry);
+      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim or 1Click UI
       // and falls back to a standard outbound transfer's From/To addresses.
       // NEAR Intents swaps are fulfilled automatically by 1Click and have no L1 claim UI.
-      const bridgeClaim =
-        !isNearIntents && (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+      const bridgeClaim = !isNearIntents && allowOutbound;
       return {
         bridgeClaim,
         inboundBridge: false,
-        oneClick: isNearIntents && entry.oneClickTracking !== undefined,
+        oneClick: isNearIntents && entry.oneClickTracking !== undefined && allowOutbound,
         from: 'account',
         to: bridgeClaim ? 'none' : 'secondary'
       };
@@ -435,10 +438,7 @@ const isOutboundBridgeHero = (
   sectionPolicy: HistoryDetailsSectionPolicy | undefined
 ): boolean =>
   (sectionPolicy?.bridgeClaim ?? false) ||
-  (entry?.txType === 'bridged-send' &&
-    entry.bridgeProvider === 'near-intents' &&
-    (!entry.isCancelled || entry.isUnconfirmed === true) &&
-    entry.guardianRecovered !== true);
+  (entry?.txType === 'bridged-send' && entry.bridgeProvider === 'near-intents' && allowOutboundBridgeDetails(entry));
 
 const ToDetailValue: FC<{
   bridgeProvider: IHistoryEntry['bridgeProvider'];

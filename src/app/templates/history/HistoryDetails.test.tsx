@@ -822,6 +822,38 @@ describe('HistoryDetails', () => {
       label: 'update-procedure-threshold',
       type: 'update-procedure-threshold',
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'none', to: 'none' }
+    },
+    {
+      label: 'send (near-intents cancelled)',
+      type: 'send',
+      hasOneClick: true,
+      isCancelled: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-send (near-intents cancelled)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      isCancelled: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-send (near-intents guardian-recovered)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      guardianRecovered: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'bridged-send (near-intents unconfirmed cancelled)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      isCancelled: true,
+      isUnconfirmed: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
     }
   ])(
     'selects explicit sections and address roles for $label',
@@ -1226,6 +1258,84 @@ describe('HistoryDetails', () => {
     expect(toRow).toBeDefined();
     expect(toRow).toHaveTextContent('So1ana');
     expect(toRow!.querySelector('a')).toBeNull();
+  });
+
+  it('hides 1Click details on a cancelled near-intents bridged-send row', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'cancelled-near-intents',
+      type: 'bridged-send',
+      status: STATUS_FAILED,
+      error: USER_CANCELLED_TRANSACTION_REASON,
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: 'So1anaDest111',
+        destinationNetwork: -1,
+        destinationChain: { id: 'sol', name: 'Solana' },
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+            destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+            refundTo: 'acct-A',
+            recipient: 'So1anaDest111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'corr',
+            timestamp: '2026-10-22T11:55:00.000Z',
+            signature: 'sig',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaDest111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'depositing',
+          depositAddress: 'mtst1depositaddr',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'cancelled-near-intents' });
+
+    expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
   });
 
   it('shows both Guardians on a recovered switch receipt', async () => {
