@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] A Guardian account can run a dApp custom request that consumes a note, or that has any other shape, in one approval. The wallet adds its Guardian auth to the request that the dApp sent and keeps all its other fields, instead of refusing every request that has more than own output notes (#1458).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
 - [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).
 - [FIX][all] Activity labels new and existing completed Earn deposits as "Deposited to Earn" instead of "Deposited to lending".
