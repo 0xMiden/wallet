@@ -3,7 +3,9 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
 import { readFaucetProofMetadata } from './faucet-proof';
@@ -57,30 +59,111 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     // gets blacklisted via `autoFetchMetadataFails`, and the token displays
     // with default metadata for the rest of the session.
     await ensureSdkWasmReady();
+    const accountId = accountRefToSdk(assetId);
     const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
-    const accountId = accountRefToSdk(assetId);
-    const proof = await rpcClient.getAccountProof(accountId);
-    if (!proof.accountHeader()) {
-      if (accountId.isPublic()) {
-        // if the account was public and we couldn't fetch metadata it should not happen in first place
-        // but in case it does we return unknown metadata without caching it so a later fetch can retry
-        console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
-        return DEFAULT_TOKEN_METADATA;
-      }
-      // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
-      return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
-    }
-    let metadata: AssetMetadata;
+    let rpcAttempt: ReturnType<RpcClient['getAccountProof']> | undefined;
+    let proof: Awaited<ReturnType<RpcClient['getAccountProof']>> | undefined;
+    let wasmTrapped = false;
     try {
-      metadata = readFaucetProofMetadata(proof);
-    } catch (err) {
-      // A present public header with incompatible standard storage is deterministic.
-      console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
-      return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
-    }
+      proof = await withRpcTimeout(
+        () => {
+          try {
+            rpcAttempt = rpcClient.getAccountProof(accountId);
+          } catch (err) {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            throw err;
+          }
+          return rpcAttempt;
+        },
+        'faucet-metadata-proof',
+        { retries: 0 }
+      );
+      let hasHeader: ReturnType<NonNullable<typeof proof>['accountHeader']>;
+      let metadata: AssetMetadata | undefined;
+      try {
+        hasHeader = proof.accountHeader();
+        if (hasHeader) {
+          try {
+            metadata = readFaucetProofMetadata(proof);
+          } catch (err) {
+            if (isWasmTrap(err)) throw err;
+            // A present public header with incompatible standard storage is deterministic.
+            console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
+          }
+        }
+      } catch (err) {
+        if (isWasmTrap(err)) wasmTrapped = true;
+        throw err;
+      } finally {
+        if (!wasmTrapped) {
+          try {
+            proof.free?.();
+          } catch (err) {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            throw err;
+          }
+        }
+      }
 
-    return cacheTokenMetadata(assetId, metadata);
+      if (!hasHeader) {
+        let isPublic = false;
+        try {
+          isPublic = accountId.isPublic();
+        } catch (err) {
+          if (isWasmTrap(err)) wasmTrapped = true;
+          throw err;
+        }
+        if (isPublic) {
+          // if the account was public and we couldn't fetch metadata it should not happen in first place
+          // but in case it does we return unknown metadata without caching it so a later fetch can retry
+          console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
+          return DEFAULT_TOKEN_METADATA;
+        }
+        // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
+        return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
+      }
+
+      return cacheTokenMetadata(assetId, metadata ?? DEFAULT_TOKEN_METADATA);
+    } finally {
+      if (rpcAttempt) {
+        void rpcAttempt.then(
+          resolved => {
+            if (wasmTrapped) return;
+            try {
+              if (resolved !== proof) resolved?.free?.();
+            } catch (err) {
+              if (isWasmTrap(err)) wasmTrapped = true;
+              // Ignore cleanup errors on late-settling WASM handles.
+            } finally {
+              if (!wasmTrapped) {
+                try {
+                  rpcClient.free?.();
+                } catch {
+                  // Ignore cleanup errors on late-settling WASM handles.
+                }
+              }
+            }
+          },
+          err => {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            if (!wasmTrapped) {
+              try {
+                rpcClient.free?.();
+              } catch {
+                // Ignore cleanup errors on late-settling WASM handles.
+              }
+            }
+          }
+        );
+      } else if (!wasmTrapped) {
+        try {
+          rpcClient.free?.();
+        } catch {
+          // Ignore cleanup errors on WASM handles.
+        }
+      }
+    }
   } catch (err) {
     console.error(err);
 

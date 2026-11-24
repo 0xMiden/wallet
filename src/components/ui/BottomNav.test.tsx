@@ -568,6 +568,44 @@ describe('BottomNav — four destinations', () => {
     expect(buttons.map(b => b.getAttribute('aria-label'))).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
     expect(buttons.filter(b => b.hasAttribute('aria-current'))).toEqual([getTab('Settings')]);
   });
+
+  it('fades mobile labels without changing the buttons or the active highlight', () => {
+    const onChange = jest.fn();
+    const { container, rerender } = render(
+      <BottomNav items={fourItems} activeId="activity" onChange={onChange} presentation="expanded" />
+    );
+    const activity = getTab('Activity');
+    const highlight = bubbleOf(container);
+    expect(screen.getByText('Activity')).not.toHaveClass('opacity-0');
+    const nav = screen.getByRole('navigation');
+    const opaqueFallback = ['contrast-more:bg-app-bg', '[@media(prefers-reduced-transparency:reduce)]:bg-app-bg'];
+    expect(nav).toHaveClass('p-1', ...opaqueFallback);
+    expect(nav).not.toHaveClass('p-0.5');
+    expect(nav).not.toHaveClass('mt-1');
+    expect(iconOf(activity)).toHaveClass('-translate-y-1.5');
+
+    rerender(<BottomNav items={fourItems} activeId="activity" onChange={onChange} presentation="condensed" />);
+
+    expect(nav).toHaveClass('p-0.5', 'mt-1', ...opaqueFallback);
+    for (const className of ['p-1', 'mb-1', 'my-1']) expect(nav).not.toHaveClass(className);
+    expect(iconOf(activity)).not.toHaveClass('-translate-y-1.5');
+    expect(screen.getByText('Activity')).toHaveClass('opacity-0');
+    expect(getTab('Activity')).toBe(activity);
+    expect(activity).toHaveClass('h-12', 'w-16');
+    expect(activity).toHaveAttribute('aria-current', 'page');
+    expect(bubbleOf(container)).toBe(highlight);
+    fireEvent.click(getTab('Settings'));
+    expect(onChange).toHaveBeenCalledWith('settings');
+
+    rerender(<BottomNav items={fourItems} activeId="activity" onChange={onChange} />);
+    expect(nav).toHaveClass('p-1');
+    for (const className of ['p-0.5', 'mt-1', 'mb-1', 'my-1', ...opaqueFallback]) {
+      expect(nav).not.toHaveClass(className);
+    }
+    expect(iconOf(getTab('Activity'))).not.toHaveClass('-translate-y-1.5');
+    expect(iconOf(getTab('Activity'))).not.toHaveClass('motion-safe:transition-transform');
+    expect(screen.queryByText('Activity')).toBeNull();
+  });
 });
 
 describe('BottomNav — selection behaviour', () => {

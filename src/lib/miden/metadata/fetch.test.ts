@@ -695,8 +695,249 @@ describe('metadata/fetch', () => {
         throw new Error('Invalid address');
       });
       await expect(fetchTokenMetadata('invalid-address')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(mockRpcClient).not.toHaveBeenCalled();
       expect(mockGetAccountProof).not.toHaveBeenCalled();
       expect(mockPutToStorage).not.toHaveBeenCalled();
+    });
+
+    it('times out a hung getAccountProof call without retrying or caching', async () => {
+      jest.useFakeTimers();
+      try {
+        mockGetAccountProof.mockImplementation(() => new Promise(() => {}));
+        const settled = fetchTokenMetadata('hung-rpc-asset').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settled).toBeInstanceOf(NotFoundTokenMetadata);
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(['getStorageSlotValue', 'toU64s'] as const)(
+      'does not cache DEFAULT_TOKEN_METADATA on WebAssembly.RuntimeError in %s and retries',
+      async stage => {
+        const proof =
+          stage === 'getStorageSlotValue'
+            ? {
+                accountHeader: () => ({ id: () => parsedId('test-account') }),
+                getStorageSlotValue: () => {
+                  throw new WebAssembly.RuntimeError('unreachable');
+                }
+              }
+            : {
+                accountHeader: () => ({ id: () => parsedId('test-account') }),
+                getStorageSlotValue: () => ({
+                  toU64s: () => {
+                    throw new WebAssembly.RuntimeError('unreachable');
+                  }
+                })
+              };
+        mockGetAccountProof.mockResolvedValueOnce(proof).mockResolvedValueOnce(faucetProof());
+
+        await expect(fetchTokenMetadata(`wasm-trap-${stage}`)).rejects.toThrow(NotFoundTokenMetadata);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+
+        await expect(fetchTokenMetadata(`wasm-trap-${stage}`)).resolves.toMatchObject({
+          symbol: 'TEST',
+          decimals: 8,
+          scaleIsUnknown: false
+        });
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      }
+    );
+
+    function trackedFaucetProof(words: FaucetProofWords = FAUCET_PROOF_WORDS, hasHeader = true) {
+      const proofFree = jest.fn();
+      const wordFree = jest.fn();
+      return {
+        proofFree,
+        wordFree,
+        proof: {
+          accountHeader: () => (hasHeader ? { id: () => parsedId('test-account') } : undefined),
+          getStorageSlotValue: (name: string) => {
+            const word = words[name];
+            return word && { toU64s: () => BigUint64Array.from(word), free: wordFree };
+          },
+          free: proofFree
+        }
+      };
+    }
+
+    function mockTrackedRpcClient() {
+      const rpcFree = jest.fn();
+      mockRpcClient.mockImplementationOnce(() => ({
+        getAccountDetails: mockGetAccountDetails,
+        getAccountProof: mockGetAccountProof,
+        syncStorageMaps: mockSyncStorageMaps,
+        getBlockHeaderByNumber: mockGetBlockHeaderByNumber,
+        free: rpcFree
+      }));
+      return rpcFree;
+    }
+
+    it('frees Word (25x), AccountProof, and RpcClient handles on valid proof, missing header, fallback, and RPC error', async () => {
+      const ok = trackedFaucetProof();
+      const okRpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockResolvedValueOnce(ok.proof);
+      await expect(fetchTokenMetadata('free-ok')).resolves.toMatchObject({ symbol: 'TEST', decimals: 8 });
+      expect(ok.wordFree).toHaveBeenCalledTimes(25);
+      expect(ok.proofFree).toHaveBeenCalledTimes(1);
+      expect(okRpcFree).toHaveBeenCalledTimes(1);
+
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const noHeader = trackedFaucetProof(FAUCET_PROOF_WORDS, false);
+        const noHeaderRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockResolvedValueOnce(noHeader.proof);
+        await expect(fetchTokenMetadata('free-no-header')).resolves.toEqual(DEFAULT_TOKEN_METADATA);
+        expect(noHeader.wordFree).not.toHaveBeenCalled();
+        expect(noHeader.proofFree).toHaveBeenCalledTimes(1);
+        expect(noHeaderRpcFree).toHaveBeenCalledTimes(1);
+
+        const invalid = trackedFaucetProof({
+          ...FAUCET_PROOF_WORDS,
+          'miden::standards::faucets::fungible::token_config': [1000n, 1000000n, 13n, 8765514n]
+        });
+        const invalidRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockResolvedValueOnce(invalid.proof);
+        await expect(fetchTokenMetadata('free-invalid')).resolves.toEqual(DEFAULT_TOKEN_METADATA);
+        expect(invalid.wordFree).toHaveBeenCalledTimes(1);
+        expect(invalid.proofFree).toHaveBeenCalledTimes(1);
+        expect(invalidRpcFree).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+
+      const errRpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockRejectedValueOnce(new Error('RPC unavailable'));
+      await expect(fetchTokenMetadata('free-rpc-err')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(errRpcFree).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not free trapped AccountProof, Word, or RpcClient handles on WebAssembly.RuntimeError', async () => {
+      const slotProofFree = jest.fn();
+      const slotRpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockResolvedValueOnce({
+        accountHeader: () => ({ id: () => parsedId('test-account') }),
+        getStorageSlotValue: () => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        },
+        free: slotProofFree
+      });
+      await expect(fetchTokenMetadata('trap-slot')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(slotProofFree).not.toHaveBeenCalled();
+      expect(slotRpcFree).not.toHaveBeenCalled();
+
+      const wordProofFree = jest.fn();
+      const trappedWordFree = jest.fn();
+      const wordRpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockResolvedValueOnce({
+        accountHeader: () => ({ id: () => parsedId('test-account') }),
+        getStorageSlotValue: () => ({
+          toU64s: () => {
+            throw new WebAssembly.RuntimeError('unreachable');
+          },
+          free: trappedWordFree
+        }),
+        free: wordProofFree
+      });
+      await expect(fetchTokenMetadata('trap-word')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(trappedWordFree).not.toHaveBeenCalled();
+      expect(wordProofFree).not.toHaveBeenCalled();
+      expect(wordRpcFree).not.toHaveBeenCalled();
+
+      const rpcTrapFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'));
+      await expect(fetchTokenMetadata('trap-rpc')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(rpcTrapFree).not.toHaveBeenCalled();
+    });
+
+    it('does not free RpcClient when the winning AccountProof free traps', async () => {
+      const trapped = trackedFaucetProof();
+      trapped.proofFree.mockImplementation(() => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      });
+      const rpcFree = mockTrackedRpcClient();
+      mockGetAccountProof.mockResolvedValueOnce(trapped.proof);
+      await expect(fetchTokenMetadata('trap-proof-free')).rejects.toThrow(NotFoundTokenMetadata);
+      expect(trapped.proofFree).toHaveBeenCalledTimes(1);
+      expect(mockPutToStorage).not.toHaveBeenCalled();
+      expect(rpcFree).not.toHaveBeenCalled();
+    });
+
+    it('does not free RpcClient when a late-resolving AccountProof free traps', async () => {
+      jest.useFakeTimers();
+      try {
+        let resolveLate!: (proof: unknown) => void;
+        const late = trackedFaucetProof();
+        late.proofFree.mockImplementation(() => {
+          throw new WebAssembly.RuntimeError('unreachable');
+        });
+        const lateRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveLate = resolve;
+            })
+        );
+        const settled = fetchTokenMetadata('late-trap').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settled).toBeInstanceOf(NotFoundTokenMetadata);
+
+        resolveLate(late.proof);
+        await Promise.resolve();
+        expect(late.proofFree).toHaveBeenCalledTimes(1);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+        expect(lateRpcFree).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('defers freeing late-resolving AccountProof and RpcClient on timed-out attempt until settled', async () => {
+      jest.useFakeTimers();
+      try {
+        let resolveLate!: (proof: unknown) => void;
+        const late = trackedFaucetProof();
+        const lateRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockImplementationOnce(
+          () =>
+            new Promise(resolve => {
+              resolveLate = resolve;
+            })
+        );
+        const settled = fetchTokenMetadata('late-resolve').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settled).toBeInstanceOf(NotFoundTokenMetadata);
+        expect(late.proofFree).not.toHaveBeenCalled();
+        expect(lateRpcFree).not.toHaveBeenCalled();
+
+        resolveLate(late.proof);
+        await Promise.resolve();
+        expect(late.wordFree).not.toHaveBeenCalled();
+        expect(late.proofFree).toHaveBeenCalledTimes(1);
+        expect(lateRpcFree).toHaveBeenCalledTimes(1);
+
+        let rejectLate!: (err: unknown) => void;
+        const rejectRpcFree = mockTrackedRpcClient();
+        mockGetAccountProof.mockImplementationOnce(
+          () =>
+            new Promise((_, reject) => {
+              rejectLate = reject;
+            })
+        );
+        const settledReject = fetchTokenMetadata('late-reject').catch((err: unknown) => err);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await settledReject).toBeInstanceOf(NotFoundTokenMetadata);
+        expect(rejectRpcFree).not.toHaveBeenCalled();
+
+        rejectLate(new Error('late error'));
+        await Promise.resolve();
+        expect(rejectRpcFree).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
