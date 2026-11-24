@@ -3335,27 +3335,23 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void morphNotifiesTheNavbarOnAVisibilityChange() throws Exception {
+    public void morphExpandsParkedDialogViaPlugin() throws Exception {
         openMorph(false);
         reveal();
         BreadMorphCard card = card();
         park(card);
-        WebViewRegistry.getShared().register("navbar", dialog);
+        WebViewRegistry.getShared().register("expand-plugin", dialog);
         InAppBrowserPlugin plugin = morphPlugin();
-        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
-            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
-        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
-        PluginCall call = morphCall("navbar", null, nextSequence(), "expanded", cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
+        PluginCall call = morphCall("expand-plugin", null, nextSequence(), "expanded", cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
         plugin.morph(call);
         assertTrue(accepted(call));
         assertTrue(dialog.isShowing());
         assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
-        verify(navbar).notifyDialogVisibilityChanged(dialog);
         assertEquals(0.25f, root.getScaleX(), 1e-3f);
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void morphNotifiesNavbarWhenWarmExpandKeepsDialogShowing() throws Exception {
+    public void morphWarmExpandKeepsDialogShowingViaPlugin() throws Exception {
         openMorph(false);
         reveal();
         BreadMorphCard card = card();
@@ -3363,38 +3359,32 @@ public class BreadPresentationControllerTest {
         dialog.prepareMorph(600);
         assertTrue(dialog.isShowing());
         assertEquals(View.INVISIBLE, dialog.getWindow().getDecorView().getVisibility());
-        WebViewRegistry.getShared().register("warm-navbar", dialog);
+        WebViewRegistry.getShared().register("warm-expand", dialog);
         InAppBrowserPlugin plugin = morphPlugin();
-        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
-            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
-        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
-        PluginCall call = morphCall("warm-navbar", null, nextSequence(), "expanded",
+        PluginCall call = morphCall("warm-expand", null, nextSequence(), "expanded",
             cardJson(hostCardInside(0.7f, 0.7f, 0.95f, 0.92f)));
         plugin.morph(call);
         assertTrue(accepted(call));
         assertTrue(dialog.isShowing());
-        verify(navbar).notifyDialogVisibilityChanged(dialog);
+        assertEquals(BreadPresentationState.Motion.EXPANDING, controller.state.motion());
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void rejectedExpandNotifiesNavbarWhenItStillShowsTheDialog() throws Exception {
+    public void morphRejectsExpandWhenRootHasZeroSizeViaPlugin() throws Exception {
         openMorph(false);
         reveal();
         BreadMorphCard hostCard = hostCardInside(0.7f, 0.7f, 0.95f, 0.92f);
         park(card());
         root.layout(0, 0, 0, 0);
-        WebViewRegistry.getShared().register("zero-navbar", dialog);
+        WebViewRegistry.getShared().register("zero-root", dialog);
         InAppBrowserPlugin plugin = morphPlugin();
-        ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager navbar =
-            mock(ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager.class);
-        ReflectionHelpers.setField(plugin, "navbarManager", navbar);
-        PluginCall call = morphCall("zero-navbar", null, nextSequence(), "expanded", cardJson(hostCard));
+        PluginCall call = morphCall("zero-root", null, nextSequence(), "expanded", cardJson(hostCard));
 
         plugin.morph(call);
 
         assertFalse(accepted(call));
         assertTrue(dialog.isShowing());
-        verify(navbar).notifyDialogVisibilityChanged(dialog);
+        assertEquals(BreadPresentationState.Motion.NONE, controller.state.motion());
     }
 
     @Test @Config(shadows = PaintWebView.class)
