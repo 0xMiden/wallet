@@ -1473,9 +1473,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     switch (policy) {
       case 'keep':
         if (this.keepHandlerPage === this.page) return;
-        await this.page.addLocatorHandler(keep, async button => {
-          await button.click();
-        });
+        await this.page.addLocatorHandler(
+          keep,
+          async button => {
+            // The sheet can close by itself before the click lands: a gate takes the account over, or the
+            // page closes. Then nothing blocks the page and there is nothing to press. A sheet that stays
+            // up runs this handler again before the next action.
+            await button.click({ timeout: 5_000 }).catch(() => undefined);
+          },
+          { noWaitAfter: true }
+        );
         this.keepHandlerPage = this.page;
         return;
       case 'leave':
