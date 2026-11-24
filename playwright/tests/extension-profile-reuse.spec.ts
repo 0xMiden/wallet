@@ -1,7 +1,6 @@
+import { chromium, expect, test } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-
-import { chromium, expect, test } from '@playwright/test';
 
 import { reloadUnpackedExtension } from '../e2e/harness/reload-unpacked-extension';
 
@@ -73,11 +72,14 @@ test('reusing an unpacked extension profile loads the new worker and preserves s
   const reusedContext = await launch();
   try {
     const previous = reusedContext.serviceWorkers()[0] ?? (await reusedContext.waitForEvent('serviceworker'));
-    const { worker, page } = await reloadUnpackedExtension(reusedContext, previous, extensionPath);
+    const worker = await reloadUnpackedExtension(reusedContext, previous, extensionPath);
+    expect(reusedContext.pages().filter(p => p.url().startsWith('chrome-extension://'))).toHaveLength(0);
     expect(new URL(worker.url()).host).toBe(extensionId);
     expect(await worker.evaluate(() => Reflect.get(globalThis, 'fixtureBuild'))).toBe('current');
     expect(await worker.evaluate(() => chrome.storage.local.get('reusedProfile'))).toEqual({ reusedProfile: true });
     expect(await worker.evaluate(indexedDbMarker, undefined)).toBe('preserved');
+    const page = await reusedContext.newPage();
+    await page.goto(new URL('fullpage.html', worker.url()).href, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('body')).toHaveAttribute('data-build', 'current');
   } finally {
     await reusedContext.close();

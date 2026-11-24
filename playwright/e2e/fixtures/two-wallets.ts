@@ -373,13 +373,10 @@ async function launchWalletInstance(
   let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
   let serviceWorker: Worker;
-  let reloadedPage: Page | undefined;
   try {
     serviceWorker = await waitForExtensionServiceWorker(context);
     if (suppliedProfile !== undefined) {
-      const reloaded = await reloadUnpackedExtension(context, serviceWorker, extensionPath);
-      serviceWorker = reloaded.worker;
-      reloadedPage = reloaded.page;
+      serviceWorker = await reloadUnpackedExtension(context, serviceWorker, extensionPath);
     }
   } catch (error) {
     await context.close().catch(() => {});
@@ -516,14 +513,8 @@ async function launchWalletInstance(
   // Typed `Page` (not `Page | undefined`): the return exposes this via a getter
   // (relaunch swaps it), and a getter body can't carry the control-flow
   // narrowing an inline `return` would, so the variable itself must be `Page`.
-  const existingPage = reloadedPage ?? context.pages().find(p => p.url().includes(extensionId));
-  let page: Page;
-  if (existingPage) {
-    page = existingPage;
-  } else {
-    page = await context.newPage();
-    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
-  }
+  const existingPage = context.pages().find(p => p.url().includes(extensionId));
+  let page: Page = existingPage ?? (await context.newPage());
 
   // Close any other pages (about:blank, etc.)
   for (const p of context.pages()) {
@@ -540,6 +531,10 @@ async function launchWalletInstance(
   page.on('console', msg => {
     if (msg.type() === 'error') earlyErrors.push(msg.text());
   });
+
+  if (!existingPage) {
+    await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
+  }
 
   // The service worker loads a ~14MB WASM binary on first run. Until it finishes,
   // the frontend's useIntercomSync fetch times out and the app stays on the
