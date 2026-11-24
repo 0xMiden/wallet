@@ -1,15 +1,18 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { ActivityGroupList } from 'app/templates/history/ActivityGroupList';
+import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import {
   ACTIVITY_COUNTERPARTY_BECH32,
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
 } from 'app/templates/history/testing/activity-group-fixtures';
-import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
-import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
+import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 
 import { ActivityGroupPage } from './ActivityGroup';
 
@@ -94,6 +97,11 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
+  Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
 }));
 
@@ -162,6 +170,39 @@ describe('ActivityGroupPage', () => {
       }).toEqual({ savedAlias: true, settingsWrites: 0 });
     } finally {
       contacts.value = savedContacts;
+    }
+  });
+
+  it('uses an independent decoded-address cache for a group page', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const clearDecodes = () => {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+    };
+    const counterpartyDecodes = () => decode.mock.calls.filter(([address]) => address === ACTIVITY_COUNTERPARTY_BECH32);
+
+    try {
+      clearDecodes();
+      const list = render(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(list.getByTestId('activity-group-row')).toBeInTheDocument();
+      expect(counterpartyDecodes()).toHaveLength(1);
+
+      clearDecodes();
+      const page = render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_BECH32} />);
+      expect(predicate()(firstEntry)).toBe(true);
+      expect(counterpartyDecodes()).toHaveLength(1);
+
+      clearDecodes();
+      list.rerender(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      page.rerender(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_BECH32} />);
+      expect(predicate()(firstEntry)).toBe(true);
+      expect(counterpartyDecodes()).toHaveLength(0);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
     }
   });
 

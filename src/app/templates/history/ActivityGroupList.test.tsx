@@ -10,6 +10,7 @@ import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-
 import { ActivityGroupList } from './ActivityGroupList';
 import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './testing/activity-group-fixtures';
 
 const FAUCET = 'miden-native-faucet';
 
@@ -177,6 +178,73 @@ describe('ActivityGroupList — unread', () => {
 });
 
 describe('ActivityGroupList', () => {
+  it('retains decoded addresses only for the current list and account', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const list = (entries: IHistoryEntry[], accountAddress = 'first-account') => {
+      const accountProps = { ...props, accountAddress };
+      return <ActivityGroupList {...accountProps} entries={entries} />;
+    };
+    const clearDecodes = () => {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+    };
+
+    try {
+      clearDecodes();
+      const { rerender, unmount } = render(list([firstEntry]));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      rerender(list([firstEntry]));
+      expect(decode).not.toHaveBeenCalled();
+
+      rerender(list([]));
+      rerender(list([firstEntry]));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      rerender(list([firstEntry], 'second-account'));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      unmount();
+      render(list([firstEntry], 'second-account'));
+      expect(decode).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it('retries an address that could not be decoded during the first render', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+
+    try {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+      decode.mockImplementationOnce(() => {
+        throw new Error('SDK unavailable');
+      });
+      const { rerender } = render(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(rows()).toHaveLength(1);
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      rerender(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(rows()).toHaveLength(1);
+      expect(decode).toHaveBeenCalledTimes(2);
+      expect(decode).toHaveBeenLastCalledWith(ACTIVITY_COUNTERPARTY_BECH32);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
   it('reuses decoded counterparties when appending a page to a large history', () => {
     const counterparties = Array.from({ length: 258 }, (_, index) => ({
       address: `mtst1${index.toString(36).padStart(26, 'q')}`,
