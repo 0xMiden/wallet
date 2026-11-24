@@ -698,6 +698,39 @@ describe('metadata/fetch', () => {
       expect(mockGetAccountProof).not.toHaveBeenCalled();
       expect(mockPutToStorage).not.toHaveBeenCalled();
     });
+
+    it.each(['getStorageSlotValue', 'toU64s'] as const)(
+      'does not cache DEFAULT_TOKEN_METADATA on WebAssembly.RuntimeError in %s and retries',
+      async stage => {
+        const proof =
+          stage === 'getStorageSlotValue'
+            ? {
+                accountHeader: () => ({ id: () => parsedId('test-account') }),
+                getStorageSlotValue: () => {
+                  throw new WebAssembly.RuntimeError('unreachable');
+                }
+              }
+            : {
+                accountHeader: () => ({ id: () => parsedId('test-account') }),
+                getStorageSlotValue: () => ({
+                  toU64s: () => {
+                    throw new WebAssembly.RuntimeError('unreachable');
+                  }
+                })
+              };
+        mockGetAccountProof.mockResolvedValueOnce(proof).mockResolvedValueOnce(faucetProof());
+
+        await expect(fetchTokenMetadata(`wasm-trap-${stage}`)).rejects.toThrow(NotFoundTokenMetadata);
+        expect(mockPutToStorage).not.toHaveBeenCalled();
+
+        await expect(fetchTokenMetadata(`wasm-trap-${stage}`)).resolves.toMatchObject({
+          symbol: 'TEST',
+          decimals: 8,
+          scaleIsUnknown: false
+        });
+        expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+      }
+    );
   });
 
   describe('native bootstrap through actual metadata fetching', () => {

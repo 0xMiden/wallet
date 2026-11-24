@@ -3,6 +3,7 @@ import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
@@ -75,6 +76,7 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     try {
       metadata = readFaucetProofMetadata(proof);
     } catch (err) {
+      if (isWasmTrap(err)) throw err;
       // A present public header with incompatible standard storage is deterministic.
       console.warn('Invalid standard faucet metadata for', assetId, '- using default metadata', err);
       return cacheTokenMetadata(assetId, DEFAULT_TOKEN_METADATA);
