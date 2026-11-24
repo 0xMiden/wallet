@@ -4558,6 +4558,14 @@
     "message": "Payment Sent!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Withdrawal successful",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Return to locked funds",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Via Epoch",
     "englishSource": "Via Epoch"
@@ -6792,6 +6800,10 @@
   "redeemIntentLabel": {
     "message": "Redeem intent",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "Deposited to Earn",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "Withdraw from Earn",

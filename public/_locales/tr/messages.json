@@ -4558,6 +4558,14 @@
     "message": "Ödeme Yapıldı!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Para çekme işlemi başarıyla gerçekleştirildi",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Kilitli fonlara geri dön",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Epoch aracılığıyla",
     "englishSource": "Via Epoch"
@@ -6793,6 +6801,10 @@
   "redeemIntentLabel": {
     "message": "Kullanım niyeti",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "Earn’e yatırıldı",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "Earn'den Para Çekme",

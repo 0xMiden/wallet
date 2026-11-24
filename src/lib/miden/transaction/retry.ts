@@ -15,6 +15,7 @@ import {
 } from './claim-fee';
 import {
   PRE_SUBMIT_STAGES,
+  PROOF_FRESHNESS_UNKNOWN_ERROR,
   STALE_PROOF_ERROR,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
@@ -363,7 +364,8 @@ const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
  * earlier attempt's entry is still in doubt the row has nothing left for an acknowledgement to rule out (#2060).
  */
 const endedUnsent = (tx: ITransaction): boolean =>
-  tx.error === STALE_PROOF_ERROR && !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
+  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR) &&
+  !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
 
 interface RequeuePlan {
   failedStage: ITransactionStage | undefined;

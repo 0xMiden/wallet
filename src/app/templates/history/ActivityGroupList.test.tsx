@@ -525,6 +525,22 @@ describe('ActivityGroupList', () => {
       expect(shownIds()).toEqual(['swap']);
     });
 
+    it('keeps an earn-deposit group entry found by localized earnDepositRowTitle rather than legacy lending message', () => {
+      const legacyDeposit = entry({ timestamp: 600, txType: 'earn-deposit', message: 'Deposited to lending' });
+      const { unmount } = renderList([...searchable(), legacyDeposit], {
+        nameOf,
+        searchQuery: 'earnDepositRowTitle'
+      });
+      expect(shownIds()).toEqual(['other']);
+      unmount();
+
+      renderList([...searchable(), legacyDeposit], {
+        nameOf,
+        searchQuery: 'lending'
+      });
+      expect(screen.queryByTestId('activity-group-row')).toBeNull();
+    });
+
     it('shows the empty state when no group matches', () => {
       renderList(searchable(), { nameOf, searchQuery: 'zzzz-nothing' });
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
