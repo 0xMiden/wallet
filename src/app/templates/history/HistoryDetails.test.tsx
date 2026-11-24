@@ -1338,6 +1338,46 @@ describe('HistoryDetails', () => {
     expect(screen.queryByTestId('one-click-history-details')).not.toBeInTheDocument();
   });
 
+  it.each([
+    {
+      label: 'cancelled Agglayer bridged-send',
+      id: 'cancelled-agglayer-bridged-send',
+      provider: 'agglayer' as const,
+      extra: { status: STATUS_FAILED, error: USER_CANCELLED_TRANSACTION_REASON }
+    },
+    {
+      label: 'Guardian-recovered Epoch bridged-send',
+      id: 'recovered-epoch-bridged-send',
+      provider: 'epoch' as const,
+      extra: { recovered: true }
+    }
+  ])(
+    'keeps Miden secondaryAccountId on $label rows instead of linking EVM destination to Miden explorer',
+    async ({ id, provider, extra }) => {
+      setMockRow({
+        ...baseSendTx,
+        id,
+        type: 'bridged-send',
+        secondaryAccountId: 'mtst1bridgeallocator',
+        ...extra,
+        extraInputs: {
+          provider,
+          destinationAddress: '0x1111111111111111111111111111111111111111',
+          destinationNetwork: 1
+        }
+      });
+
+      await renderAndLoad({ transactionId: id });
+
+      const toRow = rowByLabel('to');
+      expect(toRow).toBeDefined();
+      expect(toRow!.querySelector('a')).toHaveAttribute(
+        'href',
+        'https://custom-explorer.test/account/mtst1bridgeallocator'
+      );
+    }
+  );
+
   it('shows both Guardians on a recovered switch receipt', async () => {
     setMockRow({
       ...baseSendTx,

@@ -664,7 +664,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
-          secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+          secondaryAddress:
+            bridge?.provider === 'near-intents'
+              ? (bridge.destinationAddress ?? tx.secondaryAccountId)
+              : tx.secondaryAccountId,
           processingStartedAt: tx.processingStartedAt,
           txId: tx.id,
           noteType: tx.noteType,
