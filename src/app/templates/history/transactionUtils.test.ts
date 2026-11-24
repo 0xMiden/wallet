@@ -524,12 +524,17 @@ describe('formatDate', () => {
   });
 
   it('parses a non-numeric but valid date string directly', () => {
-    // parseFloat('Jan 1 2021') is NaN => the `new Date(timestamp)` branch.
     expect(formatDate('Jan 1 2021 12:00')).toBe(expected(new Date('Jan 1 2021 12:00').getTime()));
+    expect(formatDate('2021-01-01T12:00:00Z')).toBe(expected(new Date('2021-01-01T12:00:00Z').getTime()));
   });
 
-  it('returns "Invalid Date" for an unparseable string', () => {
+  it('returns "Invalid Date" for an unparseable or malformed numeric string', () => {
     expect(formatDate('not-a-real-date')).toBe('Invalid Date');
+    expect(formatDate('1000abc')).toBe('Invalid Date');
+    expect(formatDate('1700000000ms')).toBe('Invalid Date');
+    expect(formatDate('')).toBe('Invalid Date');
+    expect(formatDate('   ')).toBe('Invalid Date');
+    expect(formatDate('Infinity')).toBe('Invalid Date');
   });
 
   it('returns "Invalid Date" for a NaN number (invalid resulting date)', () => {

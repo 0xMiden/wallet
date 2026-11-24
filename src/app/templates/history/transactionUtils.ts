@@ -632,8 +632,9 @@ export const formatDate = (timestamp: number | string): string => {
   if (typeof timestamp === 'number') {
     date = new Date(timestamp * 1000);
   } else if (typeof timestamp === 'string') {
-    const numericTimestamp = parseFloat(timestamp);
-    if (!isNaN(numericTimestamp)) {
+    const trimmed = timestamp.trim();
+    const numericTimestamp = trimmed.length > 0 ? Number(trimmed) : NaN;
+    if (Number.isFinite(numericTimestamp)) {
       date = new Date(numericTimestamp * 1000);
     } else {
       date = new Date(timestamp);
