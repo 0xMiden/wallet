@@ -888,20 +888,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  resolveRecoveryScanRange: async (_context, client, createdAtSeconds: number) => {
-    const result = await client.resolveRecoveryScanRange(createdAtSeconds);
-    return new TextEncoder().encode(JSON.stringify(result));
-  },
-
-  recoverPublicNotesRange: async (
-    _context,
-    client,
-    accountId: string,
-    blockFrom: number,
-    blockTo: number,
-    noteOffset?: number
-  ) => {
-    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
+  // The public backfill's reads run in the service worker without this mutex (#2266); only the
+  // import of the notes they keep comes here.
+  importRecoveryNoteFiles: async (context, client, encodedNoteFiles: string[]) => {
+    const result = await client.importRecoveryNoteFiles(encodedNoteFiles.map(b64ToBytes), context.hold);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 

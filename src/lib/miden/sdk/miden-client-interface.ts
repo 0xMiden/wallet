@@ -2,7 +2,6 @@ import {
   Account,
   AccountFile,
   type AccountId,
-  Address,
   AuthSecretKey,
   Endpoint,
   type ConsumableNoteRecord,
@@ -1387,260 +1386,31 @@ export class MidenClientInterface {
   }
 
   /**
-   * Resolve the public-backfill scan range for a recovered account: binary
-   * search block headers for the first block minted after the account was
-   * created (Guardian `createdAt`, seconds), with a margin for clock skew.
-   * Scanning from the creation block instead of genesis keeps the backfill
-   * proportional to the account's age.
+   * Pending-note recovery source 3 of 3: import the public notes the backfill
+   * read kept (`readRecoverablePublicNotes`), as serialized `NoteFile`s that
+   * already carry their inclusion proofs. The read and its filters run without
+   * the lock; this op makes no node request of its own, so it holds the client
+   * only for the store writes.
    */
-  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
-    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
-    // ~log2(tip) sequential header reads, so each one gets a short bound and no
-    // retry: a slow node must not spend the caller's whole op deadline here,
-    // and the recovery retries the whole range on the next backend start.
-    const header = (blockNum?: number) =>
-      withRpcTimeout(() => rpc.getBlockHeaderByNumber(blockNum), 'recoveryScanRangeHeader', {
-        timeoutMs: 8_000,
-        retries: 0
-      });
-
-    const latestHeader = await header();
-    const latestBlock = latestHeader.blockNum();
-    const clockSkewMarginSeconds = 600;
-    const target = createdAtSeconds - clockSkewMarginSeconds;
-    if (target <= 0) return { startBlock: 0, latestBlock };
-    // Timestamps only ever NARROW the scan, and this scan runs once: whatever
-    // it skips is skipped forever, because a clean pass clears the one-shot
-    // pending flag. `createdAt` comes from the Guardian operator's clock and the
-    // headers come from the node, so every way those two can disagree is
-    // resolved by scanning MORE, never less.
-    if (latestHeader.timestamp() <= target) {
-      // The account claims to be newer than the chain tip, yet it demonstrably
-      // exists on that chain. One of the two clocks is wrong; starting at the
-      // tip would scan a single block, find nothing, and report success. A node
-      // that reports no tip timestamp at all lands here too, since `target` is
-      // positive by this point.
-      console.warn(
-        `[GuardianRecovery] Reported creation time is at or beyond the chain tip (tip ` +
-          `${latestHeader.timestamp()}, target ${target}); scanning from genesis instead`
-      );
-      return { startBlock: 0, latestBlock };
-    }
-    const genesis = await header(0);
-    if (genesis.timestamp() >= target) return { startBlock: 0, latestBlock };
-    // Invariant: timestamp(lo) < target <= timestamp(hi).
-    let lo = 0;
-    let hi = latestBlock;
-    // Deadline as well as a bisection bound: this whole method runs inside one
-    // mutex-held op, and ~log2(tip) reads at 8s each would blow well past the
-    // 60s the chunking design budgets for an op. Stopping early only widens the
-    // scan — `lo` is always a block older than the account, which is exactly
-    // what the backfill needs — so a slow node costs extra scanned blocks
-    // rather than a wedged wallet.
-    const searchDeadline = Date.now() + 20_000;
-    while (lo + 1 < hi) {
-      if (Date.now() > searchDeadline) {
-        console.warn(
-          `[GuardianRecovery] Creation-block search ran out of budget; scanning from block ${lo} (widened range)`
-        );
-        break;
-      }
-      const mid = lo + Math.floor((hi - lo) / 2);
-      const midHeader = await header(mid);
-      const midTimestamp = midHeader.timestamp();
-      // The bisection is only valid over monotonically increasing timestamps.
-      // A zero or absent one breaks that invariant and would push `lo` past the
-      // account's real creation block, silently skipping its history.
-      if (midTimestamp <= 0) {
-        console.warn(`[GuardianRecovery] Block ${mid} reported no timestamp; scanning from genesis instead`);
-        return { startBlock: 0, latestBlock };
-      }
-      if (midTimestamp < target) lo = mid;
-      else hi = mid;
-    }
-    return { startBlock: lo, latestBlock };
-  }
-
-  /**
-   * Pending-note recovery source 3 of 3: import committed public notes whose
-   * tag matches the account, over ONE bounded block range. The SW walks the
-   * full creation-to-tip span in chunks through this method so progress is
-   * reportable and the WASM mutex is released between chunks.
-   *
-   * `saturated` means "this range is too big to do in one op, hand me halves":
-   * either the node refused the span, or the range holds more tag matches than
-   * one op should import. Narrowing is the CALLER's job, not this method's —
-   * every dispatch of it runs under the WASM mutex with the SW's write deadline
-   * already armed (`offscreen/main.ts` `handleCall`), so work it does not
-   * finish inside that one op has to come back as another op, not as recursion
-   * inside this one.
-   */
-  async recoverPublicNotesRange(
-    accountId: string,
-    blockFrom: number,
-    blockTo: number,
-    noteOffset = 0
-  ): Promise<RecoveryRangeResult> {
-    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
-    const accountSdkId = walletAccountIdToSdk(accountId);
-    const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
-    return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo, noteOffset);
-  }
-
-  /**
-   * Span at or below which a range is no longer narrowed. A dense range still
-   * has to be imported eventually, and past this point narrowing has stopped
-   * helping (a single block cannot be split); such a range is paged by note
-   * count instead, via `nextNoteOffset`.
-   */
-  private static readonly MIN_SPLIT_SPAN_BLOCKS = 1_000;
-
-  /**
-   * Tag matches one op will import. Past this it reports `saturated` and
-   * imports nothing, so the caller can come back with halves: on mobile and
-   * desktop the op runs inline with no deadline, so an unbounded note count is
-   * an unbounded WASM-mutex hold — every wallet operation behind it, including
-   * a transaction the user is waiting on, stalls for its duration.
-   */
-  private static readonly MAX_NOTES_PER_CHUNK = 200;
-
-  /**
-   * A node that refuses the requested span because it is too wide is reported
-   * as saturated so the caller can retry halves; anything else propagates.
-   * Rate limiting must NOT land here:
-   * "429 Too Many Requests" would otherwise be read as a span complaint and
-   * answered by doubling the number of requests.
-   */
-  private static isBlockSpanTooWide(error: unknown): boolean {
-    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-    const rateLimited =
-      message.includes('too many requests') ||
-      message.includes('rate limit') ||
-      message.includes('resource exhausted') ||
-      message.includes('resourceexhausted') ||
-      message.includes('429');
-    if (rateLimited) return false;
-    return (
-      message.includes('paginationerror') ||
-      message.includes('blockpagination') ||
-      message.includes('safety cap') ||
-      (message.includes('block') && (message.includes('too many') || message.includes('maximum number')))
-    );
-  }
-
-  private async recoverPublicNotesInRange(
-    rpc: RpcClient,
-    noteTag: ReturnType<Address['toNoteTag']>,
-    blockFrom: number,
-    blockTo: number,
-    noteOffset: number
-  ): Promise<RecoveryRangeResult> {
-    const span = blockTo - blockFrom + 1;
-    const splittable = span > MidenClientInterface.MIN_SPLIT_SPAN_BLOCKS;
-
-    let syncInfo;
-    try {
-      // Bounded, no retry: an unbounded await here hangs the WASM mutex on the
-      // inline (mobile/desktop) path, where no op deadline exists to kill it.
-      // The no-retry part is also load-bearing for correctness: this call MOVES
-      // `noteTag` into Rust, so a second attempt would hand it a dead handle.
-      syncInfo = await withRpcTimeout(() => rpc.syncNotes(blockFrom, blockTo, [noteTag]), 'recoverySyncNotes', {
-        timeoutMs: 30_000,
-        retries: 0
-      });
-    } catch (error) {
-      if (splittable && MidenClientInterface.isBlockSpanTooWide(error)) {
-        return { imported: 0, failures: 0, saturated: true };
-      }
-      throw error;
-    }
-
-    const allCommittedNotes = syncInfo.notes();
-    if (splittable && allCommittedNotes.length > MidenClientInterface.MAX_NOTES_PER_CHUNK) {
-      // Nothing imported on purpose: the halves re-scan their own sub-ranges,
-      // and importing a prefix here would only be repeated work (imports are
-      // idempotent) while still holding the mutex for the whole prefix.
-      console.log(
-        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${allCommittedNotes.length} tag matches ` +
-          `exceeds ${MidenClientInterface.MAX_NOTES_PER_CHUNK} per op; asking the caller for a narrower range`
-      );
-      return { imported: 0, failures: 0, saturated: true };
-    }
-
-    // Below the split floor a dense range cannot be narrowed further, so it is
-    // paged by NOTE instead: the op imports at most `MAX_NOTES_PER_CHUNK` and
-    // hands back where to continue. Without this, an unsplittable window holding
-    // thousands of matches — which anyone can arrange, since a note tag is a
-    // truncated commitment and volume can be aimed at a victim's — is one
-    // unbounded op: on the extension it outlives its deadline, the realm is
-    // killed, the orchestrator reads that as a deferral and retries the SAME
-    // window forever; on mobile and desktop it holds the only WASM mutex for as
-    // long as it takes.
-    const committedNotes = allCommittedNotes.slice(noteOffset, noteOffset + MidenClientInterface.MAX_NOTES_PER_CHUNK);
-    const consumedTo = noteOffset + committedNotes.length;
-    const nextNoteOffset = consumedTo < allCommittedNotes.length ? consumedTo : undefined;
-
+  async importRecoveryNoteFiles(
+    noteFiles: Uint8Array[],
+    hold: WasmLockHold
+  ): Promise<{ imported: number; failures: number }> {
     let imported = 0;
     let failures = 0;
-    // A PRIVATE tag match carries no body over RPC by design (the SDK documents
-    // `note` as undefined for private notes). It belongs to the transport drain
-    // (source 1), so it is not a failure of this source.
-    let skippedPrivate = 0;
-    let unexpected = 0;
-    const fetchBatchSize = 100;
-    for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
-      const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
-      // Read BEFORE the call: passing these into `getNotesById` MOVES them into
-      // Rust (wasm-bindgen unwraps every element and zeroes the JS wrapper's
-      // pointer), so afterwards each one is a dead handle and stringifying it
-      // traps. Only the array's length survives the call.
-      //
-      // Resolved BY ID, not by count. A response of the right length can still
-      // be the wrong notes — duplicates of one id, or ids never asked for —
-      // and counting length alone would read that as a clean chunk, letting
-      // the orchestrator clear the one-shot flag over notes never imported.
-      const requestedIds = new Set(noteIds.map(String));
-      const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
-        retries: 0
-      });
-      const answeredIds = new Set<string>();
-      for (const fetched of fetchedNotes) {
-        const noteId = String(fetched.noteId);
-        if (!requestedIds.has(noteId) || answeredIds.has(noteId)) {
-          unexpected++;
-          continue;
-        }
-        answeredIds.add(noteId);
-        const inputNote = fetched.asInputNote();
-        if (!inputNote) {
-          // A body-less PUBLIC note is the node failing to serve what it said
-          // it had, not an expected private note.
-          if (fetched.noteType === NoteType.Public) {
-            failures++;
-            console.warn(`[GuardianRecovery] Node returned public note ${noteId} without a body`);
-          } else {
-            skippedPrivate++;
-          }
-          continue;
-        }
-        try {
-          await this.client.notes.import(NoteFile.fromInputNote(inputNote));
-          imported++;
-        } catch (error) {
-          // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
-          if (isClientFault(error)) throw error;
-          failures++;
-          console.warn('[GuardianRecovery] Failed to import one public note:', error);
-        }
+    for (const bytes of noteFiles) {
+      // Each import parks, and an eviction in between hands the mutex to another flow.
+      assertWasmHoldCurrent(hold, 'importing recovered public notes', 'before a note import');
+      try {
+        await this.client.notes.import(NoteFile.deserialize(bytes));
+        imported++;
+      } catch (error) {
+        rethrowClientFault(error, hold);
+        failures++;
+        console.warn('[GuardianRecovery] Failed to import one public note:', error);
       }
-      failures += noteIds.length - answeredIds.size;
     }
-    console.log(
-      `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo} notes ${noteOffset}-${consumedTo} of ` +
-        `${allCommittedNotes.length} tag matches: ${imported} imported, ${skippedPrivate} private, ` +
-        `${unexpected} unrequested/duplicate, ${failures} failed`
-    );
-    return { imported, failures, saturated: false, nextNoteOffset };
+    return { imported, failures };
   }
 
   async getAccount(accountId: string) {

@@ -186,6 +186,8 @@ export function resolveSendReclaimHeight(
 // felt, which is far larger than any plausible block height. Reading the wrong
 // slot therefore fails the range check below and silently suppresses the
 // "returns to sender by" banner on every recallable note.
+const P2IDE_RECLAIMER_SUFFIX_INDEX = 0;
+const P2IDE_RECLAIMER_PREFIX_INDEX = 1;
 const P2IDE_TARGET_SUFFIX_INDEX = 2;
 const P2IDE_TARGET_PREFIX_INDEX = 3;
 const P2IDE_RECLAIM_HEIGHT_INDEX = 4;
@@ -323,4 +325,35 @@ export function mayConsume(restriction: ConsumeRestriction | undefined, resolveA
     account.prefix().asInt().toString() === restriction.prefix &&
     account.suffix().asInt().toString() === restriction.suffix
   );
+}
+
+function isAccountAt(items: Felt[], prefixIndex: number, suffixIndex: number, account: AccountFelts): boolean {
+  return (
+    items[prefixIndex]?.asInt().toString() === account.prefix &&
+    items[suffixIndex]?.asInt().toString() === account.suffix
+  );
+}
+
+/**
+ * Whether `account` can consume `note` at any block, read from the script and its storage alone: the target of a
+ * P2ID; the target of a P2IDE, or its reclaimer while its reclaim is enabled (p2ide.masm, miden-standards 0.18.0);
+ * nobody for a fee sponsorship whose reclaim is disabled; and any account for every other script, which storage
+ * alone cannot settle. Pending-note recovery keeps only these notes of the many that share the account's note tag.
+ */
+export function mayEverConsume(note: NoteSource, account: AccountFelts): boolean {
+  const p2ide = readNote(() => storageItems(note, p2ideRoot, P2IDE_STORAGE_ITEM_COUNT));
+  if (p2ide) {
+    if (isAccountAt(p2ide, P2IDE_TARGET_PREFIX_INDEX, P2IDE_TARGET_SUFFIX_INDEX, account)) return true;
+    const reclaimEnabled = p2ide[P2IDE_RECLAIM_HEIGHT_INDEX]?.asInt() !== 0n;
+    return reclaimEnabled && isAccountAt(p2ide, P2IDE_RECLAIMER_PREFIX_INDEX, P2IDE_RECLAIMER_SUFFIX_INDEX, account);
+  }
+  const restriction = noteConsumeRestriction(note);
+  switch (restriction) {
+    case undefined:
+      return true;
+    case 'nobody':
+      return false;
+    default:
+      return restriction.prefix === account.prefix && restriction.suffix === account.suffix;
+  }
 }

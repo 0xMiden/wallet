@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Read the seed-recovery note backfill without the WASM client lock and import only unspent notes the account can consume, so the extension no longer restarts its offscreen client and repeats the same scan chunk forever (#2266).
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).

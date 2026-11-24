@@ -331,9 +331,9 @@ async function fetchAccountCreatedAtSeconds(account: WalletAccount, context: Gua
 }
 
 /**
- * Blocks per public-backfill chunk. Bounds how long any single offscreen call
- * holds the WASM mutex (queued reads deadline-kill the realm behind a
- * long-held mutex) and sets the granularity of the progress card.
+ * Blocks per public-backfill chunk. Bounds the node reads one chunk makes
+ * (they run without the WASM mutex, #2266; only the import of the notes they
+ * keep takes it) and sets the granularity of the progress card.
  */
 const PUBLIC_BACKFILL_CHUNK_BLOCKS = 200_000;
 

@@ -47,6 +47,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { readRecoverablePublicNotes, resolveRecoveryScanRange } from 'lib/miden/sdk/recovery-public-notes';
 import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
 import {
   WasmClientPoisonedError,
@@ -168,8 +169,8 @@ const SYNC_DEADLINE_MS = 45_000;
 
 /**
  * Per-op deadline (ms) for one pending-note recovery chunk (transport drain,
- * proposal-note import, scan-range resolution, or one bounded public-backfill
- * range). Recovery is deliberately chunked into ops of this size — a single
+ * proposal-note import, or the import of one public-backfill range's notes; the
+ * backfill's node reads take no op at all). Recovery is deliberately chunked into ops of this size — a single
  * long-held op starves queued reads past their dispatch-armed deadlines and
  * gets the realm killed.
  */
@@ -210,29 +211,12 @@ function parseRecoveryCounts(method: string, resultB64: string | null): { import
 }
 
 /**
- * `saturated` drives the caller's range-splitting loop, so a non-boolean has to
- * throw rather than be coerced: a truthy string would make it split forever.
+ * A recovery read runs in THIS realm on an `RpcClient` of its own, so it needs
+ * this realm's WASM module and its effective endpoint, not the offscreen ones.
  */
-function readRecoverySaturated(method: string, parsed: unknown): boolean {
-  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'saturated') : undefined;
-  if (typeof value !== 'boolean') {
-    throw new Error(`${method}: offscreen document returned a malformed saturated`);
-  }
-  return value;
-}
-
-/**
- * `nextNoteOffset` re-offers the same block range, so like `saturated` it can
- * loop: absent means finished, and anything present that is not a non-negative
- * integer throws rather than being coerced into a cursor that never advances.
- */
-function readRecoveryNoteOffset(method: string, parsed: unknown): number | undefined {
-  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'nextNoteOffset') : undefined;
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${method}: offscreen document returned a malformed nextNoteOffset`);
-  }
-  return value;
+async function prepareRecoveryRead(): Promise<void> {
+  await whenEndpointOverridesLoaded();
+  await getWasmOrThrow();
 }
 
 /**
@@ -1816,42 +1800,50 @@ export const midenClientProxy = {
     return parseRecoveryCounts('importRecoveryNoteBytes', resultB64);
   },
 
-  /** Pending-note recovery chunk: resolve the creation-block scan range. */
-  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+  /** Import the serialized `NoteFile`s a public-backfill read kept, under the client lock. */
+  async importRecoveryNoteFiles(noteFiles: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).resolveRecoveryScanRange(createdAtSeconds));
+      return withWasmClientLock(async hold => (await getMidenClient()).importRecoveryNoteFiles(noteFiles, hold));
     }
-    const resultB64 = await this.call('resolveRecoveryScanRange', [createdAtSeconds], {
+    const resultB64 = await this.call('importRecoveryNoteFiles', [noteFiles.map(bytesToB64)], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
-    const parsed = parseRecoveryResult('resolveRecoveryScanRange', resultB64);
-    return {
-      startBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'startBlock'),
-      latestBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'latestBlock')
-    };
+    return parseRecoveryCounts('importRecoveryNoteFiles', resultB64);
   },
 
-  /** Pending-note recovery chunk: public backfill over ONE bounded block range. */
+  /**
+   * Pending-note recovery: resolve the creation-block scan range. Node reads
+   * only, so it runs in this realm without the client lock (#2266).
+   */
+  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+    await prepareRecoveryRead();
+    return resolveRecoveryScanRange(createdAtSeconds);
+  },
+
+  /**
+   * Pending-note recovery chunk: public backfill over ONE bounded block range.
+   *
+   * The node reads and the filters run in this realm without the client lock;
+   * only the import of the notes they keep takes it, and only when there is one
+   * (#2266). A read that held the lock for its network time kept queued reads
+   * waiting past their deadline, and the deadline kill took the chunk with it.
+   */
   async recoverPublicNotesRange(
     accountId: string,
     blockFrom: number,
     blockTo: number,
     noteOffset = 0
   ): Promise<RecoveryRangeResult> {
-    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset)
-      );
-    }
-    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo, noteOffset], {
-      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
-    });
-    const parsed = parseRecoveryResult('recoverPublicNotesRange', resultB64);
+    await prepareRecoveryRead();
+    const read = await readRecoverablePublicNotes(accountId, blockFrom, blockTo, noteOffset);
+    if (read.saturated) return { imported: 0, failures: read.failures, saturated: true };
+    const imports =
+      read.noteFiles.length > 0 ? await this.importRecoveryNoteFiles(read.noteFiles) : { imported: 0, failures: 0 };
     return {
-      imported: readRecoveryCount('recoverPublicNotesRange', parsed, 'imported'),
-      failures: readRecoveryCount('recoverPublicNotesRange', parsed, 'failures'),
-      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed),
-      nextNoteOffset: readRecoveryNoteOffset('recoverPublicNotesRange', parsed)
+      imported: imports.imported,
+      failures: read.failures + imports.failures,
+      saturated: false,
+      nextNoteOffset: read.nextNoteOffset
     };
   },
 

@@ -522,7 +522,7 @@ function resetControl() {
       outputNotes: []
     })),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
-    clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
+    clientImportRecoveryNoteFiles: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
     clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
     clientRelayPrivateNoteById: jest.fn(async (_noteId: string, _to: string) => {}),
@@ -638,7 +638,7 @@ function resetControl() {
         importGuardianHistoryP2ideNotes: G.__off.clientImportGuardianHistoryP2ideNotes,
         decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
-        recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
+        importRecoveryNoteFiles: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteFiles(...a),
         sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
         relayPrivateNoteById: (...a: any[]) => (globalThis as any).__off.clientRelayPrivateNoteById(...a),
         isOutputNoteConsumed: (...a: any[]) => (globalThis as any).__off.clientIsOutputNoteConsumed(...a),
@@ -3032,21 +3032,29 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  it('dispatches a public-backfill range with its bounds and note page', async () => {
+  it('dispatches the public-backfill note import under its hold and restores the note files', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportRecoveryNoteFiles = jest.fn(async (_noteFiles: Uint8Array[], _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return { imported: 2, failures: 0 };
+    });
     const sendResponse = jest.fn();
+    const encoded = [Buffer.from([4]).toString('base64'), Buffer.from([5, 6]).toString('base64')];
     const ret = capturedListener!(
-      callReq({
-        method: 'recoverPublicNotesRange',
-        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999), encodeArg(200)]
-      }),
+      callReq({ method: 'importRecoveryNoteFiles', argsB64: [encodeArg(encoded)] }),
       {},
       sendResponse
     );
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 200);
+    expect(G.__off.clientImportRecoveryNoteFiles.mock.calls[0][0]).toEqual([
+      new Uint8Array([4]),
+      new Uint8Array([5, 6])
+    ]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportRecoveryNoteFiles.mock.calls[0][1]).toBe(liveHold);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 2,
@@ -3054,22 +3062,14 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  // An older service worker paired with a newer offscreen bundle sends three
-  // args; that has to mean the first page, not `undefined` reaching the SDK.
-  it('defaults a missing note page to the first one', async () => {
+  // The reads run in the service worker now (#2266), so the offscreen document serves no such op.
+  it.each(['recoverPublicNotesRange', 'resolveRecoveryScanRange'])('serves no %s op', async method => {
     await loadModule();
     const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({
-        method: 'recoverPublicNotesRange',
-        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999)]
-      }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64: [] }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 0);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
   it('dispatches the private-note transport drain with a null result', async () => {
