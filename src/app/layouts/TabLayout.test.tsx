@@ -676,6 +676,9 @@ describe('TabLayout mobile navbar presentation', () => {
 
     expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    expect(bar()).not.toHaveClass('min-h-[calc(3.5rem+2px)]');
+    expect(bar()).not.toHaveClass('box-content');
+    expect(bar()).toHaveClass('items-end');
     const navbar = within(screen.getByTestId('bottom-nav'));
     for (const name of ['home', 'explore', 'activity', 'profile']) {
       const button = navbar.getByRole('button', { name });
@@ -815,6 +818,8 @@ describe('TabLayout mobile navbar presentation', () => {
     renderLayout();
     scrollTo(scrollRegion(), 0, 80);
     expect(bar()).not.toHaveAttribute('data-navbar-presentation');
+    expect(bar()).not.toHaveClass('min-h-[calc(3.5rem+2px)]');
+    expect(bar()).not.toHaveClass('items-end');
   });
 });
 
