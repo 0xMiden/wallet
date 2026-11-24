@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][extension,desktop] Keep the password field and Unlock button the same centered width in wide wallet windows.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
 - [FIX][all] Read recent Activity history in bounded batches for the unread indicator, preserving History's newest 50 visible rows across timestamp ties and reusing claim checks within each scan (#2202).
 - [FIX][all] Seed restore shows recent Guardian history right away and finishes a large history much faster, by saving each recovered record before its notes import and reading the transaction queue once per entry instead of on every check.
@@ -302,7 +303,6 @@
 
 ### Changes
 
-- [FIX][extension,desktop] Keep the password field and Unlock button the same centered width in wide wallet windows.
 - [FIX][all] The Send recipient step says Continue before choosing the amount, while the final review keeps its Send Payment or Send publicly action; mock E2E and UI smoothness use an explicit prelaunch testnet fixture so the published launch clock cannot switch their synthetic onboarding to Mainnet.
 - [FIX][all] Center the Arcade game-details button within the sheet while preserving its maximum width and mobile safe-area spacing.
 - [FIX][ci] Verify probe logging and tracing against explicit script-level settings before cleanup, preserving all ownership checks.
