@@ -224,7 +224,6 @@ module.exports = {
   makeReport,
   matches,
   publishAtomically,
-  requireReport,
   schema,
   testId,
   unknown,

@@ -2,7 +2,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
-import { isStaleProofError } from 'lib/miden/guardian/proof-freshness';
+import { isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -29,7 +29,7 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 
 import {
   CLAIM_VAULT_SHORTFALL_ERROR,
-  formatRawTransactionError,
+  formatTransactionErrorChain,
   INVALID_NOTE_ERROR,
   isUnconfirmedFailure,
   isUnconfirmedFailureReason,
@@ -106,21 +106,24 @@ const SWAP_END_BY_REASON = new Map<TransactionFailureReason, DiagnosticEndOutcom
   ['interrupted_on_startup', 'interrupted'],
   ['stuck_reaped', 'timeout'],
   ['queued_expired', 'timeout'],
-  ['stale_proof', 'timeout']
+  ['stale_proof', 'timeout'],
+  ['proof_freshness_unknown', 'timeout']
 ]);
 
-const swapEndOutcome = (reason: TransactionFailureReason | undefined, rawError: string): DiagnosticEndOutcome =>
+const swapEndOutcome = (reason: TransactionFailureReason | undefined, errorChain: string): DiagnosticEndOutcome =>
   (reason === undefined ? undefined : SWAP_END_BY_REASON.get(reason)) ??
-  (classifyError(rawError) === 'timeout' ? 'timeout' : 'failed');
+  (classifyError(errorChain) === 'timeout' ? 'timeout' : 'failed');
 
 const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
   error instanceof RotationGateConsumeRefusal
     ? (REPORTED_ROTATION_REFUSALS.get(error.message) ?? 'rotation_gate_refusal')
     : isStaleProofError(error)
       ? 'stale_proof'
-      : error instanceof ProposalEffectRefusedError
-        ? 'proposal_effect_refused'
-        : REPORTED_WALLET_REASONS.get(error);
+      : isProofFreshnessUnknownError(error)
+        ? 'proof_freshness_unknown'
+        : error instanceof ProposalEffectRefusedError
+          ? 'proposal_effect_refused'
+          : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
@@ -131,11 +134,11 @@ const describeFailure = (
   transaction: Pick<ITransaction, 'type' | 'delegateTransaction'>,
   error: unknown,
   existing: ITransaction | undefined
-): { displayError: string; rawError: string } => {
+): { displayError: string; rawError: string; errorChain: string } => {
   // The stage the tx died in (persisted by setTransactionStage) disambiguates
   // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
-  const rawError = formatRawTransactionError(error);
+  const { rawError, errorChain } = formatTransactionErrorChain(error);
   // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
   // withhold the may-have-submitted crossing, re-derived HERE from the row the caller
   // already read, so the message and the crossing can never disagree: hedging "left in an
@@ -153,9 +156,9 @@ const describeFailure = (
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   // A claim has no amount sent for the shortfall copy to name.
   if (displayError === TRANSACTION_VAULT_SHORTFALL_ERROR && (existing ?? transaction).type === 'consume') {
-    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError };
+    return { displayError: CLAIM_VAULT_SHORTFALL_ERROR, rawError, errorChain };
   }
-  return { displayError, rawError };
+  return { displayError, rawError, errorChain };
 };
 
 /**
@@ -235,7 +238,7 @@ export const cancelTransaction = async (
   }
 
   const failedStage = existing?.stage;
-  const { displayError, rawError } = describeFailure(transaction, error, existing);
+  const { displayError, rawError, errorChain } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
   const effectRefused = error instanceof ProposalEffectRefusedError;
   let applied = false;
@@ -303,7 +306,7 @@ export const cancelTransaction = async (
   if (committed !== undefined && !committed.restoredFromBackup && committed.type === 'swap') {
     logOperationEnd(
       'swap',
-      swapEndOutcome(reportedReason ?? reportedWalletReason(error), rawError),
+      swapEndOutcome(reportedReason ?? reportedWalletReason(error), errorChain),
       elapsedMsSince(committed.initiatedAt)
     );
   }
@@ -404,7 +407,7 @@ export const cancelTransaction = async (
       operation: operationOfType(transaction.type),
       result: 'errored',
       durationMs: elapsedMsSince(existing.initiatedAt),
-      errorKind: classifyError(rawError),
+      errorKind: classifyError(errorChain),
       step: stepOfStage(failedStage)
     });
   }
@@ -487,7 +490,7 @@ export const markTransactionUnconfirmed = async (
   // Before the first await: the submit returned its unknown outcome by the time this is called.
   const returnedAtMs = Date.now();
   const existing = await Repo.transactions.where({ id: tx.id }).first();
-  const { displayError, rawError } = describeFailure(tx, error, existing);
+  const { displayError, rawError, errorChain } = describeFailure(tx, error, existing);
   const transactionId = indefiniteSubmitTransactionId(error);
   const nowSec = Math.floor(Date.now() / 1000);
   let entered = false;
@@ -587,7 +590,7 @@ export const markTransactionUnconfirmed = async (
     operation: operationOfType(tx.type),
     result: 'errored',
     durationMs: elapsedMsSince(existing?.initiatedAt ?? tx.initiatedAt),
-    errorKind: classifyError(rawError),
+    errorKind: classifyError(errorChain),
     step: stepOfStage(existing?.stage)
   });
   return returnedAtMs;

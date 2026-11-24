@@ -4692,6 +4692,14 @@
     "message": "Платіж відправлено!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "Виведення коштів успішно здійснено",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "Повернення до заблокованих коштів",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Через Epoch",
     "englishSource": "Via Epoch"
@@ -6928,6 +6936,10 @@
   "redeemIntentLabel": {
     "message": "Намір погашення",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "Внесено в Earn",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "Виведення коштів з Earn",

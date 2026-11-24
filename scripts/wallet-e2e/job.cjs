@@ -1,9 +1,9 @@
 'use strict';
 
 const { createHash } = require('node:crypto');
-const { createReadStream, existsSync, readFileSync, readdirSync, rmSync, statSync } = require('node:fs');
+const { createReadStream, readFileSync, readdirSync, rmSync, statSync } = require('node:fs');
 const { join, resolve } = require('node:path');
-const { INVOCATIONS, STAGE_TIMEOUTS } = require('./invocations.cjs');
+const { INVOCATIONS } = require('./invocations.cjs');
 const {
   MAX_REPORT_BYTES,
   REPORT_FILENAME,
@@ -25,7 +25,7 @@ const JOB_CODES = new Map([
   ['mainnet-nightly', 'mainnet'],
   ['mainnet-agglayer', 'agglayer']
 ]);
-const CURRENT_JOB = new Map([
+const JOB_TIMEOUT_MINUTES = new Map([
   ['mainnet', { scheduled: 200, manual: 245 }],
   ['agglayer', { scheduled: 185, manual: 230 }]
 ]);
@@ -70,7 +70,6 @@ function trustedEnvironment(env) {
 }
 
 function readOptional(path) {
-  if (!existsSync(path)) return undefined;
   try {
     if (statSync(path).size > MAX_REPORT_BYTES) return undefined;
     return JSON.parse(readFileSync(path, 'utf8'));
@@ -135,8 +134,6 @@ async function recordBuild(root) {
 }
 
 function invocationMarkers(root, command, id, codeText) {
-  const identity = INVOCATIONS.get(id);
-  if (!identity) throw new Error('Unknown wallet E2E invocation');
   const path = join(root, 'invocations', id);
   if (command === 'invocation-start') return writeInternal(join(path, 'start.json'), { startAt: utcNow() });
   if (!/^(0|[1-9][0-9]{0,2})$/.test(codeText ?? '') || Number(codeText) > 255) {
@@ -179,7 +176,7 @@ function invocationState(root, expected) {
     endAt: exit?.endAt ? known(exit.endAt) : (report?.endAt ?? unknown('report_incomplete')),
     elapsedMs: report?.elapsedMs ?? unknown('report_incomplete'),
     deadlineAt: unknown('not_observed'),
-    timeoutMs: valueOrUnknown(STAGE_TIMEOUTS.get(expected.id), 'not_applicable'),
+    timeoutMs: valueOrUnknown(expected.timeoutMs, 'not_applicable'),
     exitCode,
     playwrightOutcome,
     tests: report?.tests ?? []
@@ -204,63 +201,95 @@ function coverageFor(selection, expected, dispositions, blocked) {
   return { selection: 'selected', status: 'unknown', reason: 'report_incomplete' };
 }
 
+const WORKFLOW_STATUS = new Map([
+  ['success', 'passed'],
+  ['failure', 'failed'],
+  ['cancelled', 'interrupted']
+]);
+
+const RECOVERY_INVOCATIONS = [
+  'swap-recovery-grant',
+  'swap-recover',
+  'swap-recovered-return',
+  'epoch-recover',
+  'near-recover'
+];
+
+function invocationOutcomes(env, id) {
+  const suffix = id.replaceAll('-', '_').toUpperCase();
+  return [env['REPORT_INVOCATION_' + suffix], env['REPORT_WAIT_' + suffix]];
+}
+
+function workflowStage(key, primaryOutcome, relatedOutcomes, failureCode) {
+  const outcomes = [primaryOutcome, ...relatedOutcomes];
+  const status = outcomes.includes('failure')
+    ? 'failed'
+    : outcomes.includes('cancelled')
+      ? 'interrupted'
+      : WORKFLOW_STATUS.get(primaryOutcome);
+  if (status) {
+    return createStage({
+      key,
+      status,
+      origin: 'workflow',
+      errorCode: status === 'failed' ? failureCode : null
+    });
+  }
+}
+
 function workflowObservations(env) {
-  const statuses = new Map([
-    ['success', 'passed'],
-    ['failure', 'failed'],
-    ['cancelled', 'interrupted']
-  ]);
-  const stages = [];
-  // Pre-build steps run without continue-on-error, so a failure skips the build; an unlisted token is ignored.
-  const setupOutcomes = [...(env.REPORT_SETUP_OUTCOMES ?? '').split(/\s+/), env.REPORT_BUILD_OUTCOME];
-  const build = setupOutcomes.includes('failure')
-    ? 'failed'
-    : setupOutcomes.includes('cancelled')
-      ? 'interrupted'
-      : statuses.get(env.REPORT_BUILD_OUTCOME);
-  const recoveryOutcomes = [
-    env.REPORT_INVOCATION_SWAP_RECOVERY_GRANT,
-    env.REPORT_INVOCATION_SWAP_RECOVER,
-    env.REPORT_WAIT_SWAP_RECOVER,
-    env.REPORT_INVOCATION_SWAP_RECOVERED_RETURN,
-    env.REPORT_WAIT_SWAP_RECOVERED_RETURN,
-    env.REPORT_INVOCATION_EPOCH_RECOVER,
-    env.REPORT_WAIT_EPOCH_RECOVER,
-    env.REPORT_INVOCATION_NEAR_RECOVER,
-    env.REPORT_WAIT_NEAR_RECOVER,
+  // An early setup failure can skip the build step.
+  const setup = workflowStage(
+    'setup',
+    env.REPORT_BUILD_OUTCOME,
+    (env.REPORT_SETUP_OUTCOMES ?? '').split(/\s+/),
+    'setup_failed'
+  );
+  const recovery = workflowStage(
+    'recovery_gate',
     env.REPORT_BARRIER_OUTCOME,
-    ...(env.REPORT_RECOVERY_AUTH_OUTCOMES ?? '').split(/\s+/)
-  ];
-  const recovery = recoveryOutcomes.includes('failure')
-    ? 'failed'
-    : recoveryOutcomes.includes('cancelled')
-      ? 'interrupted'
-      : statuses.get(env.REPORT_BARRIER_OUTCOME);
-  if (build) {
-    stages.push(
-      createStage({
-        key: 'setup',
-        status: build,
-        origin: 'workflow',
-        errorCode: build === 'failed' ? 'setup_failed' : null
-      })
-    );
-  }
-  if (recovery) {
-    stages.push(
-      createStage({
-        key: 'recovery_gate',
-        status: recovery,
-        origin: 'workflow',
-        errorCode: recovery === 'failed' ? 'recovery_gate_failed' : null
-      })
-    );
-  }
-  const blockedByRecovery = recovery === 'failed' || recovery === 'interrupted' || env.REPORT_RECOVERY_ONLY === 'true';
+    [
+      ...RECOVERY_INVOCATIONS.flatMap(id => invocationOutcomes(env, id)),
+      ...(env.REPORT_RECOVERY_AUTH_OUTCOMES ?? '').split(/\s+/)
+    ],
+    'recovery_gate_failed'
+  );
+  const blockedByRecovery = ['failed', 'interrupted'].includes(recovery?.status) || env.REPORT_RECOVERY_ONLY === 'true';
   return {
-    stages,
-    blocked: blockedByRecovery ? 'blocked_by_recovery' : build === 'failed' ? 'blocked_by_setup' : undefined
+    stages: [setup, recovery].filter(Boolean),
+    blocked: blockedByRecovery ? 'blocked_by_recovery' : setup?.status === 'failed' ? 'blocked_by_setup' : undefined
   };
+}
+
+function freshSwapCount(forward, workflowOutcome) {
+  const stages =
+    forward?.tests
+      .flatMap(test => test.attempts)
+      .flatMap(attempt => attempt.operations)
+      .filter(operation => operation.key === 'swap-forward')
+      .flatMap(operation => operation.stages) ?? [];
+  if (
+    stages.some(stage => stage.key === 'execution' && stage.origin === 'wallet_ui' && stage.status === 'in_progress')
+  ) {
+    return known(1);
+  }
+  if (
+    workflowOutcome === 'skipped' ||
+    stages.some(stage => stage.key === 'wallet_session' && stage.status === 'failed')
+  ) {
+    return known(0);
+  }
+  return unknown();
+}
+
+function hasMissingInvocationEvidence(expected, invocations, env) {
+  const reported = new Map(invocations.map(invocation => [invocation.id, invocation]));
+  return expected.some(({ id }) => {
+    const invocation = reported.get(id);
+    return invocation
+      ? invocation.exitCode.value === null || invocation.playwrightOutcome.value === null
+      : invocationOutcomes(env, id).some(outcome => WORKFLOW_STATUS.has(outcome));
+  });
 }
 
 function assemble(root, identity, env) {
@@ -270,10 +299,8 @@ function assemble(root, identity, env) {
   if (!job || Object.keys(identity).some(key => job.identity?.[key] !== identity[key])) {
     throw new Error('Wallet E2E manifest unavailable');
   }
-  const invocations = Array.from(INVOCATIONS.values())
-    .filter(invocation => invocation.jobKey === identity.jobKey)
-    .map(invocation => invocationState(root, invocation))
-    .filter(Boolean);
+  const expected = Array.from(INVOCATIONS.values()).filter(invocation => invocation.jobKey === identity.jobKey);
+  const invocations = expected.map(invocation => invocationState(root, invocation)).filter(Boolean);
   const dispositions = new Map(
     invocations.map(invocation => {
       if (invocation.status !== 'passed') return [invocation.id, invocation.status];
@@ -286,25 +313,10 @@ function assemble(root, identity, env) {
       return [invocation.id, observed];
     })
   );
-  const jobLimits = CURRENT_JOB.get(identity.jobKey);
+  const jobLimits = JOB_TIMEOUT_MINUTES.get(identity.jobKey);
   const timeoutMs = jobLimits[identity.event === 'schedule' ? 'scheduled' : 'manual'] * 60_000;
   const observations = workflowObservations(env);
   const agglayer = identity.jobKey === 'agglayer';
-  const forward = invocations.find(invocation => invocation.id === 'swap-forward');
-  const forwardOperations = forward?.tests.flatMap(test => test.attempts.flatMap(attempt => attempt.operations));
-  const forwardStages = forwardOperations
-    ?.filter(operation => operation.key === 'swap-forward')
-    .flatMap(operation => operation.stages);
-  const freshStarted = agglayer
-    ? unknown('not_applicable')
-    : forwardStages?.some(
-          stage => stage.key === 'execution' && stage.origin === 'wallet_ui' && stage.status === 'in_progress'
-        )
-      ? known(1)
-      : env.REPORT_INVOCATION_SWAP_FORWARD === 'skipped' ||
-          forwardStages?.some(stage => stage.key === 'wallet_session' && stage.status === 'failed')
-        ? known(0)
-        : unknown();
   const bridges = agglayer
     ? ['agglayer-round-trip']
     : ['epoch-forward', 'epoch-reverse', 'near-forward', 'near-reverse'];
@@ -319,21 +331,18 @@ function assemble(root, identity, env) {
           observations.blocked
         ),
     bridge: coverageFor(!job.swapsOnly && !job.approvalsOnly, bridges, dispositions, observations.blocked),
-    freshSwapsStarted: freshStarted
+    freshSwapsStarted: agglayer
+      ? unknown('not_applicable')
+      : freshSwapCount(
+          invocations.find(invocation => invocation.id === 'swap-forward'),
+          env.REPORT_INVOCATION_SWAP_FORWARD
+        )
   };
-  const incomplete =
-    invocations.some(invocation => invocation.exitCode.value === null || invocation.playwrightOutcome.value === null) ||
-    Array.from(INVOCATIONS.values()).some(invocation => {
-      if (invocation.jobKey !== identity.jobKey || dispositions.has(invocation.id)) return false;
-      const envKey = invocation.id.replaceAll('-', '_').toUpperCase();
-      const outcomes = [env['REPORT_INVOCATION_' + envKey], env['REPORT_WAIT_' + envKey]];
-      return outcomes.some(outcome => ['success', 'failure', 'cancelled'].includes(outcome));
-    });
   const now = utcNow();
   const report = makeReport({
     ...identity,
     generatedAt: now,
-    availability: incomplete ? 'partial' : 'available',
+    availability: hasMissingInvocationEvidence(expected, invocations, env) ? 'partial' : 'available',
     startAt: job.startAt,
     endAt: now,
     timeoutMs,
@@ -372,4 +381,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { assemble, hashTree, invocationState, main, trustedEnvironment };
+module.exports = { main, trustedEnvironment };

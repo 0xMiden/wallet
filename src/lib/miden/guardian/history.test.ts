@@ -25,6 +25,46 @@ import type { GuardianHistoryNote, GuardianSummary } from '../sdk/guardian-histo
 import { recoveredSwapOrderRef } from '../swap/recovered-order';
 import { trackRecoveredSwapOrders } from '../swap/recovered-order-tracking';
 
+const mockCanonicalIds = [
+  {
+    hex: '0x817edea77acc5d71616e493afecea3',
+    bech32: 'mtst1azqhah480tx96utpdeyn4lkw5v5fsdmw',
+    canonical: '0x817edea77acc5d71616e493afecea3'
+  },
+  {
+    hex: '0x111111111111111111111111111111',
+    bech32: 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v',
+    canonical: '0x111111111111111111111111111111'
+  }
+];
+
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const actual = jest.requireActual<typeof import('@miden-sdk/miden-sdk/lazy')>('@miden-sdk/miden-sdk/lazy');
+  const fromHex = jest.fn((hex: string) => {
+    const match = mockCanonicalIds.find(item => item.hex === hex.toLowerCase());
+    if (!match) throw new Error(`invalid hex account id: ${hex}`);
+    return { toString: () => match.canonical };
+  });
+  return {
+    ...actual,
+    AccountId: Object.assign(actual.AccountId, { fromHex }),
+    Address: {
+      ...actual.Address,
+      fromBech32: jest.fn((address: string): unknown => {
+        const match = mockCanonicalIds.find(item => item.bech32 === address);
+        if (match) {
+          return {
+            accountId: () => ({ toString: () => match.canonical }),
+            interface: () => 'BasicWallet',
+            toNoteTag: jest.fn()
+          };
+        }
+        return actual.Address.fromBech32(address);
+      })
+    }
+  };
+});
+
 // What the node says of a recovered order's lineage; its reads are pinned in pswap-order-note's suite.
 const mockReadPswapOrderLineage = jest.fn();
 jest.mock('../sdk/pswap-order-note', () => ({
@@ -735,4 +775,74 @@ it('gives a commitment-less row the same id from either spelling of a renamed ho
   expect(historyCheckpointId('testnet', '0x123', 'https://guardian-testnet.openzeppelin.com')).toBe(
     historyCheckpointId('testnet', '0x123', 'https://guardian.openzeppelin.com')
   );
+});
+
+it('reconciles recovered swaps across hex and bech32 equivalent account and faucet IDs while preserving safeguards', () => {
+  const accountHex = '0x817edea77acc5d71616e493afecea3';
+  const accountBech32 = 'mtst1azqhah480tx96utpdeyn4lkw5v5fsdmw_qr7qqq9wr6w';
+  const otherAccountBech32 = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v';
+  const faucetHex = '0x111111111111111111111111111111';
+  const faucetBech32 = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v';
+
+  const { swap, consume } = recoveredSwapPair();
+  swap.accountId = accountHex;
+  swap.extraInputs = { ...swap.extraInputs, requestedFaucetId: faucetHex };
+  consume.accountId = accountBech32;
+  if (!consume.recovery?.inputNotes[0]) throw new Error('Missing input note');
+  consume.recovery.inputNotes[0] = {
+    ...consume.recovery.inputNotes[0],
+    assets: [{ faucetId: faucetBech32, amount: '30' }]
+  };
+
+  expect(reconcileRecoveredSwaps([consume, swap])).toEqual([consume]);
+  expect(consume.extraInputs).toMatchObject({ swapOrderTxId: swap.id, swapSettleKind: 'settle' });
+
+  // Safeguards remain strict across different accounts, empty IDs, networks, and mismatched faucets.
+  const unlinked = { ...consume, id: 'consume-unlinked', extraInputs: {} };
+  expect(reconcileRecoveredSwaps([unlinked, { ...swap, accountId: otherAccountBech32 }])).toEqual([]);
+  expect(reconcileRecoveredSwaps([unlinked, { ...swap, accountId: '' }])).toEqual([]);
+  expect(reconcileRecoveredSwaps([unlinked, { ...swap, recovery: { ...swap.recovery!, network: 'mainnet' } }])).toEqual(
+    []
+  );
+  expect(
+    reconcileRecoveredSwaps([
+      unlinked,
+      { ...swap, extraInputs: { ...swap.extraInputs, requestedFaucetId: accountHex } }
+    ])
+  ).toEqual([]);
+});
+
+it('detects own-swap reclaim across hex and bech32 equivalent account and sender IDs', () => {
+  const accountHex = '0x817edea77acc5d71616e493afecea3';
+  const accountBech32 = 'mtst1azqhah480tx96utpdeyn4lkw5v5fsdmw_qr7qqq9wr6w';
+  const { swap } = recoveredSwapPair();
+  const row = recoveredReclaim('custom_transaction', [{ ...orderNote(swap), sender: accountHex }]);
+  const rowWithComposite = recoveredHistoryRecord(
+    accountBech32,
+    '0x123',
+    'testnet',
+    'one',
+    entry,
+    delta({ proposalType: 'custom_transaction' }),
+    { ...summary, outputNotes: [], inputNotes: [{ ...orderNote(swap), sender: accountHex }] }
+  );
+  expect(rowWithComposite.type).toBe('consume');
+  expect(rowWithComposite.recovery?.reclaimed).toBe(true);
+
+  const foreignRow = recoveredHistoryRecord(
+    accountBech32,
+    '0x123',
+    'testnet',
+    'one',
+    entry,
+    delta({ proposalType: 'custom_transaction' }),
+    {
+      ...summary,
+      outputNotes: [],
+      inputNotes: [{ ...orderNote(swap), sender: 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqq2v' }]
+    }
+  );
+  expect(foreignRow.type).toBe('execute');
+  expect(foreignRow.recovery?.reclaimed).toBe(false);
+  expect(row.type).toBe('execute');
 });

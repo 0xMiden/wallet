@@ -4692,6 +4692,14 @@
     "message": "결제가 완료되었습니다!",
     "englishSource": "Payment Sent!"
   },
+  "bridgeWithdrawalSuccessful": {
+    "message": "인출 성공",
+    "englishSource": "Withdrawal successful"
+  },
+  "returnToLockedFunds": {
+    "message": "잠긴 자금으로 돌아가기",
+    "englishSource": "Return to locked funds"
+  },
   "bridgeRouteViaEpoch": {
     "message": "Epoch를 통해",
     "englishSource": "Via Epoch"
@@ -6926,6 +6934,10 @@
   "redeemIntentLabel": {
     "message": "사용 의도",
     "englishSource": "Redeem intent"
+  },
+  "earnDepositRowTitle": {
+    "message": "Earn에 입금됨",
+    "englishSource": "Deposited to Earn"
   },
   "earnWithdrawRowTitle": {
     "message": "Earn에서 출금",

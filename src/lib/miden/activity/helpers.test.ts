@@ -5,6 +5,8 @@ import { ITransaction } from '../db/types';
 
 // Mock the SDK helper
 jest.mock('../sdk/helpers', () => ({
+  __esModule: true,
+  ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: jest.fn((id: any) => `bech32_${id}`)
 }));
 

@@ -4,6 +4,7 @@ import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
 import { GuardianHistoryDataError } from './history-errors';
+import { compareAccountIds } from '../activity/utils';
 import type { HotKeyActivationMode, IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
@@ -293,11 +294,13 @@ function transferNotes(
 // Every input note is a PSWAP note of one order, sent by this account: the creator taking its own offer back.
 function reclaimsOwnSwapOrder(accountId: string, notes: GuardianHistoryNote[]): boolean {
   const orderId = notes[0]?.swap?.orderId;
-  const sender = accountId.split('_')[0];
   return (
     orderId !== undefined &&
     notes.every(
-      note => note.swap?.orderId === orderId && note.swap?.requestedAsset !== undefined && note.sender === sender
+      note =>
+        note.swap?.orderId === orderId &&
+        note.swap?.requestedAsset !== undefined &&
+        compareAccountIds(note.sender ?? '', accountId)
     )
   );
 }
@@ -384,7 +387,9 @@ export function recoveredHistoryRecord(
   const recipient = recipients.size === 1 ? [...recipients][0] : undefined;
   const noteIds = selectedNotes.map(note => note.id);
   const reclaimed =
-    type === 'consume' && inputNotes.length > 0 && inputNotes.every(note => note.sender === accountId.split('_')[0]);
+    type === 'consume' &&
+    inputNotes.length > 0 &&
+    inputNotes.every(note => compareAccountIds(note.sender ?? '', accountId));
   const secondaryAccountId =
     recipient ?? (type !== 'consume' && outputNotes.length <= 1 ? proposal?.recipientId : undefined);
   const noteType = selectedNotes[0] ? historyNoteVisibility(selectedNotes[0]) : NoteTypeEnum.Public;
@@ -476,7 +481,7 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const orders = rows.filter(
       row =>
         row.type === 'swap' &&
-        row.accountId === consume.accountId &&
+        compareAccountIds(row.accountId, consume.accountId) &&
         row.recovery?.network === consume.recovery?.network &&
         row.extraInputs?.orderId === first.orderId
     );
@@ -485,7 +490,9 @@ export function reconcileRecoveredSwaps(rows: ITransaction[]): ITransaction[] {
     const faucetId = reclaim ? order.faucetId : order.extraInputs?.requestedFaucetId;
     if (
       !faucetId ||
-      notes.some(note => note.assets.length === 0 || note.assets.some(asset => asset.faucetId !== faucetId))
+      notes.some(
+        note => note.assets.length === 0 || note.assets.some(asset => !compareAccountIds(asset.faucetId, faucetId))
+      )
     )
       continue;
     touch(consume);

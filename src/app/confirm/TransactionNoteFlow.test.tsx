@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 
@@ -148,4 +150,12 @@ it('does not show an old asset label while a different note asset resolves', asy
   expect(screen.getByText(/2 baseUnits/)).toBeInTheDocument();
   resolveSecond({ decimals: 6, symbol: 'SECOND' });
   await waitFor(() => expect(screen.getByText('0.000002 SECOND')).toBeInTheDocument());
+});
+
+it('keeps .tx-notes-disclosure-inner constrained only vertically for grid collapse', () => {
+  const css = fs.readFileSync(path.resolve(__dirname, '../../main.css'), 'utf8');
+  const match = css.match(/\.tx-notes-disclosure-inner\s*\{([^}]*)\}/);
+  expect(match).not.toBeNull();
+  expect(match![1]).toContain('min-height: 0;');
+  expect(match![1]).not.toMatch(/min-width\s*:\s*0/);
 });

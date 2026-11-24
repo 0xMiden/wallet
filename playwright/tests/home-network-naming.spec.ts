@@ -7,6 +7,7 @@ import {
   NATIVE_ASSET_META_CACHE,
   NATIVE_ASSET_SYNCED_ID_CACHE
 } from '../../src/lib/miden-chain/native-asset-cache-keys';
+import { TEST_TOKEN_IETH } from '../../src/lib/miden/swap/testing/registry';
 import type { SyncData } from '../../src/lib/shared/types';
 
 /**
@@ -25,7 +26,8 @@ async function openPopup(
   extensionContext: BrowserContext,
   extensionId: string,
   locale: string,
-  snapshot?: SyncData
+  snapshot?: SyncData,
+  surface: 'popup' | 'sidepanel' = 'popup'
 ): Promise<Page> {
   const page = await extensionContext.newPage();
   // The extension fixture launches with no viewport (Playwright's 1280x720), and test.use({ viewport })
@@ -66,7 +68,7 @@ async function openPopup(
       });
     }, snapshot);
   }
-  await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`chrome-extension://${extensionId}/${surface}.html`, { waitUntil: 'domcontentloaded' });
   const card = page.getByTestId('balance-card-label');
   const unlock = page.getByTestId('unlock-password');
   await card.or(unlock).first().waitFor({ timeout: 30_000 });
@@ -113,6 +115,78 @@ test.describe('Home network naming', () => {
     });
     await expect(page.getByTestId('balance-card-currency')).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-first-balance', '7.25');
+  });
+
+  test('renders the same cached market balance in Sidebar and Command without a price feed', async ({
+    extensionContext,
+    extensionId
+  }) => {
+    test.setTimeout(330_000);
+    await extensionContext.route('https://raw.githubusercontent.com/0xMiden/token-list/main/*.json', route =>
+      route.abort()
+    );
+    await extensionContext.route(/https:\/\/(data-api\.binance\.vision|api\.kraken\.com)\//, route => route.abort());
+    await importWallet(extensionContext, extensionId);
+    const worker = extensionContext.serviceWorkers()[0] ?? (await extensionContext.waitForEvent('serviceworker'));
+    const readSnapshot = () =>
+      worker.evaluate(async () => (await chrome.storage.local.get('miden_sync_data')).miden_sync_data as SyncData);
+    await expect.poll(async () => (await readSnapshot())?.balanceSnapshot?.accountNonce).toBeDefined();
+    const snapshot = await readSnapshot();
+    // Use a non-native faucet: native metadata is independently refreshed by the SDK.
+    const { faucetId, symbol, decimals } = TEST_TOKEN_IETH;
+    const metadata = { symbol, name: 'Ether', decimals };
+    const network = snapshot.balanceSnapshot?.effectiveNetwork;
+    expect(network).toBe('testnet');
+    await worker.evaluate(values => chrome.storage.local.set(values), {
+      [`token_list_cache_v2:${network}`]: {
+        fetchedAt: Date.now(),
+        body: {
+          tokens: [{ network, faucetId, symbol: metadata.symbol, decimals: metadata.decimals, binanceAsset: 'ETH' }]
+        }
+      },
+      usd_price_cache: { ETH: { priceMicro: '2000000', fetchedAt: Math.floor(Date.now() / 1000) } }
+    });
+    const fixture = { ...snapshot, vaultAssets: [{ faucetId, amountBaseUnits: '725000000', metadata }] };
+    const sidebar = await openPopup(extensionContext, extensionId, 'en', fixture, 'sidepanel');
+    await expect(sidebar.locator('html'))
+      .toHaveAttribute('data-first-balance', /^14\.5(?:0)?$/)
+      .catch(async error => {
+        const amount = sidebar.getByTestId('balance-card-currency');
+        const current = await amount.evaluate(node => node.previousElementSibling?.textContent).catch(() => null);
+        const assetVisible = await sidebar.getByText(metadata.name, { exact: true }).first().isVisible();
+        throw new Error(
+          `Sidebar cached balance: current=${current ?? 'missing'}, fixture asset visible=${assetVisible}`,
+          {
+            cause: error
+          }
+        );
+      });
+    await sidebar.close();
+    const command = await extensionContext.newPage();
+    await command.addInitScript(syncData => {
+      const storage = chrome.storage.local;
+      storage.get = new Proxy(storage.get, {
+        apply: (target, receiver, args) => {
+          if (args[0] !== 'miden_sync_data' || typeof args[1] !== 'function')
+            return Reflect.apply(target, receiver, args);
+          args[1]({ miden_sync_data: syncData });
+        }
+      });
+      requestAnimationFrame(function sample() {
+        const label = Array.from(document.querySelectorAll('section[aria-label="Portfolio"] p')).find(
+          node => node.textContent === 'Wallet balance'
+        );
+        const amount = label?.nextElementSibling;
+        if (amount?.getBoundingClientRect().height) {
+          document.documentElement.dataset.firstBalance = amount.textContent ?? '';
+        } else {
+          requestAnimationFrame(sample);
+        }
+      });
+    }, fixture);
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    await expect(command.locator('html')).toHaveAttribute('data-first-balance', /^14\.5(?:0)? USD$/);
+    await command.close();
   });
 
   for (const locale of ['en', 'de'] as const) {

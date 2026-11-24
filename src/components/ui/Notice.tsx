@@ -204,11 +204,12 @@ export const Notice: React.FC<NoticeProps> = ({
         {title && (
           <span
             data-slot="title"
-            className={
+            className={cn(
               variant === 'fact'
                 ? cn(children === undefined ? 'text-row-title' : 'text-action', 'font-extrabold text-ink')
-                : cn('text-label', noticeInkVariants({ tone }))
-            }
+                : cn('text-label', noticeInkVariants({ tone })),
+              'wrap-anywhere'
+            )}
           >
             {title}
           </span>
@@ -218,13 +219,14 @@ export const Notice: React.FC<NoticeProps> = ({
         {children !== undefined && (
           <span
             data-slot="body"
-            className={
+            className={cn(
               variant === 'inline'
                 ? 'text-caption text-muted'
                 : variant === 'fact'
                   ? 'text-caption-heading text-muted'
-                  : noticeBodyVariants({ tone })
-            }
+                  : noticeBodyVariants({ tone }),
+              'wrap-anywhere'
+            )}
           >
             {children}
           </span>

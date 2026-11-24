@@ -212,4 +212,32 @@ describe('EpochLockedDepositAction', () => {
       jest.useRealTimers();
     }
   });
+
+  it('enables Withdraw immediately when an expired deadline arrives asynchronously while no timer was running', () => {
+    jest.useFakeTimers();
+    try {
+      const startMs = 1_700_000_000_000;
+      jest.setSystemTime(startMs);
+      mockConnection.address = SPONSOR.toLowerCase();
+      mockConnection.connected = true;
+      const view = render(<EpochLockedDepositAction txId="row-1" lock={LOCK} state="locked" amountLabel="1 USDC" />);
+      expect(jest.getTimerCount()).toBe(0);
+
+      jest.setSystemTime(startMs + 5_000);
+      view.rerender(
+        <EpochLockedDepositAction
+          txId="row-1"
+          lock={{ ...LOCK, withdrawEnabledAt: startMs / 1000 - 10, withdrawableAt: startMs / 1000 + 2 }}
+          state="locked"
+          amountLabel="1 USDC"
+        />
+      );
+
+      expect(jest.getTimerCount()).toBe(0);
+      expect(screen.getByTestId('epoch-deposit-withdraw')).toBeEnabled();
+      expect(screen.getByTestId('epoch-deposit-withdraw-status')).toHaveTextContent('epochDepositWithdrawReady');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

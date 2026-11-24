@@ -79,10 +79,18 @@ jest.mock('components/NetworkChip', () => ({
   NetworkLogo: () => null,
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
+let mockNetworkName = 'testnet';
+let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('screens/send-flow/bridge-networks', () => ({
-  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
-  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
+  defaultBridgeNetwork: () =>
+    mockNetworkName === 'mainnet'
+      ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }
+      : { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 const clipboardWriteMock = jest.fn().mockResolvedValue(undefined);
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => clipboardWriteMock(...args) }
@@ -98,6 +106,8 @@ const NINA = { name: 'Nina', address: '0xnina', addedAt: Date.UTC(2026, 8, 19) }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockNetworkName = 'testnet';
+  mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
@@ -601,4 +611,32 @@ describe('user-visible error reporting', () => {
     expect(removeContactMock).not.toHaveBeenCalled();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+});
+
+it('edits a Mainnet contact with production choices and preserves a stored test contact on rename', async () => {
+  mockNetworkName = 'mainnet';
+  mockBridgeNetworks = [
+    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    { id: 'ethereum', name: 'Ethereum', chainId: 1 },
+    { id: 'base', name: 'Base', chainId: 8453 }
+  ];
+  const mainnetContact = { name: 'Mainnet', address: '0xmainnet', network: 'ethereum' };
+  contactsMock.mockReturnValue([mainnetContact, PAUL]);
+  const { unmount } = render(<ContactDetailPage address="0xmainnet" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  fireEvent.click(screen.getByTestId('contact-network-picker'));
+  expect(screen.getByTestId('contact-network-ethereum')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('contact-network-base')).toBeInTheDocument();
+  expect(screen.queryByTestId('contact-network-sepolia')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('contact-network-arc-testnet')).not.toBeInTheDocument();
+  unmount();
+
+  render(<ContactDetailPage address="0xpaul" />);
+  fireEvent.click(screen.getByTestId('contact-edit'));
+  expect(screen.getByTestId('contact-save')).toBeDisabled();
+  expect(screen.getByTestId('contact-network-picker')).toHaveTextContent('Sepolia');
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Renamed' } });
+  await act(async () => fireEvent.click(screen.getByTestId('contact-save')));
+  expect(updateContactMock).toHaveBeenCalledWith('0xpaul', { name: 'Renamed', network: 'sepolia' });
 });

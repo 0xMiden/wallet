@@ -68,6 +68,13 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
       guardianRecoveredActionKey(entry.txType, { reclaimed: entry.guardianReclaimed, hotKeyAdded: entry.hotKeyAdded })
     );
   }
+  // Older rows retain the pre-Earn wording in storage; localize both completion labels at display time.
+  if (
+    entry.txType === 'earn-deposit' &&
+    (entry.message === 'Deposited to lending' || entry.message === 'Deposited to Earn')
+  ) {
+    return t('earnDepositRowTitle');
+  }
   if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
     const key = rotationRowTitleKey(entry.guardianSwitchVerdict);
     if (key) return t(key);
