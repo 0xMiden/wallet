@@ -35,7 +35,7 @@ jobs:
       - uses: ./.github/actions/yarn-install
       - name: Verify Activity import order at the staged product revision
         run: |
-          git diff --exit-code 00c4e5461832c245488680511647c3a5ca06b2c2 -- src/
+          test "$(git rev-parse HEAD:src)" = d6ca80afdb034be06b16264c65de90f6a757fab8
           yarn eslint --max-warnings 0 src/app/templates/history/ActivityGroupedHistory.tsx
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
