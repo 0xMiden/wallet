@@ -97,6 +97,9 @@ async function openActivity(
     },
     { walletType: WalletType.OffChain, destination: route }
   );
+  const pinNotice = page.getByRole('button', { name: 'Got it', exact: true });
+  await pinNotice.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+  if (await pinNotice.isVisible()) await pinNotice.click();
   return page;
 }
 
