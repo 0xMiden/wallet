@@ -589,6 +589,59 @@ describe('fetchEarnPositions', () => {
       jest.useRealTimers();
     }
   });
+
+  it('retries a timed-out withdrawal balance read once and returns the new balance', async () => {
+    jest.useFakeTimers();
+    let requests = 0;
+    const fetchMock = serve((_owner, init) => {
+      requests += 1;
+      if (requests === 2) return positionsAnswer([apiItem('12.5', 12.5)]);
+      return new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      );
+    });
+    try {
+      const read = fetchEarnPositions({ owners: [OWNER], markets: [DUMMY_UID], retryUntil: Date.now() + 30_000 });
+      await jest.advanceTimersByTimeAsync(15_000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const result = await read;
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, withdrawable: '12.5' })]);
+      expect(result.errors).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops the retry at the quote deadline when the second request also stalls', async () => {
+    jest.useFakeTimers();
+    const fetchMock = serve(
+      (_owner, init) =>
+        new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+    );
+    try {
+      const read = fetchEarnPositions({ owners: [OWNER], markets: [DUMMY_UID], retryUntil: Date.now() + 20_000 });
+      await jest.advanceTimersByTimeAsync(20_000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await read).errors).toEqual([
+        { owner: OWNER, error: 'Request timed out after 5000 ms', stage: 'request' }
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start a request when the request budget stays full until after the review expires', async () => {
+    const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
+    const args = { owners: [OWNER], markets: [DUMMY_UID] };
+    await Promise.all(Array.from({ length: 10 }, () => fetchEarnPositions(args)));
+
+    const result = await fetchEarnPositions({ ...args, retryUntil: Date.now() + 20_000 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(result.errors).toEqual([{ owner: OWNER, error: 'No time left for a positions request', stage: 'request' }]);
+  });
 });
 
 describe('carryForward', () => {

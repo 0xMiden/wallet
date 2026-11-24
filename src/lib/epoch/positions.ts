@@ -202,6 +202,14 @@ interface PositionsQuery {
   lender: string;
 }
 
+interface PositionsQueryResult {
+  owner: string;
+  items: PositionsApiChainItem[];
+  error?: string;
+  stage?: EarnPositionsLoadStage;
+  retryable?: boolean;
+}
+
 /**
  * Fetch lending positions for ONE query. Never rejects: on any failure, a
  * request or body read past `timeoutMs` included, it resolves to an empty
@@ -213,14 +221,20 @@ async function fetchPositions(
   positionsUrl: string,
   { owner, chains, lender }: PositionsQuery,
   timeoutMs = POSITIONS_REQUEST_TIMEOUT_MS
-): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string; stage?: EarnPositionsLoadStage }> {
+): Promise<PositionsQueryResult> {
   const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}&lenders=${lender}`;
   let stage: EarnPositionsLoadStage = 'request';
   try {
     return await withRequestTimeout(timeoutMs, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
-        return { owner, items: [], error: `positions request failed (${res.status})`, stage };
+        return {
+          owner,
+          items: [],
+          error: `positions request failed (${res.status})`,
+          stage,
+          retryable: res.status === 408 || res.status >= 500
+        };
       }
       stage = 'response_decode';
       const body: PositionsApiResponse = await res.json();
@@ -230,8 +244,45 @@ async function fetchPositions(
       return { owner, items: body.data.items };
     });
   } catch (err) {
-    return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw', stage };
+    return {
+      owner,
+      items: [],
+      error: err instanceof Error ? err.message : 'positions request threw',
+      stage,
+      retryable: stage === 'request' || (err instanceof Error && err.name === 'TimeoutError')
+    };
   }
+}
+
+/** Reserve a request slot and retry a temporary failure once before the review expires. */
+async function fetchPositionsBeforeDeadline(
+  positionsUrl: string,
+  query: PositionsQuery,
+  deadline: number,
+  limit: number
+): Promise<PositionsQueryResult> {
+  let failure: PositionsQueryResult = {
+    owner: query.owner,
+    items: [],
+    error: 'No time left for a positions request',
+    stage: 'request'
+  };
+  let attempts = 0;
+  while (attempts < 2) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    if (!notePositionsRequests(1, limit)) {
+      const delay = positionsBudgetDelayMs(1, limit);
+      if (delay >= remaining) break;
+      await new Promise<void>(resolve => setTimeout(resolve, delay));
+      continue;
+    }
+    attempts += 1;
+    const result = await fetchPositions(positionsUrl, query, Math.min(POSITIONS_REQUEST_TIMEOUT_MS, remaining));
+    if (!result.retryable) return result;
+    failure = result;
+  }
+  return failure;
 }
 
 /**
@@ -303,6 +354,8 @@ export interface FetchEarnPositionsArgs {
    * lists, then the markets of the owner's own deposits.
    */
   markets?: string[];
+  /** For a withdrawal review, the time at which both the read and its retry must stop. */
+  retryUntil?: number;
 }
 
 const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
@@ -384,9 +437,15 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     return queriesFor(owner, markets);
   });
 
-  const pending: ReturnType<typeof fetchPositions>[] = [];
+  const pending: Promise<PositionsQueryResult>[] = [];
   const limit = args.markets ? POSITIONS_LIMIT : POSITIONS_PAGE_LIMIT;
-  for (let offset = 0; offset < queries.length; ) {
+  const { retryUntil } = args;
+  let offset = 0;
+  if (retryUntil !== undefined) {
+    pending.push(...queries.map(query => fetchPositionsBeforeDeadline(positionsUrl, query, retryUntil, limit)));
+    offset = queries.length;
+  }
+  while (offset < queries.length) {
     const count = Math.min(queries.length - offset, limit);
     let admitted = count;
     while (admitted > 0 && !notePositionsRequests(admitted, limit)) admitted -= 1;
