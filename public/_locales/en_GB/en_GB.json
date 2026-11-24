@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "There was an error processing your transaction. Please try again.",
   "transactionRoute": "Route",
   "paymentSent": "Payment Sent!",
+  "bridgeWithdrawalSuccessful": "Withdrawal successful",
+  "returnToLockedFunds": "Return to locked funds",
   "bridgeRouteViaEpoch": "Via Epoch",
   "bridgeRouteViaAgglayer": "Via Agglayer",
   "bridgeSpeedFast": "Fast",

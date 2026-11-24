@@ -1010,6 +1010,8 @@
   "transactionErrorDescription": "İşleminiz işlenirken bir hata oluştu. Lütfen tekrar deneyin.",
   "transactionRoute": "Güzergâh",
   "paymentSent": "Ödeme Yapıldı!",
+  "bridgeWithdrawalSuccessful": "Para çekme işlemi başarıyla gerçekleştirildi",
+  "returnToLockedFunds": "Kilitli fonlara geri dön",
   "bridgeRouteViaEpoch": "Epoch aracılığıyla",
   "bridgeRouteViaAgglayer": "Agglayer aracılığıyla",
   "bridgeSpeedFast": "Hızlı",

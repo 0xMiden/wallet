@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).
 - [FIX][all] Activity labels new and existing completed Earn deposits as "Deposited to Earn" instead of "Deposited to lending".
 - [FIX][all] Add and edit contact network pickers follow the current Miden network, keeping test chains out of Mainnet choices while preserving saved contact destinations.
 - [FIX][extension,desktop] Keep the password field and Unlock button the same centered width in wide wallet windows.
