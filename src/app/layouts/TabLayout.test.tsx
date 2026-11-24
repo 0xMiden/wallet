@@ -663,6 +663,28 @@ describe('TabLayout — the bar hides while scrolling down on mobile', () => {
     fireEvent.scroll(scrollRegion());
   };
 
+  it('condenses the mobile bar on sustained downward scroll with all four destinations available', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    renderLayout();
+    const pane = screen.getByTestId('child-content');
+    Object.defineProperties(pane, { clientHeight: { value: 400 }, scrollHeight: { value: 800 } });
+
+    for (const top of [0, 20, 40, 60, 80]) {
+      pane.scrollTop = top;
+      fireEvent.scroll(pane);
+    }
+
+    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    const navbar = within(screen.getByTestId('bottom-nav'));
+    for (const name of ['home', 'explore', 'activity', 'profile']) {
+      const button = navbar.getByRole('button', { name });
+      expect(button).toBeVisible();
+      expect(button).toBeEnabled();
+    }
+  });
+
   it('slides the bar away on a downward scroll and brings it back once scrolling stops', () => {
     mockPlatform.isMobile = true;
     renderLayout();
