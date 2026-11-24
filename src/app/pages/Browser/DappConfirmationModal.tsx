@@ -259,7 +259,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <motion.div
               ref={containerRef}
               className={[
-                'tx-stage-popup tx-stage-sheet flex min-h-0 w-full max-w-[480px] flex-col overflow-hidden',
+                'tx-stage-popup tx-stage-sheet flex min-h-0 min-w-0 w-full max-w-[480px] flex-col overflow-hidden',
                 'max-h-[min(92dvh,820px)] rounded-t-[28px] bg-surface-solid shadow-2xl',
                 'sm:max-h-full sm:max-w-[480px] sm:rounded-2xl'
               ].join(' ')}
@@ -288,7 +288,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               </div>
 
               {/* Body */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-5 wrap-anywhere">
                 <p className="mb-4 text-sm text-text-muted">
                   {t(confirmationPromptKey(request.type), confirmationPromptValues(request))}
                 </p>
@@ -352,7 +352,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                             checked={standingAccessAcknowledged}
                             onChange={event => setStandingAccessAcknowledged(event.target.checked)}
                           />
-                          <span>{t('confirmRisk')}</span>
+                          <span className="min-w-0">{t('confirmRisk')}</span>
                         </label>
                       </>
                     ) : (

@@ -44,7 +44,7 @@ export const ErrorLine: React.FC<ErrorLineProps> = ({
     <p
       role={role}
       data-testid={dataTestId}
-      className={cn('px-1 text-caption wrap-break-word text-negative-ink select-text', className)}
+      className={cn('px-1 text-caption wrap-anywhere text-negative-ink select-text', className)}
     >
       {children}
     </p>
