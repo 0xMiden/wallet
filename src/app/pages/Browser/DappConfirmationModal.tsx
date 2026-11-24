@@ -374,7 +374,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 )}
 
                 {shownError !== undefined && (
-                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3 wrap-anywhere">
+                  <ErrorLine errorId={shownErrorId} data-testid="dapp-approval-error" className="mt-3">
                     {shownError}
                   </ErrorLine>
                 )}

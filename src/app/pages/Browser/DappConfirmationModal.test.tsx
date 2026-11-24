@@ -2,6 +2,8 @@ import React, { useLayoutEffect } from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -1171,5 +1173,10 @@ describe('DappConfirmationModal horizontal overflow protection (#2045)', () => {
 
     const domain = within(screen.getByRole('heading', { level: 2 })).getByTestId('dapp-origin-domain');
     expectDomainNeverClipped(domain, domain.parentElement!.parentElement!);
+  });
+
+  it('leaves wrapping on ErrorLine instead of overriding ErrorLine layout className', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, 'DappConfirmationModal.tsx'), 'utf8');
+    expect(source).not.toMatch(/<ErrorLine\b[^>]*className=["'][^"']*wrap-(anywhere|break-word)/);
   });
 });
