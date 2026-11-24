@@ -14,7 +14,7 @@ jest.mock('react-i18next', () => ({
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-let mockBaseFee = 0;
+let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 
 beforeEach(() => {
@@ -48,7 +48,7 @@ const smallSale: GcSale = {
   requestedAmount: 500_000n
 };
 
-function showDrawer(sales: GcSale[], payBalance: bigint = 10_000_000n) {
+function showDrawer(sales: GcSale[], payBalance: bigint | null = 10_000_000n) {
   const onConfirm = jest.fn();
   render(
     <ArcadeGcPurchaseDrawer
@@ -126,4 +126,27 @@ it('allows the exact principal when the known network fee is zero', () => {
 
   fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
   expect(onConfirm).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  { scenario: 'the fee is unknown', baseFee: null, balance: 1_000_000n },
+  { scenario: 'the balance is unread', baseFee: 10_000, balance: null },
+  { scenario: 'the balance covers the principal plus one base fee', baseFee: 10_000, balance: 1_010_000n }
+])('allows confirmation when $scenario', ({ baseFee, balance }) => {
+  mockBaseFee = baseFee;
+  const onConfirm = showDrawer([packageSale], balance);
+
+  fireEvent.click(screen.getByTestId('arcade-gc-purchase-confirm'));
+  expect(onConfirm).toHaveBeenCalledTimes(1);
+  expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ fillAmount: 1_000_000n }));
+});
+
+it('disables confirmation one base unit under the combined principal and fee floor', () => {
+  mockBaseFee = 10_000;
+  const onConfirm = showDrawer([packageSale], 1_009_999n);
+
+  const confirm = screen.getByTestId('arcade-gc-purchase-confirm');
+  expect(confirm).toBeDisabled();
+  fireEvent.click(confirm);
+  expect(onConfirm).not.toHaveBeenCalled();
 });

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/ui/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -28,7 +29,11 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
   const { group, decimal } = getNumberSymbols();
   const sale = sales === undefined ? initialSale : pickGcPurchasePackageSale(sales);
   const quote = sale ? quoteGcPurchasePackage(sale) : null;
-  const insufficient = quote !== null && payBalance !== null && payBalance < quote.fillAmount;
+  const baseFee = useVerificationBaseFee();
+  const roundedBaseFee = baseFee === null ? 0 : Math.ceil(baseFee);
+  // One base fee is the minimum charge. Use it to refuse only a certain shortfall.
+  const feeFloor = roundedBaseFee > 0 && Number.isSafeInteger(roundedBaseFee) ? BigInt(roundedBaseFee) : 0n;
+  const insufficient = quote !== null && payBalance !== null && payBalance < quote.fillAmount + feeFloor;
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="arcade-gc-purchase">
       <DrawerContent data-testid="arcade-gc-purchase-review">
