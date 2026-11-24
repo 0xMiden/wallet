@@ -15,9 +15,10 @@ import {
 } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
+import { basketKlines } from './basket';
 import { basketPriceSources, fetchBasketPrices } from './basket-nav';
-import type { Timeframe } from './binance';
-import { fetchKlineData, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import type { KlineSeries, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
 export { listedFiatValue, listedPrice, pricesLoaded, quotedPrice } from './binance';
@@ -37,6 +38,46 @@ export function useTokenSparkline(symbol: string | undefined, timeframe: Timefra
   );
 
   return useMemo(() => (data ?? []).map(p => p.value), [data]);
+}
+
+/**
+ * useBasketSparkline - a basket's 1D close prices: its tokens' candles weighted by the vault's mix and anchored at
+ * its net asset value, as its token page draws it. The candles are fetched per unique sorted symbol set (deduped
+ * across rows); a new net asset value or quote re-anchors the line locally, without another fetch. Empty while
+ * loading, or when `quote` is not a basket quote with a valid composition.
+ */
+export function useBasketSparkline(quote: TokenPriceInfo | undefined, prices: TokenPrices): number[] {
+  const composition = quote?.kind === 'basket' ? quote.composition : undefined;
+  const price = quote?.price;
+  const symbols = useMemo(
+    () =>
+      composition && composition.length > 0 && composition.every(c => c.priceSymbol)
+        ? [...new Set(composition.map(c => c.priceSymbol))].sort()
+        : undefined,
+    [composition]
+  );
+  const { data: candlesBySymbol } = useRetryableSWR(
+    symbols ? ['basket-candles', ...symbols, '1D'] : null,
+    async (): Promise<Map<string, KlineSeries>> => {
+      if (!symbols) return new Map();
+      const entries = await Promise.all(
+        symbols.map(async (symbol): Promise<[string, KlineSeries]> => [symbol, await fetchKlineSeries(symbol, '1D')])
+      );
+      return new Map(entries);
+    },
+    { refreshInterval: 5 * 60_000, dedupingInterval: 60_000 }
+  );
+
+  return useMemo(() => {
+    if (!composition || !candlesBySymbol || price === undefined) return [];
+    const candles: KlineSeries[] = [];
+    for (const component of composition) {
+      const series = candlesBySymbol.get(component.priceSymbol);
+      if (!series) return [];
+      candles.push(series);
+    }
+    return basketKlines(composition, candles, price, prices).map(p => p.value);
+  }, [composition, candlesBySymbol, price, prices]);
 }
 
 function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | null | undefined {

@@ -3,8 +3,8 @@ import React from 'react';
 import { act, render, renderHook } from '@testing-library/react';
 
 import { fetchBasketPrices } from './basket-nav';
-import { fetchTokenPrices, hasNoUsdMarket } from './feed';
-import { PriceProvider, useTokenSparkline } from './index';
+import { fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
+import { PriceProvider, useBasketSparkline, useTokenSparkline } from './index';
 import { writeUsdPriceCache } from './usd';
 
 let mockNetwork = 'testnet';
@@ -55,6 +55,7 @@ jest.mock('lib/miden/front', () => ({ useMidenContext: () => mockWallet }));
 jest.mock('./feed', () => ({
   fetchTokenPrices: jest.fn(async () => ({})),
   fetchKlineData: jest.fn(),
+  fetchKlineSeries: jest.fn(),
   hasNoUsdMarket: jest.fn(() => false)
 }));
 jest.mock('./basket-nav', () => ({
@@ -90,6 +91,8 @@ beforeEach(() => {
   mockDecimals = null;
   mockSymbols = null;
   jest.mocked(hasNoUsdMarket).mockReturnValue(false);
+  jest.mocked(fetchKlineSeries).mockReset();
+  jest.mocked(fetchTokenPrices).mockClear();
   jest.mocked(fetchBasketPrices).mockClear();
   jest.mocked(writeUsdPriceCache).mockClear();
   mockWallet.locked = false;
@@ -408,5 +411,179 @@ describe('useTokenSparkline', () => {
       expect.any(Function),
       expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 })
     );
+  });
+});
+
+describe('useBasketSparkline', () => {
+  const composition = [
+    { faucetId: 'f-btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
+    { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.4 }
+  ];
+  const basketQuote = { price: 2, change24h: 0, percentageChange24h: 0, kind: 'basket' as const, composition };
+  const livePrices = {
+    BTC: { price: 120, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+    ETH: { price: 50, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+  };
+  const btc = {
+    stepMs: 10,
+    points: [
+      { time: 0, value: 100 },
+      { time: 10, value: 110 }
+    ]
+  };
+  const eth = {
+    stepMs: 10,
+    points: [
+      { time: 0, value: 50 },
+      { time: 10, value: 40 }
+    ]
+  };
+
+  it("draws the basket's line from its tokens' candles, fetched once per mix and re-anchored locally", async () => {
+    const candles = new Map([
+      ['BTC', btc],
+      ['ETH', eth]
+    ]);
+    mockUseRetryableSWR.mockReturnValue({ data: candles });
+
+    const { result, rerender } = renderHook(
+      ({ quote, prices }: { quote: typeof basketQuote; prices: typeof livePrices }) =>
+        useBasketSparkline(quote, prices),
+      { initialProps: { quote: basketQuote, prices: livePrices } }
+    );
+
+    expect(result.current).toEqual([1.8, 1.74]);
+    const [key, fetcher, options] = mockUseRetryableSWR.mock.calls.at(-1)!;
+    // The key has no price in it: a new net asset value re-anchors the line without another fetch.
+    expect(key).toEqual(['basket-candles', 'BTC', 'ETH', '1D']);
+    expect(options).toEqual(expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 }));
+    jest.mocked(fetchKlineSeries).mockResolvedValueOnce(btc).mockResolvedValueOnce(eth);
+    await expect(fetcher()).resolves.toEqual(candles);
+    expect(fetchKlineSeries).toHaveBeenCalledTimes(2);
+    expect(fetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(fetchKlineSeries).toHaveBeenCalledWith('ETH', '1D');
+
+    jest.mocked(fetchKlineSeries).mockClear();
+    const updatedQuote = { ...basketQuote, price: 4 };
+    rerender({ quote: updatedQuote, prices: livePrices });
+    expect(result.current).toEqual([3.6, 3.48]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toEqual(['basket-candles', 'BTC', 'ETH', '1D']);
+    expect(fetchKlineSeries).not.toHaveBeenCalled();
+
+    const updatedPrices = {
+      BTC: { price: 150, change24h: 0, percentageChange24h: 0, kind: 'market' as const },
+      ETH: { price: 80, change24h: 0, percentageChange24h: 0, kind: 'market' as const }
+    };
+    rerender({ quote: updatedQuote, prices: updatedPrices });
+    expect(result.current).toHaveLength(2);
+    expect(result.current[0]).toBeCloseTo(2.6, 10);
+    expect(result.current[1]).toBeCloseTo(2.56, 10);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toEqual(['basket-candles', 'BTC', 'ETH', '1D']);
+    expect(fetchKlineSeries).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same SWR key and preserves composition order when weights are reordered', () => {
+    const reordered = [
+      { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.4 },
+      { faucetId: 'f-btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 }
+    ];
+    mockUseRetryableSWR.mockReturnValue({
+      data: new Map([
+        ['BTC', btc],
+        ['ETH', eth]
+      ])
+    });
+
+    const { result } = renderHook(() => useBasketSparkline({ ...basketQuote, composition: reordered }, livePrices));
+
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toEqual(['basket-candles', 'BTC', 'ETH', '1D']);
+    expect(result.current).toEqual([1.8, 1.74]);
+  });
+
+  it('fetches each unique priceSymbol once across faucets sharing a priceSymbol', async () => {
+    const repeated = [
+      { faucetId: 'f-eth', symbol: 'ETH', priceSymbol: 'ETH', weight: 0.3 },
+      { faucetId: 'f-btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.5 },
+      { faucetId: 'f-reth', symbol: 'rETH', priceSymbol: 'ETH', weight: 0.2 }
+    ];
+    const candles = new Map([
+      ['BTC', btc],
+      ['ETH', eth]
+    ]);
+    mockUseRetryableSWR.mockReturnValue({ data: candles });
+
+    const { result } = renderHook(() => useBasketSparkline({ ...basketQuote, composition: repeated }, livePrices));
+
+    const [key, fetcher] = mockUseRetryableSWR.mock.calls.at(-1)!;
+    expect(key).toEqual(['basket-candles', 'BTC', 'ETH', '1D']);
+    jest.mocked(fetchKlineSeries).mockResolvedValueOnce(btc).mockResolvedValueOnce(eth);
+    await expect(fetcher()).resolves.toEqual(candles);
+    expect(fetchKlineSeries).toHaveBeenCalledTimes(2);
+    expect(fetchKlineSeries).toHaveBeenCalledWith('BTC', '1D');
+    expect(fetchKlineSeries).toHaveBeenCalledWith('ETH', '1D');
+    // At t=0: 2 * (0.3 * 1 + 0.5 * (100/120) + 0.2 * 1) = 2 * (0.5 + 5/12) = 11/6
+    // At t=10: 2 * (0.3 * 0.8 + 0.5 * (110/120) + 0.2 * 0.8) = 2 * (0.4 + 11/24) = 103/60
+    expect(result.current).toHaveLength(2);
+    expect(result.current[0]).toBeCloseTo(11 / 6, 10);
+    expect(result.current[1]).toBeCloseTo(103 / 60, 10);
+  });
+
+  it('fetches nothing and returns an empty line for a quote that is not a basket', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result } = renderHook(() =>
+      useBasketSparkline({ kind: 'market' as const, price: 2, change24h: 0, percentageChange24h: 0 }, {})
+    );
+
+    expect(result.current).toEqual([]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toBeNull();
+  });
+
+  it('fetches nothing and returns an empty line for a market quote carrying a composition', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: new Map([
+        ['BTC', btc],
+        ['ETH', eth]
+      ])
+    });
+
+    const { result } = renderHook(() =>
+      useBasketSparkline({ kind: 'market' as const, price: 2, change24h: 0, percentageChange24h: 0, composition }, {})
+    );
+
+    expect(result.current).toEqual([]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toBeNull();
+  });
+
+  it('fetches nothing and returns an empty line when composition is empty or has an empty priceSymbol', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result: emptyResult } = renderHook(() => useBasketSparkline({ ...basketQuote, composition: [] }, {}));
+    expect(emptyResult.current).toEqual([]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toBeNull();
+
+    const { result: blankSymbolResult } = renderHook(() =>
+      useBasketSparkline(
+        {
+          ...basketQuote,
+          composition: [
+            { faucetId: 'f-btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
+            { faucetId: 'f-empty', symbol: 'EMPTY', priceSymbol: '', weight: 0.4 }
+          ]
+        },
+        {}
+      )
+    );
+
+    expect(blankSymbolResult.current).toEqual([]);
+    expect(mockUseRetryableSWR.mock.calls.at(-1)![0]).toBeNull();
+  });
+
+  it('returns an empty line while the candles load', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result } = renderHook(() => useBasketSparkline(basketQuote, {}));
+
+    expect(result.current).toEqual([]);
   });
 });
