@@ -531,7 +531,7 @@ describe('a network interruption on resume', () => {
     await expectRetryAddsNoLanding();
   });
 
-  it('the tip read, which sends the stale proof: the node refuses it and Retry waits for the hold', async () => {
+  it('the tip read fails: nothing is sent, the candidate is abandoned, and Retry lands it at once', async () => {
     scenes.executing = away;
     mockReadChainTip.mockRejectedValue(new TypeError('Load failed'));
 
@@ -539,17 +539,17 @@ describe('a network interruption on resume', () => {
 
     const { status, submitEvidence } = await row();
     expect(status).toBe(ITransactionStatus.Failed);
-    expect(submitEvidence).toEqual([expect.objectContaining({ candidateKept: true })]);
-    expect(posts).toHaveLength(1);
+    expect(submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(posts).toHaveLength(0);
     expect(landings).toHaveLength(0);
-    expect(isGuardianHoldRetryError(await tapRetry())).toBe(true);
 
     mockReadChainTip.mockImplementation(async () => chainTip());
-    goAway(HOLD_MS);
 
     expect(await tapRetry()).toBeUndefined();
     expect((await row()).status).toBe(ITransactionStatus.Completed);
-    expect(posts).toHaveLength(2);
+    expect(posts).toHaveLength(1);
     await expectRetryAddsNoLanding();
   });
 });

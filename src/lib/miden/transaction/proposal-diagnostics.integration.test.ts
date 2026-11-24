@@ -215,6 +215,10 @@ jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
   syncAndRecordFeeFaucet: async (_client: unknown, sync: () => Promise<void>) => sync()
 }));
 jest.mock('../sync-lock', () => ({ syncUnderBoundedLock: async () => {} }));
+jest.mock('../sdk/pswap-order-note', () => ({
+  ...jest.requireActual('../sdk/pswap-order-note'),
+  readChainTip: jest.fn(async () => 100)
+}));
 // These proposals carry no summary; both signing-time effect checks have their own tests (#2147).
 jest.mock('./proposal-effect-guard', () => ({
   assertProposalEffectApproved: async () => {},
