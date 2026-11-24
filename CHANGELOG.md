@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
+- [FIX][all] Reject malformed numeric suffixes and blank strings in `formatDate` by requiring strict finite numeric timestamp parsing before scaling as Unix seconds.
 - [FEATURE][all] A basket's row in the asset list moves like its tokens: its 24h move and a 1D line weighted by the vault's mix, as on its token page, instead of a flat grey line.
 - [FIX][ci] Reload the selected extension build before using a saved Playwright wallet profile.
 - [FIX][e2e] Link stress-test sends to wallet transaction receipts, wait for timed-out send UI helpers to settle, and audit send completion against the configured failure budget.
