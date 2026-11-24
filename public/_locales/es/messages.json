@@ -6807,6 +6807,10 @@
     "message": "Solicitud de retirada",
     "englishSource": "Redeem intent"
   },
+  "earnDepositRowTitle": {
+    "message": "Depositado en Earn",
+    "englishSource": "Deposited to Earn"
+  },
   "earnWithdrawRowTitle": {
     "message": "Retirada de Earn",
     "englishSource": "Withdraw from Earn"

@@ -3,6 +3,8 @@
 ## 1.18.2 (TBD)
 
 - [FIX][all] Completing a locked bridge funds withdrawal displays a confirmation page with actions to return to Recover locked bridge funds or Home (#2146).
+- [FIX][all] Activity labels new and existing completed Earn deposits as "Deposited to Earn" instead of "Deposited to lending".
+- [FIX][all] Add and edit contact network pickers follow the current Miden network, keeping test chains out of Mainnet choices while preserving saved contact destinations.
 - [FIX][extension,desktop] Keep the password field and Unlock button the same centered width in wide wallet windows.
 - [FIX][all] Reject malformed numeric suffixes and blank strings in `formatDate` by requiring strict finite numeric timestamp parsing before scaling as Unix seconds.
 - [FEATURE][all] A basket's row in the asset list moves like its tokens: its 24h move and a 1D line weighted by the vault's mix, as on its token page, instead of a flat grey line.
