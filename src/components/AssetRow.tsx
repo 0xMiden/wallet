@@ -114,7 +114,7 @@ export const AssetRow: FC<AssetRowProps> = ({
 
   // An empty symbol is the hook's "fetch nothing".
   const tokenPoints = useTokenSparkline(sparkline && quote?.kind !== 'fixed' && !basket ? priceSymbol : '', '1D');
-  const basketPoints = useBasketSparkline(sparkline && basket ? quote : undefined, tokenPrices, '1D');
+  const basketPoints = useBasketSparkline(sparkline && basket ? quote : undefined, tokenPrices);
   const points = basket ? basketPoints : tokenPoints;
   const hasRealPoints = points.length > 1;
   // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.

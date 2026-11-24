@@ -577,7 +577,7 @@ it("shows a basket's net asset value with its tokens' weighted move and line", (
   const spark = screen.getByTestId('sparkline');
   expect(spark).toHaveAttribute('data-color', 'var(--status-negative)');
   expect(spark).toHaveAttribute('data-points', JSON.stringify([1.6, 1.55, 1.5]));
-  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices, '1D');
+  expect(mockUseBasketSparkline).toHaveBeenCalledWith(basketQuote, prices);
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });
 
