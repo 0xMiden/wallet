@@ -7,11 +7,8 @@ import {
   REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
   REGISTER_DOMAIN_SCRIPT_ROOT_HEX
 } from './note-script-roots';
-import {
-  loadMidenNameNoteScriptBytes,
-  loadRegisterDomainScript,
-  resetMidenNameNoteScriptsCacheForTests
-} from './script';
+import * as scriptModule from './script';
+import { loadRegisterDomainScript, resetMidenNameNoteScriptsCacheForTests } from './script';
 import { NoteScript } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
@@ -71,7 +68,7 @@ function serveAsset(body: unknown, status = 200) {
 
 beforeEach(() => {
   resetMidenNameNoteScriptsCacheForTests();
-  NoteScript.deserialize.mockReset();
+  NoteScript.deserialize.mockReset().mockImplementation(() => fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX));
   mockFetch.mockReset();
   Object.defineProperty(globalThis, 'fetch', { value: mockFetch, writable: true, configurable: true });
   serveAsset(fakeAsset());
@@ -86,15 +83,17 @@ describe('the note-scripts asset', () => {
     expect(atob(asset.registerDomain.serializedBase64).length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
 
     serveAsset(asset);
-    const bytes = await loadMidenNameNoteScriptBytes('registerDomain');
-    expect(Array.from(bytes.slice(0, 4))).toEqual(MAST_MAGIC);
+    await loadRegisterDomainScript();
+    const bytes = NoteScript.deserialize.mock.calls[0]?.[0];
+    expect(Array.from(bytes?.slice(0, 4) ?? [])).toEqual(MAST_MAGIC);
   });
 
   it('decodes the register-domain payload to the served bytes', async () => {
-    const bytes = await loadMidenNameNoteScriptBytes('registerDomain');
+    await loadRegisterDomainScript();
+    const bytes = NoteScript.deserialize.mock.calls[0]?.[0];
     expect(bytes).toBeInstanceOf(Uint8Array);
-    expect(bytes.length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
-    expect(Array.from(bytes.slice(0, 4))).toEqual(MAST_MAGIC);
+    expect(bytes?.length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+    expect(Array.from(bytes?.slice(0, 4) ?? [])).toEqual(MAST_MAGIC);
   });
 });
 
@@ -113,6 +112,13 @@ describe('loadRegisterDomainScript', () => {
     expect(script.free).not.toHaveBeenCalled();
   });
 
+  it('exposes only loadRegisterDomainScript and the test reset helper', () => {
+    expect(Object.keys(scriptModule).sort()).toEqual([
+      'loadRegisterDomainScript',
+      'resetMidenNameNoteScriptsCacheForTests'
+    ]);
+  });
+
   it('throws and frees the script when the deserialized root does not match', async () => {
     const script = fakeScript('0x' + '00'.repeat(32));
     NoteScript.deserialize.mockReturnValue(script);
@@ -125,41 +131,41 @@ describe('loadRegisterDomainScript', () => {
 describe('asset validation', () => {
   it('reports an HTTP failure and does not cache it', async () => {
     serveAsset(null, 404);
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toBeInstanceOf(MidenNameScriptAssetError);
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptAssetError);
 
+    const script = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    NoteScript.deserialize.mockReturnValueOnce(script);
     serveAsset(fakeAsset());
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).resolves.toBeInstanceOf(Uint8Array);
+    await expect(loadRegisterDomainScript()).resolves.toBe(script);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it('refuses a body that is not an object', async () => {
     serveAsset('nope');
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toThrow('not a JSON object');
+    await expect(loadRegisterDomainScript()).rejects.toThrow('not a JSON object');
   });
 
   it('refuses a missing or malformed entry', async () => {
     const asset = fakeAsset();
     serveAsset({ ...asset, registerDomain: { root: asset.registerDomain.root } });
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toThrow(
-      '"registerDomain" entry is missing or malformed'
-    );
+    await expect(loadRegisterDomainScript()).rejects.toThrow('"registerDomain" entry is missing or malformed');
   });
 
   it('refuses an entry whose declared root is not the pinned root', async () => {
     const asset = fakeAsset();
     serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, root: '0x' + 'ab'.repeat(32) } });
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
   });
 
   it('refuses an entry whose declared size is not the pinned size', async () => {
     const asset = fakeAsset();
     serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, byteLength: 1 } });
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toThrow('declares 1 bytes');
+    await expect(loadRegisterDomainScript()).rejects.toThrow('declares 1 bytes');
   });
 
   it('refuses a payload that decodes to another size', async () => {
     const asset = fakeAsset();
     serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, serializedBase64: 'TUFTVA==' } });
-    await expect(loadMidenNameNoteScriptBytes('registerDomain')).rejects.toThrow('decodes to 4 bytes');
+    await expect(loadRegisterDomainScript()).rejects.toThrow('decodes to 4 bytes');
   });
 });

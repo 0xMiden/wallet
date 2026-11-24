@@ -18,7 +18,7 @@ import {
   REGISTER_DOMAIN_SCRIPT_ROOT_HEX
 } from './note-script-roots';
 
-export type MidenNameNoteScriptName = 'registerDomain';
+const REGISTER_DOMAIN_LABEL = 'register-domain';
 
 interface SerializedNoteScript {
   root: string;
@@ -26,23 +26,7 @@ interface SerializedNoteScript {
   serializedBase64: string;
 }
 
-type NoteScriptsAsset = Record<MidenNameNoteScriptName, SerializedNoteScript>;
-
-interface ExpectedNoteScript {
-  rootHex: string;
-  byteLength: number;
-  label: string;
-}
-
-const EXPECTED: Record<MidenNameNoteScriptName, ExpectedNoteScript> = {
-  registerDomain: {
-    rootHex: REGISTER_DOMAIN_SCRIPT_ROOT_HEX,
-    byteLength: REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
-    label: 'register-domain'
-  }
-};
-
-let assetPromise: Promise<NoteScriptsAsset> | undefined;
+let registerDomainAssetPromise: Promise<SerializedNoteScript> | undefined;
 
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
@@ -68,95 +52,72 @@ function isSerializedNoteScript(value: unknown): value is SerializedNoteScript {
   );
 }
 
-function parseNoteScriptEntry(record: Record<string, unknown>, name: MidenNameNoteScriptName): SerializedNoteScript {
-  const entry = record[name];
+function parseRegisterDomainAsset(value: unknown): SerializedNoteScript {
+  if (!isRecord(value)) {
+    throw new MidenNameScriptAssetError('the asset is not a JSON object');
+  }
+  const entry = value.registerDomain;
   if (!isSerializedNoteScript(entry)) {
-    throw new MidenNameScriptAssetError(`the "${name}" entry is missing or malformed`);
+    throw new MidenNameScriptAssetError('the "registerDomain" entry is missing or malformed');
   }
-  const expected = EXPECTED[name];
-  if (entry.root.toLowerCase() !== expected.rootHex.toLowerCase()) {
-    throw new MidenNameScriptMismatchError(expected.rootHex, entry.root, expected.label);
+  if (entry.root.toLowerCase() !== REGISTER_DOMAIN_SCRIPT_ROOT_HEX.toLowerCase()) {
+    throw new MidenNameScriptMismatchError(REGISTER_DOMAIN_SCRIPT_ROOT_HEX, entry.root, REGISTER_DOMAIN_LABEL);
   }
-  if (entry.byteLength !== expected.byteLength) {
+  if (entry.byteLength !== REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH) {
     throw new MidenNameScriptAssetError(
-      `the "${name}" entry declares ${entry.byteLength} bytes, expected ${expected.byteLength}`
+      `the "registerDomain" entry declares ${entry.byteLength} bytes, expected ${REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH}`
     );
   }
   return entry;
 }
 
-function parseNoteScriptsAsset(value: unknown): NoteScriptsAsset {
-  if (!isRecord(value)) {
-    throw new MidenNameScriptAssetError('the asset is not a JSON object');
-  }
-  return {
-    registerDomain: parseNoteScriptEntry(value, 'registerDomain')
-  };
-}
-
-async function fetchNoteScriptsAsset(): Promise<NoteScriptsAsset> {
+async function fetchRegisterDomainAsset(): Promise<SerializedNoteScript> {
   const url = `/${MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new MidenNameScriptAssetError(`HTTP ${response.status} for ${url}`);
   }
-  return parseNoteScriptsAsset(await response.json());
+  return parseRegisterDomainAsset(await response.json());
 }
 
-function getNoteScriptsAsset(): Promise<NoteScriptsAsset> {
-  if (!assetPromise) {
-    assetPromise = fetchNoteScriptsAsset().catch(error => {
+function getRegisterDomainAsset(): Promise<SerializedNoteScript> {
+  if (!registerDomainAssetPromise) {
+    registerDomainAssetPromise = fetchRegisterDomainAsset().catch(error => {
       // Do not cache a failure: a transient fetch error must not poison the realm.
-      assetPromise = undefined;
+      registerDomainAssetPromise = undefined;
       throw error;
     });
   }
-  return assetPromise;
+  return registerDomainAssetPromise;
 }
 
 /**
- * Return the serialized bytes of a note script. The bytes are checked against
- * the declared size; the MAST root is checked when the bytes are deserialized.
- */
-export async function loadMidenNameNoteScriptBytes(name: MidenNameNoteScriptName): Promise<Uint8Array> {
-  const asset = await getNoteScriptsAsset();
-  const bytes = base64ToBytes(asset[name].serializedBase64);
-  const expected = EXPECTED[name];
-  if (bytes.length !== expected.byteLength) {
-    throw new MidenNameScriptAssetError(
-      `the "${name}" payload decodes to ${bytes.length} bytes, expected ${expected.byteLength}`
-    );
-  }
-  return bytes;
-}
-
-/**
- * Deserialize a note script and make sure that its MAST root is the root that
- * the registry allows. Each call returns a NEW `NoteScript`, because a wasm
- * call that takes the script moves it into Rust.
+ * Deserialize the register-domain note script and verify its MAST root matches
+ * the pinned registry root. Each call returns a NEW `NoteScript`, because a
+ * wasm call that takes the script moves it into Rust.
  *
  * Throws MidenNameScriptMismatchError when the root is not the expected root.
  * The caller must load the SDK WASM before it calls this function.
  */
-export async function loadMidenNameNoteScript(name: MidenNameNoteScriptName): Promise<NoteScript> {
-  const bytes = await loadMidenNameNoteScriptBytes(name);
-  const expected = EXPECTED[name];
+export async function loadRegisterDomainScript(): Promise<NoteScript> {
+  const entry = await getRegisterDomainAsset();
+  const bytes = base64ToBytes(entry.serializedBase64);
+  if (bytes.length !== REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH) {
+    throw new MidenNameScriptAssetError(
+      `the "registerDomain" payload decodes to ${bytes.length} bytes, expected ${REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH}`
+    );
+  }
   const script = NoteScript.deserialize(bytes);
   const actualRoot = script.root().toHex().toLowerCase();
-  const expectedRoot = expected.rootHex.toLowerCase();
+  const expectedRoot = REGISTER_DOMAIN_SCRIPT_ROOT_HEX.toLowerCase();
   if (actualRoot !== expectedRoot) {
     script.free();
-    throw new MidenNameScriptMismatchError(expectedRoot, actualRoot, expected.label);
+    throw new MidenNameScriptMismatchError(expectedRoot, actualRoot, REGISTER_DOMAIN_LABEL);
   }
   return script;
 }
 
-/** The register-domain note script (sends the price to the registry). */
-export function loadRegisterDomainScript(): Promise<NoteScript> {
-  return loadMidenNameNoteScript('registerDomain');
-}
-
 /** Drop the cached asset. For tests only. */
 export function resetMidenNameNoteScriptsCacheForTests(): void {
-  assetPromise = undefined;
+  registerDomainAssetPromise = undefined;
 }
