@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -1413,7 +1414,7 @@ final class BreadPresentationController {
             WindowCompat.setDecorFitsSystemWindows(window, false);
             // Keep the live Dialog window drawable transparent so fullscreen morphs clear cleanly across swapchain frames.
             window.setBackgroundDrawableResource(android.R.color.transparent);
-            container.setBackgroundColor(Color.BLACK);
+            container.setBackground(new ColorDrawable(Color.BLACK));
             if (posed) {
                 // The host shows around the moving page, with its own bars, until the page rests again.
                 controller.setSystemBarsBehavior(browserBarsBehavior);
