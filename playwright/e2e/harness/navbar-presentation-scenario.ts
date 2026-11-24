@@ -171,8 +171,8 @@ export async function runNavbarPresentationScenario({ target, device, steps }: O
         if (expanded.scrollTop > 8) {
           await swipe(device, expanded, 'down');
           expanded = await settledFrame(target, surface, 'expanded');
-          expect(expanded.scrollTop, `${surface.route} should start the gesture near the top`).toBeLessThanOrEqual(8);
         }
+        expect(expanded.scrollTop, `${surface.route} should start the gesture near the top`).toBeLessThanOrEqual(8);
         expectUsableTabs(expanded);
         const name = `navbar-${surface.route.slice(1)}-${theme}`;
         await target.screenshot({ path: path.join(steps.outputDir, 'screens', `${name}-expanded.png`) });
