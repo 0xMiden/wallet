@@ -179,13 +179,19 @@ describe('RecoverLockedFundsLock', () => {
   });
 
   it('withdraws the whole lock once the withdrawal is due and shows the success confirmation', async () => {
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
     mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Enabled', withdrawableAt: 900 } });
     await renderLock();
 
+    expect(setIntervalSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('epochDepositWithdrawReady');
     await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
 
     expect(mockFinish).toHaveBeenCalledWith(REF);
+    expect(mockReadState).toHaveBeenCalledTimes(1);
+    expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+    expect(mockReadRecord).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId('recover-funds-withdrawal-success')).toBeInTheDocument();
     expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toHaveTextContent(
       'bridgeWithdrawalSuccessful'
@@ -241,6 +247,9 @@ describe('RecoverLockedFundsLock', () => {
       mockPicker.error = 'stale picker error';
       await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-cancel')));
       expect(mockCancel).toHaveBeenCalledWith(REF);
+      expect(mockReadState).toHaveBeenCalledTimes(1);
+      expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+      expect(mockReadRecord).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId('recover-funds-withdrawal-success-state')).toBeInTheDocument();
       expect(screen.queryByTestId('recover-funds-lock-notice')).not.toBeInTheDocument();
       expect(screen.queryByTestId('recover-funds-lock-cancel')).not.toBeInTheDocument();
@@ -354,5 +363,74 @@ describe('RecoverLockedFundsLock', () => {
     await renderLock();
     expect(screen.getByTestId('recover-funds-lock-invalid')).toBeInTheDocument();
     expect(mockReadState).not.toHaveBeenCalled();
+  });
+
+  it('stops the countdown interval once due and withdrawn, and skips rescan reads after withdrawal', async () => {
+    jest.useFakeTimers();
+    try {
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1002 } });
+      await renderLock();
+
+      expect(jest.getTimerCount()).toBe(1);
+      expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeDisabled();
+
+      dateSpy.mockReturnValue(1_003_000);
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+      });
+      expect(jest.getTimerCount()).toBe(0);
+      expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
+
+      await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+      expect(mockFinish).toHaveBeenCalledWith(REF);
+      expect(mockReadState).toHaveBeenCalledTimes(1);
+      expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
+      expect(mockReadRecord).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start a countdown interval for Disabled or un-enabled locks with stale local withdrawableAt', async () => {
+    jest.useFakeTimers();
+    try {
+      mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Disabled' } });
+      mockReadRecord.mockResolvedValue({ enabledAt: 900, withdrawableAt: 2000 });
+      const firstView = await renderLock();
+      expect(jest.getTimerCount()).toBe(0);
+      firstView.unmount();
+
+      mockReadState.mockResolvedValue({});
+      mockReadRecord.mockResolvedValue({ withdrawableAt: 2000 });
+      await renderLock();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows ready immediately when an async read settles after withdrawableAt has passed without starting a timer', async () => {
+    let resolveState!: (value: { balance: bigint; withdrawal: { status: string; withdrawableAt: number } }) => void;
+    mockReadState.mockReturnValue(
+      new Promise(resolve => {
+        resolveState = resolve;
+      })
+    );
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    render(<RecoverLockedFundsLock chainId="11155111" lockId={LOCK_ID} />);
+    await act(async () => undefined);
+
+    dateSpy.mockReturnValue(1_002_000);
+    await act(async () => {
+      resolveState({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1001 } });
+    });
+
+    expect(screen.getByTestId('recover-funds-lock-status')).toHaveTextContent('epochDepositWithdrawReady');
+    expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
@@ -138,6 +139,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
 
   // Read the lock on chain and what this wallet recorded about it. Again after every recovery action.
   useEffect(() => {
+    if (withdrawn) return undefined;
     let cancelled = false;
     const load = async () => {
       const [chain, deposits, record] = await Promise.all([
@@ -160,11 +162,14 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
     return () => {
       cancelled = true;
     };
-  }, [lock, generation]);
+  }, [lock, generation, withdrawn]);
 
   // The chain is the source of truth for the withdrawal. The recorded time is only for a chain that does not answer.
+  const chainStatus = state.chain.withdrawal?.status;
+  const isPendingStatus =
+    chainStatus === 'Pending' || (chainStatus === undefined && state.local.enabledAt !== undefined);
   const withdrawableAt = state.chain.withdrawal?.withdrawableAt ?? state.local.withdrawableAt;
-  const countdownRunning = withdrawableAt !== undefined;
+  const countdownRunning = !withdrawn && isPendingStatus && withdrawableAt !== undefined && withdrawableAt > nowSec();
   const now = useNowSec(countdownRunning);
   const secondsLeft = withdrawableAt === undefined ? undefined : secondsUntilWithdrawable(withdrawableAt, now);
   const phase = withdrawPhaseOf(state.chain.withdrawal?.status, state.local.enabledAt !== undefined, secondsLeft);
@@ -195,7 +200,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
       run('withdraw', async () => {
         if (phase === 'due') {
           await finishLockWithdrawal(lock);
-          setWithdrawn(true);
+          flushSync(() => setWithdrawn(true));
           return;
         }
         await startLockWithdrawal(lock);
