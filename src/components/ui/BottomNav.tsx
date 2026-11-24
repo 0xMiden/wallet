@@ -166,7 +166,6 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect, bubble, r
         className={cn(
           'relative flex size-6 items-center justify-center [&>svg]:size-6',
           presentation && 'motion-safe:transition-transform motion-safe:duration-150',
-          presentation === 'expanded' && '-translate-y-1.5'
         )}
       >
         {/* The icon itself breathes while the tab is unread, the pulse Brian asked for, at a
