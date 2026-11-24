@@ -38,8 +38,6 @@ test.describe('dApp Browser (Android)', () => {
       await walletA.createNewWallet();
     });
 
-    await runNavbarPresentationScenario({ target: walletA, device: { serial: walletA.serial }, steps });
-
     const driver = new DappBrowserDriver({
       target: walletA,
       server,
@@ -48,5 +46,6 @@ test.describe('dApp Browser (Android)', () => {
     });
 
     await runDappBrowserJourney({ driver, server, steps });
+    await runNavbarPresentationScenario({ target: walletA, device: { serial: walletA.serial }, steps });
   });
 });

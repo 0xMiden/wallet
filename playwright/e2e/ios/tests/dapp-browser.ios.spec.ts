@@ -60,8 +60,6 @@ test.describe('dApp Browser (iOS)', () => {
     });
     await walletA.unlockWallet();
 
-    await runNavbarPresentationScenario({ target: walletA, device: { udid: walletA.udid }, steps });
-
     const driver = new DappBrowserDriver({
       target: walletA,
       server,
@@ -70,5 +68,6 @@ test.describe('dApp Browser (iOS)', () => {
     });
 
     await runDappBrowserJourney({ driver, server, steps });
+    await runNavbarPresentationScenario({ target: walletA, device: { udid: walletA.udid }, steps });
   });
 });
