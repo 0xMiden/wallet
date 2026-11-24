@@ -827,7 +827,7 @@ describe('metadata/fetch', () => {
       });
       await expect(fetchTokenMetadata('trap-slot')).rejects.toThrow(NotFoundTokenMetadata);
       expect(slotProofFree).not.toHaveBeenCalled();
-      expect(slotRpcFree).toHaveBeenCalledTimes(1);
+      expect(slotRpcFree).not.toHaveBeenCalled();
 
       const wordProofFree = jest.fn();
       const trappedWordFree = jest.fn();
@@ -845,7 +845,7 @@ describe('metadata/fetch', () => {
       await expect(fetchTokenMetadata('trap-word')).rejects.toThrow(NotFoundTokenMetadata);
       expect(trappedWordFree).not.toHaveBeenCalled();
       expect(wordProofFree).not.toHaveBeenCalled();
-      expect(wordRpcFree).toHaveBeenCalledTimes(1);
+      expect(wordRpcFree).not.toHaveBeenCalled();
 
       const rpcTrapFree = mockTrackedRpcClient();
       mockGetAccountProof.mockRejectedValueOnce(new WebAssembly.RuntimeError('unreachable'));

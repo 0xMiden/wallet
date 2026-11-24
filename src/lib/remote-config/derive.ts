@@ -459,13 +459,17 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
   const attempts: { proof?: AccountProof }[] = [];
   let inFlight = 0;
   let finished = false;
-  let rpcTrapped = false;
+  let wasmTrapped = false;
   let rpcFreed = false;
   let winningAttempt: { proof?: AccountProof } | undefined;
   const freeRpcIfDone = () => {
-    if (finished && inFlight === 0 && !rpcTrapped && !rpcFreed) {
+    if (finished && inFlight === 0 && !wasmTrapped && !rpcFreed) {
       rpcFreed = true;
-      rpc.free?.();
+      try {
+        rpc.free?.();
+      } catch {
+        // Ignore cleanup errors on late-settling WASM handles.
+      }
     }
   };
   try {
@@ -478,7 +482,7 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
         pending = rpc.getAccountProof(AccountId.fromHex(faucetId));
       } catch (err) {
         inFlight--;
-        if (isWasmTrap(err)) rpcTrapped = true;
+        if (isWasmTrap(err)) wasmTrapped = true;
         throw err;
       }
       void pending.then(
@@ -486,7 +490,9 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
           inFlight--;
           if (finished) {
             try {
-              if (attempt !== winningAttempt) resolved?.free?.();
+              if (!wasmTrapped && attempt !== winningAttempt) resolved?.free?.();
+            } catch {
+              // Ignore cleanup errors on late-settling WASM handles.
             } finally {
               freeRpcIfDone();
             }
@@ -496,14 +502,13 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
         },
         err => {
           inFlight--;
-          if (isWasmTrap(err)) rpcTrapped = true;
+          if (isWasmTrap(err)) wasmTrapped = true;
           if (finished) freeRpcIfDone();
         }
       );
       return pending;
     });
     winningAttempt = attempts[attempts.length - 1];
-    let proofTrapped = false;
     try {
       if (!proof.accountHeader()) throw new NotAFaucetError(`${faucetId} has no public state`);
       try {
@@ -514,19 +519,25 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
         throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
       }
     } catch (err) {
-      if (isWasmTrap(err)) proofTrapped = true;
+      if (isWasmTrap(err)) wasmTrapped = true;
       throw err;
     } finally {
-      if (!proofTrapped) proof.free?.();
+      if (!wasmTrapped) proof.free?.();
     }
   } finally {
     finished = true;
     try {
-      for (const attempt of attempts) {
-        if (attempt !== winningAttempt && attempt.proof) {
-          const staleProof = attempt.proof;
-          attempt.proof = undefined;
-          staleProof.free?.();
+      if (!wasmTrapped) {
+        for (const attempt of attempts) {
+          if (attempt !== winningAttempt && attempt.proof) {
+            const staleProof = attempt.proof;
+            attempt.proof = undefined;
+            try {
+              staleProof.free?.();
+            } catch {
+              // Ignore cleanup errors on stale WASM handles.
+            }
+          }
         }
       }
     } finally {

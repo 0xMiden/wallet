@@ -1620,7 +1620,7 @@ describe('deriveBridgeConfig default I/O', () => {
       WebAssembly.RuntimeError
     );
     expect(slotProofFree).not.toHaveBeenCalled();
-    expect(slotRpcFree).toHaveBeenCalledTimes(1);
+    expect(slotRpcFree).not.toHaveBeenCalled();
 
     const wordProofFree = jest.fn();
     const trappedWordFree = jest.fn();
@@ -1640,7 +1640,7 @@ describe('deriveBridgeConfig default I/O', () => {
     );
     expect(trappedWordFree).not.toHaveBeenCalled();
     expect(wordProofFree).not.toHaveBeenCalled();
-    expect(wordRpcFree).toHaveBeenCalledTimes(1);
+    expect(wordRpcFree).not.toHaveBeenCalled();
 
     const rpcTrapFree = mockTrackedRpcClient();
     mockGetAccountProof.mockRejectedValue(new WebAssembly.RuntimeError('unreachable'));

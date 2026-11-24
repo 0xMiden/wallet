@@ -64,15 +64,14 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
     const rpcClient = new RpcClient(endpoint);
     let rpcAttempt: ReturnType<RpcClient['getAccountProof']> | undefined;
     let proof: Awaited<ReturnType<RpcClient['getAccountProof']>> | undefined;
-    let trapped = false;
-    let rpcTrapped = false;
+    let wasmTrapped = false;
     try {
       proof = await withRpcTimeout(
         () => {
           try {
             rpcAttempt = rpcClient.getAccountProof(accountId);
           } catch (err) {
-            if (isWasmTrap(err)) rpcTrapped = true;
+            if (isWasmTrap(err)) wasmTrapped = true;
             throw err;
           }
           return rpcAttempt;
@@ -94,14 +93,21 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
           }
         }
       } catch (err) {
-        if (isWasmTrap(err)) trapped = true;
+        if (isWasmTrap(err)) wasmTrapped = true;
         throw err;
       } finally {
-        if (!trapped) proof.free?.();
+        if (!wasmTrapped) proof.free?.();
       }
 
       if (!hasHeader) {
-        if (accountId.isPublic()) {
+        let isPublic = false;
+        try {
+          isPublic = accountId.isPublic();
+        } catch (err) {
+          if (isWasmTrap(err)) wasmTrapped = true;
+          throw err;
+        }
+        if (isPublic) {
           // if the account was public and we couldn't fetch metadata it should not happen in first place
           // but in case it does we return unknown metadata without caching it so a later fetch can retry
           console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
@@ -116,18 +122,38 @@ export async function fetchChainTokenMetadata(assetId: string): Promise<AssetMet
       if (rpcAttempt) {
         void rpcAttempt.then(
           resolved => {
+            if (wasmTrapped) return;
             try {
               if (resolved !== proof) resolved?.free?.();
+            } catch {
+              // Ignore cleanup errors on late-settling WASM handles.
             } finally {
-              if (!rpcTrapped) rpcClient.free?.();
+              if (!wasmTrapped) {
+                try {
+                  rpcClient.free?.();
+                } catch {
+                  // Ignore cleanup errors on late-settling WASM handles.
+                }
+              }
             }
           },
           err => {
-            if (!rpcTrapped && !isWasmTrap(err)) rpcClient.free?.();
+            if (isWasmTrap(err)) wasmTrapped = true;
+            if (!wasmTrapped) {
+              try {
+                rpcClient.free?.();
+              } catch {
+                // Ignore cleanup errors on late-settling WASM handles.
+              }
+            }
           }
         );
-      } else if (!rpcTrapped) {
-        rpcClient.free?.();
+      } else if (!wasmTrapped) {
+        try {
+          rpcClient.free?.();
+        } catch {
+          // Ignore cleanup errors on WASM handles.
+        }
       }
     }
   } catch (err) {
