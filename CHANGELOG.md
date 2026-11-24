@@ -5,6 +5,7 @@
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
 - [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
+- [CHORE][ci] Run the Bread Connect Swift SDK tests on macOS through Release E2E instead of on every pull request.
 - [FIX][mobile] Keep the Android fullscreen dApp dialog window transparent and draw its backdrop on the animated container so repeated minimize and restore transitions no longer leave duplicate or nested previews (#2046).
 - [CHORE][all] Share the native-Reown versus wagmi contract transaction helper across USDCx deposits and CCTP execution (#1398).
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
