@@ -1069,6 +1069,82 @@ final class BreadPresentationTests: XCTestCase {
         return try XCTUnwrap(scene.windows.compactMap { ($0.rootViewController as? CAPBridgeViewController)?.webView }.first)
     }
 
+    func testCondensedNativeNavbarHidesLabelsAndSecondaryRowButKeepsDestinationsTappable() async throws {
+        let web = try mainWalletWebView()
+        let scene = try XCTUnwrap(web.window?.windowScene)
+        let ready = try await eventually {
+            (try? await web.evaluateJavaScript("typeof window.Capacitor?.Plugins?.InAppBrowser?.showNativeNavbar === 'function'")) as? Bool == true
+        }
+        guard ready else { return XCTFail("The Wallet WebView did not register the native navbar") }
+
+        func call(_ method: String, _ options: [String: Any] = [:]) async throws {
+            _ = try await web.callAsyncJavaScript("""
+                const capacitor = window.Capacitor;
+                const header = capacitor.PluginHeaders.find(plugin => plugin.name === 'InAppBrowser');
+                if (method === 'setNavbarPresentation' && header && !header.methods.some(entry => entry.name === method)) return true;
+                await capacitor.Plugins.InAppBrowser[method](options);
+                return true;
+                """, arguments: ["method": method, "options": options], in: nil, contentWorld: .page)
+        }
+
+        func descendants(_ view: UIView) -> [UIView] {
+            [view] + view.subviews.flatMap(descendants)
+        }
+
+        func isVisible(_ view: UIView) -> Bool {
+            guard view.window != nil, !view.bounds.isEmpty else { return false }
+            var node: UIView? = view
+            while let current = node {
+                if current.isHidden || current.alpha <= 0.01 { return false }
+                node = current.superview
+            }
+            return true
+        }
+
+        func hasVisibleLabel(_ button: UIControl) -> Bool {
+            descendants(button).contains { $0 is UILabel && isVisible($0) }
+        }
+
+        func item(_ title: String) -> [String: String] {
+            ["id": title, "title": title, "sfSymbol": "house.fill"]
+        }
+
+        let titles = ["Wallet", "Activity", "Browser", "Settings"]
+        try await call("showNativeNavbar", ["items": titles.map(item), "activeId": "Wallet"])
+        defer { web.evaluateJavaScript("window.Capacitor.Plugins.InAppBrowser.hideNativeNavbar(); true") }
+        let overlay = try XCTUnwrap(scene.windows.compactMap { $0 as? MidenNavbarOverlayWindow }.first)
+        try await call("setNavbarSecondaryRow", ["items": [item("Send")]])
+        let destinations = descendants(overlay).compactMap { $0 as? UIControl }.filter {
+            titles.contains($0.accessibilityLabel ?? "")
+        }
+        func hasVisibleSecondaryRow() -> Bool {
+            descendants(overlay).contains { $0 is UIControl && $0.accessibilityLabel == "Send" && isVisible($0) }
+        }
+        let expanded = try await eventually {
+            destinations.allSatisfy(hasVisibleLabel) && hasVisibleSecondaryRow()
+        }
+        XCTAssertEqual(destinations.count, titles.count)
+        XCTAssertEqual(Set(destinations.compactMap(\.accessibilityLabel)), Set(titles))
+        XCTAssertTrue(expanded)
+
+        try await call("setNavbarPresentation", ["presentation": "condensed"])
+        let labelsHidden = try await eventually { !destinations.contains(where: hasVisibleLabel) }
+        let secondaryHidden = try await eventually { !hasVisibleSecondaryRow() }
+        XCTAssertTrue(labelsHidden, "Condensed navbar still shows destination labels")
+        XCTAssertTrue(secondaryHidden, "Condensed navbar still shows a secondary action")
+        for button in destinations {
+            let center = CGPoint(x: button.bounds.midX, y: button.bounds.midY)
+            let hit = overlay.hitTest(button.convert(center, to: overlay), with: nil)
+            XCTAssertTrue(hit === button || hit?.isDescendant(of: button) == true)
+        }
+
+        try await call("setNavbarPresentation", ["presentation": "expanded"])
+        let restored = try await eventually {
+            destinations.allSatisfy(hasVisibleLabel) && hasVisibleSecondaryRow()
+        }
+        XCTAssertTrue(restored)
+    }
+
     private func walletCanvasMetrics(_ web: WKWebView) async throws -> [String: Any] {
         let loaded = try await eventually { (try? await web.evaluateJavaScript("document.readyState !== 'loading' && !!document.getElementById('root')")) as? Bool == true }
         XCTAssertTrue(loaded)
