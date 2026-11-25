@@ -77,3 +77,15 @@ The row (`deposit-rows.ts`) has the shape of a WalletConnect Agglayer deposit ro
 'agglayer'`, phase `submitting`, `evmTxHash`, the amount in source base units, `faucetId: ''`), plus
 `extraInputs.relay`. A succeeded job moves it to `delivering`, a reverted one to `failed`. The existing Agglayer
 reconciler and claim matching then take it over. A row restored from a backup is never driven.
+
+## Intent, poll and watcher
+
+- `deposit-intent.ts`: the route the user chose when they opened the deposit address, per account, under
+  `relay_deposit_intent_v1:<account>` (`{ provider: 'agglayer', chainId, token }`). It is written through
+  `putToStorage` and read back with `readRelayDepositIntent`, which refuses any other shape.
+- `useRelayDeposit(accountPublicKey)`: while the page is active, the account has an intent and the relay serves its
+  chain, it ticks every 10 s for the first 2 minutes after mount and every 30 s after that, never two calls at once
+  and never sooner than a `retryAfter`. It stops after a status that a new tick cannot change (`failed`, `off`,
+  `no-route`, ...) until `refresh()`. It returns `{ status, intent, setIntent, refresh }`.
+- `RelayDepositWatcher`: a headless component that ticks once for the current account's intent when the wallet
+  unlocks and when the document comes to the foreground. Nothing mounts it yet.
