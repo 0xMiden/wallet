@@ -6,7 +6,15 @@ import { encodeFunctionResult, type Hex } from 'viem';
 
 import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, TEST_RPC_URL, USDC, chainEntry } from './harness';
 import { CALIBUR_ABI, ERC20_ABI, nonceKeyOf } from '../../../src/lib/evm-relay/batch';
-import { ChainIntegrityError, RpcUnavailableError, createRpcReader, type CachedCode, type Fetcher } from '../src/chain';
+import {
+  ChainIntegrityError,
+  RpcUnavailableError,
+  broadcastTransaction,
+  createRpcReader,
+  type CachedCode,
+  type Fetcher,
+  type RelayCall
+} from '../src/chain';
 import { parseChains, type ChainConfig } from '../src/config';
 import { ApiError } from '../src/errors';
 import { isRecord } from '../src/http';
@@ -30,6 +38,14 @@ interface Domain {
   salt: Hex;
 }
 
+interface RpcError {
+  code: number;
+  message: string;
+}
+
+const RELAYER: Hex = `0x${'4e'.repeat(20)}`;
+const RAW: Hex = `0x02${'ab'.repeat(40)}`;
+
 type Failure = 'reject' | 'status' | 'item';
 const FAILURES: Failure[] = ['reject', 'status', 'item'];
 
@@ -49,6 +65,8 @@ class FakeNode {
   implementationCode: Hex = IMPLEMENTATION_CODE;
   domain: Domain = DOMAIN;
   failWith: Failure | null = null;
+  estimateError: RpcError | null = null;
+  sendError: RpcError | null = null;
 
   readonly fetcher: Fetcher = async (url, init) => {
     this.urls.push(url);
@@ -71,7 +89,20 @@ class FakeNode {
   };
 
   private answer(call: RpcRequest, id: number): Record<string, unknown> {
-    return { jsonrpc: '2.0', id, result: this.resultOf(call) };
+    switch (call.method) {
+      case 'eth_feeHistory':
+        return { jsonrpc: '2.0', id, result: { oldestBlock: '0x10', baseFeePerGas: ['0x3b9aca00', '0x77359400'] } };
+      case 'eth_estimateGas':
+        return this.estimateError === null
+          ? { jsonrpc: '2.0', id, result: '0x30d40' }
+          : { jsonrpc: '2.0', id, error: this.estimateError };
+      case 'eth_sendRawTransaction':
+        return this.sendError === null
+          ? { jsonrpc: '2.0', id, result: `0x${'77'.repeat(32)}` }
+          : { jsonrpc: '2.0', id, error: this.sendError };
+      default:
+        return { jsonrpc: '2.0', id, result: this.resultOf(call) };
+    }
   }
 
   private resultOf({ method, params }: RpcRequest): Hex {
@@ -80,7 +111,9 @@ class FakeNode {
       case 'eth_getCode':
         return first === CALIBUR_ADDRESS ? this.implementationCode : this.accountCode;
       case 'eth_getTransactionCount':
-        return '0x5';
+        return first === RELAYER ? '0x9' : '0x5';
+      case 'eth_maxPriorityFeePerGas':
+        return '0x5f5e100';
       case 'eth_getBalance':
         return '0x64';
       default:
@@ -219,5 +252,105 @@ describe('createRpcReader', () => {
     const reader = createRpcReader({}, { fetcher: new FakeNode().fetcher });
     const error = await reader.readAccount(chainOf(), ADDRESS, []).catch((caught: unknown) => caught);
     expect(error instanceof ApiError && error.code).toBe('service_unavailable');
+  });
+});
+
+describe('readRelay', () => {
+  const call: RelayCall = { evmAddress: ADDRESS, relayer: RELAYER, data: '0xabcd', authorization: null };
+  const authorization = {
+    address: CALIBUR_ADDRESS,
+    chainId: 8453,
+    nonce: 5,
+    r: `0x${'01'.repeat(32)}`,
+    s: `0x${'02'.repeat(32)}`,
+    yParity: 1
+  } satisfies RelayCall['authorization'];
+
+  it('reads the address, the relayer, the fees and the estimate in one batch', async () => {
+    const { node, reader } = setup();
+    await expect(reader.readRelay(chainOf(), call)).resolves.toEqual({
+      delegated: true,
+      authorizationNonce: 5,
+      relayerNonce: 9,
+      relayerBalance: 100n,
+      baseFee: 2_000_000_000n,
+      priorityFee: 100_000_000n,
+      gasEstimate: 200_000n
+    });
+    expect(node.batches).toHaveLength(1);
+    expect(node.batches[0]).toEqual([
+      { method: 'eth_getCode', params: [ADDRESS, 'latest'] },
+      { method: 'eth_getTransactionCount', params: [ADDRESS, 'pending'] },
+      { method: 'eth_getTransactionCount', params: [RELAYER, 'pending'] },
+      { method: 'eth_getBalance', params: [RELAYER, 'latest'] },
+      { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
+      { method: 'eth_maxPriorityFeePerGas', params: [] },
+      { method: 'eth_estimateGas', params: [{ from: RELAYER, to: ADDRESS, data: '0xabcd', value: '0x0' }] }
+    ]);
+  });
+
+  it('simulates with the authorization list when the request has an authorization', async () => {
+    const node = new FakeNode();
+    node.accountCode = '0x';
+    const state = await setup(node).reader.readRelay(chainOf(), { ...call, authorization });
+    expect(state.delegated).toBe(false);
+    expect(node.batches[0]?.[6]?.params).toEqual([
+      {
+        from: RELAYER,
+        to: ADDRESS,
+        data: '0xabcd',
+        value: '0x0',
+        authorizationList: [{ ...authorization, chainId: '0x2105', nonce: '0x5', yParity: '0x1' }]
+      }
+    ]);
+  });
+
+  it.each([
+    [3, 'execution reverted'],
+    [-32000, 'execution reverted'],
+    [-32015, 'VM execution error'],
+    [-32000, 'gas required exceeds allowance (30000000)']
+  ])('reads an estimate error %d "%s" as a revert', async (code, message) => {
+    const node = new FakeNode();
+    node.estimateError = { code, message };
+    expect((await setup(node).reader.readRelay(chainOf(), call)).gasEstimate).toBeNull();
+  });
+
+  it.each([
+    [-32603, 'internal error'],
+    [-32005, 'request limit exceeded']
+  ])('reads an estimate error %d "%s" as an RPC failure', async (code, message) => {
+    const node = new FakeNode();
+    node.estimateError = { code, message };
+    await expect(setup(node).reader.readRelay(chainOf(), call)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+
+  it.each(FAILURES)('maps an RPC failure (%s) to RpcUnavailableError', async failWith => {
+    const node = new FakeNode();
+    node.failWith = failWith;
+    await expect(setup(node).reader.readRelay(chainOf(), call)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+});
+
+describe('broadcastTransaction', () => {
+  it('sends the signed bytes and treats "already known" as a success', async () => {
+    const node = new FakeNode();
+    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBeUndefined();
+    node.sendError = { code: -32000, message: 'already known' };
+    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBeUndefined();
+    expect(node.batches).toEqual([
+      [{ method: 'eth_sendRawTransaction', params: [RAW] }],
+      [{ method: 'eth_sendRawTransaction', params: [RAW] }]
+    ]);
+  });
+
+  it('fails without the URL or the bytes in the error', async () => {
+    const node = new FakeNode();
+    node.sendError = { code: -32000, message: `nonce too low ${RAW}` };
+    const error = await broadcastTransaction(ENV, 8453, RAW, node.fetcher).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RpcUnavailableError);
+    expect(String(error)).not.toContain('secret');
+    expect(String(error)).not.toContain(RAW);
+    await expect(broadcastTransaction({}, 8453, RAW, node.fetcher)).rejects.toBeInstanceOf(RpcUnavailableError);
   });
 });

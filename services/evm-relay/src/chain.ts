@@ -1,6 +1,6 @@
-// Read the state of a deposit address from the chain RPC. The reader sends only the reads below, in at most two
-// JSON-RPC batches (two HTTP requests). It is not a general RPC proxy.
-import { decodeFunctionResult, encodeFunctionData, hexToBigInt, isHex, keccak256 } from 'viem';
+// Read the chain RPC for the routes, and send signed relay transactions. The account read sends at most two JSON-RPC
+// batches, the relay read one batch and the broadcast one call. It is not a general RPC proxy.
+import { decodeFunctionResult, encodeFunctionData, hexToBigInt, isHex, keccak256, numberToHex } from 'viem';
 
 import type { ChainConfig, Hex } from './config';
 import { notConfigured } from './errors';
@@ -34,9 +34,46 @@ export interface AccountState {
   sequences: ReadonlyMap<RelayKind, bigint>;
 }
 
-/** The chain access of the account route. The tests give a fake. */
+/** An EIP-7702 authorization of the address, as the Sender signs it into a type 4 transaction. */
+export interface RelayAuthorization {
+  address: Hex;
+  chainId: number;
+  nonce: number;
+  r: Hex;
+  s: Hex;
+  yParity: number;
+}
+
+/** The transaction that the relay route simulates: `execute` on the address, from the relayer. */
+export interface RelayCall {
+  evmAddress: Hex;
+  relayer: Hex;
+  /** The calldata of `execute`. */
+  data: Hex;
+  /** The simulation includes it when it is not null. */
+  authorization: RelayAuthorization | null;
+}
+
+/** The chain state that the relay route needs, read in one JSON-RPC batch. */
+export interface RelayState {
+  /** True when the account code is the EIP-7702 delegation to the pinned Calibur. */
+  delegated: boolean;
+  /** The pending transaction count of the address. */
+  authorizationNonce: number;
+  /** The pending transaction count of the relayer. */
+  relayerNonce: number;
+  relayerBalance: bigint;
+  /** The base fee of the next block. */
+  baseFee: bigint;
+  priorityFee: bigint;
+  /** The gas estimate of the call, or null when the call reverts. */
+  gasEstimate: bigint | null;
+}
+
+/** The chain access of the routes. The tests give a fake. */
 export interface ChainReader {
   readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState>;
+  readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState>;
 }
 
 /** The RPC failed, timed out or sent an answer that does not decode. */
@@ -61,8 +98,11 @@ export interface CachedCode {
 
 interface RpcCall {
   method: string;
-  params: (string | Record<string, unknown>)[];
+  params: unknown[];
 }
+
+/** The answer to one call of a batch: a result or a JSON-RPC error. */
+export type RpcOutcome = { result: unknown } | { error: { code: number; message: string } };
 
 const IMPLEMENTATION_CACHE = new Map<string, CachedCode>();
 
@@ -70,8 +110,15 @@ function unavailable(): RpcUnavailableError {
   return new RpcUnavailableError('The chain RPC does not answer.');
 }
 
-/** Send the calls as one JSON-RPC batch. Return one hex result per call, in call order. */
-async function rpcBatch(fetcher: Fetcher, url: string, calls: RpcCall[], signal: AbortSignal): Promise<Hex[]> {
+function outcomeOf(item: Record<string, unknown>): RpcOutcome {
+  if (Object.hasOwn(item, 'result')) return { result: item.result };
+  const { error } = item;
+  if (!isRecord(error) || typeof error.code !== 'number') throw unavailable();
+  return { error: { code: error.code, message: typeof error.message === 'string' ? error.message : '' } };
+}
+
+/** Send the calls as one JSON-RPC batch. Return the outcome of each call, in call order. */
+async function sendBatch(fetcher: Fetcher, url: string, calls: RpcCall[], signal: AbortSignal): Promise<RpcOutcome[]> {
   let payload: unknown;
   try {
     const response = await fetcher(url, {
@@ -87,16 +134,27 @@ async function rpcBatch(fetcher: Fetcher, url: string, calls: RpcCall[], signal:
     throw unavailable();
   }
   if (!Array.isArray(payload)) throw unavailable();
-  const results = new Map<number, Hex>();
+  const outcomes = new Map<number, RpcOutcome>();
   for (const item of payload) {
-    if (!isRecord(item) || typeof item.id !== 'number' || !isHex(item.result)) throw unavailable();
-    results.set(item.id, item.result);
+    if (!isRecord(item) || typeof item.id !== 'number') throw unavailable();
+    outcomes.set(item.id, outcomeOf(item));
   }
   return calls.map((_call, id) => {
-    const result = results.get(id);
-    if (result === undefined) throw unavailable();
-    return result;
+    const outcome = outcomes.get(id);
+    if (outcome === undefined) throw unavailable();
+    return outcome;
   });
+}
+
+/** The hex result of an outcome. An error or another value is an RPC failure. */
+function hexOf(outcome: RpcOutcome | undefined): Hex {
+  if (outcome === undefined || !('result' in outcome) || !isHex(outcome.result)) throw unavailable();
+  return outcome.result;
+}
+
+/** Send the calls as one JSON-RPC batch. Return one hex result per call, in call order. */
+async function rpcBatch(fetcher: Fetcher, url: string, calls: RpcCall[], signal: AbortSignal): Promise<Hex[]> {
+  return (await sendBatch(fetcher, url, calls, signal)).map(hexOf);
 }
 
 /** Run a decode. A result that does not decode is an RPC failure. */
@@ -233,5 +291,100 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     };
   }
 
-  return { readAccount };
+  async function readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState> {
+    const url = rpcUrlOf(env, chain.chainId);
+    if (url === null) throw notConfigured();
+    const { evmAddress, relayer } = call;
+    // One batch. The estimate includes the authorization when the request has one: a plain call on an address that
+    // does not delegate executes nothing and succeeds, so only a simulation with the authorization checks the batch.
+    const outcomes = await sendBatch(
+      fetcher,
+      url,
+      [
+        getCode(evmAddress),
+        { method: 'eth_getTransactionCount', params: [evmAddress, 'pending'] },
+        { method: 'eth_getTransactionCount', params: [relayer, 'pending'] },
+        { method: 'eth_getBalance', params: [relayer, 'latest'] },
+        { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
+        { method: 'eth_maxPriorityFeePerGas', params: [] },
+        { method: 'eth_estimateGas', params: [estimateOf(call)] }
+      ],
+      AbortSignal.timeout(RPC_TIMEOUT_MS)
+    );
+    return {
+      delegated: isCaliburDelegation(hexOf(outcomes[0]), chain.calibur),
+      authorizationNonce: decodeNonce(hexOf(outcomes[1])),
+      relayerNonce: decodeNonce(hexOf(outcomes[2])),
+      relayerBalance: decoded(() => hexToBigInt(hexOf(outcomes[3]))),
+      baseFee: nextBaseFee(outcomes[4]),
+      priorityFee: decoded(() => hexToBigInt(hexOf(outcomes[5]))),
+      gasEstimate: gasEstimateOf(outcomes[6])
+    };
+  }
+
+  return { readAccount, readRelay };
+}
+
+/** The `eth_estimateGas` transaction of a relay call. */
+function estimateOf({ evmAddress, relayer, data, authorization }: RelayCall): Record<string, unknown> {
+  const transaction: Record<string, unknown> = { from: relayer, to: evmAddress, data, value: '0x0' };
+  if (authorization !== null) {
+    const { address, chainId, nonce, r, s, yParity } = authorization;
+    transaction.authorizationList = [
+      { address, chainId: numberToHex(chainId), nonce: numberToHex(nonce), r, s, yParity: numberToHex(yParity) }
+    ];
+  }
+  return transaction;
+}
+
+/** The base fee of the next block: the last entry of `baseFeePerGas` in `eth_feeHistory`. */
+function nextBaseFee(outcome: RpcOutcome | undefined): bigint {
+  if (outcome === undefined || !('result' in outcome) || !isRecord(outcome.result)) throw unavailable();
+  const fees = outcome.result.baseFeePerGas;
+  if (!Array.isArray(fees)) throw unavailable();
+  const next: unknown = fees[fees.length - 1];
+  if (!isHex(next)) throw unavailable();
+  return decoded(() => hexToBigInt(next));
+}
+
+/** True when a JSON-RPC error of `eth_estimateGas` says that the call reverts, not that the node failed. */
+function isRevert({ code, message }: { code: number; message: string }): boolean {
+  switch (code) {
+    // 3: a revert with data (Geth, Besu). -32015: a VM execution error (Nethermind).
+    case 3:
+    case -32015:
+      return true;
+    default:
+      return /revert|gas required exceeds/i.test(message);
+  }
+}
+
+/** The gas estimate, or null when the call reverts. Any other error is an RPC failure. */
+function gasEstimateOf(outcome: RpcOutcome | undefined): bigint | null {
+  if (outcome !== undefined && 'error' in outcome && isRevert(outcome.error)) return null;
+  return decoded(() => hexToBigInt(hexOf(outcome)));
+}
+
+/**
+ * Send signed transaction bytes to the chain. The node answers "already known" when it has the transaction, which is
+ * a success. Throws RpcUnavailableError on any other failure. The error never holds the bytes or the URL.
+ */
+export async function broadcastTransaction(
+  env: Env,
+  chainId: number,
+  raw: Hex,
+  fetcher: Fetcher = (url, init) => fetch(url, init)
+): Promise<void> {
+  const url = rpcUrlOf(env, chainId);
+  if (url === null) throw unavailable();
+  const [outcome] = await sendBatch(
+    fetcher,
+    url,
+    [{ method: 'eth_sendRawTransaction', params: [raw] }],
+    AbortSignal.timeout(RPC_TIMEOUT_MS)
+  );
+  if (outcome === undefined) throw unavailable();
+  if ('result' in outcome) return;
+  if (/already known|known transaction/i.test(outcome.error.message)) return;
+  throw unavailable();
 }

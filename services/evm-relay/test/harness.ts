@@ -1,11 +1,15 @@
 // Shared helpers of the evm-relay unit tests: fake bindings, the env, the requests and the JSON bodies.
-import { keccak256 } from 'viem';
+import { keccak256, recoverTransactionAddress } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
+import { memoryDatabase, type MemoryDatabase } from './sqlite';
 import type { RelayKind } from '../../../src/lib/evm-relay/batch';
-import type { AccountState, ChainReader } from '../src/chain';
+import type { AccountState, ChainReader, RelayCall, RelayState } from '../src/chain';
 import type { ChainConfig, Hex } from '../src/config';
 import { isRecord } from '../src/http';
 import { handleRequest } from '../src/index';
+import { RelaySender, type SenderDirectory } from '../src/sender';
+import type { RelaySenderObject } from '../src/sender-object';
 import type { Env } from '../src/types';
 
 export const ORIGIN = 'chrome-extension://wallet-test';
@@ -59,16 +63,124 @@ export function readState(overrides: Partial<AccountState> = {}): AccountState {
   };
 }
 
+/** The relay chain state that the fake reader returns, unless a test sets another. */
+export function relayState(overrides: Partial<RelayState> = {}): RelayState {
+  return {
+    delegated: true,
+    authorizationNonce: 3,
+    relayerNonce: 5,
+    relayerBalance: 10n ** 18n,
+    baseFee: 1_000_000_000n,
+    priorityFee: 100_000_000n,
+    gasEstimate: 200_000n,
+    ...overrides
+  };
+}
+
 /** A chain reader that answers from memory and records each call. */
 export class FakeReader implements ChainReader {
   readonly calls: { chainId: number; address: Hex; kinds: readonly RelayKind[] }[] = [];
+  readonly relayCalls: { chainId: number; call: RelayCall }[] = [];
   state: AccountState = readState();
+  relay: RelayState = relayState();
   error: Error | null = null;
 
   async readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState> {
     this.calls.push({ chainId: chain.chainId, address, kinds });
     if (this.error !== null) throw this.error;
     return this.state;
+  }
+
+  async readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState> {
+    this.relayCalls.push({ chainId: chain.chainId, call });
+    if (this.error !== null) throw this.error;
+    return this.relay;
+  }
+}
+
+/** The signer of signed type 2 or type 4 transaction bytes, lower case. */
+export async function transactionSigner(raw: Hex): Promise<string> {
+  const body = raw.slice(4);
+  switch (raw.slice(0, 4)) {
+    case '0x02':
+      return (await recoverTransactionAddress({ serializedTransaction: `0x02${body}` })).toLowerCase();
+    case '0x04':
+      return (await recoverTransactionAddress({ serializedTransaction: `0x04${body}` })).toLowerCase();
+    default:
+      throw new Error('The bytes are not a type 2 or type 4 transaction');
+  }
+}
+
+/** The signed transaction that a test Sender broadcast. */
+export interface Broadcast {
+  chainId: number;
+  raw: Hex;
+  /** The rows of the chain's Sender when the broadcast started. */
+  storedRows: number;
+}
+
+/** Real Senders over node:sqlite: one per chain, with the test relayer key and a recording broadcast. */
+export class TestSenders {
+  readonly broadcasts: Broadcast[] = [];
+  broadcastError: Error | null = null;
+  readonly databases = new Map<number, MemoryDatabase>();
+  private readonly senders = new Map<number, RelaySender>();
+  private readonly account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
+
+  readonly directory: SenderDirectory = chainId => {
+    const sender = this.senderOf(chainId);
+    return { get: async id => sender.get(id), submit: job => sender.submit(job) };
+  };
+
+  /** Every stored relay of the chain. */
+  rows(chainId: number): Record<string, unknown>[] {
+    return this.databaseOf(chainId).run('SELECT * FROM inflight ORDER BY nonce');
+  }
+
+  senderOf(chainId: number): RelaySender {
+    const known = this.senders.get(chainId);
+    if (known !== undefined) return known;
+    const sender = new RelaySender({
+      sql: this.databaseOf(chainId),
+      sign: transaction => this.account.signTransaction(transaction),
+      broadcast: async (target, raw) => {
+        this.broadcasts.push({ chainId: target, raw, storedRows: this.rows(target).length });
+        if (this.broadcastError !== null) throw this.broadcastError;
+      },
+      now: () => 1_700_000_000_000
+    });
+    this.senders.set(chainId, sender);
+    return sender;
+  }
+
+  private databaseOf(chainId: number): MemoryDatabase {
+    const known = this.databases.get(chainId);
+    if (known !== undefined) return known;
+    const database = memoryDatabase();
+    this.databases.set(chainId, database);
+    return database;
+  }
+}
+
+/** A Durable Object binding for /healthz. The tests reach the Senders through TestSenders, never through it. */
+class UnusedNamespace implements DurableObjectNamespace<RelaySenderObject> {
+  newUniqueId(): never {
+    throw new Error('The tests do not use the binding.');
+  }
+  idFromName(): never {
+    throw new Error('The tests do not use the binding.');
+  }
+  idFromString(): never {
+    throw new Error('The tests do not use the binding.');
+  }
+  get(): never {
+    throw new Error('The tests do not use the binding.');
+  }
+  getByName(): never {
+    throw new Error('The tests do not use the binding.');
+  }
+  jurisdiction(): never {
+    throw new Error('The tests do not use the binding.');
   }
 }
 
@@ -105,6 +217,7 @@ export interface EnvOptions {
   relayerKey?: string | null;
   /** The `RPC_URL_<chainId>` secrets, keyed by chain id. */
   rpcUrls?: Record<string, string>;
+  senderBinding?: boolean;
 }
 
 export interface Harness {
@@ -112,6 +225,7 @@ export interface Harness {
   readLimit: FakeRateLimit;
   relayLimit: FakeRateLimit;
   reader: FakeReader;
+  senders: TestSenders;
 }
 
 export function createHarness(options: EnvOptions = {}): Harness {
@@ -123,13 +237,14 @@ export function createHarness(options: EnvOptions = {}): Harness {
   for (const [chainId, url] of Object.entries(options.rpcUrls ?? {})) Reflect.set(env, `RPC_URL_${chainId}`, url);
   if (options.readLimit !== false) env.READ_RATE_LIMIT = readLimit;
   if (options.relayLimit !== false) env.RELAY_RATE_LIMIT = relayLimit;
+  if (options.senderBinding !== false) env.RELAY_SENDER = new UnusedNamespace();
   const revision = options.revision === undefined ? 'test-revision' : options.revision;
   if (revision !== null) env.DEPLOYMENT_REVISION = revision;
   const gasMode = options.gasMode === undefined ? 'sponsor' : options.gasMode;
   if (gasMode !== null) env.GAS_MODE = gasMode;
   const relayConfig = options.relayConfig === undefined ? '{"chains":{}}' : options.relayConfig;
   if (relayConfig !== null) env.RELAY_CONFIG = relayConfig;
-  return { env, readLimit, relayLimit, reader: new FakeReader() };
+  return { env, readLimit, relayLimit, reader: new FakeReader(), senders: new TestSenders() };
 }
 
 export interface RequestOptions {
@@ -141,7 +256,8 @@ export interface RequestOptions {
 export function send(harness: Harness, path: string, options: RequestOptions = {}): Promise<Response> {
   const init: RequestInit = { method: options.method ?? 'GET', headers: { ...options.headers } };
   if (options.body !== undefined) init.body = options.body;
-  return handleRequest(new Request(`${BASE_URL}${path}`, init), harness.env, harness.reader);
+  const request = new Request(`${BASE_URL}${path}`, init);
+  return handleRequest(request, harness.env, harness.reader, harness.senders.directory);
 }
 
 /** Read the response body as a JSON object. Fail the test when it is another value. */

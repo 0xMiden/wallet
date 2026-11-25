@@ -1,6 +1,6 @@
 // GET /v1/account: the balances of a deposit address and the values that the wallet needs to sign a batch.
 import { ChainIntegrityError, RpcUnavailableError, type AccountState } from '../chain';
-import { ConfigError, parseConfig, type ChainConfig, type Hex, type RelayConfig } from '../config';
+import { routeConfig, type ChainConfig, type Hex, type RelayConfig } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json } from '../http';
 import { kindsOf } from '../kinds';
@@ -12,15 +12,6 @@ const CHAIN_ID = /^[1-9][0-9]{0,15}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** The browser may keep the answer for 5 seconds. The wallet polls the route. */
 const CACHE_CONTROL = 'private, max-age=5';
-
-function configOf(context: RequestContext): RelayConfig {
-  try {
-    return parseConfig(context.env);
-  } catch (error) {
-    if (error instanceof ConfigError) throw notConfigured();
-    throw error;
-  }
-}
 
 function chainOf(config: RelayConfig, value: string | null): ChainConfig {
   const chainId = Number(value);
@@ -56,7 +47,7 @@ async function readState(context: RequestContext, chain: ChainConfig, address: H
 }
 
 export async function account(context: RequestContext): Promise<Response> {
-  const config = configOf(context);
+  const config = routeConfig(context.env);
   const { searchParams } = context.url;
   const chain = chainOf(config, searchParams.get('chainId'));
   const executor = relayerAddress(context.env);

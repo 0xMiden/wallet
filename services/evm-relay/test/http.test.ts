@@ -115,6 +115,7 @@ describe('health route', () => {
     ['a valid GAS_MODE', { gasMode: 'free' }],
     ['RELAY_CONFIG', { relayConfig: null }],
     ['a valid RELAY_CONFIG', { relayConfig: '{"chains":{"1":{"rpcUrl":"https://secret.example/key"}}}' }],
+    ['the Sender binding', { senderBinding: false }],
     ['RELAYER_PRIVATE_KEY', { relayerKey: null }],
     ['a well-formed RELAYER_PRIVATE_KEY', { relayerKey: '0xsecret' }],
     ['a RELAYER_PRIVATE_KEY of 64 hex characters', { relayerKey: `0x${'1'.repeat(63)}` }],
@@ -183,7 +184,6 @@ describe('routing', () => {
   });
 
   it.each([
-    ['POST', '/v1/relay', { method: 'POST', body: '{}' }],
     ['GET', `/v1/relay/${RELAY_ID}`, {}],
     ['GET', `/v1/relay/0x${RELAY_ID.slice(2).toUpperCase()}`, {}]
   ])('answers 501 not_implemented for %s %s', async (_method, path, options) => {

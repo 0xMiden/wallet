@@ -1,5 +1,6 @@
 // Parse and check the Worker variables. The parse is strict: an unknown field, a bad value or a missing
 // field throws ConfigError. Every address and hash leaves the parse in lower case.
+import { notConfigured } from './errors';
 import { isRecord } from './http';
 import { parseKinds, type KindConfigs } from './kinds';
 import { ParseError, address, amount, fail, shape, type Hex } from './parse';
@@ -167,4 +168,14 @@ export function parseChains(relayConfig: string | undefined, gasMode: GasMode): 
 export function parseConfig(env: Env): RelayConfig {
   const gasMode = parseGasMode(env.GAS_MODE);
   return { gasMode, allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS), chains: parseChains(env.RELAY_CONFIG, gasMode) };
+}
+
+/** The config of a route. A variable that does not parse gives `503 service_unavailable`. */
+export function routeConfig(env: Env): RelayConfig {
+  try {
+    return parseConfig(env);
+  } catch (error) {
+    if (error instanceof ConfigError) throw notConfigured();
+    throw error;
+  }
 }

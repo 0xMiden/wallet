@@ -137,3 +137,30 @@ export function parseKinds(value: unknown, path: string): KindConfigs {
   }
   return configs;
 }
+
+/** The parsed `params` of a request, bound to the chain's config of the kind. The route uses it for any kind. */
+export interface BoundRelay {
+  token: Hex;
+  fee: bigint;
+  /** The full deposit: the bridged amount and the fee. */
+  deposit: bigint;
+  /** The calls of the batch. `feeRecipient` is null in sponsor mode. Throws when a value is not valid. */
+  buildCalls(feeRecipient: Hex | null): BatchCall[];
+}
+
+/**
+ * Parse the `params` of a request of the kind and bind them to the chain's config of the kind. Return null when the
+ * chain does not support the kind. Throws ParseError when the params do not parse.
+ */
+export function bindRelay<K extends RelayKind>(kind: K, configs: KindConfigs, params: unknown): BoundRelay | null {
+  const config = configs[kind];
+  if (config === undefined) return null;
+  const handler = RELAY_KINDS[kind];
+  const parsed = handler.parseParams(params, 'params');
+  return {
+    token: handler.tokenOf(parsed),
+    fee: handler.feeOf(parsed),
+    deposit: handler.depositOf(parsed),
+    buildCalls: feeRecipient => handler.buildCalls(config, parsed, feeRecipient)
+  };
+}

@@ -40,3 +40,11 @@ export function limitReadAddress({ env }: RequestContext, address: string): Prom
 export function limitRelay({ request, env }: RequestContext): Promise<void> {
   return charge(env.RELAY_RATE_LIMIT, `relay:${callerOf(request)}`);
 }
+
+/**
+ * Charge a checked POST /v1/relay also to `relay-address:<address>` on the relay binding. Many caller IPs that send
+ * relays of one address then share one budget of chain reads.
+ */
+export function limitRelayAddress({ env }: RequestContext, address: string): Promise<void> {
+  return charge(env.RELAY_RATE_LIMIT, `relay-address:${address}`);
+}

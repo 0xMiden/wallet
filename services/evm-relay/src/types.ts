@@ -1,6 +1,8 @@
 // Types of the bindings, the request context and the wire shapes. The config types are in config.ts.
 import type { ChainReader } from './chain';
 import type { GasMode, Hex } from './config';
+import type { SenderDirectory } from './sender';
+import type { RelaySenderObject } from './sender-object';
 import type { RelayKind } from '../../../src/lib/evm-relay/batch';
 
 /** The error codes of the API contract (README), and the two codes of a broken deployment. */
@@ -34,8 +36,10 @@ export type ErrorCode =
 export interface Env {
   /** Per caller IP, on GET /v1/account and GET /v1/relay/{id}. */
   READ_RATE_LIMIT?: RateLimit;
-  /** Per caller IP, on POST /v1/relay. */
+  /** Per caller IP and per address, on POST /v1/relay. */
   RELAY_RATE_LIMIT?: RateLimit;
+  /** The Sender Durable Objects, one per chain. */
+  RELAY_SENDER?: DurableObjectNamespace<RelaySenderObject>;
   ALLOWED_ORIGINS?: string;
   DEPLOYMENT_REVISION?: string;
   GAS_MODE?: string;
@@ -49,6 +53,7 @@ export interface RequestContext {
   env: Env;
   url: URL;
   reader: ChainReader;
+  senders: SenderDirectory;
 }
 
 export type Handler = (context: RequestContext) => Response | Promise<Response>;

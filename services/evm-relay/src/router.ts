@@ -3,6 +3,8 @@ import { ApiError, notFound, notImplemented } from './errors';
 import { limitRead, limitRelay } from './rate-limit';
 import { account } from './routes/account';
 import { healthz } from './routes/health';
+import { relay } from './routes/relay';
+import type { SenderDirectory } from './sender';
 import type { Env, Handler, RequestContext } from './types';
 
 const RELAY_STATUS_PATH = /^\/v1\/relay\/([^/]+)$/;
@@ -45,7 +47,7 @@ function limited(limit: (context: RequestContext) => Promise<void>, handler: Han
   };
 }
 
-/** A route of a later PR. */
+/** GET /v1/relay/{id}: a route of a later PR. */
 const stub: Handler = () => {
   throw notImplemented();
 };
@@ -57,19 +59,24 @@ function handlerFor(route: Route): Handler {
     case 'account':
       return limited(limitRead, account);
     case 'relay':
-      return limited(limitRelay, stub);
+      return limited(limitRelay, relay);
     case 'relayStatus':
       return limited(limitRead, stub);
   }
 }
 
 /** Match the route, check the method, and run the handler. */
-export async function dispatch(request: Request, env: Env, reader: ChainReader): Promise<Response> {
+export async function dispatch(
+  request: Request,
+  env: Env,
+  reader: ChainReader,
+  senders: SenderDirectory
+): Promise<Response> {
   const url = new URL(request.url);
   const route = matchRoute(url.pathname);
   const allow = ALLOWED_METHODS[route.name];
   if (request.method !== allow) {
     throw new ApiError(405, 'method_not_allowed', `The route allows only: ${allow}.`, {}, { Allow: allow });
   }
-  return handlerFor(route)({ request, env, url, reader });
+  return handlerFor(route)({ request, env, url, reader, senders });
 }
