@@ -814,7 +814,8 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
         ? state.reverseRequestAuthority.minimumReceive
         : state.reverseMinimum;
-    const liveRequest = live.tokens.find(token => token.faucetId === state.request.faucetId);
+    const requestFaucetId = state.request.faucetId;
+    const liveRequest = live.tokens.find(token => token.faucetId === requestFaucetId);
     if (!liveRequest) throw new Error('The recovery offer token has no live price');
     assertRecoveryOfferMeetsWalletMinimum(holding(liveRequest), proof.amount);
     const allowedMinimum = replacement ? BigInt(floor) : minimumFirstSwapRecoveryReturn(state);
