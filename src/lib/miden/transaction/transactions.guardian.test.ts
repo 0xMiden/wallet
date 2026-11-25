@@ -12800,31 +12800,34 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row()?.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('Guardian replace-hot-key: a stale activation request cannot build a proposal', async () => {
-    const createProposal = proposalFor();
-    const { tx, row, provider } = arrangeRotation(createProposal);
-    tx.extraInputs = { mode: 'replace', rotationRequest: 'earlier' };
-    const currentProvider = {
-      ...provider,
-      getAccounts: async () =>
-        (await provider.getAccounts()).map(account => ({
-          ...account,
-          requiresHotKeyRotation: true,
-          hotKeyRotationRequest: 'current'
-        }))
-    };
+  it.each(['earlier', undefined])(
+    'Guardian replace-hot-key: a stale or unbound activation request cannot build a proposal (%s)',
+    async rotationRequest => {
+      const createProposal = proposalFor();
+      const { tx, row, provider } = arrangeRotation(createProposal);
+      tx.extraInputs = { mode: 'replace', rotationRequest };
+      const currentProvider = {
+        ...provider,
+        getAccounts: async () =>
+          (await provider.getAccounts()).map(account => ({
+            ...account,
+            requiresHotKeyRotation: true,
+            hotKeyRotationRequest: 'current'
+          }))
+      };
 
-    await generateTransaction(
-      tx,
-      jest.fn(async () => new Uint8Array([1])),
-      false,
-      currentProvider
-    );
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        currentProvider
+      );
 
-    expect(createProposal).not.toHaveBeenCalled();
-    expect(mockGenerateHotKey).not.toHaveBeenCalled();
-    expect(row()?.status).toBe(ITransactionStatus.Failed);
-  });
+      expect(createProposal).not.toHaveBeenCalled();
+      expect(mockGenerateHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+    }
+  );
 
   it('Guardian replace-hot-key: a row without a mode builds a replace proposal', async () => {
     const createProposal = proposalFor();

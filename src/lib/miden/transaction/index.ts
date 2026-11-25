@@ -219,6 +219,7 @@ import {
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
+  isCurrentRotationRequest,
   ITransactionType,
   nearIntentsSendTrackingOf,
   ReplaceHotKeyTransaction,
@@ -2031,8 +2032,10 @@ export const generateTransaction = async (
   const provider: GuardianAccountProvider = {
     ...guardianProvider,
     getAccounts,
-    signWord: (publicKey, wordHex, transactionId) =>
-      guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
+    signWord: (publicKey, wordHex, transactionId, rotationProposal) =>
+      rotationProposal === true
+        ? guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id, true)
+        : guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
@@ -4532,10 +4535,8 @@ const generateGuardianTransaction = async (
       }
       const rTx = transaction as ReplaceHotKeyTransaction;
       const rotationRequest = rTx.extraInputs?.rotationRequest;
-      if (
-        rotationRequest !== undefined &&
-        (!walletAccount.requiresHotKeyRotation || walletAccount.hotKeyRotationRequest !== rotationRequest)
-      ) {
+      const isActivation = !rTx.extraInputs?.revokedSignerCommitment;
+      if (isActivation && !isCurrentRotationRequest(rotationRequest, walletAccount)) {
         throw new Error(getMessage('recoveryActionUnavailable'));
       }
       const sdkAccount = await withProposalStep('service_account_read', () =>
@@ -4547,7 +4548,13 @@ const generateGuardianTransaction = async (
         });
       }
       service = await withProposalStep('service_load', () =>
-        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+        MultisigService.buildColdMultisigService(
+          sdkAccount,
+          walletAccount,
+          isActivation
+            ? (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, rTx.id, true)
+            : guardianProvider.signWord
+        )
       );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.

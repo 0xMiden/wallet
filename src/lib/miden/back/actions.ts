@@ -855,9 +855,9 @@ export function signTransaction(publicKey: string, signingInputs: string) {
   });
 }
 
-export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
+export function signWord(publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) {
   return withUnlocked(async ({ vault }) => {
-    return await vault.signWord(publicKey, wordHex, transactionId);
+    return await vault.signWord(publicKey, wordHex, transactionId, rotationProposal);
   });
 }
 

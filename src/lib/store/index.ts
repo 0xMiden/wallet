@@ -700,10 +700,11 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex, transactionId) => {
+    signWord: async (publicKey, wordHex, transactionId, rotationProposal) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
         transactionId,
+        ...(rotationProposal === true && { rotationProposal }),
         publicKey,
         wordHex
       });

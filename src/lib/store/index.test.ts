@@ -1336,6 +1336,20 @@ describe('useWalletStore', () => {
       expect(result).toBe('secret-key-123');
     });
 
+    it('carries the rotation proposal scope into the signing request', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SignWordResponse, signature: '0xword-sig' });
+
+      await useWalletStore.getState().signWord('pub', '0xword', 'rotation-id', true);
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub',
+        wordHex: '0xword',
+        transactionId: 'rotation-id',
+        rotationProposal: true
+      });
+    });
+
     it('signWord posts a SignWordRequest and returns the signature string', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.SignWordResponse,

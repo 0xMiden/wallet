@@ -39,7 +39,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { isCurrentRotationRequest, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
@@ -2709,7 +2709,34 @@ export class Vault {
    * under `accAuthSecretKeyStrgKey` fall through the hot path: the JS
    * fallback's deserialize+sign is identical to the previous implementation.
    */
-  async signWord(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
+  async signWord(publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true): Promise<string> {
+    if (rotationProposal !== true) return this.signWordWithKey(publicKey, wordHex, transactionId);
+    return getAccountsWriteQueue().add(async () => {
+      const row = transactionId ? await Repo.transactions.get(transactionId) : undefined;
+      if (
+        !row ||
+        row.type !== 'replace-hot-key' ||
+        row.extraInputs?.revokedSignerCommitment ||
+        row.restoredFromBackup ||
+        row.status !== ITransactionStatus.GeneratingTransaction
+      ) {
+        throw new PublicError(getMessage('recoveryActionUnavailable'));
+      }
+      const account = (await this.fetchAccounts()).find(candidate =>
+        sameWalletAccountId(candidate.publicKey, row.accountId)
+      );
+      if (
+        !account ||
+        !isCurrentRotationRequest(row.extraInputs?.rotationRequest, account) ||
+        (account.coldPublicKey ?? getAuthorizedRecoveryPublicKey(row)) !== publicKey
+      ) {
+        throw new PublicError(getMessage('recoveryActionUnavailable'));
+      }
+      return this.signWordWithKey(publicKey, wordHex, transactionId);
+    });
+  }
+
+  private async signWordWithKey(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
     const accounts = await this.fetchAccounts();
     let account = accounts.find(acc => acc.coldPublicKey === publicKey);
     let transaction: ITransaction | undefined;

@@ -2204,6 +2204,13 @@ export type HotKeyActivationMode = 'add' | 'replace';
  * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
  * the WalletAccount pointer.
  */
+export const isCurrentRotationRequest = (
+  rotationRequest: string | undefined,
+  account: { requiresHotKeyRotation?: boolean; hotKeyRotationRequest?: string }
+): boolean =>
+  rotationRequest === account.hotKeyRotationRequest &&
+  (rotationRequest === undefined || account.requiresHotKeyRotation === true);
+
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;
   type: ITransactionType;

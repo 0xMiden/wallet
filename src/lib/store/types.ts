@@ -213,7 +213,7 @@ export interface WalletActions {
 
   // Signing actions
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
-  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;

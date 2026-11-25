@@ -839,7 +839,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature
       };
     case WalletMessageType.SignWordRequest:
-      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId, req.rotationProposal);
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature

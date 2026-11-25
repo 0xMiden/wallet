@@ -991,6 +991,7 @@ export interface SignTransactionResponse extends WalletMessageBase {
 
 export interface SignWordRequest extends WalletMessageBase {
   transactionId?: string;
+  rotationProposal?: true;
   type: WalletMessageType.SignWordRequest;
   publicKey: string;
   wordHex: string;

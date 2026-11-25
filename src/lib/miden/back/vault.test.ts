@@ -7,7 +7,13 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { getMessage } from 'lib/i18n';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
-import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
+import {
+  ITransaction,
+  ITransactionStatus,
+  ITransactionType,
+  ReplaceHotKeyTransaction,
+  Transaction
+} from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
@@ -370,7 +376,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
-    Word: { deserialize: jest.fn(() => ({})) },
+    Word: { deserialize: jest.fn(() => ({})), fromHex: jest.fn(() => ({ free: jest.fn() })) },
     // AccountBuilder records the fluent chain so assertions can verify
     // correct args — auth component type, storage mode, etc.
     AccountBuilder: jest.fn().mockImplementation((_seed: Uint8Array) => {
@@ -992,6 +998,63 @@ describe('Vault.revealPrivateKey', () => {
 });
 
 describe('Vault.signWord', () => {
+  it.each(['prior-request', undefined])(
+    'refuses a proposal from a stale or unbound rotation before using the cold key (%s)',
+    async rotationRequest => {
+      const vault = await seedVault('pw', {
+        accounts: [
+          {
+            publicKey: 'acc-1',
+            name: 'A',
+            isPublic: false,
+            type: WalletType.Guardian,
+            coldPublicKey: 'cold-pk',
+            requiresHotKeyRotation: true,
+            hotKeyRotationRequest: 'current-request'
+          }
+        ]
+      });
+      const vaultKey = (vault as any).vaultKey as CryptoKey;
+      await encryptAndSaveMany([[keys.accColdSecretKey('cold-pk'), 'aabb']], vaultKey);
+      const row = new ReplaceHotKeyTransaction('acc-1');
+      row.status = ITransactionStatus.GeneratingTransaction;
+      row.extraInputs = { mode: 'replace', rotationRequest };
+      await Repo.transactions.add(row);
+      mockAuthSecretKeyDeserialize.mockClear();
+
+      await expect(vault.signWord('cold-pk', '0xabc', row.id, true)).rejects.toBeInstanceOf(PublicError);
+      expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
+    }
+  );
+
+  it('signs a current activation and still permits reconciliation after the request clears', async () => {
+    const account = {
+      publicKey: 'acc-1',
+      name: 'A',
+      isPublic: false,
+      type: WalletType.Guardian,
+      coldPublicKey: 'cold-pk',
+      requiresHotKeyRotation: true,
+      hotKeyRotationRequest: 'current-request'
+    };
+    const vault = await seedVault('pw', { accounts: [account] });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accColdSecretKey('cold-pk'), 'aabb']], vaultKey);
+    const row = new ReplaceHotKeyTransaction('acc-1');
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.extraInputs = { mode: 'add', rotationRequest: account.hotKeyRotationRequest };
+    await Repo.transactions.add(row);
+
+    await expect(vault.signWord('cold-pk', '0xabc', row.id, true)).resolves.toBe('0x0909');
+
+    await encryptAndSaveMany(
+      [[keys.accounts, [{ ...account, requiresHotKeyRotation: false, hotKeyRotationRequest: undefined }]]],
+      vaultKey
+    );
+    await expect(vault.signWord('cold-pk', '0xabc', row.id, true)).rejects.toBeInstanceOf(PublicError);
+    await expect(vault.signWord('cold-pk', '0xabc', row.id)).resolves.toBe('0x0909');
+  });
+
   const NON_RECOVERY_TYPES: ITransactionType[] = [
     'send',
     'consume',

@@ -373,6 +373,11 @@ describe('zustandProvider', () => {
     expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex', 'recovery-tx');
   });
 
+  it('passes proposal signing scope to the store', async () => {
+    await zustandProvider.signWord('pub', '0xhex', 'recovery-tx', true);
+    expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex', 'recovery-tx', true);
+  });
+
   it('persistNewHotKey delegates to the store', async () => {
     // Optional on the interface; the assertion below fails if it's missing.
     await zustandProvider.persistNewHotKey?.('new-pub', 'new-ciphertext');

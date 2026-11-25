@@ -97,8 +97,10 @@ export const zustandProvider: GuardianAccountProvider = {
   releaseRecoveryAuthorization: id => useWalletStore.getState().releaseRecoveryAuthorization(id),
   getAccounts: async () => useWalletStore.getState().accounts,
   getPublicKeyForCommitment: (commitment: string) => useWalletStore.getState().getPublicKeyForCommitment(commitment),
-  signWord: (publicKey: string, wordHex: string, transactionId?: string) =>
-    useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
+  signWord: (publicKey, wordHex, transactionId, rotationProposal) =>
+    rotationProposal === true
+      ? useWalletStore.getState().signWord(publicKey, wordHex, transactionId, true)
+      : useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) =>
