@@ -103,7 +103,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           JWT_SIGNING_KEY: ${{ secrets.WALLET_API_JWT_SIGNING_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           ALLOWED_ORIGINS: ${{ vars.WALLET_API_ALLOWED_ORIGINS }}
           WALLET_API_URL: ${{ vars.WALLET_API_URL }}
           DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
@@ -124,11 +123,9 @@ jobs:
           const config = JSON.parse(readFileSync(join(service, 'wrangler.jsonc'), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
           const authLimit = config.ratelimits?.find(binding => binding.name === 'AUTH_RATE_LIMIT');
           const storageLimit = config.ratelimits?.find(binding => binding.name === 'STORAGE_RATE_LIMIT');
-          const commandAiLimit = config.ratelimits?.find(binding => binding.name === 'COMMAND_AI_RATE_LIMIT');
           if (authLimit?.simple?.limit !== 30 || authLimit.simple.period !== 60 ||
             storageLimit?.simple?.limit !== 120 || storageLimit.simple.period !== 60 ||
-            commandAiLimit?.simple?.limit !== 30 || commandAiLimit.simple.period !== 60 ||
-            new Set([authLimit.namespace_id, storageLimit.namespace_id, commandAiLimit.namespace_id]).size !== 3) {
+            authLimit.namespace_id === storageLimit.namespace_id) {
             throw new Error('Missing or invalid wallet-api rate limit bindings');
           }
           const [database, ...otherDatabases] = config.d1_databases ?? [];
@@ -142,13 +139,8 @@ jobs:
           database.migrations_dir = resolve(service, database.migrations_dir);
           config.vars = Object.fromEntries(['ALLOWED_ORIGINS', 'DEPLOYMENT_REVISION'].map(key => [key, process.env[key]]));
           writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-release.json'), JSON.stringify(config), { mode: 0o600 });
-          const secrets = { JWT_SIGNING_KEY: process.env.JWT_SIGNING_KEY };
-          if (process.env.GROQ_API_KEY?.trim()) {
-            secrets.GROQ_API_KEY = process.env.GROQ_API_KEY.trim();
-          } else {
-            console.warn('Notice: GROQ_API_KEY secret is not set; POST /v1/compile will answer 503 until GROQ_API_KEY is configured.');
-          }
-          writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-secrets.json'), JSON.stringify(secrets), { mode: 0o600 });
+          writeFileSync(join(process.env.RUNNER_TEMP, 'wallet-api-secrets.json'),
+            JSON.stringify({ JWT_SIGNING_KEY: process.env.JWT_SIGNING_KEY }), { mode: 0o600 });
           NODE
 
       # A migration runs before the Worker that needs it serves traffic. It must

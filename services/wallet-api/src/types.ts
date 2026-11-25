@@ -28,14 +28,9 @@ export interface Env {
   AUTH_RATE_LIMIT?: RateLimit;
   /** Per profile, on every authenticated route. Reads and writes count on separate keys. */
   STORAGE_RATE_LIMIT?: RateLimit;
-  /** Per caller address, on POST /v1/compile. */
-  COMMAND_AI_RATE_LIMIT?: RateLimit;
   ALLOWED_ORIGINS?: string;
   DEPLOYMENT_REVISION?: string;
   JWT_SIGNING_KEY?: string;
-  GROQ_API_KEY?: string;
-  COMMAND_AI_MODEL?: string;
-  COMMAND_AI_REASONING_EFFORT?: string;
 }
 
 export interface RequestContext {
@@ -43,7 +38,6 @@ export interface RequestContext {
   env: Env;
   url: URL;
   now: () => number;
-  fetchImpl: typeof fetch;
 }
 
 export type Handler = (context: RequestContext) => Response | Promise<Response>;

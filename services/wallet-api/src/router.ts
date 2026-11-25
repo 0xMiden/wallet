@@ -1,7 +1,6 @@
 import { FEATURES, isFeature } from './constants';
 import { ApiError } from './errors';
 import { issueNonce, login } from './routes/auth';
-import { compileCommand } from './routes/command-ai';
 import { healthz } from './routes/health';
 import { deleteProfile, setSalt } from './routes/profile';
 import { readEntry, readFeature, readStorage, writeBatch, writeEntry } from './routes/storage';
@@ -11,7 +10,7 @@ import { parseHashedKey } from './validate';
 const STORAGE_PATH = /^\/v1\/storage\/([^/]+)(?:\/([^/]+))?$/;
 
 type Route =
-  | { name: 'healthz' | 'nonce' | 'login' | 'salt' | 'profile' | 'storage' | 'compile' }
+  | { name: 'healthz' | 'nonce' | 'login' | 'salt' | 'profile' | 'storage' }
   | { name: 'feature'; feature: Feature }
   | { name: 'entry'; feature: Feature; hashedKey: string };
 
@@ -22,7 +21,6 @@ const ALLOWED_METHODS: Readonly<Record<Route['name'], string>> = {
   salt: 'PUT',
   profile: 'DELETE',
   storage: 'GET',
-  compile: 'POST',
   feature: 'GET, PUT',
   entry: 'GET, PUT'
 };
@@ -53,8 +51,6 @@ function matchRoute(pathname: string): Route {
       return { name: 'profile' };
     case '/v1/storage':
       return { name: 'storage' };
-    case '/v1/compile':
-      return { name: 'compile' };
     default:
       return matchStorageRoute(pathname);
   }
@@ -104,8 +100,6 @@ function handlerFor(route: Route, method: string): Handler | null {
       return onlyFor(method, route.name, deleteProfile);
     case 'storage':
       return onlyFor(method, route.name, readStorage);
-    case 'compile':
-      return onlyFor(method, route.name, compileCommand);
     case 'feature':
       return featureHandler(method, route.feature);
     case 'entry':
@@ -114,12 +108,7 @@ function handlerFor(route: Route, method: string): Handler | null {
 }
 
 /** Match the route, pick the handler for the method and run it. */
-export async function dispatch(
-  request: Request,
-  env: Env,
-  now: () => number,
-  fetchImpl: typeof fetch
-): Promise<Response> {
+export async function dispatch(request: Request, env: Env, now: () => number): Promise<Response> {
   const url = new URL(request.url);
   const route = matchRoute(url.pathname);
   const handler = handlerFor(route, request.method);
@@ -127,5 +116,5 @@ export async function dispatch(
     const allow = ALLOWED_METHODS[route.name];
     throw new ApiError(405, 'bad_request', `The route allows only: ${allow}.`, {}, { Allow: allow });
   }
-  return handler({ request, env, url, now, fetchImpl });
+  return handler({ request, env, url, now });
 }
