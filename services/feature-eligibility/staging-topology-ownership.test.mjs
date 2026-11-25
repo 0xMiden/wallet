@@ -498,3 +498,70 @@ test('provider read timeout aborts its in-flight API request', async () => {
   await assert.rejects(request, /deadline/);
   assert.equal(signal.aborted, true);
 });
+
+test('cleanup classifies provider budget and deadline exhaustion during ownership checks as cleanup_failed while observe returns null', async () => {
+  const good = apiFixture();
+  const baseCalls = [];
+  const makeBudget = initialCleanupCalls =>
+    topology.createTopologyApiBudget(
+      async requestPath => {
+        baseCalls.push(requestPath);
+        return good(requestPath);
+      },
+      {
+        now: () => 1_000,
+        startedAt: 1_000,
+        cleanupStartedAt: 1_000,
+        initialCalls: { preflight: 0, cleanup: initialCleanupCalls }
+      }
+    );
+
+  // Direct read inside checkTopologyOwnership (/account) exhausts the 250-call cap after before-check reads target /settings.
+  const directBudget = makeBudget(249);
+  const directResult = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: directBudget.cleanup,
+    deleteScript: async () => true
+  });
+  assert.deepEqual(directResult, { cleanup: 'blocked', reason: 'cleanup_failed' });
+
+  // Delegated read inside observeTopologyRelationships exhausts the 250-call cap after before(1) + checkAccount(1) + readTarget(3).
+  const delegatedBudget = makeBudget(245);
+  const delegatedResult = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: delegatedBudget.cleanup,
+    deleteScript: async () => true
+  });
+  assert.deepEqual(delegatedResult, { cleanup: 'blocked', reason: 'cleanup_failed' });
+
+  // Read-only observeTopologyOwnership still maps thrown budget errors to null.
+  const observeBudget = topology.createTopologyApiBudget(good, {
+    now: () => 1_000,
+    startedAt: 1_000,
+    initialCalls: { preflight: 250, cleanup: 0 }
+  });
+  assert.equal(await observe({ accountId, manifest, options, api: observeBudget.preflight }), null);
+
+  // Exhausting the 120-second cleanup deadline during checkTopologyOwnership also returns cleanup_failed.
+  let clock = 1_000;
+  const deadlineBudget = topology.createTopologyApiBudget(
+    async requestPath => {
+      const response = await good(requestPath);
+      clock = 121_000;
+      return response;
+    },
+    { now: () => clock, startedAt: 1_000, cleanupStartedAt: 1_000 }
+  );
+  const deadlineResult = await cleanup({
+    accountId,
+    manifest,
+    options,
+    api: deadlineBudget.cleanup,
+    deleteScript: async () => true
+  });
+  assert.deepEqual(deadlineResult, { cleanup: 'blocked', reason: 'cleanup_failed' });
+});

@@ -177,98 +177,108 @@ async function checkTopologyOwnership({
   onMismatch,
   allowPrivacyMismatchForCleanup = false
 } = {}) {
-  try {
-    if (typeof api !== 'function' || !/^[a-f0-9]{32}$/.test(accountId) || !verifyTopologyManifest(manifest, options))
-      return null;
-    const expected = buildTopologyManifest(options);
-    if (!expected) return null;
-    const phase = allowPrivacyMismatchForCleanup ? 'cleanup' : 'preflight';
-    const read = path => api(path, { phase });
-    const checkAccount = async () => {
-      const value = await read('/account');
-      return (
-        value?.success === true &&
-        Array.isArray(value.errors) &&
-        value.errors.length === 0 &&
-        value.result?.id === accountId
-      );
-    };
-    const readTarget = async () => {
-      const base = `/workers/scripts/${expected.scriptName}`;
-      const settings = await read(`${base}/settings`);
-      const script = await read(`${base}/script-settings`);
-      const bindings = settings?.result?.bindings;
-      if (
-        settings?.success !== true ||
-        !Array.isArray(settings.errors) ||
-        settings.errors.length ||
-        !Array.isArray(bindings)
-      )
-        return null;
-      const named = new Map(bindings.map(binding => [binding.name, binding]));
-      if (
-        named.size !== bindings.length ||
-        named.size !==
-          Object.keys(expected.config.vars).length +
-            expected.config.durable_objects.bindings.length +
-            expected.config.ratelimits.length +
-            1
-      )
-        return null;
-      for (const [name, text] of Object.entries(expected.config.vars)) {
-        if (named.get(name)?.type !== 'plain_text' || named.get(name)?.text !== text) return null;
-      }
-      if (named.get('TOPOLOGY_BEARER')?.type !== 'secret_text') return null;
-      for (const rate of expected.config.ratelimits) {
-        const actual = named.get(rate.name);
-        if (
-          actual?.type !== 'ratelimit' ||
-          actual.namespace_id !== rate.namespace_id ||
-          actual.simple?.limit !== rate.simple.limit ||
-          actual.simple?.period !== rate.simple.period
-        )
-          return null;
-      }
-      for (const binding of expected.config.durable_objects.bindings) {
-        if (
-          named.get(binding.name)?.type !== 'durable_object_namespace' ||
-          named.get(binding.name)?.class_name !== binding.class_name
-        )
-          return null;
-      }
-      const scriptMismatch = topologyScriptSettingsMismatch(script);
-      const privacyMismatch =
-        scriptMismatch &&
-        (scriptMismatch.gate === 'script_logpush' || scriptMismatch.gate.startsWith('script_observability'));
-      if (scriptMismatch && !(allowPrivacyMismatchForCleanup && privacyMismatch)) {
-        if (typeof onMismatch === 'function') onMismatch(scriptMismatch);
-        return null;
-      }
-      const content = await read(`${base}/content/v2`);
-      if (content?.sha256 !== expected.bundleSha256) return null;
-      return { settings, script, content };
-    };
-    if (!(await checkAccount())) return null;
-    const first = await readTarget();
-    if (!first) return null;
-    const relationships = await observeTopologyRelationships(read, {
-      script: expected.scriptName,
-      classes: expected.config.durable_objects.bindings.map(item => item.class_name),
-      rateNamespaceIds: expected.config.ratelimits.map(item => item.namespace_id)
-    });
-    if (relationships?.status !== 'observed') return null;
-    const second = await readTarget();
-    if (!second || JSON.stringify(first) !== JSON.stringify(second) || !(await checkAccount())) return null;
-    return true;
-  } catch {
-    return false;
+  if (typeof api !== 'function' || !/^[a-f0-9]{32}$/.test(accountId) || !verifyTopologyManifest(manifest, options))
+    return null;
+  const expected = buildTopologyManifest(options);
+  if (!expected) return null;
+  const phase = allowPrivacyMismatchForCleanup ? 'cleanup' : 'preflight';
+  let readFailure;
+  const read = async path => {
+    try {
+      return await api(path, { phase });
+    } catch (error) {
+      readFailure ??= { error };
+      throw error;
+    }
+  };
+  const checkAccount = async () => {
+    const value = await read('/account');
+    return (
+      value?.success === true &&
+      Array.isArray(value.errors) &&
+      value.errors.length === 0 &&
+      value.result?.id === accountId
+    );
+  };
+  if (!(await checkAccount())) return null;
+  const first = await readOwnershipTarget({ read, expected, allowPrivacyMismatchForCleanup, onMismatch });
+  if (!first) return null;
+  const relationships = await observeTopologyRelationships(read, {
+    script: expected.scriptName,
+    classes: expected.config.durable_objects.bindings.map(item => item.class_name),
+    rateNamespaceIds: expected.config.ratelimits.map(item => item.namespace_id)
+  });
+  if (readFailure) throw readFailure.error;
+  if (relationships?.status !== 'observed') return null;
+  const second = await readOwnershipTarget({ read, expected, allowPrivacyMismatchForCleanup, onMismatch });
+  if (!second || JSON.stringify(first) !== JSON.stringify(second) || !(await checkAccount())) return null;
+  return true;
+}
+
+async function readOwnershipTarget({ read, expected, allowPrivacyMismatchForCleanup, onMismatch }) {
+  const base = `/workers/scripts/${expected.scriptName}`;
+  const settings = await read(`${base}/settings`);
+  const script = await read(`${base}/script-settings`);
+  const bindings = settings?.result?.bindings;
+  if (
+    settings?.success !== true ||
+    !Array.isArray(settings.errors) ||
+    settings.errors.length ||
+    !Array.isArray(bindings)
+  )
+    return null;
+  const named = new Map(bindings.map(binding => [binding.name, binding]));
+  if (
+    named.size !== bindings.length ||
+    named.size !==
+      Object.keys(expected.config.vars).length +
+        expected.config.durable_objects.bindings.length +
+        expected.config.ratelimits.length +
+        1
+  )
+    return null;
+  for (const [name, text] of Object.entries(expected.config.vars)) {
+    if (named.get(name)?.type !== 'plain_text' || named.get(name)?.text !== text) return null;
   }
+  if (named.get('TOPOLOGY_BEARER')?.type !== 'secret_text') return null;
+  for (const rate of expected.config.ratelimits) {
+    const actual = named.get(rate.name);
+    if (
+      actual?.type !== 'ratelimit' ||
+      actual.namespace_id !== rate.namespace_id ||
+      actual.simple?.limit !== rate.simple.limit ||
+      actual.simple?.period !== rate.simple.period
+    )
+      return null;
+  }
+  for (const binding of expected.config.durable_objects.bindings) {
+    if (
+      named.get(binding.name)?.type !== 'durable_object_namespace' ||
+      named.get(binding.name)?.class_name !== binding.class_name
+    )
+      return null;
+  }
+  const scriptMismatch = topologyScriptSettingsMismatch(script);
+  const privacyMismatch =
+    scriptMismatch &&
+    (scriptMismatch.gate === 'script_logpush' || scriptMismatch.gate.startsWith('script_observability'));
+  if (scriptMismatch && !(allowPrivacyMismatchForCleanup && privacyMismatch)) {
+    if (typeof onMismatch === 'function') onMismatch(scriptMismatch);
+    return null;
+  }
+  const content = await read(`${base}/content/v2`);
+  if (content?.sha256 !== expected.bundleSha256) return null;
+  return { settings, script, content };
 }
 
 // These independent reads are evidence only; cleanup repeats the checks inside its mutation path.
 export async function observeTopologyOwnership({ api, accountId, manifest, options, onMismatch } = {}) {
-  if (!(await checkTopologyOwnership({ api, accountId, manifest, options, onMismatch }))) return null;
-  return Object.freeze({ status: 'observed', deploymentAuthorized: false, cleanupAuthorized: false });
+  try {
+    if (!(await checkTopologyOwnership({ api, accountId, manifest, options, onMismatch }))) return null;
+    return Object.freeze({ status: 'observed', deploymentAuthorized: false, cleanupAuthorized: false });
+  } catch {
+    return null;
+  }
 }
 
 export async function observeTopologyWorkerUrl({ api, scriptName } = {}) {
