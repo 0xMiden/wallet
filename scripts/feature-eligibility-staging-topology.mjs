@@ -308,12 +308,15 @@ async function readRecoveryReceipt(env, { requireNullResult = false } = {}) {
       selectedRunAttempt: env.CLEANUP_ATTEMPT
     });
   }
+  const directOriginalRecovery =
+    recovery.resultArtifactId === null ||
+    (recovery.runId === identity.runId && recovery.runAttempt === identity.runAttempt);
   if (
     recovery.repository !== identity.repository ||
     recovery.workflowPath !== identity.workflowPath ||
     typeof recovery.sourceSha !== 'string' ||
-    recovery.sourceSha !== identity.sourceSha ||
     !/^[a-f0-9]{40}$/.test(recovery.sourceSha) ||
+    (directOriginalRecovery && recovery.sourceSha !== identity.sourceSha) ||
     !/^[1-9][0-9]{0,17}$/.test(String(recovery.artifactId))
   )
     fail('invalid_recovery_receipt');

@@ -904,6 +904,79 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
   }
 });
 
+test('recovery supports multi-hop cleanup continuations when main advances after original run', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
+    const priorPath = path.join(prepared.runnerTemp, 'prior-cleanup-result.json');
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    const cleanupRunId = '99999';
+    const cleanupAttempt = '1';
+    const advancedSha = 'd'.repeat(40);
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    await writeFile(
+      priorPath,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        phase: 'recovery_cleanup',
+        deploymentAttempted: true,
+        cleanup: 'pending',
+        reason: null,
+        providerReads: {
+          preflight: 25,
+          cleanup: 3,
+          total: 28,
+          elapsedMs: 1_000,
+          preflightStartedAt: prepared.startedAt,
+          preflightDeadlineAt: prepared.startedAt + 120_000,
+          cleanupStartedAt: prepared.startedAt,
+          cleanupDeadlineAt: prepared.startedAt + 120_000,
+          preflightElapsedMs: 1_000,
+          cleanupElapsedMs: 500
+        }
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: cleanupRunId,
+        runAttempt: cleanupAttempt,
+        sourceSha: advancedSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      })}\n`,
+      { mode: 0o600 }
+    );
+
+    const fixture = deletableWorkerFixture(prepared.manifest);
+    const exitCode = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLEANUP_RUN_ID: cleanupRunId,
+        CLEANUP_ATTEMPT: cleanupAttempt
+      },
+      true,
+      fixture.options
+    );
+    const result = JSON.parse(await readFile(resultFile, 'utf8'));
+
+    assert.equal(exitCode, 0);
+    assert.equal(fixture.isDeleted(), true);
+    assert.equal(result.phase, 'recovery_cleanup');
+    assert.equal(result.cleanup, 'removed');
+    assert.deepEqual(result.identity, prepared.identity);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
 test('cli failure handler preserves existing valid result.json instead of clobbering lineage', async () => {
   const prepared = await preparedTestRun();
   try {
