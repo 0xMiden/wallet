@@ -476,7 +476,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7]
     runs-on: ubuntu-latest
     env:
       JEST_COVERAGE_SHARD: '1'
@@ -523,9 +523,7 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          workers=--runInBand
-          if [[ "$SHARD" == 3 ]]; then workers=--maxWorkers=2; fi
-          yarn test:coverage "$workers" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          bash scripts/ci/run-jest-shard.sh "$SHARD" "$SHARDS" --coverage --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
           node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
@@ -549,7 +547,7 @@ jobs:
     runs-on: ubuntu-slim
     env:
       # Must equal the length of the coverage job's matrix.
-      COVERAGE_SHARDS: 6
+      COVERAGE_SHARDS: 7
     steps:
       - name: Check shards
         env:
@@ -583,7 +581,8 @@ jobs:
             coverage-shards/coverage-shard-3/coverage-final.json \
             coverage-shards/coverage-shard-4/coverage-final.json \
             coverage-shards/coverage-shard-5/coverage-final.json \
-            coverage-shards/coverage-shard-6/coverage-final.json
+            coverage-shards/coverage-shard-6/coverage-final.json \
+            coverage-shards/coverage-shard-7/coverage-final.json
       # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
       # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
       # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.
