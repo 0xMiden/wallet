@@ -42,10 +42,13 @@ const NOTE_TRANSPORT_ENV_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
 let overrideCache: EndpointOverride | null = null;
 
 // The stylesheet recolors the accent for testnet off this attribute (main.css). A realm with no document, such as the
-// background worker, has nothing to mark.
+// background worker, has nothing to mark. A devnet build keeps its fixed slate ramp (tailwind.config.ts), so it never
+// takes the testnet recolor either, or its accent variables and its primary utilities would disagree.
 function setOverrideCache(next: EndpointOverride | null): void {
   overrideCache = next;
-  if (typeof document !== 'undefined') document.documentElement.dataset.network = getEffectiveNetworkName();
+  if (typeof document !== 'undefined' && DEFAULT_NETWORK !== MIDEN_NETWORK_NAME.DEVNET) {
+    document.documentElement.dataset.network = getEffectiveNetworkName();
+  }
 }
 setOverrideCache(null);
 

@@ -765,6 +765,20 @@ describe('network marker on the root element', () => {
     expect(document.documentElement.dataset.network).toBe('mainnet');
   });
 
+  it('leaves a devnet build unmarked, so it never takes the testnet recolor', async () => {
+    const previous = process.env.MIDEN_NETWORK;
+    process.env.MIDEN_NETWORK = 'devnet';
+    try {
+      document.documentElement.removeAttribute('data-network');
+      const m = loadModule();
+      await m.applyEndpointOverride(m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.TESTNET));
+      expect(document.documentElement.dataset.network).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_NETWORK;
+      else process.env.MIDEN_NETWORK = previous;
+    }
+  });
+
   it('marks the default network as soon as the module loads', () => {
     document.documentElement.removeAttribute('data-network');
     loadModule();
