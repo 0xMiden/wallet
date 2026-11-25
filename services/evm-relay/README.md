@@ -6,16 +6,14 @@ This Worker is separate from `services/wallet-api`. The wallet-api Worker stores
 
 ## State of this service
 
-The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay route and the Sender Durable Object. It has no timer yet: nothing reads receipts, sends a stored transaction again, replaces a fee or removes old rows. It has no deploy workflow.
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay routes and the Sender Durable Object with its timer. It has no deploy workflow.
 
 | Route | State |
 | --- | --- |
 | `GET /healthz` | Implemented |
 | `GET /v1/account` | Implemented |
 | `POST /v1/relay` | Implemented |
-| `GET /v1/relay/{id}` | Registered and rate limited. Answers `501 not_implemented`, or `404 not_found` when `{id}` is not `0x` and 64 hex characters |
-
-A later PR implements `GET /v1/relay/{id}` and the timer of the Sender.
+| `GET /v1/relay/{id}` | Implemented |
 
 ## Source layout
 
@@ -29,12 +27,13 @@ A later PR implements `GET /v1/relay/{id}` and the timer of the Sender.
 | `src/parse.ts` | The strict parse helpers of the config and the request bodies |
 | `src/rate-limit.ts` | The read and relay rate limits per caller IP and per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
-| `src/chain.ts` | The chain reader (the account reads and the relay read, in JSON-RPC batches) and the broadcast |
-| `src/sender.ts` | `RelaySender`: the nonce, the signature, the stored row and the broadcast. Also the route's Sender client |
-| `src/sender-object.ts` | `RelaySenderObject`: the Durable Object that wraps `RelaySender` |
+| `src/chain.ts` | The chain reader (the account reads and the relay read, in JSON-RPC batches), the receipt and fee reads of the Sender, and the broadcast |
+| `src/sender.ts` | `RelaySender`: the nonce, the signature, the stored row, the broadcast and the timer. Also the route's Sender client |
+| `src/sender-object.ts` | `RelaySenderObject`: the Durable Object that wraps `RelaySender` and runs its alarm |
 | `src/routes/health.ts` | `/healthz` |
 | `src/routes/account.ts` | `GET /v1/account` |
 | `src/routes/relay.ts` | `POST /v1/relay` |
+| `src/routes/relay-status.ts` | `GET /v1/relay/{id}` |
 | `src/http.ts` | Responses, body read with the 64 KiB cap, CORS |
 | `src/errors.ts` | `ApiError` and its helpers |
 | `src/types.ts` | `Env`, `RequestContext`, `ErrorCode` and the wire shapes |
@@ -80,11 +79,11 @@ The parse is strict. It refuses an unknown field and a missing field, and it low
 
 ### Relay kinds
 
-`src/kinds.ts` holds one handler per relay kind (`RelayKind` of the shared batch module). A handler parses the config of its kind, parses the `params` of a relay request, gives the token, the fee and the deposit total (`amount + fee`) of the parsed params, and builds the calls of the batch from the config, the params and the fee recipient. The routes use only the registry, so a new bridge is one entry in the registry and one kind in the batch module.
+`src/kinds.ts` holds one handler per relay kind (`RelayKind` of the shared batch module). A handler parses the config of its kind, gives the public values of that config (`publicConfig`, which `GET /v1/account` echoes), parses the `params` of a relay request, gives the token, the fee and the deposit total (`amount + fee`) of the parsed params, and builds the calls of the batch from the config, the params and the fee recipient. The routes use only the registry, so a new bridge is one entry in the registry and one kind in the batch module.
 
 `/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
-The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
+The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
 
 ## Account read
 
@@ -119,26 +118,65 @@ When the address delegates already and the request still has an authorization, t
 
 ### Sender
 
-The Sender is the Durable Object `RelaySenderObject` (binding `RELAY_SENDER`, SQLite storage). The route reaches the object of a chain with `idFromName(String(chainId))`, so one object owns the relayer nonce of one chain. The logic is the plain class `RelaySender` in `src/sender.ts`; the object only gives it the SQL storage, the relayer key, the RPC broadcast and the clock. The Jest tests run `RelaySender` on `node:sqlite`.
+The Sender is the Durable Object `RelaySenderObject` (binding `RELAY_SENDER`, SQLite storage). The route reaches the object of a chain with `idFromName(String(chainId))`, so one object owns the relayer nonce of one chain. The logic is the plain class `RelaySender` in `src/sender.ts`; the object only gives it the SQL storage, the alarm (`getAlarm`, `setAlarm` and the `alarm()` handler), the relayer key and its address, the RPC reads and the broadcast, and the clock. The Jest tests run `RelaySender` on `node:sqlite` with a fake chain and a fake alarm.
 
 Its storage has two tables, created in the constructor:
 
-- `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`: `next_nonce` (the nonce after the last stored transaction) and `chain_id` (the Sender refuses a job of another chain).
-- `inflight`: `id` (primary key, the batch digest), `evm_address`, `tx_hash`, `raw_tx` (the signed bytes; nullable, so a later cleanup can drop them), `request` (JSON of `to`, `data`, `gas` and `authorization`, for a fee replacement), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline`, `state` (`pending`, `succeeded` or `reverted`), `attempts`, `created_at`, `updated_at` (milliseconds). Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `nonce`.
+- `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`: `next_nonce` (the nonce after the last stored transaction), `chain_id` (the Sender refuses a job of another chain) and `relayer` (the address of the key that `next_nonce` counts for).
+- `inflight`: `id` (primary key, the batch digest), `evm_address`, `relayer` (the address of the key that signed the row), `tx_hash` (the current hash; the mined hash once final), `sent_hashes` (JSON array of every hash broadcast for the row, the current one last), `raw_tx` and `request` (the signed bytes, and JSON of `to`, `data`, `gas` and `authorization` for a fee replacement; both null once the row is final, because both hold the user's signature), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline` (unix seconds), `state` (`pending`, `succeeded` or `reverted`), `attempts` (signatures of the row), `nonce_used` (1 when a node said that a mined transaction holds the nonce), `created_at`, `signed_at` (the last signature), `updated_at` (milliseconds). A check refuses a `pending` row without `raw_tx` or `request`. Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `(relayer, nonce)`.
+
+No Sender is deployed yet, so the schema has no migration: `CREATE TABLE IF NOT EXISTS` builds it in a new object.
 
 `submit(job)` does this:
 
-1. A row with the `id` exists: return it.
-2. A `pending` row of the address exists: the route answers `409 busy` with that row's `id`.
-3. `nonce = max(the relayer's pending nonce that the route read, next_nonce)`.
-4. Sign with `RELAYER_PRIVATE_KEY`: type 4 (EIP-7702) when the job has an authorization, else type 2. The transaction hash is the keccak256 of the signed bytes.
-5. In one storage transaction, insert the row with the signed bytes and set `next_nonce = nonce + 1`.
-6. Only then broadcast with `eth_sendRawTransaction`. "already known" counts as success. A failed broadcast does not fail the request and does not delete the row; a later step sends the same bytes again.
-7. Return `{ id, state: "pending", txHash }`.
+1. Delete the final rows whose `updated_at` is more than 24 hours ago (the cleanup).
+2. A row with the `id` exists: return it.
+3. A `pending` row of the address exists: the route answers `409 busy` with that row's `id`.
+4. Read the address of the current relayer key. When it is not `meta.relayer`, delete `next_nonce` and store the new address (see the key change below).
+5. `nonce = max(the relayer's pending nonce that the route read, next_nonce)`.
+6. Sign with `RELAYER_PRIVATE_KEY`: type 4 (EIP-7702) when the job has an authorization, else type 2. The transaction hash is the keccak256 of the signed bytes.
+7. In one storage transaction, insert the row with the signed bytes and set `next_nonce = nonce + 1`.
+8. When a pending row exists and no alarm is armed after now, arm the alarm 30 seconds ahead.
+9. Only then broadcast with `eth_sendRawTransaction`. "already known" counts as success. A failed broadcast does not fail the request and does not delete the row; the timer sends the same bytes again.
+10. Return `{ id, state: "pending", txHash }`.
 
-Steps 1 to 5 run in an exclusive section: a promise queue in the object lets one submit at a time run them, and the next one starts only after the row of the one before is committed (or its signature failed). So two submits never get the same nonce, even when the signer yields to the event loop. The section has only one `await`, the signature, which does no I/O; storage calls are synchronous. A nonce is written only in the transaction that stores its signed bytes, so no nonce is reserved without a stored transaction. The unique index on the pending nonce is a second guard. The broadcast runs after the section, so a slow RPC does not hold other submits. The Durable Object output gate also holds the outgoing broadcast until the storage write is durable.
+Steps 1 to 8 run in an exclusive section: a promise queue in the object lets one task at a time run them, and the next one starts only after the row of the one before is committed (or its signature failed). So two submits never get the same nonce, even when the signer yields to the event loop. The section has only one `await` besides the alarm calls, the signature, which does no I/O; storage calls are synchronous. A nonce is written only in the transaction that stores its signed bytes, so no nonce is reserved without a stored transaction. The unique index on the pending nonce is a second guard. The broadcast runs after the section, so a slow RPC does not hold other submits. The Durable Object output gate also holds the outgoing broadcast until the storage write is durable.
 
-`get(id)` returns `{ id, state, txHash }` or null. The Sender has no alarm yet.
+`get(id)` returns `{ id, state, txHash }` or null.
+
+#### Timer
+
+The alarm runs one tick. A tick does this:
+
+1. Delete the final rows whose `updated_at` is more than 24 hours ago. A pending row stays whatever its age.
+2. Read every pending row, lowest nonce first, and read the receipt of every hash in `sent_hashes` of every row with `eth_getTransactionReceipt`, in one JSON-RPC batch.
+3. When a replacement is due for a row without a receipt (below), read the fees once: `eth_feeHistory` and `eth_maxPriorityFeePerGas` in one batch. A failed fee read only stops the replacements of this tick.
+4. In the exclusive section, read the pending rows again (a submit can have stored one since step 2) and, for each row:
+   - A receipt with status 1 for any of its hashes: state `succeeded`. Status 0: state `reverted`. `tx_hash` becomes the mined hash; `raw_tx` and `request` become null; `updated_at` is now. One `UPDATE` statement.
+   - No receipt and a replacement is due: sign the stored request again at the same nonce with new fees, and store the new hash, bytes and fees, the hash in `sent_hashes`, `attempts + 1` and `signed_at` in one `UPDATE` statement. Write one log line. A failed signature keeps the old bytes.
+   - No receipt otherwise: keep the stored bytes.
+5. After the section, broadcast the bytes of every row without a receipt, lowest nonce first: the same bytes again, or the replacement. A node can have lost a broadcast or dropped the transaction; the same bytes bring it back. "already known" is a success. "nonce too low" means that a mined transaction holds the nonce: the Sender sets `nonce_used` and the receipt read of a later tick finds the receipt. Any other failure changes nothing.
+6. In the exclusive section, arm the next alarm 30 seconds ahead while a pending row remains. With no pending row, the Sender arms nothing, so an idle service costs nothing.
+
+A tick never changes `next_nonce`. A failure of the receipt read changes no row: the tick writes `evm-relay: a Sender tick failed on chain <chainId>.` and still arms the next alarm.
+
+One tick makes one HTTP request for the receipts, one more for the fees when a replacement is due, and one `eth_sendRawTransaction` request per pending row without a receipt.
+
+**Fee replacement.** A replacement is due when the row has no receipt 3 minutes after its last signature (`REPLACE_AFTER_MS`), its batch deadline has not passed, `nonce_used` is 0, and the row was signed by the current relayer key. The new `maxPriorityFeePerGas` is the larger of the node's `eth_maxPriorityFeePerGas` and the old value plus 15 % (rounded up). The new `maxFeePerGas` is the larger of `2 × base fee + priority fee` (the rule of the relay route) and the old value plus 15 %. Nodes refuse a replacement that raises the fees by less than about 10 to 12.5 %. The request (`to`, `data`, `gas`, the authorization list) and the nonce stay the same. There is no fee ceiling and no budget. After a replacement, either transaction can be mined, so the tick reads the receipt of every hash in `sent_hashes`.
+
+**Deadline.** After the batch deadline, `execute` reverts, so the Sender does not replace the fee. It keeps sending the same bytes until a receipt comes, because an empty nonce stops every later relay of the chain.
+
+**Cleanup.** A tick and a submit delete a final row 24 hours after its `updated_at`. No alarm runs only for the cleanup. After the cleanup, `GET /v1/relay/{id}` answers `404` for the row, and the same request sent again is a new relay: a batch that succeeded then fails its simulation, because its Calibur nonce is used.
+
+**Key change.** `next_nonce` counts the nonces of one relayer account. When `RELAYER_PRIVATE_KEY` changes, the next submit sees another address than `meta.relayer`, deletes `next_nonce` and stores the new address, so its nonce is the pending count of the new account that the route read. Each row stores the address that signed it, and the pending nonce index is per relayer, so a pending row of the old key and a row of the new key can have the same nonce. The timer follows a pending row of an old key to its receipt and sends its bytes again, but never replaces its fee: the Sender has no old key to sign with.
+
+**Known limits.**
+
+- A row past its deadline whose `maxFeePerGas` is below the base fee stays pending until the base fee falls below it. Its nonce stops every later relay of the chain for that time. The relay route caps a deadline at 24 hours and 5 minutes, and the last replacement can happen just before the deadline, so the stall starts at most about 24 hours after the request, but its length has no bound. A cancel transaction (a 0-value transfer to the relayer at the same nonce, with current fees) after the deadline would bound it; this service has none.
+- A nonce that another transaction of the relayer account took (the key used outside this service) never gets a receipt for the row: the row stays pending and its address stays busy.
+- A pending row of an old relayer key can stall the same way, since the Sender cannot replace its fee.
+- The Sender records a receipt at once and keeps no signed bytes after that. A reorganisation that drops the mined transaction leaves the row final.
+- All receipt reads of one tick go in one JSON-RPC batch. A provider with a small batch limit can refuse a tick with many pending rows and many replacements.
 
 ## Local run
 
@@ -158,7 +196,7 @@ Local state goes to `.wrangler/`, and local secrets go to `.dev.vars`. Git ignor
 
 ## API contract
 
-This section is the reference for the wallet client. `GET /v1/account` and `POST /v1/relay` implement it; a later PR implements `GET /v1/relay/{id}`.
+This section is the reference for the wallet client. The three routes implement it.
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
 
@@ -172,11 +210,12 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
       needsAuthorization: <boolean; true when the address does not delegate to the pinned Calibur>,
       authorizationNonce: <number; the pending transaction count of the address>,
       salt: <0x64hex; the Calibur EIP-712 domain salt of the address>,
-      kinds: { "agglayer-deposit": { sequence: "<decimal>" } },
+      kinds: { "agglayer-deposit": { sequence: "<decimal>",
+                                     config: { bridgeAddress, midenNetworkId, forceUpdateGlobalExitRoot } } },
       balances: [ { token, balance, minAmount, fee } ] }
 ```
 
-- `kinds` has one entry for each kind in the chain's `kinds` config.
+- `kinds` has one entry for each kind in the chain's `kinds` config. `config` holds the public values of that kind on that chain, as the registry holds them (addresses in lower case). The wallet compares them with its own values and shows a config error, instead of signing a batch that fails as `bad_signature`.
 - `balances` lists every configured token of the chain in config order.
 - In `sponsor` mode every `fee` is `"0"` and `feeRecipient` is `null`, whatever the config holds. In `deduct` mode they are the configured values.
 - Errors: `invalid_request` for a bad `chainId` or `address`, or for the relayer's own address; `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.
@@ -200,7 +239,13 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 - A `batchNonce` whose key is not the kind's key is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
 - Send `authorization` when `/v1/account` says `needsAuthorization`, with `nonce` = `authorizationNonce`. For an address that delegates already, the server ignores it.
 
-`GET /v1/relay/{id}` → `200 { id, state: "pending" | "succeeded" | "reverted", txHash }` or `404 not_found`.
+`GET /v1/relay/{id}[?chainId=<int>]` → `200 { id, state: "pending" | "succeeded" | "reverted", txHash }` or `404 not_found`.
+
+- `{id}` is `0x` and 64 hex characters, in any case. Another value is `404 not_found`, before the rate limit.
+- The caller IP is charged on `read:<CF-Connecting-IP>`.
+- The id does not name its chain, so the route asks the Sender of each chain of `RELAY_CONFIG` in config order until one knows the id. With `chainId`, it asks only that chain: an unknown chain is `unsupported_chain`, a bad value `invalid_request`.
+- The route reads the Sender storage only, never the chain. The timer of the Sender updates `state` and `txHash` (the hash that was mined, which can be an earlier hash than the one `POST /v1/relay` answered, after a fee replacement).
+- A final relay is deleted 24 hours after it became final; the route then answers `404`.
 
 An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seconds> }`. Error codes and status:
 
@@ -223,6 +268,5 @@ An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seco
 | `not_found` | 404 | The route or the relay does not exist |
 | `method_not_allowed` | 405 | The route does not allow the method. The `Allow` header names the method |
 | `payload_too_large` | 413 | The body is over 64 KiB |
-| `not_implemented` | 501 | The route is not implemented yet |
 
 Two more codes report a broken deployment, not a bad request: `service_unavailable` 503 (a variable does not parse or a binding is missing) and `internal_error` 500 (an unexpected failure).

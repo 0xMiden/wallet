@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import { memoryDatabase, type MemoryDatabase } from './sqlite';
 import type { RelayKind } from '../../../src/lib/evm-relay/batch';
-import type { AccountState, ChainReader, RelayCall, RelayState } from '../src/chain';
+import type { AccountState, ChainReader, ReceiptStatus, RelayCall, RelayState } from '../src/chain';
 import type { ChainConfig, Hex } from '../src/config';
 import { isRecord } from '../src/http';
 import { handleRequest } from '../src/index';
@@ -119,10 +119,14 @@ export interface Broadcast {
   storedRows: number;
 }
 
-/** Real Senders over node:sqlite: one per chain, with the test relayer key and a recording broadcast. */
+/** Real Senders over node:sqlite: one per chain, with the test relayer key, a recording broadcast and a fake chain. */
 export class TestSenders {
   readonly broadcasts: Broadcast[] = [];
   broadcastError: Error | null = null;
+  /** The receipt status of each mined hash, on every chain. */
+  readonly receipts = new Map<Hex, ReceiptStatus>();
+  /** The armed alarm of each chain's Sender. */
+  readonly alarms = new Map<number, number>();
   readonly databases = new Map<number, MemoryDatabase>();
   private readonly senders = new Map<number, RelaySender>();
   private readonly account = privateKeyToAccount(`0x${'11'.repeat(32)}`);
@@ -142,15 +146,29 @@ export class TestSenders {
     if (known !== undefined) return known;
     const sender = new RelaySender({
       sql: this.databaseOf(chainId),
+      relayer: () => TEST_EXECUTOR,
       sign: transaction => this.account.signTransaction(transaction),
       broadcast: async (target, raw) => {
         this.broadcasts.push({ chainId: target, raw, storedRows: this.rows(target).length });
         if (this.broadcastError !== null) throw this.broadcastError;
+        return 'accepted';
+      },
+      receipts: async (_target, hashes) => hashes.map(hash => this.receipts.get(hash) ?? null),
+      fees: async () => ({ baseFee: 1_000_000_000n, priorityFee: 100_000_000n }),
+      alarmAt: async () => this.alarms.get(chainId) ?? null,
+      schedule: async atMs => {
+        this.alarms.set(chainId, atMs);
       },
       now: () => 1_700_000_000_000
     });
     this.senders.set(chainId, sender);
     return sender;
+  }
+
+  /** Run the alarm of the chain's Sender, as the runtime does: the alarm is no longer armed while it runs. */
+  tick(chainId: number): Promise<void> {
+    this.alarms.delete(chainId);
+    return this.senderOf(chainId).tick();
   }
 
   private databaseOf(chainId: number): MemoryDatabase {

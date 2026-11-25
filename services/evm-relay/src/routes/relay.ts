@@ -12,7 +12,7 @@ import {
   type BatchEnvelope,
   type RelayKind
 } from '../../../../src/lib/evm-relay/batch';
-import { RpcUnavailableError, type RelayAuthorization, type RelayCall, type RelayState } from '../chain';
+import { RpcUnavailableError, maxFeeOf, type RelayAuthorization, type RelayCall, type RelayState } from '../chain';
 import { routeConfig, type ChainConfig, type GasMode, type TokenPolicy } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json, readJson } from '../http';
@@ -174,7 +174,8 @@ function authorizationToSend(state: RelayState, supplied: RelayAuthorization | n
   return supplied;
 }
 
-function answer(job: RelayJob): Response {
+/** The body of both relay routes. */
+export function answer(job: RelayJob): Response {
   return json({ id: job.id, state: job.state, txHash: job.txHash });
 }
 
@@ -221,7 +222,7 @@ export async function relay(context: RequestContext): Promise<Response> {
   const authorization = authorizationToSend(state, request.authorization);
   if (state.gasEstimate === null) throw new ApiError(409, 'simulation_failed', 'The batch fails in simulation.');
   const gas = state.gasEstimate + state.gasEstimate / 5n;
-  const maxFeePerGas = 2n * state.baseFee + state.priorityFee;
+  const maxFeePerGas = maxFeeOf(state);
   if (state.relayerBalance < gas * maxFeePerGas) {
     // A fixed text and the chain id only.
     console.error(`evm-relay: the relayer account cannot pay the gas on chain ${chain.chainId}.`);

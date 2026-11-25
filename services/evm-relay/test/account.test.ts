@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
+  AGGLAYER_DEPOSIT,
   FEE_RECIPIENT,
   NATIVE,
   TEST_EXECUTOR,
@@ -56,7 +57,7 @@ describe('GET /v1/account', () => {
       needsAuthorization: false,
       authorizationNonce: 3,
       salt: SALT,
-      kinds: { 'agglayer-deposit': { sequence: '9' } },
+      kinds: { 'agglayer-deposit': { sequence: '9', config: AGGLAYER_DEPOSIT } },
       balances: [
         { token: USDC, balance: '2500000', minAmount: '2000000', fee: '0' },
         { token: NATIVE, balance: '100', minAmount: '1000', fee: '0' }

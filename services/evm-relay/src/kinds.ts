@@ -14,10 +14,15 @@ import {
 
 const UINT32_MAX = 2 ** 32 - 1;
 
+/** The public values of a kind's config. GET /v1/account echoes them, so the wallet can compare its own. */
+export type PublicKindConfig = Readonly<Record<string, string | number | boolean>>;
+
 /** The behaviour of one relay kind. `Config` is its entry in RELAY_CONFIG and `Params` the `params` of a request. */
 export interface KindHandler<Config, Params> {
   /** Parse the config of the kind. Throws ParseError. */
   parseConfig(value: unknown, path: string): Config;
+  /** The public values of the config, as the registry holds them. */
+  publicConfig(config: Config): PublicKindConfig;
   /** Parse the `params` of a relay request. Throws ParseError. */
   parseParams(value: unknown, path: string): Params;
   /** The token that the batch takes from the address. The zero address is the native coin. */
@@ -74,6 +79,11 @@ const agglayerDeposit: KindHandler<AgglayerDepositConfig, AgglayerDepositRequest
       forceUpdateGlobalExitRoot
     };
   },
+  publicConfig: ({ bridgeAddress, midenNetworkId, forceUpdateGlobalExitRoot }) => ({
+    bridgeAddress,
+    midenNetworkId,
+    forceUpdateGlobalExitRoot
+  }),
   parseParams(value, path) {
     const fields = shape(value, path, ['token', 'amount', 'midenAccountHex', 'fee']);
     const { midenAccountHex } = fields;
@@ -136,6 +146,13 @@ export function parseKinds(value: unknown, path: string): KindConfigs {
     parseKind(configs, name, entry, `${path}.${name}`);
   }
   return configs;
+}
+
+/** The public values of the chain's config of the kind, or null when the chain does not support the kind. */
+export function publicConfigOf<K extends RelayKind>(kind: K, configs: KindConfigs): PublicKindConfig | null {
+  const config = configs[kind];
+  if (config === undefined) return null;
+  return RELAY_KINDS[kind].publicConfig(config);
 }
 
 /** The parsed `params` of a request, bound to the chain's config of the kind. The route uses it for any kind. */

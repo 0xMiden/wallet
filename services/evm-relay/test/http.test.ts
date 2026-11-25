@@ -9,7 +9,6 @@ import { MAX_BODY_BYTES, readJson } from '../src/http';
 
 const CONFIG_ERROR = { error: 'service_unavailable', message: 'The service is not configured.' };
 const NOT_FOUND = { error: 'not_found', message: 'The route does not exist.' };
-const NOT_IMPLEMENTED = { error: 'not_implemented', message: 'The route is not implemented yet.' };
 
 describe('CORS', () => {
   it('answers a preflight of an allowed origin with the allowed methods and headers', async () => {
@@ -181,15 +180,6 @@ describe('routing', () => {
       message: `The route allows only: ${allow}.`
     });
     expect([...harness.readLimit.keys, ...harness.relayLimit.keys]).toEqual([]);
-  });
-
-  it.each([
-    ['GET', `/v1/relay/${RELAY_ID}`, {}],
-    ['GET', `/v1/relay/0x${RELAY_ID.slice(2).toUpperCase()}`, {}]
-  ])('answers 501 not_implemented for %s %s', async (_method, path, options) => {
-    const response = await send(createHarness(), path, options);
-    expect(response.status).toBe(501);
-    await expect(bodyOf(response)).resolves.toEqual(NOT_IMPLEMENTED);
   });
 });
 

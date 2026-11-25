@@ -1,9 +1,11 @@
 import type { ChainReader } from './chain';
-import { ApiError, notFound, notImplemented } from './errors';
+import { ApiError, notFound } from './errors';
+import type { Hex } from './parse';
 import { limitRead, limitRelay } from './rate-limit';
 import { account } from './routes/account';
 import { healthz } from './routes/health';
 import { relay } from './routes/relay';
+import { relayStatus } from './routes/relay-status';
 import type { SenderDirectory } from './sender';
 import type { Env, Handler, RequestContext } from './types';
 
@@ -11,7 +13,7 @@ const RELAY_STATUS_PATH = /^\/v1\/relay\/([^/]+)$/;
 /** A relay id: the EIP-712 digest of the batch. */
 const RELAY_ID = /^0x[0-9a-fA-F]{64}$/;
 
-type Route = { name: 'healthz' | 'account' | 'relay' } | { name: 'relayStatus'; id: string };
+type Route = { name: 'healthz' | 'account' | 'relay' } | { name: 'relayStatus'; id: Hex };
 
 const ALLOWED_METHODS: Readonly<Record<Route['name'], string>> = {
   healthz: 'GET',
@@ -23,7 +25,7 @@ const ALLOWED_METHODS: Readonly<Record<Route['name'], string>> = {
 function matchRelayStatus(pathname: string): Route {
   const id = RELAY_STATUS_PATH.exec(pathname)?.[1];
   if (id === undefined || !RELAY_ID.test(id)) throw notFound();
-  return { name: 'relayStatus', id: id.toLowerCase() };
+  return { name: 'relayStatus', id: `0x${id.slice(2).toLowerCase()}` };
 }
 
 function matchRoute(pathname: string): Route {
@@ -47,11 +49,6 @@ function limited(limit: (context: RequestContext) => Promise<void>, handler: Han
   };
 }
 
-/** GET /v1/relay/{id}: a route of a later PR. */
-const stub: Handler = () => {
-  throw notImplemented();
-};
-
 function handlerFor(route: Route): Handler {
   switch (route.name) {
     case 'healthz':
@@ -60,8 +57,10 @@ function handlerFor(route: Route): Handler {
       return limited(limitRead, account);
     case 'relay':
       return limited(limitRelay, relay);
-    case 'relayStatus':
-      return limited(limitRead, stub);
+    case 'relayStatus': {
+      const { id } = route;
+      return limited(limitRead, context => relayStatus(context, id));
+    }
   }
 }
 

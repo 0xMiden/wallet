@@ -1,5 +1,6 @@
-// Read the chain RPC for the routes, and send signed relay transactions. The account read sends at most two JSON-RPC
-// batches, the relay read one batch and the broadcast one call. It is not a general RPC proxy.
+// Read the chain RPC for the routes and the Sender, and send signed relay transactions. The account read sends at most
+// two JSON-RPC batches; the relay read, the receipt read and the fee read one batch each; the broadcast one call. It is
+// not a general RPC proxy.
 import { decodeFunctionResult, encodeFunctionData, hexToBigInt, isHex, keccak256, numberToHex } from 'viem';
 
 import type { ChainConfig, Hex } from './config';
@@ -70,6 +71,24 @@ export interface RelayState {
   gasEstimate: bigint | null;
 }
 
+/** The fees that the node suggests now. */
+export interface FeeQuote {
+  /** The base fee of the next block. */
+  baseFee: bigint;
+  priorityFee: bigint;
+}
+
+/** The status of a mined transaction. */
+export type ReceiptStatus = 'success' | 'reverted';
+
+/** `nonce_used`: the node refuses the bytes because a mined transaction already holds their nonce. */
+export type BroadcastOutcome = 'accepted' | 'nonce_used';
+
+/** The `maxFeePerGas` of a relay transaction: twice the base fee plus the priority fee. */
+export function maxFeeOf({ baseFee, priorityFee }: FeeQuote): bigint {
+  return 2n * baseFee + priorityFee;
+}
+
 /** The chain access of the routes. The tests give a fake. */
 export interface ChainReader {
   readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState>;
@@ -105,6 +124,9 @@ interface RpcCall {
 export type RpcOutcome = { result: unknown } | { error: { code: number; message: string } };
 
 const IMPLEMENTATION_CACHE = new Map<string, CachedCode>();
+const defaultFetcher: Fetcher = (url, init) => fetch(url, init);
+const FEE_HISTORY: RpcCall = { method: 'eth_feeHistory', params: ['0x1', 'latest', []] };
+const PRIORITY_FEE: RpcCall = { method: 'eth_maxPriorityFeePerGas', params: [] };
 
 function unavailable(): RpcUnavailableError {
   return new RpcUnavailableError('The chain RPC does not answer.');
@@ -223,7 +245,7 @@ function verifiedSalt(result: Hex, chain: ChainConfig, address: Hex): Hex {
 
 /** The reader over the JSON-RPC URL of each chain. */
 export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainReader {
-  const fetcher: Fetcher = options.fetcher ?? ((url, init) => fetch(url, init));
+  const fetcher: Fetcher = options.fetcher ?? defaultFetcher;
   const now = options.now ?? Date.now;
   const cache = options.cache ?? IMPLEMENTATION_CACHE;
 
@@ -305,8 +327,8 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
         { method: 'eth_getTransactionCount', params: [evmAddress, 'pending'] },
         { method: 'eth_getTransactionCount', params: [relayer, 'pending'] },
         { method: 'eth_getBalance', params: [relayer, 'latest'] },
-        { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
-        { method: 'eth_maxPriorityFeePerGas', params: [] },
+        FEE_HISTORY,
+        PRIORITY_FEE,
         { method: 'eth_estimateGas', params: [estimateOf(call)] }
       ],
       AbortSignal.timeout(RPC_TIMEOUT_MS)
@@ -365,26 +387,65 @@ function gasEstimateOf(outcome: RpcOutcome | undefined): bigint | null {
   return decoded(() => hexToBigInt(hexOf(outcome)));
 }
 
+/** Send the calls of the Sender as one JSON-RPC batch to the chain's RPC URL. */
+function senderBatch(env: Env, chainId: number, calls: RpcCall[], fetcher: Fetcher): Promise<RpcOutcome[]> {
+  const url = rpcUrlOf(env, chainId);
+  if (url === null) throw unavailable();
+  return sendBatch(fetcher, url, calls, AbortSignal.timeout(RPC_TIMEOUT_MS));
+}
+
 /**
  * Send signed transaction bytes to the chain. The node answers "already known" when it has the transaction, which is
- * a success. Throws RpcUnavailableError on any other failure. The error never holds the bytes or the URL.
+ * a success. It answers "nonce too low" when a mined transaction holds the nonce: `nonce_used`. Throws
+ * RpcUnavailableError on any other failure. The error never holds the bytes or the URL.
  */
 export async function broadcastTransaction(
   env: Env,
   chainId: number,
   raw: Hex,
-  fetcher: Fetcher = (url, init) => fetch(url, init)
-): Promise<void> {
-  const url = rpcUrlOf(env, chainId);
-  if (url === null) throw unavailable();
-  const [outcome] = await sendBatch(
-    fetcher,
-    url,
-    [{ method: 'eth_sendRawTransaction', params: [raw] }],
-    AbortSignal.timeout(RPC_TIMEOUT_MS)
-  );
+  fetcher: Fetcher = defaultFetcher
+): Promise<BroadcastOutcome> {
+  const [outcome] = await senderBatch(env, chainId, [{ method: 'eth_sendRawTransaction', params: [raw] }], fetcher);
   if (outcome === undefined) throw unavailable();
-  if ('result' in outcome) return;
-  if (/already known|known transaction/i.test(outcome.error.message)) return;
+  if ('result' in outcome) return 'accepted';
+  const { message } = outcome.error;
+  // Geth and Erigon: "already known", "nonce too low". Besu: "Known transaction", "NONCE_TOO_LOW". Nethermind:
+  // "AlreadyKnown", "OldNonce".
+  if (/already ?known|known transaction/i.test(message)) return 'accepted';
+  if (/nonce too low|nonce_too_low|oldnonce/i.test(message)) return 'nonce_used';
   throw unavailable();
+}
+
+/** The status of a receipt, or null when the chain has none yet. */
+function receiptStatusOf(outcome: RpcOutcome): ReceiptStatus | null {
+  if (!('result' in outcome)) throw unavailable();
+  const { result } = outcome;
+  if (result === null) return null;
+  if (!isRecord(result)) throw unavailable();
+  switch (result.status) {
+    case '0x1':
+      return 'success';
+    case '0x0':
+      return 'reverted';
+    default:
+      throw unavailable();
+  }
+}
+
+/** The receipt status of each hash, in hash order, in one JSON-RPC batch. Null while the chain has no receipt. */
+export async function readReceipts(
+  env: Env,
+  chainId: number,
+  hashes: readonly Hex[],
+  fetcher: Fetcher = defaultFetcher
+): Promise<(ReceiptStatus | null)[]> {
+  if (hashes.length === 0) return [];
+  const calls = hashes.map(hash => ({ method: 'eth_getTransactionReceipt', params: [hash] }));
+  return (await senderBatch(env, chainId, calls, fetcher)).map(receiptStatusOf);
+}
+
+/** The base fee of the next block and the priority fee, in one JSON-RPC batch. */
+export async function readFees(env: Env, chainId: number, fetcher: Fetcher = defaultFetcher): Promise<FeeQuote> {
+  const [history, priority] = await senderBatch(env, chainId, [FEE_HISTORY, PRIORITY_FEE], fetcher);
+  return { baseFee: nextBaseFee(history), priorityFee: decoded(() => hexToBigInt(hexOf(priority))) };
 }
