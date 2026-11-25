@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
 - [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.
 - [CHORE][ci] Fix two TypeScript errors in the mainnet nightly helper and swap-loop spec that failed the type check of every pull request (type-only, no behavior change).
 - [FIX][all] Show the Command balance on the first frame from fresh cached prices, as the Sidebar does, even when another held token has no price yet, instead of a dash until the live feed loads.

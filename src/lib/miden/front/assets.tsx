@@ -14,6 +14,7 @@ import {
   putToStorage,
   isMidenAsset
 } from 'lib/miden/front';
+import { remapBalanceRows } from 'lib/miden/balance-snapshot';
 import { DEFAULT_TOKEN_METADATA as UNKNOWN_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import {
@@ -204,7 +205,7 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
         balances: Object.fromEntries(
           Object.entries(state.balances).map(([account, rows]) => [
             account,
-            rows.map(row =>
+            remapBalanceRows(rows, row =>
               row.tokenId === id
                 ? {
                     ...row,
