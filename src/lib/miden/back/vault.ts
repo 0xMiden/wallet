@@ -2699,6 +2699,29 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  private async assertRotationProposalCurrent(publicKey: string, transactionId?: string): Promise<void> {
+    const row = transactionId ? await Repo.transactions.get(transactionId) : undefined;
+    if (
+      !row ||
+      row.type !== 'replace-hot-key' ||
+      row.extraInputs?.revokedSignerCommitment ||
+      row.restoredFromBackup ||
+      row.status !== ITransactionStatus.GeneratingTransaction
+    ) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+    const account = (await this.fetchAccounts()).find(candidate =>
+      sameWalletAccountId(candidate.publicKey, row.accountId)
+    );
+    if (
+      !account ||
+      !isCurrentRotationRequest(row.extraInputs?.rotationRequest, account) ||
+      (account.coldPublicKey ?? getAuthorizedRecoveryPublicKey(row)) !== publicKey
+    ) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+  }
+
   /**
    * Sign a word with the key matching `publicKey`. Routes by storage entity:
    * a Guardian account's `coldPublicKey` decrypts the cold blob from
@@ -2710,33 +2733,6 @@ export class Vault {
    * fallback's deserialize+sign is identical to the previous implementation.
    */
   async signWord(publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true): Promise<string> {
-    if (rotationProposal !== true) return this.signWordWithKey(publicKey, wordHex, transactionId);
-    return getAccountsWriteQueue().add(async () => {
-      const row = transactionId ? await Repo.transactions.get(transactionId) : undefined;
-      if (
-        !row ||
-        row.type !== 'replace-hot-key' ||
-        row.extraInputs?.revokedSignerCommitment ||
-        row.restoredFromBackup ||
-        row.status !== ITransactionStatus.GeneratingTransaction
-      ) {
-        throw new PublicError(getMessage('recoveryActionUnavailable'));
-      }
-      const account = (await this.fetchAccounts()).find(candidate =>
-        sameWalletAccountId(candidate.publicKey, row.accountId)
-      );
-      if (
-        !account ||
-        !isCurrentRotationRequest(row.extraInputs?.rotationRequest, account) ||
-        (account.coldPublicKey ?? getAuthorizedRecoveryPublicKey(row)) !== publicKey
-      ) {
-        throw new PublicError(getMessage('recoveryActionUnavailable'));
-      }
-      return this.signWordWithKey(publicKey, wordHex, transactionId);
-    });
-  }
-
-  private async signWordWithKey(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
     const accounts = await this.fetchAccounts();
     let account = accounts.find(acc => acc.coldPublicKey === publicKey);
     let transaction: ITransaction | undefined;
@@ -2764,6 +2760,7 @@ export class Vault {
       }
       const secret = getRecoveryAuthorization(transaction, publicKey);
       if (!secret) throw new PublicError(getMessage('recoverySeedRequired'));
+      if (rotationProposal === true) await this.assertRotationProposalCurrent(publicKey, transactionId);
       const key = AuthSecretKey.deserialize(secret);
       const word = Word.fromHex(wordHex);
       try {
@@ -2780,11 +2777,14 @@ export class Vault {
     }
     if (isCold) {
       const coldHex = await fetchAndDecryptOne<string>(accColdSecretKeyStrgKey(publicKey), this.vaultKey);
+      // Guardian signing already holds WASM. An account writer may itself be waiting for WASM.
+      if (rotationProposal === true) await this.assertRotationProposalCurrent(publicKey, transactionId);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
       return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
     }
 
+    if (rotationProposal === true) throw new PublicError(getMessage('recoveryActionUnavailable'));
     const hotCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }

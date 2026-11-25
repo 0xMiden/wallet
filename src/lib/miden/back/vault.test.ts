@@ -1045,7 +1045,14 @@ describe('Vault.signWord', () => {
     row.extraInputs = { mode: 'add', rotationRequest: account.hotKeyRotationRequest };
     await Repo.transactions.add(row);
 
-    await expect(vault.signWord('cold-pk', '0xabc', row.id, true)).resolves.toBe('0x0909');
+    const { getAccountsWriteQueue } = require('lib/miden/back/accounts-write-queue');
+    const queueWrite = jest.spyOn(getAccountsWriteQueue(), 'add').mockRejectedValueOnce(new Error('writer busy'));
+    try {
+      await expect(vault.signWord('cold-pk', '0xabc', row.id, true)).resolves.toBe('0x0909');
+      expect(queueWrite).not.toHaveBeenCalled();
+    } finally {
+      queueWrite.mockRestore();
+    }
 
     await encryptAndSaveMany(
       [[keys.accounts, [{ ...account, requiresHotKeyRotation: false, hotKeyRotationRequest: undefined }]]],
