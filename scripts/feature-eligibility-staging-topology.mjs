@@ -3,10 +3,16 @@ import { chmod, lstat, mkdir, readFile, rename, rm, unlink, writeFile } from 'no
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTopologyReadApi, createTopologyScriptDeleter } from '../services/feature-eligibility/staging-topology-api.mjs';
+import {
+  createTopologyReadApi,
+  createTopologyScriptDeleter,
+  isTopologyWorkersDevUrl,
+  readBoundedBytes
+} from '../services/feature-eligibility/staging-topology-api.mjs';
 import {
   cleanupTopologyWorker,
   createTopologyApiBudget,
+  isTargetAbsent,
   observeTopologyOwnership,
   observeTopologyWorkerUrl,
   prepareTopologyInventory
@@ -363,28 +369,6 @@ async function readValidRunState(statePath, { identity, accountSha256, startedAt
   return undefined;
 }
 
-function buildFallbackProviderReads(startedAt, state) {
-  const hasCleanupWindow =
-    Number.isSafeInteger(state?.cleanupStartedAt) && state.cleanupStartedAt >= startedAt;
-  const nowMs = Math.max(Date.now(), startedAt, hasCleanupWindow ? state.cleanupStartedAt : startedAt);
-  const preflightElapsedMs = nowMs - startedAt;
-  const cleanup = state?.cleanupCalls ?? 0;
-  const providerReads = {
-    preflight: MAX_PHASE_READS,
-    cleanup,
-    total: MAX_PHASE_READS + cleanup,
-    elapsedMs: preflightElapsedMs,
-    preflightStartedAt: startedAt,
-    preflightDeadlineAt: startedAt + 120_000,
-    cleanupStartedAt: hasCleanupWindow ? state.cleanupStartedAt : null,
-    cleanupDeadlineAt: hasCleanupWindow ? state.cleanupStartedAt + 120_000 : null,
-    preflightElapsedMs,
-    cleanupElapsedMs: hasCleanupWindow ? nowMs - state.cleanupStartedAt : null
-  };
-  if (!validProviderReads(providerReads, startedAt)) fail('cleanup_budget_lineage_unavailable');
-  return providerReads;
-}
-
 async function buildRecoveryFailureFallback(env) {
   const { recovery, identity, previous } = await readRecoveryReceipt(env);
   const paths = preparedPaths(env);
@@ -413,6 +397,25 @@ async function buildRecoveryFailureFallback(env) {
     )
       fail('prior_topology_budget_unavailable');
   }
+  let providerReads;
+  if (hasPrior) {
+    providerReads = previous.providerReads;
+  } else {
+    const hasCleanupWindow =
+      Number.isSafeInteger(state?.cleanupStartedAt) && state.cleanupStartedAt >= loaded.value.startedAt;
+    const nowMs = Math.max(
+      Date.now(),
+      loaded.value.startedAt,
+      hasCleanupWindow ? state.cleanupStartedAt : loaded.value.startedAt
+    );
+    providerReads = createTopologyApiBudget(async () => null, {
+      now: () => nowMs,
+      startedAt: loaded.value.startedAt,
+      ...(hasCleanupWindow ? { cleanupStartedAt: state.cleanupStartedAt } : {}),
+      initialCalls: { preflight: MAX_PHASE_READS, cleanup: state?.cleanupCalls ?? 0 }
+    }).stats();
+    if (!validProviderReads(providerReads, loaded.value.startedAt)) fail('cleanup_budget_lineage_unavailable');
+  }
   return {
     schema: 1,
     identity,
@@ -423,7 +426,7 @@ async function buildRecoveryFailureFallback(env) {
       state?.deploymentAttempted ?? (typeof previous?.deploymentAttempted === 'boolean' ? previous.deploymentAttempted : 'unknown'),
     cleanup: 'blocked',
     reason: 'cleanup_failed',
-    providerReads: hasPrior ? previous.providerReads : buildFallbackProviderReads(loaded.value.startedAt, state)
+    providerReads
   };
 }
 
@@ -432,40 +435,18 @@ async function writeRunState(file, value) {
 }
 
 async function readBoundedJson(response, signal) {
-  if (!response.body) return null;
-  const length = response.headers.get('content-length');
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE_BYTES)) return null;
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
+  const bytes = await readBoundedBytes(response, { maxBytes: MAX_RESPONSE_BYTES, signal });
+  if (bytes === null) return null;
   try {
-    while (true) {
-      if (signal.aborted) return null;
-      const next = await reader.read();
-      if (next.done) break;
-      size += next.value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) return null;
-      chunks.push(next.value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
     return null;
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
   }
 }
 
 export async function exerciseTopologyScenarios({ baseUrl, bearer, fetchImpl = fetch, timeoutMs = SCENARIO_TIMEOUT_MS } = {}) {
   if (
-    typeof baseUrl !== 'string' ||
-    !/^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(baseUrl) ||
+    !isTopologyWorkersDevUrl(baseUrl) ||
     typeof bearer !== 'string' ||
     bearer.length < 32 ||
     bearer.length > 128 ||
@@ -571,18 +552,6 @@ async function prepare(env) {
   return 0;
 }
 
-function targetAbsent(value) {
-  return (
-    value?.status === 404 &&
-    value.body?.success === false &&
-    Array.isArray(value.body.errors) &&
-    value.body.errors.length === 1 &&
-    value.body.errors[0]?.code === 10007 &&
-    Reflect.ownKeys(value.body).length === 2 &&
-    Reflect.ownKeys(value.body.errors[0]).length === 1
-  );
-}
-
 export async function execute(env, { createReadApi = createTopologyReadApi, runCommand = command } = {}) {
   const identity = currentIdentity(env);
   const { accountId, token, accountSha256 } = accountCredentials(env);
@@ -629,7 +598,7 @@ export async function execute(env, { createReadApi = createTopologyReadApi, runC
   };
   syncResult = stats => writeResult(env, { ...result, providerReads: stats });
   try {
-    if (!targetAbsent(await budget.preflight(`/workers/scripts/${value.manifest.scriptName}/settings`)))
+    if (!isTargetAbsent(await budget.preflight(`/workers/scripts/${value.manifest.scriptName}/settings`)))
       fail('target_not_absent');
     const deploymentDirectory = path.join(paths.directory, 'deploy');
     await mkdir(deploymentDirectory, { recursive: true, mode: 0o700 });

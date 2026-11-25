@@ -153,6 +153,12 @@ test('account-bound preparation requires an explicit provider absence receipt', 
     await prepare(options(provider({ target: { status: 404, body: { success: false, errors: [] } } }))),
     null
   );
+  assert.equal(
+    await prepare(
+      options(provider({ target: { status: 404, body: { success: false, errors: [{ code: 10007, extra: 1 }] } } }))
+    ),
+    null
+  );
 });
 
 test('account-bound preparation refuses an existing script with a colliding rate namespace', async () => {

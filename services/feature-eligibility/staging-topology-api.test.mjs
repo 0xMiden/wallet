@@ -65,6 +65,56 @@ test('read adapter rejects malformed workers.dev settings', async () => {
     ),
     null
   );
+  const arrayResult = Object.assign([], { enabled: true, previews_enabled: false });
+  assert.equal(
+    await response({ success: true, errors: [], result: arrayResult })(
+      '/workers/scripts/miden-elig-topology-12345-1/subdomain'
+    ),
+    null
+  );
+  assert.equal(
+    topology.parseWorkerSubdomainSettings({
+      success: true,
+      errors: [],
+      result: Object.create({ enabled: true, previews_enabled: false })
+    }),
+    null
+  );
+});
+
+test('readBoundedBytes honors mid-stream signal abort, custom maxBytes, and stream read errors', async () => {
+  const controller = new AbortController();
+  let pulls = 0;
+  const abortStream = new ReadableStream({
+    pull(chunkController) {
+      pulls++;
+      if (pulls === 1) {
+        chunkController.enqueue(new Uint8Array([1, 2]));
+        controller.abort();
+      } else {
+        chunkController.close();
+      }
+    }
+  });
+  assert.equal(
+    await topology.readBoundedBytes(new Response(abortStream), { maxBytes: 64, signal: controller.signal }),
+    null
+  );
+
+  const oversized = new ReadableStream({
+    start(chunkController) {
+      chunkController.enqueue(new Uint8Array(65));
+      chunkController.close();
+    }
+  });
+  assert.equal(await topology.readBoundedBytes(new Response(oversized), { maxBytes: 64 }), null);
+
+  const failingStream = new ReadableStream({
+    pull() {
+      return Promise.reject(new Error('stream_read_failed'));
+    }
+  });
+  assert.equal(await topology.readBoundedBytes(new Response(failingStream), { maxBytes: 64 }), null);
 });
 
 test('read adapter rejects arbitrary paths before network access', async () => {

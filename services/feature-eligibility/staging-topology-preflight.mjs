@@ -1,5 +1,10 @@
 import { buildTopologyManifest, verifyTopologyManifest } from './staging-topology-manifest.mjs';
 import {
+  isTopologyTargetScript,
+  parseWorkerSubdomainSettings,
+  parseWorkersSubdomain
+} from './staging-topology-api.mjs';
+import {
   collectTopologyScriptInventory,
   collectTopologySettings,
   observeTopologyNamespaceAbsence,
@@ -11,8 +16,6 @@ const MAX_PROVIDER_READS = 500;
 const MAX_PHASE_READS = 250;
 const PROVIDER_DEADLINE_MS = 120_000;
 const PROVIDER_READ_TIMEOUT_MS = 5_000;
-const WORKER = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
-const SUBDOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function mismatch(record, key, expected, gate) {
   if (!isRecord(record)) return { gate, form: record === null ? 'null' : 'unexpected_type' };
@@ -22,25 +25,6 @@ function mismatch(record, key, expected, gate) {
   if (value !== expected)
     return { gate, form: typeof value === typeof expected ? 'different_value' : 'unexpected_type' };
   return null;
-}
-
-function workersSubdomain(value) {
-  const result = value?.result;
-  return value?.success === true && Array.isArray(value.errors) && value.errors.length === 0 &&
-    result && typeof result === 'object' && !Array.isArray(result) && Reflect.ownKeys(result).length === 1 &&
-    typeof result.subdomain === 'string' && SUBDOMAIN.test(result.subdomain)
-    ? result.subdomain
-    : null;
-}
-
-function workerSubdomainSettings(value) {
-  const result = value?.result;
-  return value?.success === true && Array.isArray(value.errors) && value.errors.length === 0 &&
-    result && typeof result === 'object' && !Array.isArray(result) &&
-    Reflect.ownKeys(result).length === 2 && typeof result.enabled === 'boolean' &&
-    typeof result.previews_enabled === 'boolean'
-    ? { enabled: result.enabled, previews_enabled: result.previews_enabled }
-    : null;
 }
 
 export function topologyScriptSettingsMismatch(script) {
@@ -283,14 +267,14 @@ export async function observeTopologyOwnership({ api, accountId, manifest, optio
 
 export async function observeTopologyWorkerUrl({ api, scriptName } = {}) {
   try {
-    if (typeof api !== 'function' || typeof scriptName !== 'string' || !WORKER.test(scriptName)) return null;
+    if (typeof api !== 'function' || !isTopologyTargetScript(scriptName)) return null;
     const read = path => api(path, { phase: 'preflight' });
     const routePath = `/workers/scripts/${scriptName}/subdomain`;
-    const accountSubdomain = workersSubdomain(await read('/workers/subdomain'));
-    const route = workerSubdomainSettings(await read(routePath));
+    const accountSubdomain = parseWorkersSubdomain(await read('/workers/subdomain'), { strictKeys: true });
+    const route = parseWorkerSubdomainSettings(await read(routePath), { strictKeys: true });
     if (!accountSubdomain || route?.enabled !== true || route.previews_enabled !== false) return null;
-    if (workersSubdomain(await read('/workers/subdomain')) !== accountSubdomain) return null;
-    const repeatedRoute = workerSubdomainSettings(await read(routePath));
+    if (parseWorkersSubdomain(await read('/workers/subdomain'), { strictKeys: true }) !== accountSubdomain) return null;
+    const repeatedRoute = parseWorkerSubdomainSettings(await read(routePath), { strictKeys: true });
     if (JSON.stringify(repeatedRoute) !== JSON.stringify(route)) return null;
     return Object.freeze({
       status: 'observed',
@@ -301,7 +285,7 @@ export async function observeTopologyWorkerUrl({ api, scriptName } = {}) {
   }
 }
 
-function isTargetAbsent(value) {
+export function isTargetAbsent(value) {
   const body = value?.body;
   const errors = body?.errors;
   return (
@@ -370,7 +354,7 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
       account.result?.id !== accountId
     )
       return null;
-    const subdomain = workersSubdomain(await read('/workers/subdomain'));
+    const subdomain = parseWorkersSubdomain(await read('/workers/subdomain'), { strictKeys: true });
     if (!subdomain) return null;
     const scripts = await collectTopologyScriptInventory(read);
     if (scripts === null) return null;
@@ -395,14 +379,7 @@ export async function prepareTopologyInventory({ api, accountId, identity, bundl
     const finalScripts = await collectTopologyScriptInventory(read);
     if (!finalScripts || JSON.stringify(finalScripts) !== JSON.stringify(scripts)) return null;
     const target = await read(`/workers/scripts/${manifest.scriptName}/settings`);
-    if (
-      target?.status !== 404 ||
-      target.body?.success !== false ||
-      !Array.isArray(target.body.errors) ||
-      target.body.errors.length !== 1 ||
-      target.body.errors[0]?.code !== 10007
-    )
-      return null;
+    if (!isTargetAbsent(target)) return null;
     return Object.freeze({
       status: 'inventory_observed',
       manifest,

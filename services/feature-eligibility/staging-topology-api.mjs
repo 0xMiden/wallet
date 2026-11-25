@@ -6,18 +6,26 @@ const MAX_PHASE_CALLS = 250;
 const MAX_DURATION_MS = 120_000;
 const CALL_TIMEOUT_MS = 5_000;
 const SCRIPT = /^[a-zA-Z0-9_-]{1,63}$/;
-const TARGET = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
-const SUBDOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+export const TOPOLOGY_TARGET_SCRIPT = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
+export const TOPOLOGY_SUBDOMAIN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+export const isTopologyTargetScript = value => typeof value === 'string' && TOPOLOGY_TARGET_SCRIPT.test(value);
+
+export function isTopologyWorkersDevUrl(value) {
+  if (typeof value !== 'string') return false;
+  const match = /^https:\/\/([^.]+)\.([^.]+)\.workers\.dev$/.exec(value);
+  return Boolean(match && isTopologyTargetScript(match[1]) && TOPOLOGY_SUBDOMAIN.test(match[2]));
+}
 
 function pathKind(path) {
   if (path === '/account') return 'account';
   if (path === '/workers/subdomain') return 'workers-subdomain';
   const subdomain = /^\/workers\/scripts\/([^/]+)\/subdomain$/.exec(path);
-  if (subdomain && TARGET.test(subdomain[1])) return 'target-subdomain';
+  if (subdomain && isTopologyTargetScript(subdomain[1])) return 'target-subdomain';
   const content = /^\/workers\/scripts\/([^/]+)\/content\/v2$/.exec(path);
-  if (content && TARGET.test(content[1])) return 'content';
+  if (content && isTopologyTargetScript(content[1])) return 'content';
   const scriptSettings = /^\/workers\/scripts\/([^/]+)\/script-settings$/.exec(path);
-  if (scriptSettings && TARGET.test(scriptSettings[1])) return 'script-settings';
+  if (scriptSettings && isTopologyTargetScript(scriptSettings[1])) return 'script-settings';
   const pages = /^\/workers\/(scripts|durable_objects\/namespaces)\?page=([1-9][0-9]{0,2})&per_page=(100|1000)$/.exec(
     path
   );
@@ -28,7 +36,7 @@ function pathKind(path) {
   )
     return 'list';
   const settings = /^\/workers\/scripts\/([^/]+)\/settings$/.exec(path);
-  return settings && SCRIPT.test(settings[1]) ? (TARGET.test(settings[1]) ? 'target' : 'settings') : null;
+  return settings && SCRIPT.test(settings[1]) ? (isTopologyTargetScript(settings[1]) ? 'target' : 'settings') : null;
 }
 
 function scriptSettingsMetadata(body) {
@@ -70,19 +78,20 @@ function scriptSettingsMetadata(body) {
   return { success: true, errors: [], result };
 }
 
-async function boundedBytes(response) {
-  const length = response.headers.get('content-length');
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_BYTES)) return null;
-  if (!response.body) return null;
+export async function readBoundedBytes(response, { maxBytes = MAX_BYTES, signal } = {}) {
+  if (!response?.body || !Number.isSafeInteger(maxBytes) || maxBytes < 0 || signal?.aborted) return null;
+  const length = response.headers?.get('content-length') ?? null;
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) return null;
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
   try {
     while (true) {
+      if (signal?.aborted) return null;
       const next = await reader.read();
       if (next.done) break;
       size += next.value.byteLength;
-      if (size > MAX_BYTES) return null;
+      if (size > maxBytes) return null;
       chunks.push(next.value);
     }
     const bytes = new Uint8Array(size);
@@ -92,6 +101,8 @@ async function boundedBytes(response) {
       offset += chunk.byteLength;
     }
     return bytes;
+  } catch {
+    return null;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -100,7 +111,7 @@ async function boundedBytes(response) {
 
 async function contentDigest(response) {
   if (!response.ok || response.headers.get('cf-entrypoint') !== 'staging-topology-worker.mjs') return null;
-  const bytes = await boundedBytes(response);
+  const bytes = await readBoundedBytes(response);
   if (bytes === null) return null;
   const type = response.headers.get('content-type') || '';
   let moduleBytes = bytes;
@@ -178,6 +189,39 @@ function settingsMetadata(body, target) {
   return { success: true, errors: [], result: { bindings } };
 }
 
+export function parseWorkersSubdomain(value, { strictKeys = false } = {}) {
+  const result = value?.result;
+  return value?.success === true &&
+    Array.isArray(value.errors) &&
+    value.errors.length === 0 &&
+    result &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (!strictKeys || Reflect.ownKeys(result).length === 1) &&
+    Object.hasOwn(result, 'subdomain') &&
+    typeof result.subdomain === 'string' &&
+    TOPOLOGY_SUBDOMAIN.test(result.subdomain)
+    ? result.subdomain
+    : null;
+}
+
+export function parseWorkerSubdomainSettings(value, { strictKeys = false } = {}) {
+  const result = value?.result;
+  return value?.success === true &&
+    Array.isArray(value.errors) &&
+    value.errors.length === 0 &&
+    result &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (!strictKeys || Reflect.ownKeys(result).length === 2) &&
+    Object.hasOwn(result, 'enabled') &&
+    Object.hasOwn(result, 'previews_enabled') &&
+    typeof result.enabled === 'boolean' &&
+    typeof result.previews_enabled === 'boolean'
+    ? { enabled: result.enabled, previews_enabled: result.previews_enabled }
+    : null;
+}
+
 // This adapter only reads fixed provider paths; its output alone cannot authorize any mutation.
 export function createTopologyReadApi({
   accountId,
@@ -228,7 +272,7 @@ export function createTopologyReadApi({
           signal: controller.signal
         });
         if (kind === 'content') return await contentDigest(response);
-        const bytes = await boundedBytes(response);
+        const bytes = await readBoundedBytes(response);
         if (bytes === null) return null;
         const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
         if (
@@ -243,18 +287,12 @@ export function createTopologyReadApi({
         }
         if (!response.ok || !body || typeof body !== 'object' || Array.isArray(body)) return null;
         if (kind === 'workers-subdomain') {
-          const subdomain = body.result?.subdomain;
-          return body.success === true && Array.isArray(body.errors) && !body.errors.length &&
-            typeof subdomain === 'string' && SUBDOMAIN.test(subdomain)
-            ? { success: true, errors: [], result: { subdomain } }
-            : null;
+          const subdomain = parseWorkersSubdomain(body);
+          return subdomain ? { success: true, errors: [], result: { subdomain } } : null;
         }
         if (kind === 'target-subdomain') {
-          const { enabled, previews_enabled: previewsEnabled } = body.result || {};
-          return body.success === true && Array.isArray(body.errors) && !body.errors.length &&
-            typeof enabled === 'boolean' && typeof previewsEnabled === 'boolean'
-            ? { success: true, errors: [], result: { enabled, previews_enabled: previewsEnabled } }
-            : null;
+          const settings = parseWorkerSubdomainSettings(body);
+          return settings ? { success: true, errors: [], result: settings } : null;
         }
         if (kind === 'settings' || kind === 'target') return settingsMetadata(body, kind === 'target');
         if (kind === 'script-settings') return scriptSettingsMetadata(body);
@@ -289,7 +327,7 @@ export function createTopologyScriptDeleter({ accountId, token, fetchImpl = fetc
   )
     return async () => false;
   return async scriptName => {
-    if (typeof scriptName !== 'string' || !TARGET.test(scriptName)) return false;
+    if (!isTopologyTargetScript(scriptName)) return false;
     const controller = new AbortController();
     let timer;
     try {
@@ -306,7 +344,7 @@ export function createTopologyScriptDeleter({ accountId, token, fetchImpl = fetc
           );
           if (!response.ok) return false;
           if (response.body === null) return true;
-          const bytes = await boundedBytes(response);
+          const bytes = await readBoundedBytes(response);
           if (bytes === null) return false;
           if (bytes.length === 0) return true;
           const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));

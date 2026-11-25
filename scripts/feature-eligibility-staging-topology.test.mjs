@@ -15,6 +15,10 @@ import {
   topologyRecoveryIdentity
 } from './feature-eligibility-staging-topology.mjs';
 import * as topologyRunner from './feature-eligibility-staging-topology.mjs';
+import {
+  isTopologyTargetScript,
+  isTopologyWorkersDevUrl
+} from '../services/feature-eligibility/staging-topology-api.mjs';
 import { buildTopologyManifest } from '../services/feature-eligibility/staging-topology-manifest.mjs';
 import { TOPOLOGY_SCENARIOS } from '../services/feature-eligibility/staging-topology.mjs';
 import { createTopologyApiBudget } from '../services/feature-eligibility/staging-topology-preflight.mjs';
@@ -115,7 +119,7 @@ function syntheticReadApi({ manifest, targetAbsentFirst = false, scriptSettings 
   };
 }
 
-function deletableWorkerFixture(manifest) {
+function deletableWorkerFixture(manifest, { isAbsent, subdomain } = {}) {
   const basePath = `/workers/scripts/${manifest.scriptName}`;
   const namespaces = manifest.config.durable_objects.bindings.map((binding, index) => ({
     id: String(index + 1).padStart(32, '0'),
@@ -135,13 +139,14 @@ function deletableWorkerFixture(manifest) {
     result_info: { page: 1, per_page: perPage, count: result.length, total_pages: 1, total_count: result.length }
   });
   let deleted = false;
+  const checkAbsent = isAbsent ?? (() => deleted);
   return {
     isDeleted: () => deleted,
     options: {
       createReadApi: () => async requestPath => {
         if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
         if (requestPath === `${basePath}/settings`) {
-          return deleted
+          return checkAbsent()
             ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
             : { success: true, errors: [], result: { bindings } };
         }
@@ -156,6 +161,10 @@ function deletableWorkerFixture(manifest) {
           return page([{ id: manifest.scriptName }], 100);
         if (requestPath === '/workers/durable_objects/namespaces?page=1&per_page=1000')
           return page(namespaces, 1000);
+        if (subdomain && requestPath === '/workers/subdomain')
+          return { success: true, errors: [], result: { subdomain } };
+        if (subdomain && requestPath === `${basePath}/subdomain`)
+          return { success: true, errors: [], result: { enabled: true, previews_enabled: false } };
         assert.fail(`unexpected synthetic API path: ${requestPath}`);
       },
       createScriptDeleter: () => async scriptName => {
@@ -414,6 +423,68 @@ test('topology exercise stops after a transport failure without retrying a scena
 
   assert.equal(calls.length, 1);
   assert.deepEqual(results, [{ scenario: 'cache_reuse', result: 'unavailable' }]);
+
+  for (const invalidBaseUrl of [
+    'https://other-worker.example.workers.dev',
+    'https://miden-elig-topology-0-1.example.workers.dev',
+    'https://miden-elig-topology-123-1.-bad.workers.dev',
+    'https://miden-elig-topology-123-1.bad-.workers.dev',
+    `https://miden-elig-topology-123-1.${'a'.repeat(64)}.workers.dev`,
+    'http://miden-elig-topology-123-1.example.workers.dev',
+    'https://miden-elig-topology-123-1.example.workers.dev/',
+    'https://miden-elig-topology-123-1.example.workers.dev:443',
+    'https://miden-elig-topology-123-1.sub.example.workers.dev'
+  ]) {
+    await assert.rejects(
+      exerciseTopologyScenarios({
+        baseUrl: invalidBaseUrl,
+        bearer: 'b'.repeat(32),
+        fetchImpl: async () => {
+          throw new Error('should not fetch');
+        }
+      }),
+      /invalid_scenario_request/
+    );
+  }
+});
+
+test('topology script name and workers.dev URL validators enforce exact boundaries', () => {
+  const maxScript = `miden-elig-topology-${'9'.repeat(18)}-${'9'.repeat(6)}`;
+  assert.equal(isTopologyTargetScript('miden-elig-topology-1-1'), true);
+  assert.equal(isTopologyTargetScript(maxScript), true);
+  for (const invalidScript of [
+    'miden-elig-topology-0-1',
+    'miden-elig-topology-1-0',
+    'miden-elig-topology-01-1',
+    'miden-elig-topology-1-01',
+    `miden-elig-topology-${'9'.repeat(19)}-1`,
+    `miden-elig-topology-1-${'9'.repeat(7)}`,
+    'other-worker',
+    '',
+    null,
+    123
+  ]) {
+    assert.equal(isTopologyTargetScript(invalidScript), false);
+  }
+
+  assert.equal(isTopologyWorkersDevUrl('https://miden-elig-topology-1-1.a.workers.dev'), true);
+  assert.equal(isTopologyWorkersDevUrl(`https://${maxScript}.${'a'.repeat(63)}.workers.dev`), true);
+  assert.equal(isTopologyWorkersDevUrl('https://miden-elig-topology-123-1.a-1.workers.dev'), true);
+  for (const invalidUrl of [
+    'https://other-worker.example.workers.dev',
+    'https://miden-elig-topology-0-1.example.workers.dev',
+    'https://miden-elig-topology-123-1.-bad.workers.dev',
+    'https://miden-elig-topology-123-1.bad-.workers.dev',
+    `https://miden-elig-topology-123-1.${'a'.repeat(64)}.workers.dev`,
+    'http://miden-elig-topology-123-1.example.workers.dev',
+    'https://miden-elig-topology-123-1.example.workers.dev/',
+    'https://miden-elig-topology-123-1.example.workers.dev:443',
+    'https://miden-elig-topology-123-1.sub.example.workers.dev',
+    'https://miden-elig-topology-123-1.Example.workers.dev',
+    null
+  ]) {
+    assert.equal(isTopologyWorkersDevUrl(invalidUrl), false);
+  }
 });
 
 test('execution writes only sanitized ownership diagnostics while staying fail-closed', async t => {
@@ -466,25 +537,7 @@ test('execution posts all fixed scenarios to the observed route with its deploye
   const prepared = await preparedTestRun();
   try {
     const { manifest } = prepared;
-    const basePath = `/workers/scripts/${manifest.scriptName}`;
     const baseUrl = `https://${manifest.scriptName}.observed-topology.workers.dev`;
-    const namespaces = manifest.config.durable_objects.bindings.map((binding, index) => ({
-      id: String(index + 1).padStart(32, '0'),
-      class: binding.class_name,
-      script: manifest.scriptName,
-      use_sqlite: true
-    }));
-    const bindings = topologyBindings(manifest).map(binding =>
-      binding.type === 'durable_object_namespace'
-        ? { ...binding, namespace_id: namespaces.find(row => row.class === binding.class_name).id }
-        : binding
-    );
-    const page = (result, perPage) => ({
-      success: true,
-      errors: [],
-      result,
-      result_info: { page: 1, per_page: perPage, count: result.length, total_pages: 1, total_count: result.length }
-    });
     let deployments = 0;
     let expectedBearer;
     const scenarioRequests = [];
@@ -493,31 +546,12 @@ test('execution posts all fixed scenarios to the observed route with its deploye
       const scenario = new URL(url).pathname.split('/').at(-1);
       return new Response(JSON.stringify({ scenario, status: 'passed' }), { status: 200 });
     });
+    const fixture = deletableWorkerFixture(manifest, {
+      isAbsent: () => deployments === 0,
+      subdomain: 'observed-topology'
+    });
     const exitCode = await topologyRunner.execute(prepared.env, {
-      createReadApi: () => async requestPath => {
-        if (requestPath === '/account') return { success: true, errors: [], result: { id: accountId } };
-        if (requestPath === `${basePath}/settings`) {
-          return deployments === 0
-            ? { status: 404, body: { success: false, errors: [{ code: 10007 }] } }
-            : { success: true, errors: [], result: { bindings } };
-        }
-        if (requestPath === `${basePath}/script-settings`)
-          return {
-            success: true,
-            errors: [],
-            result: { logpush: false, observability: manifest.config.observability, tail_consumers: [] }
-          };
-        if (requestPath === `${basePath}/content/v2`) return { sha256: manifest.bundleSha256 };
-        if (requestPath === '/workers/scripts?page=1&per_page=100')
-          return page([{ id: manifest.scriptName }], 100);
-        if (requestPath === '/workers/durable_objects/namespaces?page=1&per_page=1000')
-          return page(namespaces, 1000);
-        if (requestPath === '/workers/subdomain')
-          return { success: true, errors: [], result: { subdomain: 'observed-topology' } };
-        if (requestPath === `${basePath}/subdomain`)
-          return { success: true, errors: [], result: { enabled: true, previews_enabled: false } };
-        assert.fail(`unexpected synthetic API path: ${requestPath}`);
-      },
+      createReadApi: fixture.options.createReadApi,
       runCommand: async (_executable, args) => {
         deployments++;
         const secretsFile = args[args.indexOf('--secrets-file') + 1];
@@ -656,6 +690,10 @@ test('cleanup budget supports explicit prepared fallback within preflight cap an
       cleanupStartedAt: 500_000,
       initialCalls: { preflight: 250, cleanup: 0 }
     }
+  );
+  assert.throws(
+    () => topologyCleanupBudget({ preflightStartedAt: 1_000, allowPreparedFallback: false, now: () => 300_000 }),
+    /cleanup_budget_lineage_unavailable/
   );
 });
 
