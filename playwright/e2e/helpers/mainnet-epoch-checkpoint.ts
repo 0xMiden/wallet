@@ -77,6 +77,7 @@ export interface MainnetEpochCheckpoint {
   returnAmount?: string;
   evmNonceBefore?: number;
   transactions?: EpochEvmTransaction[];
+  unminedDeposit?: { hash: string; nonce: number };
   returnNoteId?: string;
   returnMidenTxId?: string;
   reverseReceived?: string;

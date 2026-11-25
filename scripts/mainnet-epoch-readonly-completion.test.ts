@@ -7,6 +7,7 @@ import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wal
 import type { MainnetEpochCheckpoint } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 import {
   epochCheckpointFixture,
+  epochUnminedDepositFixture,
   epochForwardRequestAuthorityFixture,
   epochReverseAuthorityFixture
 } from './helpers/mainnet-epoch-fixture';
@@ -16,7 +17,8 @@ const mockClient = {
   getBalance: jest.fn(),
   getChainId: jest.fn(),
   getTransaction: jest.fn(),
-  getTransactionReceipt: jest.fn()
+  getTransactionReceipt: jest.fn(),
+  getTransactionCount: jest.fn()
 };
 const mockVault = jest.fn();
 const mockQueue = jest.fn();
@@ -35,6 +37,7 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 }));
 jest.mock('@playwright/test', () => ({ expect: jest.requireActual('@playwright/test').expect }));
 jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: () => mockClient }));
+import { TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
 jest.mock('../playwright/e2e/helpers/balance-truth', () => ({
   vaultBalanceByFaucetId: (...args: unknown[]) => mockVault(...args)
@@ -568,4 +571,49 @@ it('retains the original rejection even when writing diagnostics fails', async (
   } finally {
     write.mockRestore();
   }
+});
+
+describe('an original deposit that never mined', () => {
+  const depositHash = `0x${'c'.repeat(64)}`;
+  function arm(over: { nonce?: number; pending?: number; token?: bigint } = {}) {
+    const state = epochUnminedDepositFixture();
+    wallet.getAccountAddress.mockResolvedValue(state.account);
+    mockClient.getTransaction.mockImplementation(async ({ hash: h }: { hash: string }) => {
+      if (h === depositHash) throw new TransactionNotFoundError({ hash: h as `0x${string}` });
+      return {};
+    });
+    mockClient.getTransactionReceipt.mockImplementation(async ({ hash: h }: { hash: string }) => {
+      if (h === depositHash) throw new TransactionReceiptNotFoundError({ hash: h as `0x${string}` });
+      return {};
+    });
+    mockClient.getTransactionCount.mockImplementation(async ({ blockTag }: { blockTag: string }) =>
+      blockTag === 'pending' ? (over.pending ?? 1) : (over.nonce ?? 1)
+    );
+    mockClient.readContract.mockResolvedValue(over.token ?? 3_999_981n);
+    mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance) - 1000n);
+    mockVault.mockResolvedValue(20_000_000n - 1_010_000n - 14n);
+    return state;
+  }
+  it('closes the reverse as not executed using reads only', async () => {
+    const state = arm();
+    await recoverEpochReturn(actor, state, path(), 'unused-upload', new AbortController().signal);
+    const saved = JSON.parse(readFileSync(path(), 'utf8'));
+    expect(saved.phase).toBe('cancelled');
+    expect(saved.unminedDeposit).toEqual({ hash: depositHash, nonce: 1 });
+    expect(saved.lossBudgetUsdMicros).toBe(state.lossBudgetUsdMicros);
+    expect(mockIntentStatus).toHaveBeenCalledWith({}, state.evm.account, '10');
+    noWrites();
+  });
+  it.each([
+    ['a different nonce', { nonce: 2 }],
+    ['a pending transaction', { pending: 2 }],
+    ['a different token balance', { token: 3_999_980n }]
+  ])('stays fail-closed with %s', async (_name, over) => {
+    const state = arm(over);
+    await expect(
+      recoverEpochReturn(actor, state, path(), 'unused-upload', new AbortController().signal)
+    ).rejects.toThrow();
+    expect(JSON.parse(readFileSync(path(), 'utf8')).phase).toBe('recovery-required');
+    noWrites();
+  });
 });
