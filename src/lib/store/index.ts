@@ -7,7 +7,7 @@ import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
-import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { remapBalanceRows, tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -200,7 +200,7 @@ function withOverrides(
     balances = Object.fromEntries(
       Object.entries(balances).map(([account, rows]) => [
         account,
-        rows.map(row =>
+        remapBalanceRows(rows, row =>
           row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
             ? {
                 ...row,
