@@ -38,7 +38,7 @@ export const RouteSort: React.FC<{
   return (
     <SegmentedControl
       items={[
-        { id: 'best-value', label: t('bridgeRankBestValue') },
+        { id: 'best-value', label: t('bridgeRankBestPrice') },
         { id: 'fastest', label: t('bridgeRankFastest') }
       ]}
       value={value}

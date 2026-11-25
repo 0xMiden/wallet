@@ -488,6 +488,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
     senderPublicKey: publicKey ?? undefined,
     enabled: isBridge && isValidRecipient && destinationChainId !== undefined && !usdcxAvailable
   });
+  const epochExpiry = epochQuote.validity?.kind === 'time' ? epochQuote.validity.expiresAt : undefined;
+  useQuoteClock(epochExpiry);
+  const epochReviewQuote = useMemo(
+    () =>
+      !epochQuote.loading && !epochQuote.error && epochQuote.amount !== undefined && epochQuote.validity
+        ? { kind: 'epoch' as const, received: epochQuote.amount, validity: epochQuote.validity }
+        : undefined,
+    [epochQuote.amount, epochQuote.error, epochQuote.loading, epochQuote.validity]
+  );
+  const currentEpochQuote = isQuoteReviewable(epochReviewQuote, Date.now()) ? epochReviewQuote : undefined;
+  const requiresEpochQuote = isBridge && (bridgeRoute ?? 'epoch') === 'epoch';
+  const routeBlocked = isBridge && (routeEligibility.blocked || (requiresEpochQuote && !currentEpochQuote));
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
@@ -527,15 +539,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
       token.fiatPriceIsNominal ||
       fastQuoteExpired ||
       !amount ||
-      epochQuote.amount == null
+      !currentEpochQuote
     ) {
       return undefined;
     }
     const input = parseFloat(amount) * token.fiatPrice;
-    const output = parseFloat(epochQuote.amount);
+    const output = parseFloat(currentEpochQuote.received);
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount, fastQuoteExpired]);
+  }, [token, amount, currentEpochQuote, fastQuoteExpired]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -881,7 +893,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
           typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) ||
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
       !canSendTokenToChain(bridgeConfig, token.id, destinationChainId) ||
-      (isBridge && (destinationChainId === undefined || routeEligibility.blocked))
+      (isBridge && (destinationChainId === undefined || routeEligibility.blocked)) ||
+      (requiresEpochQuote && !isQuoteReviewable(epochReviewQuote, Date.now()))
     )
       return;
     if (isBridge && destinationChainId !== undefined) {
@@ -944,7 +957,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     commandDrafts,
     restoredSendIntent,
     saveCommandDraft,
-    routeEligibility.blocked
+    routeEligibility.blocked,
+    requiresEpochQuote,
+    epochReviewQuote
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
@@ -1234,17 +1249,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onBack: onStepBack,
     onConfirm: onConfirmAmount
   };
-  const epochExpiry = epochQuote.validity?.kind === 'time' ? epochQuote.validity.expiresAt : undefined;
-  useQuoteClock(epochExpiry);
   const fastPayout =
-    destinationChainId !== undefined &&
-    epochQuote.address &&
-    epochQuote.amount &&
-    epochQuote.validity &&
-    isQuoteReviewable({ kind: 'epoch', received: epochQuote.amount, validity: epochQuote.validity }, Date.now())
+    destinationChainId !== undefined && epochQuote.address && currentEpochQuote
       ? {
           assetId: `${destinationChainId}:${epochQuote.address.toLowerCase()}`,
-          amount: epochQuote.amount,
+          amount: currentEpochQuote.received,
           symbol: epochQuote.symbol
         }
       : undefined;
@@ -1262,7 +1271,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? { ...fastPayout, amount }
       : undefined;
   const routeProps: SendRouteProps = {
-    eligibility: routeEligibility,
+    eligibility: { ...routeEligibility, blocked: routeBlocked },
     usdcxAvailable,
     usdcxPayout,
     route: bridgeRoute ?? 'epoch',
@@ -1295,7 +1304,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           onRecipientChange={setRecipientAddress}
           amount={amountProps}
           onReview={goToReview}
-          routeBlocked={isBridge && routeEligibility.blocked}
+          routeBlocked={routeBlocked}
           route={isBridge ? <SendRoute {...routeProps} embedded /> : null}
         />
       ) : (

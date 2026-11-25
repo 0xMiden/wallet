@@ -119,7 +119,7 @@ describe('RouteOptions', () => {
     );
 
     const sort = screen.getByRole('radiogroup', { name: 'bridgeRouteSort' });
-    expect(within(sort).getByRole('radio', { name: 'bridgeRankBestValue' })).toBeChecked();
+    expect(within(sort).getByRole('radio', { name: 'bridgeRankBestPrice' })).toBeChecked();
     expect(within(sort).getByRole('radio', { name: 'bridgeRankFastest' })).toBeEnabled();
   });
 

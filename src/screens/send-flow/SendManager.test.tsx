@@ -23,6 +23,7 @@ import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep, UIToken } from './types';
+import type { EpochQuoteState } from './useEpochQuote';
 import { WalletType } from '../onboarding/types';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
@@ -406,10 +407,11 @@ jest.mock('lib/usdcx/withdrawal', () => ({
 }));
 
 let mockEpochAmount: string | undefined;
-const useEpochQuoteMock = jest.fn((_args: { faucetId?: string; enabled: boolean }) => ({
-  amount: mockEpochAmount,
-  loading: false
-}));
+let mockEpochQuote: EpochQuoteState | undefined;
+const useEpochQuoteMock = jest.fn(
+  (_args: { faucetId?: string; enabled: boolean }): EpochQuoteState =>
+    mockEpochQuote ?? { amount: mockEpochAmount, symbol: 'USDC', loading: false, validity: { kind: 'provider' } }
+);
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: any) => useEpochQuoteMock(args)
 }));
@@ -555,6 +557,7 @@ beforeEach(() => {
   mockRealNavigator = false;
   mockLastAmountChange = undefined;
   mockEpochAmount = undefined;
+  mockEpochQuote = undefined;
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
   mockTokenRoutes = undefined;
@@ -725,6 +728,12 @@ describe('stale transaction modal dismissal', () => {
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
 describe('Command Send uses the real SendManager form', () => {
+  const validQuote: EpochQuoteState = {
+    amount: '1.98',
+    symbol: 'USDC',
+    loading: false,
+    validity: { kind: 'provider' }
+  };
   const bridgeCommand = () => (
     <CommandShell
       scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
@@ -733,7 +742,8 @@ describe('Command Send uses the real SendManager form', () => {
       <SendFlow isLoading={false} />
     </CommandShell>
   );
-  const openBridge = () => {
+  const openBridge = (quote = validQuote) => {
+    mockEpochQuote = quote;
     useAllBalancesMock.mockReturnValue({
       data: [
         { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
@@ -748,6 +758,47 @@ describe('Command Send uses the real SendManager form', () => {
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
     return view;
   };
+
+  it.each<EpochQuoteState>([
+    { loading: true, symbol: 'USDC' },
+    { loading: false, symbol: 'USDC', error: 'Simulated quote failure' },
+    { ...validQuote, validity: { kind: 'time', expiresAt: 1 } },
+    { ...validQuote, amount: '0' }
+  ])('requires a current dynamic quote for Review when Epoch reports %j', async quote => {
+    openBridge(quote);
+
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('can Review AggLayer while the dynamic Epoch quote failed', () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge({ loading: false, symbol: 'USDC', error: 'Simulated quote failure' });
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('route=agglayer'));
+  });
+
+  it('rechecks the dynamic quote expiration at the moment of handoff', () => {
+    const now = jest.spyOn(Date, 'now');
+    const expiresAt = Date.now() + 60_000;
+    try {
+      openBridge({ ...validQuote, validity: { kind: 'time', expiresAt } });
+      expect(screen.getByTestId('command-send-review')).toBeEnabled();
+
+      now.mockReturnValue(expiresAt);
+      fireEvent.click(screen.getByTestId('route-confirm'));
+      expect(navigateMock).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
 
   it.each(['loading', 'unsupported', 'error'] as const)(
     'refuses Command Review and direct Enter while Slow registry is %s',
@@ -899,6 +950,7 @@ describe('Command Send uses the real SendManager form', () => {
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
+    mockEpochQuote = validQuote;
     useAllBalancesMock.mockReturnValue({
       data: [
         { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
