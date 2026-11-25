@@ -13,7 +13,12 @@ test('read adapter calls only fixed account paths without returning credentials'
     accountId,
     token,
     fetchImpl: async (url, init) => {
-      calls.push({ url, method: init.method, authorization: init.headers.Authorization });
+      calls.push({
+        url,
+        method: init.method,
+        authorization: init.headers.Authorization,
+        redirect: init.redirect
+      });
       return Response.json({ success: true, errors: [], result: { id: accountId } });
     }
   });
@@ -22,6 +27,7 @@ test('read adapter calls only fixed account paths without returning credentials'
   assert.equal(calls[0].url, `https://api.cloudflare.com/client/v4/accounts/${accountId}`);
   assert.equal(calls[0].method, 'GET');
   assert.equal(calls[0].authorization, `Bearer ${token}`);
+  assert.equal(calls[0].redirect, 'error');
   assert.equal(JSON.stringify(response).includes(token), false);
 });
 
@@ -181,6 +187,7 @@ test('script deleter accepts only the exact topology worker path without force o
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/miden-elig-topology-12345-1`
   );
   assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(calls[0].init.redirect, 'error');
   assert.equal(new URL(calls[0].url).search, '');
   assert.equal(Object.hasOwn(calls[0].init, 'body'), false);
 });

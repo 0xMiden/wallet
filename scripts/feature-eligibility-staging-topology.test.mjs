@@ -418,6 +418,7 @@ test('topology exercise sends each fixed scenario once and rejects non-passing r
   for (const { options } of calls) {
     assert.equal(options.method, 'POST');
     assert.equal(options.headers.Authorization, `Bearer ${'b'.repeat(32)}`);
+    assert.equal(options.redirect, 'error');
     assert.equal(options.body, undefined);
   }
   assert.equal(results.length, EXPECTED_TOPOLOGY_SCENARIOS.length);

@@ -563,6 +563,19 @@ test('createGitHubReader bounds requests, rejects redirects, stalls, deadlines, 
     clock += 5_000;
     await assert.rejects(deadlineReader('/ok'), /GitHub recovery metadata unavailable/);
     assert.equal(serverHits.length, beforeExpiry + 1);
+
+    const spyCalls = [];
+    const spyReader = recoveryRunner.createGitHubReader({
+      token,
+      apiUrl,
+      fetchImpl: async (url, init) => {
+        spyCalls.push({ url, init });
+        return Response.json({ ok: true });
+      }
+    });
+    assert.deepEqual(await spyReader('/ok'), { ok: true });
+    assert.equal(spyCalls.length, 1);
+    assert.equal(spyCalls[0].init.redirect, 'error');
   } finally {
     server.closeAllConnections?.();
     targetServer.closeAllConnections?.();

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
-import { createTopologyReadApi } from './staging-topology-api.mjs';
+import { createTopologyReadApi, createTopologyScriptDeleter } from './staging-topology-api.mjs';
 import { createTopologyApiBudget, prepareTopologyInventory } from './staging-topology-preflight.mjs';
 
 const accountId = 'a'.repeat(32);
@@ -263,10 +263,10 @@ test('createTopologyApiBudget enforces single-layer read caps over createTopolog
   assert.equal(fetchCalls, 250);
 });
 
-test('createTopologyReadApi rejects authenticated redirects', async () => {
+async function withRedirectServerPair(run) {
   const targetHits = [];
   const targetServer = http.createServer((req, res) => {
-    targetHits.push({ url: req.url, auth: req.headers.authorization ?? null });
+    targetHits.push({ url: req.url, method: req.method, auth: req.headers.authorization ?? null });
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ success: true, errors: [], result: { subdomain: 'wallet-topology' } }));
   });
@@ -279,6 +279,15 @@ test('createTopologyReadApi rejects authenticated redirects', async () => {
   await new Promise(resolve => redirectServer.listen(0, '127.0.0.1', resolve));
   const redirectOrigin = `http://127.0.0.1:${redirectServer.address().port}`;
   try {
+    await run({ redirectOrigin, targetHits });
+  } finally {
+    await new Promise(resolve => redirectServer.close(resolve));
+    await new Promise(resolve => targetServer.close(resolve));
+  }
+}
+
+test('createTopologyReadApi rejects authenticated redirects', async () => {
+  await withRedirectServerPair(async ({ redirectOrigin, targetHits }) => {
     const api = createTopologyReadApi({
       accountId,
       token,
@@ -289,8 +298,20 @@ test('createTopologyReadApi rejects authenticated redirects', async () => {
     });
     assert.equal(await api('/workers/subdomain'), null);
     assert.deepEqual(targetHits, []);
-  } finally {
-    await new Promise(resolve => redirectServer.close(resolve));
-    await new Promise(resolve => targetServer.close(resolve));
-  }
+  });
+});
+
+test('createTopologyScriptDeleter rejects authenticated redirects', async () => {
+  await withRedirectServerPair(async ({ redirectOrigin, targetHits }) => {
+    const remove = createTopologyScriptDeleter({
+      accountId,
+      token,
+      fetchImpl: (url, init) => {
+        const parsed = new URL(url);
+        return fetch(`${redirectOrigin}${parsed.pathname}${parsed.search}`, init);
+      }
+    });
+    assert.equal(await remove('miden-elig-topology-12345-1'), false);
+    assert.deepEqual(targetHits, []);
+  });
 });
