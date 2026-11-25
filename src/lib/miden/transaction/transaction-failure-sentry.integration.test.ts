@@ -660,16 +660,17 @@ describe('committed terminal transaction failure reports', () => {
       expectNoPersistedNativeFailure(persisted);
     });
 
-    it('does not report or persist a marked failure on a restored inbound bridge', async () => {
+    // A restored row is a receipt of another device or an earlier wallet. `updateBridgedReceivePhase` refuses it,
+    // so a failure this device sees neither changes the receipt nor reaches a crash report.
+    it('does not report a marked failure on a restored inbound bridge and leaves its receipt as restored', async () => {
       const caught = await nativeApprovalRejection();
-      await Repo.transactions.put(
-        row({
-          type: 'bridged-receive',
-          status: ITransactionStatus.Completed,
-          restoredFromBackup: true,
-          extraInputs: { phase: 'submitting', provider: 'usdcx' }
-        })
-      );
+      const restored = row({
+        type: 'bridged-receive',
+        status: ITransactionStatus.Completed,
+        restoredFromBackup: true,
+        extraInputs: { phase: 'submitting', provider: 'usdcx' }
+      });
+      await Repo.transactions.put(restored);
       const failure = {
         error: 'Request expired',
         failure: { step: 'wallet_approve', cause: caught }
@@ -678,33 +679,25 @@ describe('committed terminal transaction failure reports', () => {
       await updateBridgedReceivePhase('tx', 'failed', failure);
 
       const persisted = await Repo.transactions.get('tx');
-      expect(persisted).toMatchObject({
-        restoredFromBackup: true,
-        error: 'Request expired',
-        extraInputs: { phase: 'failed', provider: 'usdcx', error: 'Request expired' }
-      });
+      expect(persisted).toEqual(restored);
       if (persisted === undefined) throw new Error('Expected a persisted restored inbound bridge');
       expectNoPersistedNativeFailure(persisted);
       expect(report).not.toHaveBeenCalled();
     });
   });
 
-  it('fails a restored inbound bridge the reconciler cannot verify without reporting it', async () => {
-    await Repo.transactions.put(
-      row({
-        type: 'bridged-receive',
-        status: ITransactionStatus.Completed,
-        restoredFromBackup: true,
-        extraInputs: { phase: 'submitting', provider: 'usdcx' }
-      })
-    );
+  it('leaves a restored inbound bridge the reconciler cannot verify as restored, without a report', async () => {
+    const restored = row({
+      type: 'bridged-receive',
+      status: ITransactionStatus.Completed,
+      restoredFromBackup: true,
+      extraInputs: { phase: 'submitting', provider: 'usdcx' }
+    });
+    await Repo.transactions.put(restored);
 
     await updateBridgedReceivePhase('tx', 'failed', { error: 'delivery could not be verified' });
 
-    expect(await Repo.transactions.get('tx')).toMatchObject({
-      error: 'delivery could not be verified',
-      extraInputs: { phase: 'failed', provider: 'usdcx' }
-    });
+    expect(await Repo.transactions.get('tx')).toEqual(restored);
     expect(report).not.toHaveBeenCalled();
   });
 

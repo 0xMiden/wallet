@@ -157,22 +157,39 @@ describe('EarnIntentWatcher local reconciliation', () => {
     expect(mockGetIntentStatus).not.toHaveBeenCalledWith(PREPARED_OWNER, '22');
   }, 15_000);
 
-  it.each(pendingPhases)('persists failure for a restored %s withdrawal whose poll key is owned', async phase => {
+  // A restored row is a receipt: the device that made the withdrawal owns its state, and the backup brings the
+  // result. This device does not change it, also when it cannot verify it (`updateEarnWithdrawPhase` refuses it).
+  it.each(pendingPhases)('leaves a restored %s withdrawal whose poll key is owned as it was restored', async phase => {
     const row = withdrawal('restored', { phase });
     row.restoredFromBackup = true;
     row.status = ITransactionStatus.Failed;
     await transactions.add(row);
+    const restored = await transactions.get('restored');
     const heldKey = earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-restored');
     own(heldKey);
 
+    const read = jest.spyOn(transactions, 'filter');
     render(<EarnIntentWatcher />);
-
-    await waitFor(async () => {
-      const persisted = await transactions.get('restored');
-      const inputs: IEarnWithdrawExtraInputs | undefined = persisted?.extraInputs;
-      expect(inputs?.phase).toBe('failed');
-      expect(persisted?.error).toBe('Restored from a backup - this withdrawal could not be verified.');
+    await waitFor(() => expect(read).toHaveBeenCalled());
+    // A later row that the same reconciliation fails shows that a full pass ran over the restored row.
+    await transactions.add(
+      withdrawal('late-expired', {
+        attemptStartedAt: EXPIRED_SECONDS,
+        withdrawIntentNonce: undefined,
+        submissionState: 'preparing'
+      })
+    );
+    own(earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-late-expired'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
     });
+    await waitFor(async () => {
+      const late = await transactions.get('late-expired');
+      const lateInputs: IEarnWithdrawExtraInputs | undefined = late?.extraInputs;
+      expect(lateInputs?.phase).toBe('failed');
+    });
+
+    expect(await transactions.get('restored')).toEqual(restored);
     expect(isPollActive(earnWithdrawPollKey(OWNER, 'nonce-restored'))).toBe(true);
     expect(mockGetSdk).not.toHaveBeenCalled();
     expect(mockGetIntentStatus).not.toHaveBeenCalled();

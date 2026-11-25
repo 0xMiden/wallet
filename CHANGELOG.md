@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
 - [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
 - [FEATURE][all] Send through NEAR Intents (1Click) from Miden to Ethereum, Solana, Bitcoin or NEAR: the wallet checks the destination address for its chain (EIP-55 checksum, a Solana key on the ed25519 curve, a NEAR account with a dot), sends a public note to the 1Click deposit address, and follows the send to delivery or refund.
 - [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).

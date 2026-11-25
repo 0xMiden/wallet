@@ -1,4 +1,3 @@
-import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import {
   AccountBuilder,
   AccountComponent,
@@ -19,6 +18,7 @@ import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
+import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
 import type { BackupMergeRecords } from 'lib/backup/state';
 import { deriveSyncSecretKey, isValidSyncSecretKey, signSyncMessage, syncPublicKeyHex } from 'lib/backup/sync-key';
