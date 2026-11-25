@@ -341,7 +341,7 @@ function ActivePlanBanner({
       aria-label={t('commandAiPlanTitle')}
       className="relative z-20 mx-auto w-full max-w-[66rem] px-3 pt-3 pb-1 sm:px-7"
     >
-      <div className="flex min-h-[140px] flex-col justify-center gap-4 rounded-2xl border border-accent-tint-ink/30 bg-linear-to-r from-fill/95 via-fill/90 to-page/95 px-5 py-5 shadow-md backdrop-blur-md">
+      <div className="flex min-h-[140px] flex-col justify-center gap-4 rounded-2xl border border-accent-tint-ink/30 bg-linear-to-r from-fill/95 via-fill/90 to-page/95 px-5 py-5 shadow-md [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3.5">
             <BreadMascot
