@@ -210,7 +210,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.SignEvmRequest: {
-      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation, req.key);
       return {
         type: WalletMessageType.SignEvmResponse,
         result: evmSignResult

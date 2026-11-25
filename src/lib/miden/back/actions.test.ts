@@ -642,6 +642,7 @@ describe('actions', () => {
       fetchSettings: jest.fn().mockResolvedValue({}),
       getCurrentAccount: jest.fn().mockResolvedValue(null),
       isOwnMnemonic: jest.fn().mockResolvedValue(true),
+      backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined),
       insertKeySink: jest.fn()
     });
 
@@ -752,7 +753,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
@@ -784,6 +786,30 @@ describe('actions', () => {
       expect(migrations.backfillGuardianEndpoints).not.toHaveBeenCalled();
     });
 
+    it('stamps relay addresses before it reads the accounts it publishes', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const vault = unlockableVault();
+      Vault.setup.mockResolvedValueOnce(vault);
+
+      await unlock('pw');
+
+      expect(vault.backfillRelayEvmAddresses).toHaveBeenCalledTimes(1);
+      expect(vault.backfillRelayEvmAddresses.mock.invocationCallOrder[0]).toBeLessThan(
+        vault.fetchAccounts.mock.invocationCallOrder[0]!
+      );
+      expect(mockUnlocked).toHaveBeenCalled();
+    });
+
+    it('still unlocks when the relay address backfill fails', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const vault = unlockableVault();
+      vault.backfillRelayEvmAddresses.mockRejectedValueOnce(new Error('backfill failed'));
+      Vault.setup.mockResolvedValueOnce(vault);
+
+      await expect(unlock('pw')).resolves.toBeUndefined();
+      expect(mockUnlocked).toHaveBeenCalled();
+    });
+
     it('still unlocks when the resumed seed removal fails, leaving the status at removing', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       // removeSeedPhrase throws seedRemovalFailed by design, and reaches the
@@ -796,7 +822,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
@@ -819,7 +846,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
       installNavigatorLocksMock(null); // the loop holds it

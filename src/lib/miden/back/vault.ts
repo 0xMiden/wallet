@@ -13,10 +13,12 @@ import {
   PublicKey
 } from '@miden-sdk/miden-sdk/lazy';
 import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
+import { hexToBytes } from '@noble/hashes/utils';
 import { v4 as uuid } from 'uuid';
 import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
+import type { PrivateKeyAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
@@ -43,6 +45,7 @@ import { isCurrentRotationRequest, ITransaction, ITransactionStatus } from 'lib/
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
+import { deriveRelayKeyScalar } from 'lib/miden/relay-key/derive';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { signBytesInputs } from 'lib/miden/sign-bytes/domain';
@@ -54,6 +57,7 @@ import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
+  EvmKeyRole,
   GuardianRecoveryAction,
   SeedPhraseStatus,
   GuardianSyncStatus,
@@ -1168,9 +1172,10 @@ export class Vault {
       // Wallet-derived EVM identity per HD account, derived while the mnemonic
       // is in scope. Only the address is stamped on the record; the key is
       // persisted encrypted in the loop below.
-      const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex }>();
+      const evmKeys = new Map<number, { address: Hex; privateKeyHex: Hex; relayAddress: Hex }>();
       for (const c of createdAccounts) {
-        evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
+        const evmKey = deriveEvmKeyPair(mnemonic, walletType, c.hdIndex);
+        evmKeys.set(c.hdIndex, { ...evmKey, relayAddress: relayEvmAddressOf(evmKey.privateKeyHex) });
       }
 
       const initialAccounts: WalletAccount[] = createdAccounts.map(
@@ -1183,6 +1188,7 @@ export class Vault {
           authScheme: c.authScheme,
           keyDerivation: c.keyDerivation,
           evmAddress: evmKeys.get(c.hdIndex)?.address,
+          relayEvmAddress: evmKeys.get(c.hdIndex)?.relayAddress,
           ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
           ...(c.guardianKeys && {
             hotPublicKey: c.guardianKeys.hotPublicKey,
@@ -1260,6 +1266,7 @@ export class Vault {
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
       const evmPrivateKey: Hex = `0x${pair.evmPrivateKey}`;
       const evmAccount = privateKeyToAccount(evmPrivateKey);
+      const relayEvmAddress = relayEvmAddressOf(evmPrivateKey);
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
       spawned = new Vault(vaultKey);
@@ -1361,7 +1368,8 @@ export class Vault {
           hotPublicKey: r.hotPublicKey,
           guardianEndpoint: resolvedGuardianEndpoint,
           guardianNoteRecoveryPending: true,
-          evmAddress: evmAccount.address
+          evmAddress: evmAccount.address,
+          relayEvmAddress
           // Deliberately ABSENT: coldPublicKey (not derivable without the
           // seed; its absence is the "no recovery capability" marker the UI
           // gates on), requiresHotKeyRotation (see the method doc).
@@ -1680,17 +1688,20 @@ export class Vault {
       // blobs must be re-derived on every import). A file with no phrase carries
       // no HD account - the guard above refuses that pairing - so this loop simply
       // has nothing to derive in that case.
+      // The relay address is never read from the file: an HD account gets the one its re-derived EVM key gives, and
+      // an imported account, which has no stored EVM key, gets none.
       const accountsToSave: WalletAccount[] = [];
-      for (const wa of walletAccounts) {
+      for (const { relayEvmAddress: _fileRelayAddress, ...wa } of walletAccounts) {
         if (wa.hdIndex < 0) {
           accountsToSave.push(wa);
           continue;
         }
         const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
+        const relayEvmAddress = relayEvmAddressOf(evmKey.privateKeyHex);
         await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
         const cold = restoredGuardianColdKeys.get(wa.publicKey);
         if (!cold) {
-          accountsToSave.push({ ...wa, evmAddress: evmKey.address });
+          accountsToSave.push({ ...wa, evmAddress: evmKey.address, relayEvmAddress });
           continue;
         }
         await persistRecoveredGuardianColdKey(vaultKey, cold.coldPublicKey, cold.coldSecretKeyHex);
@@ -1699,6 +1710,7 @@ export class Vault {
         accountsToSave.push({
           ...withoutHotKey,
           evmAddress: evmKey.address,
+          relayEvmAddress,
           coldPublicKey: cold.coldPublicKey,
           requiresHotKeyRotation: true,
           hotKeyRotationRequest: uuid(),
@@ -1917,6 +1929,7 @@ export class Vault {
         authScheme: newScheme,
         keyDerivation: created.keyDerivation,
         evmAddress: evmKey.address,
+        relayEvmAddress: relayEvmAddressOf(evmKey.privateKeyHex),
         ...(created.guardianEndpoint && { guardianEndpoint: created.guardianEndpoint }),
         ...(created.guardianKeys && {
           hotPublicKey: created.guardianKeys.hotPublicKey,
@@ -2795,8 +2808,11 @@ export class Vault {
    * viem `toAccount` CustomSource callbacks of the frontend WalletClient
    * (see lib/epoch/evm-account.ts). Decrypts only the 32-byte leaf key
    * (never the mnemonic), signs, and lets every reference fall out of scope.
+   * With `key` `'relay'`, the relay key signs: the vault derives it from the
+   * decrypted EVM key for this call only, and refuses when its address is not
+   * the account's `relayEvmAddress`.
    */
-  async signEvm(accountPublicKey: string, operation: SignEvmOperation): Promise<Hex> {
+  async signEvm(accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account'): Promise<Hex> {
     return withError('Failed to sign EVM payload', async () => {
       const accounts = await this.fetchAccounts();
       const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
@@ -2810,7 +2826,21 @@ export class Vault {
       if (!privateKeyHex) {
         throw new PublicError('EVM key not found');
       }
-      const evmAccount = privateKeyToAccount(privateKeyHex);
+      let evmAccount: PrivateKeyAccount;
+      switch (key) {
+        case 'account':
+          evmAccount = privateKeyToAccount(privateKeyHex);
+          break;
+        case 'relay':
+          evmAccount = relayEvmAccount(privateKeyHex);
+          if (account.relayEvmAddress?.toLowerCase() !== evmAccount.address.toLowerCase()) {
+            throw new PublicError('Account has no relay key');
+          }
+          break;
+        default:
+          // The key role comes over a port, so a value outside the type can reach here at run time.
+          throw new PublicError('Unknown EVM key');
+      }
       switch (operation.op) {
         case 'transaction':
           return evmAccount.signTransaction(parseTransaction(operation.serializedTransaction));
@@ -2820,6 +2850,37 @@ export class Vault {
           return evmAccount.signMessage({ message: { raw: operation.messageHex } });
       }
     });
+  }
+
+  /**
+   * Stamp `relayEvmAddress` on each account record that has a stored EVM key and no relay address, which is a record
+   * from before relay keys existed. It needs no recovery phrase. Unlock runs it on the accounts write queue. An account
+   * whose EVM key does not read is logged and skipped, and the next unlock tries it again. When no record changes, it
+   * writes nothing, so a second run is a no-op.
+   */
+  async backfillRelayEvmAddresses(): Promise<void> {
+    const relayAddresses = new Map<string, Hex>();
+    for (const account of await this.fetchAccounts()) {
+      if (account.relayEvmAddress || !account.evmAddress) continue;
+      try {
+        const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
+        if (!(await isStored(evmStorageKey))) continue;
+        const privateKeyHex = await fetchAndDecryptOne<Hex>(evmStorageKey, this.vaultKey);
+        if (privateKeyToAccount(privateKeyHex).address.toLowerCase() !== account.evmAddress.toLowerCase()) {
+          throw new Error('the stored EVM key does not match the account');
+        }
+        relayAddresses.set(account.publicKey, relayEvmAddressOf(privateKeyHex));
+      } catch (error) {
+        console.warn('[Vault.backfillRelayEvmAddresses] skipped an account:', error);
+      }
+    }
+    if (relayAddresses.size === 0) return;
+    // Read the records again just before the write, so the write keeps every other field as it is now.
+    const accounts = (await this.fetchAccounts()).map(account => {
+      const relayEvmAddress = relayAddresses.get(account.publicKey);
+      return relayEvmAddress && !account.relayEvmAddress ? { ...account, relayEvmAddress } : account;
+    });
+    await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
   }
 
   /**
@@ -3217,6 +3278,31 @@ function decodeLoginKeyRoot(hex: string): Uint8Array {
   const root = new Uint8Array(decoded);
   decoded.fill(0);
   return root;
+}
+
+/**
+ * The relay key of the EVM key `evmPrivateKeyHex` (with or without `0x`), as a viem account. The key exists only in
+ * memory for the caller's use. The decoded EVM key bytes and the derived scalar are zeroed here.
+ */
+function relayEvmAccount(evmPrivateKeyHex: string): PrivateKeyAccount {
+  const unprefixed = evmPrivateKeyHex.startsWith('0x') ? evmPrivateKeyHex.slice(2) : evmPrivateKeyHex;
+  if (!isValidHex(unprefixed) || unprefixed.length !== 64) throw new PublicError('EVM key not found');
+  const root = hexToBytes(unprefixed);
+  try {
+    const scalar = deriveRelayKeyScalar(root);
+    try {
+      return privateKeyToAccount(`0x${bytesToHex(scalar)}`);
+    } finally {
+      scalar.fill(0);
+    }
+  } finally {
+    root.fill(0);
+  }
+}
+
+/** The relay address of the EVM key `evmPrivateKeyHex`: the public data that goes on the account record. */
+function relayEvmAddressOf(evmPrivateKeyHex: string): Hex {
+  return relayEvmAccount(evmPrivateKeyHex).address;
 }
 
 /** Decode base64 of 32 bytes holding four little-endian u64s strictly below 0xffffffff00000001, before any key read. */

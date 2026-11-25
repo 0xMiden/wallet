@@ -845,7 +845,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature: wordSignature
       };
     case WalletMessageType.SignEvmRequest:
-      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
+      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation, req.key);
       return {
         type: WalletMessageType.SignEvmResponse,
         result: evmSignResult

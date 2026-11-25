@@ -5,6 +5,7 @@ import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
+  EvmKeyRole,
   GuardianSyncStatus,
   ImportedAccountBackup,
   SignEvmOperation,
@@ -267,8 +268,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const signEvm = useCallback(
-    async (accountPublicKey: string, operation: SignEvmOperation) => {
-      return storeSignEvm(accountPublicKey, operation);
+    async (accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account') => {
+      return storeSignEvm(accountPublicKey, operation, key);
     },
     [storeSignEvm]
   );

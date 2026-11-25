@@ -712,11 +712,12 @@ export const useWalletStore = create<WalletStore>()(
       return res.signature;
     },
 
-    signEvm: async (accountPublicKey, operation) => {
+    signEvm: async (accountPublicKey, operation, key = 'account') => {
       const res = await request({
         type: WalletMessageType.SignEvmRequest,
         accountPublicKey,
-        operation
+        operation,
+        key
       });
       assertResponse(res.type === WalletMessageType.SignEvmResponse);
       return res.result;
