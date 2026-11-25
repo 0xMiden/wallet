@@ -68,7 +68,6 @@ export interface HistoryRow {
   nt?: NoteTypeEnum;
   nd?: ITransaction['noteDelivery'];
   at?: { faucetId: string; amount: string }[];
-  d?: string[];
   e?: string;
   u?: boolean;
   ni?: string[];
@@ -239,7 +238,6 @@ export function projectTransaction(tx: ITransaction): HistoryRow {
     nt: tx.noteType,
     nd: tx.noteDelivery,
     at: tx.assetTotals?.map(({ faucetId, amount }) => ({ faucetId, amount: amount.toString() })),
-    d: tx.dappOrigins,
     e: tx.error,
     u: readsAsNotConfirmed(tx) || undefined,
     ni: tx.inputNoteIds,
@@ -403,7 +401,6 @@ export function parseHistoryRow(value: unknown): HistoryRow | null {
     nt: value.nt === NoteTypeEnum.Public || value.nt === NoteTypeEnum.Private ? value.nt : undefined,
     nd: readDelivery(value.nd),
     at: Array.isArray(value.at) ? readAssetTotals(value.at) : undefined,
-    d: readNoteIds(value.d) ?? undefined,
     e: optionalString(value.e) ?? undefined,
     u: value.u === true || undefined,
     ni: readNoteIds(value.ni) ?? undefined,
@@ -556,7 +553,6 @@ export function restoreTransaction(row: HistoryRow): ITransaction {
     noteType: row.nt,
     noteDelivery: row.nd,
     assetTotals,
-    dappOrigins: row.d,
     error: row.e,
     restoredOutcomeUnconfirmed: row.u,
     inputNoteIds: row.ni ?? (isConsume && notes.length > 0 ? notes : undefined),

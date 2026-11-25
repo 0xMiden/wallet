@@ -195,7 +195,7 @@ describe('history projection', () => {
     expect(restored.extraInputs).not.toHaveProperty('secret', 'dropped');
   });
 
-  it('preserves fee, asset, note, origin, and outcome fields through the stored JSON', () => {
+  it('preserves fee, asset, note, and outcome fields without syncing local dApp access', () => {
     const original = row('receipt', {
       type: 'consume',
       status: ITransactionStatus.Unconfirmed,
@@ -215,15 +215,22 @@ describe('history projection', () => {
         bridgeIn: { provider: 'epoch', bridgeReceiveTxId: 'bridge', midenNoteId: 'input' }
       }
     });
-    const [stored] = parseHistoryChunk(JSON.stringify([projectTransaction(original)]));
+    const projected = projectTransaction(original);
+    expect(projected).not.toHaveProperty('d');
+    const [stored] = parseHistoryChunk(JSON.stringify([projected]));
     if (!stored) throw new Error('The backup receipt must parse');
     const restored = restoreTransaction(stored);
+    expect(restored.dappOrigins).toBeUndefined();
+
+    const [legacy] = parseHistoryChunk(JSON.stringify([{ ...stored, d: original.dappOrigins }]));
+    if (!legacy) throw new Error('The legacy backup receipt must parse');
+    expect(legacy).not.toHaveProperty('d');
+    expect(restoreTransaction(legacy).dappOrigins).toBeUndefined();
     expect(restored).toMatchObject({
       feeFaucetId: original.feeFaucetId,
       feeAmount: original.feeAmount,
       noteType: original.noteType,
       noteDelivery: original.noteDelivery,
-      dappOrigins: original.dappOrigins,
       inputNoteIds: original.inputNoteIds,
       assetTotals: original.assetTotals,
       error: original.error,
