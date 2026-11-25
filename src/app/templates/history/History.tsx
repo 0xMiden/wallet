@@ -22,6 +22,7 @@ import {
   IBridgeInInfo,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISendExtraInputs,
   ITransaction,
   ITransactionStatus,
   ISwitchGuardianExtraInputs
@@ -780,6 +781,7 @@ const loadedMutableActivityTxIds = (entries: readonly IHistoryEntry[]): string[]
       entry.txType === 'bridged-receive' ||
       entry.txType === 'earn-deposit' ||
       entry.txType === 'earn-withdraw' ||
+      entry.oneClickTracking !== undefined ||
       (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
     if (!mutable || entry.txId === undefined || seen.has(entry.txId)) continue;
     seen.add(entry.txId);
@@ -797,6 +799,18 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
     return null;
   }
 }
+
+const loadedActivityOneClickTracking = (tx: ITransaction): IBridgedReceiveExtraInputs['oneClick'] => {
+  if (tx.type === 'bridged-receive') return (tx.extraInputs as IBridgedReceiveExtraInputs | undefined)?.oneClick;
+  if (tx.type === 'bridged-send') {
+    const extra = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+    return extra?.provider === 'near-intents' ? extra.oneClick : undefined;
+  }
+  if (tx.type === 'send') {
+    return (tx.extraInputs as ISendExtraInputs | undefined)?.oneClick;
+  }
+  return undefined;
+};
 
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
@@ -820,6 +834,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     isCancelled,
     isUnconfirmed,
     bridgeClaimStatus: bridge?.claimStatus,
+    bridgeDestinationChain: bridge?.destinationChain,
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
@@ -837,7 +852,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-    oneClickTracking: bridgedReceive?.oneClick,
+    oneClickTracking: loadedActivityOneClickTracking(tx),
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -866,6 +881,14 @@ export const patchLoadedActivityStatus = (
     // shown object and the row does not render again.
     if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
       fields.oneClickTracking = entry.oneClickTracking;
+    }
+    if (
+      entry.bridgeDestinationChain &&
+      fields.bridgeDestinationChain &&
+      entry.bridgeDestinationChain.id === fields.bridgeDestinationChain.id &&
+      entry.bridgeDestinationChain.name === fields.bridgeDestinationChain.name
+    ) {
+      fields.bridgeDestinationChain = entry.bridgeDestinationChain;
     }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
@@ -1067,6 +1090,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1084,7 +1108,7 @@ async function fetchTransactionsAsHistoryEntries(
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
-      oneClickTracking: bridgedReceive?.oneClick,
+      oneClickTracking: loadedActivityOneClickTracking(tx),
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1230,6 +1254,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1245,7 +1270,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeReclaimNoteId: bridge?.reclaimNoteId,
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
-      earnDepositStatus: earnDeposit?.epochStatus
+      earnDepositStatus: earnDeposit?.epochStatus,
+      oneClickTracking: loadedActivityOneClickTracking(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

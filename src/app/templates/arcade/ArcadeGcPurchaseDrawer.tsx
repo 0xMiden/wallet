@@ -1,59 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/ui/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
-import { TextField } from 'components/ui/TextField';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
-import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
-import { GC_DECIMALS, pickGcSale, quoteGcPurchase, type GcSale } from 'lib/miden/arcade/gc-sale';
+import { getNumberSymbols } from 'lib/i18n/core';
+import { GC_DECIMALS, pickGcPurchasePackageSale, quoteGcPurchasePackage, type GcSale } from 'lib/miden/arcade/gc-sale';
 import type { GcPurchaseQuote } from 'lib/miden/transaction/initiate';
-import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
 
-/** What the sheet opens at. */
-const DEFAULT_GC_AMOUNT_TEXT = '1';
-
-type AmountReading =
-  | { quote: GcPurchaseQuote }
-  | {
-      errorId:
-        | 'invalidAmount'
-        | 'amountExceedsTokenDecimals'
-        | 'arcadeGcPurchaseAboveInventory'
-        | 'arcadeGcPurchaseBelowMinimum';
-    };
-
-/** The quote for the typed GC amount, or the error the field shows. */
-function readAmount(sale: GcSale, text: string): AmountReading {
-  if (amountExceedsTokenDecimals(text, GC_DECIMALS)) return { errorId: 'amountExceedsTokenDecimals' };
-  let gcAmount: bigint;
-  try {
-    gcAmount = stringToBigInt(text, GC_DECIMALS);
-  } catch {
-    return { errorId: 'invalidAmount' };
-  }
-  const result = quoteGcPurchase(sale, gcAmount);
-  if ('quote' in result) return result;
-  switch (result.refusal) {
-    case 'zero':
-      return { errorId: 'invalidAmount' };
-    case 'above_inventory':
-      return { errorId: 'arcadeGcPurchaseAboveInventory' };
-    case 'below_fill_floor':
-      return { errorId: 'arcadeGcPurchaseBelowMinimum' };
-  }
-}
-
-/**
- * The review of a GC purchase: how many GC to buy (1 by default), what that costs at the live note's price, that
- * network fees come on top, and whether the wallet holds the USDCx to pay it. Confirm hands the quote back; the
- * caller queues the row and navigates.
- */
 export const ArcadeGcPurchaseDrawer: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,35 +26,14 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
   onConfirm: (quote: GcPurchaseQuote) => void;
 }> = ({ open, onOpenChange, sale: initialSale, sales, payBalance, submitting, error, onConfirm }) => {
   const { t } = useTranslation();
-  const [amountText, setAmountText] = useState(DEFAULT_GC_AMOUNT_TEXT);
-  // Each opening starts over at the default, so a closed sheet never keeps a stale amount.
-  useEffect(() => {
-    if (open) setAmountText(DEFAULT_GC_AMOUNT_TEXT);
-  }, [open]);
-  const sale = (() => {
-    if (!sales) return initialSale;
-    try {
-      return pickGcSale(sales, stringToBigInt(amountText, GC_DECIMALS)) ?? initialSale;
-    } catch {
-      return initialSale;
-    }
-  })();
-  const reading = sale ? readAmount(sale, amountText) : null;
-  const quote = reading && 'quote' in reading ? reading.quote : null;
-  const amountErrorId: UserErrorId | null = reading && 'errorId' in reading ? reading.errorId : null;
-  const amountError = (() => {
-    switch (amountErrorId) {
-      case null:
-        return undefined;
-      case 'arcadeGcPurchaseAboveInventory':
-        return t(amountErrorId, {
-          available: formatAmountDisplay(sale?.offeredAmount ?? 0n, { decimals: GC_DECIMALS, rounding: 'down' })
-        });
-      default:
-        return t(amountErrorId);
-    }
-  })();
-  const insufficient = quote !== null && payBalance !== null && payBalance < quote.fillAmount;
+  const { group, decimal } = getNumberSymbols();
+  const sale = sales === undefined ? initialSale : pickGcPurchasePackageSale(sales);
+  const quote = sale ? quoteGcPurchasePackage(sale) : null;
+  const baseFee = useVerificationBaseFee();
+  const roundedBaseFee = baseFee === null ? 0 : Math.ceil(baseFee);
+  // One base fee is the minimum charge. Use it to refuse only a certain shortfall.
+  const feeFloor = roundedBaseFee > 0 && Number.isSafeInteger(roundedBaseFee) ? BigInt(roundedBaseFee) : 0n;
+  const insufficient = quote !== null && payBalance !== null && payBalance < quote.fillAmount + feeFloor;
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="arcade-gc-purchase">
       <DrawerContent data-testid="arcade-gc-purchase-review">
@@ -102,61 +41,52 @@ export const ArcadeGcPurchaseDrawer: React.FC<{
           <DrawerTitle>{t('arcadeBuyMoreGc')}</DrawerTitle>
         </DrawerHeader>
         <DrawerDescription>{t('arcadeGcPurchaseReviewBody')}</DrawerDescription>
-        {sale && (
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            <TextField
-              label={t('arcadeGcPurchaseAmountLabel')}
-              value={amountText}
-              onChange={event => setAmountText(event.target.value)}
-              inputMode="decimal"
-              autoComplete="off"
-              error={amountError}
-              errorId={amountErrorId}
-              hint={t('arcadeGcPurchasePrice', {
-                price: formatAmountDisplay(
-                  (sale.requestedAmount * 10n ** BigInt(GC_DECIMALS) + sale.offeredAmount - 1n) / sale.offeredAmount,
-                  { decimals: USDCX_DECIMALS, rounding: 'up' }
-                )
-              })}
-              data-testid="arcade-gc-purchase-amount"
-            />
+        <div className="flex flex-col gap-3 px-4 pb-4">
+          {quote ? (
             <DetailCard>
               <DetailRow label={t('arcadeGcPurchaseYouPay')}>
-                {quote
-                  ? t('arcadeGcPurchaseUsdcx', {
-                      amount: formatAmountDisplay(quote.fillAmount, { decimals: USDCX_DECIMALS, formatting: 'exact' })
-                    })
-                  : t('arcadeGcPurchaseNoQuote')}
+                {t('arcadeGcPurchaseUsdcx', {
+                  amount: formatAmountDisplay(quote.fillAmount, { decimals: USDCX_DECIMALS, formatting: 'exact' })
+                })}
               </DetailRow>
               <DetailRow label={t('arcadeGcPurchaseYouReceive')}>
-                {quote
-                  ? t('arcadeBalance', {
-                      balance: formatAmountDisplay(quote.expectedAmount, { decimals: GC_DECIMALS, rounding: 'down' })
-                    })
-                  : t('arcadeGcPurchaseNoQuote')}
+                {t('arcadeBalance', {
+                  balance: formatAmountDisplay(quote.expectedAmount, {
+                    decimals: GC_DECIMALS,
+                    formatting: 'exact',
+                    grouping: true,
+                    separators: { group, decimal }
+                  })
+                })}
               </DetailRow>
               <DetailRow label={t('networkFee')}>{t('arcadeGcPurchaseFeeSeparate')}</DetailRow>
             </DetailCard>
-            {insufficient && (
-              <Notice variant="inline" tone="warning" data-testid="arcade-gc-purchase-insufficient">
-                {t('arcadeGcPurchaseInsufficient')}
-              </Notice>
-            )}
-            {error && (
-              <Notice
-                variant="inline"
-                tone="negative"
-                errorId="raw_arcade_gc_purchase_failed"
-                data-testid="arcade-gc-purchase-error"
-              >
-                {error}
-              </Notice>
-            )}
+          ) : (
+            <Notice variant="inline" tone="warning">
+              {t('arcadeGcPurchaseUnavailable')}
+            </Notice>
+          )}
+          {insufficient && (
+            <Notice variant="inline" tone="warning" data-testid="arcade-gc-purchase-insufficient">
+              {t('arcadeGcPurchaseInsufficient')}
+            </Notice>
+          )}
+          {error && (
+            <Notice
+              variant="inline"
+              tone="negative"
+              errorId="raw_arcade_gc_purchase_failed"
+              data-testid="arcade-gc-purchase-error"
+            >
+              {error}
+            </Notice>
+          )}
+          {quote && (
             <Notice variant="inline" icon={<Icon name={IconName.ShieldCheck} size="sm" fill="currentColor" />}>
               {t('arcadePostingPolicy')}
             </Notice>
-          </div>
-        )}
+          )}
+        </div>
         <DrawerFooter>
           <Button
             disabled={quote === null || insufficient || submitting}

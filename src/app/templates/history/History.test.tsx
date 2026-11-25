@@ -3097,6 +3097,103 @@ describe('History Agglayer destination plumbing', () => {
   });
 });
 
+describe('History near-intents outbound plumbing', () => {
+  it('keeps destinationChain and oneClickTracking on completed and pending bridged-send entries', async () => {
+    const destinationChain = { id: 'sol', name: 'Solana' };
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-COMPLETE',
+              status: STATUS.Completed,
+              type: 'bridged-send',
+              completedAt: 3000,
+              extraInputs: {
+                provider: 'near-intents',
+                destinationAddress: 'So1anaDest111',
+                destinationNetwork: -1,
+                destinationChain,
+                oneClick: completedTracking
+              }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'bridged-send',
+        initiatedAt: 1000,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: 'So1anaDest111',
+          destinationNetwork: -1,
+          destinationChain,
+          oneClick: pendingTracking
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'completed-NI-COMPLETE',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: completedTracking
+        }),
+        expect.objectContaining({
+          key: 'pending-NI-PENDING',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: pendingTracking
+        })
+      ])
+    );
+  });
+
+  it('keeps legacy send oneClickTracking when provider is omitted on completed and pending rows', async () => {
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-LEGACY-COMPLETE',
+              status: STATUS.Completed,
+              type: 'send',
+              completedAt: 3000,
+              extraInputs: { oneClick: completedTracking }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-LEGACY-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'send',
+        initiatedAt: 1000,
+        extraInputs: { oneClick: pendingTracking }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'completed-NI-LEGACY-COMPLETE', oneClickTracking: completedTracking }),
+        expect.objectContaining({ key: 'pending-NI-LEGACY-PENDING', oneClickTracking: pendingTracking })
+      ])
+    );
+  });
+});
+
 describe('History USDCx entry plumbing', () => {
   it('threads burn and bridged-receive state onto completed and pending entries', async () => {
     const completedBurn = {
@@ -4151,6 +4248,65 @@ describe('History on the real SWR cache', () => {
     }
   }, 15_000);
 
+  it('refreshes oneClickTracking on an older completed legacy send row after a head refresh', async () => {
+    await Repo.transactions.clear();
+
+    const head: ITransaction = {
+      id: 'HEAD-ROW-LEGACY',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const initialTracking = { updatedAt: 1000, phase: 'processing' };
+    const deliveredTracking = { updatedAt: 2000, phase: 'delivered' };
+    const older: ITransaction = {
+      id: 'OLDER-LEGACY-ONECLICK',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Sent',
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: initialTracking }
+    };
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(initialTracking));
+
+      await Repo.transactions.put({
+        ...older,
+        extraInputs: { oneClick: deliveredTracking }
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(deliveredTracking));
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
   it('refreshes older swaps after an equal SWR head and retries a failed row read', async () => {
     await Repo.transactions.clear();
 
@@ -4745,5 +4901,91 @@ describe('patchLoadedActivityStatus', () => {
     );
     expect(replaced).not.toBe(loaded);
     expect(replaced.entries[0]?.oneClickTracking).toBe(moved);
+  });
+
+  it('tracks destinationChain and 1Click status on a near-intents bridged-send row', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: 'So1anaDest111',
+        destinationNetwork: -1,
+        destinationChain: { id: 'sol', name: 'Solana' },
+        oneClick: tracking
+      }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
+    expect(loaded.entries[0]?.bridgeDestinationChain).toEqual({ id: 'sol', name: 'Solana' });
+
+    const delivered = { ...tracking, phase: 'delivered', updatedAt: 2_000 };
+    const updated = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: delivered } }]])
+    );
+    expect(updated.entries[0]?.oneClickTracking).toBe(delivered);
+
+    const refreshed = patchLoadedActivityStatus(
+      updated,
+      'scope',
+      ids,
+      new Map([
+        [
+          row.id,
+          {
+            ...row,
+            extraInputs: {
+              ...row.extraInputs,
+              destinationChain: { id: 'sol', name: 'Solana' },
+              oneClick: { ...delivered }
+            }
+          }
+        ]
+      ])
+    );
+    expect(refreshed).toBe(updated);
+  });
+
+  it('preserves oneClickTracking on a legacy send row without provider', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-legacy-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: tracking }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-legacy-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
   });
 });
