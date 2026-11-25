@@ -22,6 +22,9 @@ for (const surface of ['send', 'receive', 'circle'] as const) {
     const sort = page.getByRole('radiogroup', { name: 'Sort routes' });
 
     await page.goto(`/?${params}`);
+    const badge = await page.getByText('Simulated quotes', { exact: true }).boundingBox();
+    const heading = await page.getByText('Choose a route', { exact: true }).boundingBox();
+    expect(badge && heading && badge.y + badge.height <= heading.y).toBe(true);
     if (dark) await expect(page.locator('html')).toHaveClass('dark');
     else await expect(page.locator('html')).not.toHaveClass('dark');
     await expect(sort.getByRole('radio', { name: 'Best Price' })).toBeChecked();
