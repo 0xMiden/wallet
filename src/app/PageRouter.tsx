@@ -4,6 +4,7 @@ import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useDappApprovalTelemetry } from 'app/hooks/useDappApprovalTelemetry';
+import { useScreenVisitTelemetry } from 'app/hooks/useScreenVisitTelemetry';
 import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
@@ -651,7 +652,10 @@ const PageRouter: FC = () => {
   const walletOpen = ctx.ready && !ctx.locked && ctx.hydrated;
   // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
   // onboarding to finish) and stays off the onboarding and recovery routes.
-  const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
+  const appView = resolveRootView(ctx) === 'app';
+  const showCountdown = appView && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
+  // Which screen the usable wallet shows, and for how long it is visible.
+  useScreenVisitTelemetry(appView, pathname, trigger);
   // The full cover is `BackgroundLockCover` in App. Dropping the pages here unmounts them, which parks the foreground
   // dApp and hides its native window, which a DOM cover cannot do.
   const layered =

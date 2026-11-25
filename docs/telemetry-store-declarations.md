@@ -39,6 +39,11 @@ belong to the two flow phases, `operation` to `settled`:
 | `step` | Where it got to, from a closed list of 23 names. For a flow, the furthest screen reached, such as `select_amount` or `review` — never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `sending`, `submitting`) or which prover ran (`prove_fallback`) |
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
+| `screen` | `visit` events only: one of 11 route-derived names (`overview`, `send`, `receive`, `funding`, `swap`, `earn`, `explore`, `activity`, `me`, `tx_status`, `other`). Never a path, id or address |
+| `navSource` | `visit` only: `initial`, `push`, `back`, `replace`, `resume` |
+| `surface` | `visit` only: `popup`, `side_panel`, `full_page`, `app` |
+| `order` | `visit` only: in-memory counter ordering one run's visits |
+| `complete` | `visit` only: false when the window closed mid-visit. `durationMs` is then the visible milliseconds |
 
 ### How those eleven fields reach Aptabase
 

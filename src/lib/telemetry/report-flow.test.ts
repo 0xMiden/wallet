@@ -46,7 +46,9 @@ const eventAt = (index: number): FlowStartedEvent | FlowEndedEvent => {
   if (event === undefined) throw new Error(`expected a telemetry event at index ${index}`);
   // `beginFlow` only ever emits the two flow phases; a `settled` event here
   // would mean the operation reporter had been wired into this path by mistake.
-  if (event.phase === 'settled') throw new Error(`expected a flow event at index ${index}, got a settled operation`);
+  if (event.phase === 'settled' || event.phase === 'visit') {
+    throw new Error(`expected a flow event at index ${index}, got a ${event.phase} event`);
+  }
   return event;
 };
 

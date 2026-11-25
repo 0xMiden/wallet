@@ -233,7 +233,60 @@ export interface OperationSettledEvent {
   step?: TelemetryStep;
 }
 
-export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettledEvent;
+/**
+ * Screens a session visit can name. Closed, and by route rather than by mount, so a tab the app keeps mounted under
+ * the visible one never counts. `tx_status` is the generating-transaction page; `other` is every route outside the
+ * list (settings, contacts, a token's detail), so no path or id has a place to land.
+ */
+export const TELEMETRY_SCREENS = [
+  'overview',
+  'send',
+  'receive',
+  'funding',
+  'swap',
+  'earn',
+  'explore',
+  'activity',
+  'me',
+  'tx_status',
+  'other'
+] as const;
+
+export type TelemetryScreen = (typeof TELEMETRY_SCREENS)[number];
+
+/**
+ * How the visit was reached, as far as the router can tell. `push` covers a tab tap, a Home action and an internal
+ * link alike: the router does not distinguish them, and none is guessed.
+ */
+export const TELEMETRY_NAV_SOURCES = ['initial', 'push', 'back', 'replace', 'resume'] as const;
+
+export type TelemetryNavSource = (typeof TELEMETRY_NAV_SOURCES)[number];
+
+/** Where the wallet UI runs. The browser extension's approval window has its own flows and is not a surface here. */
+export const TELEMETRY_SURFACES = ['popup', 'side_panel', 'full_page', 'app'] as const;
+
+export type TelemetrySurface = (typeof TELEMETRY_SURFACES)[number];
+
+/**
+ * One qualified, visible stretch on one screen, reported when it ends.
+ *
+ * Unlike a flow there is no `started` half: a visit the popup closed on is lost and reads as missing data, which is
+ * honest, where a pair would let the receiver invent an abandonment. `visibleMs` counts only time the document was
+ * visible. `order` is a per-run counter that orders one window's visits and claims nothing across windows.
+ */
+export interface ScreenVisitEvent {
+  phase: 'visit';
+  screen: TelemetryScreen;
+  source: TelemetryNavSource;
+  surface: TelemetrySurface;
+  order: number;
+  visibleMs: number;
+  /** False when the page was torn down mid-visit, so the visible time may be short. */
+  complete: boolean;
+  runId: TelemetryRunId;
+}
+
+export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettledEvent | ScreenVisitEvent;
 
 /** Derived in the background. Callers cannot supply these. */
 export interface TelemetryContext {
@@ -243,8 +296,8 @@ export interface TelemetryContext {
 }
 
 export interface TelemetryWirePayload {
-  phase: 'started' | 'ended' | 'settled';
-  /** Present on the two flow phases. Absent on `settled`. */
+  phase: 'started' | 'ended' | 'settled' | 'visit';
+  /** Present on the two flow phases. Absent on `settled` and `visit`. */
   flow?: TelemetryFlow;
   /** Present on `settled`. Absent on the two flow phases. */
   operation?: TelemetryOperation;
@@ -255,6 +308,12 @@ export interface TelemetryWirePayload {
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
   step?: TelemetryStep;
+  /** Present on `visit` only, with `navSource`, `surface`, `order` and `complete`. */
+  screen?: TelemetryScreen;
+  navSource?: TelemetryNavSource;
+  surface?: TelemetrySurface;
+  order?: number;
+  complete?: boolean;
   appVersion: string;
   platform: TelemetryPlatform;
   network: TelemetryNetwork;
