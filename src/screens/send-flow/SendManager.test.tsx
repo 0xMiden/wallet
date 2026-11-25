@@ -3555,23 +3555,6 @@ describe('NEAR Intents send wiring', () => {
       });
       mockCardStack = [{ name: SendFlowStep.Route }];
       rerender(<SendFlow isLoading={false} />);
-      // On a dual-route EVM network with a non-bridge token, NEAR Intents is auto-selected immediately without a click.
-      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
-
-      // Switching back to a bridge-supported token automatically reverts from automatic NEAR Intents to usdcx,
-      // and switching back to the non-bridge token re-selects NEAR Intents automatically.
-      mockUsdcxTokenId = 'USDCX';
-      mockSelectedToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^usdcx$/);
-      mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 42, fiatPrice: 1 };
-      act(() => {
-        fireEvent.click(screen.getByTestId('td-select'));
-      });
-      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
-
       act(() => {
         fireEvent.click(screen.getByTestId('route-pick-near-intents'));
       });

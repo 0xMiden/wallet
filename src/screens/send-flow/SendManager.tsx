@@ -475,21 +475,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // True while this effect, not the user, set the NEAR Intents route (a network that only NEAR Intents serves).
   const nearIntentsRouteIsAutomaticRef = useRef(false);
   useEffect(() => {
-    const routes =
-      !usdcxAvailable && token && destinationChainId !== undefined
-        ? sendTokenRoutes(bridgeConfig, token.id, destinationChainId)
-        : undefined;
-    const nativeBridgeAvailable = usdcxAvailable || Boolean(routes?.epoch || routes?.agglayer);
-    const dualRouteNearOnly =
-      selectedNetwork?.bridge === true &&
-      selectedNetwork.nearIntentsChainId !== undefined &&
-      !nativeBridgeAvailable &&
-      token !== undefined &&
-      destinationChainId !== undefined;
-
-    // NEAR Intents is the only route to a network that no bridge serves (Solana, Bitcoin, NEAR),
-    // or to a dual-route EVM network when the selected token has no EVM bridge route.
-    if ((selectedNetwork && !selectedNetwork.bridge) || dualRouteNearOnly) {
+    // NEAR Intents is the only route to a network that no bridge serves (Solana, Bitcoin, NEAR).
+    if (selectedNetwork && !selectedNetwork.bridge) {
       if (bridgeRoute !== 'near-intents') {
         nearIntentsRouteIsAutomaticRef.current = true;
         setValue('bridgeRoute', 'near-intents');
@@ -509,7 +496,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (!usdcxAvailable && bridgeRoute === 'usdcx' && destinationChainId === undefined) {
       setValue('bridgeRoute', 'epoch');
     }
-    if (!usdcxAvailable && token && destinationChainId !== undefined && routes) {
+    if (!usdcxAvailable && token && destinationChainId !== undefined) {
+      const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
       const selected = bridgeRoute ?? 'epoch';
       if (routeMovedOffEpochRef.current && selected === 'agglayer' && routes.epoch) {
         routeMovedOffEpochRef.current = false;
