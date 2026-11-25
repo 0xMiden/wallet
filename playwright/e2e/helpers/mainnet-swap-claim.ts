@@ -23,7 +23,11 @@ import {
 import { inspectTestMainnetSwapRequest, type TestMainnetSwapScope } from '../../../src/lib/miden/sdk/test-send-request';
 import { withRpcTimeout } from '../../../src/lib/miden-chain/rpc-timeout';
 import { verifyMainnetMidenNoteInclusion } from './mainnet-miden-read';
-import { minimumFirstSwapRecoveryReturn, type MainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
+import {
+  minimumFirstSwapRecoveryReturn,
+  SWAP_RECOVERY_WALLET_SHORTFALL_MICROS,
+  type MainnetSwapCheckpoint
+} from './mainnet-swap-checkpoint';
 import { realizedSwapLoss, SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
 import { isRecord } from '../../../src/lib/update/guards';
 
@@ -92,7 +96,8 @@ export function authorizeMainnetSwapRecoveryReturn(
   balances: MainnetSwapBalances,
   runId: string,
   authorizedAt: string,
-  reviewedMinimum = BigInt(state.reverseMinimum)
+  reviewedMinimum = BigInt(state.reverseMinimum),
+  walletShortfall = SWAP_RECOVERY_WALLET_SHORTFALL_MICROS
 ): MainnetSwapCheckpoint {
   const original = state.forwardRequestAuthority;
   // A pre-submission failure can retain the unsigned plan without retaining a return authority.
@@ -164,7 +169,7 @@ export function authorizeMainnetSwapRecoveryReturn(
     ((loss > 0n ? loss : 0n) * price + unit - 1n) / unit + (BigInt(state.feeBudget) * price + unit - 1n) / unit;
   if (
     projected > BigInt(state.lossBudgetUsdMicros ?? SWAP_LOSS_CAP) ||
-    (recoveryMinimum * price) / unit < 1_000_000n
+    (recoveryMinimum * price) / unit < 1_000_000n - walletShortfall
   )
     throw new Error('Original recovery price envelope exceeds the loss budget or wallet minimum');
   return {
@@ -250,7 +255,9 @@ export function authorizeMainnetSwapReturnReplacement(
     evidence,
     balances,
     runId,
-    authorizedAt
+    authorizedAt,
+    undefined,
+    0n
   );
   return {
     ...prepared,

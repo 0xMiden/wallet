@@ -9,6 +9,9 @@ export interface SavedSwapHolding {
   balance: string;
   usdMicros: string;
 }
+/** How far below the $1 wallet minimum a first recovery return of already-held proceeds may be valued. */
+export const SWAP_RECOVERY_WALLET_SHORTFALL_MICROS = 5000n;
+
 export function minimumFirstSwapRecoveryReturn(
   state: Pick<MainnetSwapCheckpoint, 'offer' | 'request' | 'reverseMinimum'>
 ): bigint {
@@ -280,7 +283,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
           request: value.request,
           reverseMinimum: value.reverseMinimum
         }) ||
-      (BigInt(value.recoveryReturnMinimum) * BigInt(value.native.usdMicros)) / 1_000_000n < 1_000_000n)
+      (BigInt(value.recoveryReturnMinimum) * BigInt(value.native.usdMicros)) / 1_000_000n <
+        1_000_000n - SWAP_RECOVERY_WALLET_SHORTFALL_MICROS)
   )
     return false;
   const forward = value.forwardRequestAuthority;
