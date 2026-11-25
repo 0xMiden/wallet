@@ -38,9 +38,14 @@ jest.mock('./reads', () => ({
   getChainTip: () => mockChainTip()
 }));
 
+const mockFetchDomainRecordAccount = jest.fn<Promise<string | null>, [string]>();
+jest.mock('./resolver', () => ({
+  fetchDomainRecordAccount: (label: string) => mockFetchDomainRecordAccount(label)
+}));
+
 const TERMINAL: MidenNamePhase[] = ['owned', 'failed'];
 
-// A small copy of the monotonic patch in complete.ts, on the real (fake-indexeddb) Dexie.
+// Small copies of the monotonic helpers in complete.ts, on the real (fake-indexeddb) Dexie.
 jest.mock('lib/miden/transaction/complete', () => ({
   patchRegisterNameExtraInputs: async (
     id: string,
@@ -56,6 +61,34 @@ jest.mock('lib/miden/transaction/complete', () => ({
       if (next !== inputs.phase && TERMINAL.includes(inputs.phase)) return;
       tx.extraInputs = { ...inputs, ...patch, phase: next };
       written = true;
+    });
+    return written;
+  },
+  promoteLandedRegisterNameRow: async (
+    id: string,
+    patch: Partial<IRegisterNameExtraInputs> = {},
+    options: { expectPhase?: MidenNamePhase } = {}
+  ): Promise<IRegisterNameExtraInputs | undefined> => {
+    let written: IRegisterNameExtraInputs | undefined;
+    await Repo.transactions.where({ id }).modify(tx => {
+      const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+      if (tx.type !== 'register-name' || tx.restoredFromBackup || tx.status !== ITransactionStatus.Failed || !inputs) {
+        return false;
+      }
+      if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return false;
+      const defaultPhase: MidenNamePhase = inputs.phase === 'requested' ? 'submitted' : inputs.phase;
+      const next = patch.phase ?? defaultPhase;
+      if (next !== inputs.phase && TERMINAL.includes(inputs.phase)) return false;
+      const updated: IRegisterNameExtraInputs = { ...inputs, ...patch, phase: next };
+      tx.extraInputs = updated;
+      tx.status = ITransactionStatus.Completed;
+      tx.stage = 'complete';
+      tx.error = undefined;
+      tx.rawError = undefined;
+      tx.displayIcon = 'SEND';
+      tx.displayMessage = 'Name requested';
+      written = updated;
+      return undefined;
     });
     return written;
   }
@@ -141,6 +174,7 @@ beforeEach(async () => {
   mockChainTip.mockResolvedValue(1100);
   mockFetchIssued.mockResolvedValue(false);
   mockFetchState.mockResolvedValue({ status: 'pending', attemptCount: 0 });
+  mockFetchDomainRecordAccount.mockResolvedValue(null);
   mockFindDelivery.mockImplementation(async ({ fromBlock }) => ({ noteIds: [], scannedTo: Math.max(fromBlock, 1200) }));
   mockInitiateFromId.mockImplementation(async (_accountId, noteId) => {
     consumeSeq += 1;
@@ -151,13 +185,49 @@ beforeEach(async () => {
 });
 
 describe('transition 1: register row Failed', () => {
-  it('marks the registration failed / tx-failed with the row error', async () => {
+  it('marks the registration failed / tx-failed with the row error after verifying unknown on chain', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
     row.error = 'boom';
     await add(row);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
     await pass();
+    expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
+    expect(mockFetchIssued).toHaveBeenCalledWith('alice');
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed', lastError: 'boom' });
+  });
+
+  it('defers while the row is still awaiting a verdict', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'offscreen abort';
+    row.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: ['0xnote-alice'],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    await add(row);
+    await pass();
     expect(mockFetchState).not.toHaveBeenCalled();
+    expect((await inputsOf(row.id)).phase).toBe('requested');
+  });
+
+  it('seals tx-failed immediately when neverCommittedAt is set', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'never landed';
+    row.neverCommittedAt = 1234;
+    await add(row);
+    await pass();
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed', lastError: 'never landed' });
   });
 
   it('does nothing for a Queued row', async () => {
@@ -166,6 +236,76 @@ describe('transition 1: register row Failed', () => {
     await pass();
     expect((await inputsOf(row.id)).phase).toBe('requested');
     expect(mockFetchState).not.toHaveBeenCalled();
+  });
+
+  it('promotes a Failed row whose registration note was consumed and issued on chain', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'offscreen abort';
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
+    mockFetchIssued.mockResolvedValue(true);
+    await pass();
+    expect(mockFetchState).toHaveBeenCalledTimes(1);
+    expect((await inputsOf(row.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: row.id }).first())?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('promotes a Failed row whose registration note is pending on chain to Completed + submitted', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'offscreen abort';
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'pending', attemptCount: 0 });
+    mockChainTip.mockResolvedValue(1200);
+    await pass();
+    expect(mockFetchState).toHaveBeenCalledTimes(1);
+    expect((await inputsOf(row.id)).phase).toBe('submitted');
+    const stored = await Repo.transactions.where({ id: row.id }).first();
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    expect(stored?.error).toBeUndefined();
+  });
+
+  it('promotes a Failed row whose note is inflight past reclaimHeight and already issued/owned', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'inflight', attemptCount: 1 });
+    mockChainTip.mockResolvedValue(1301);
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: row.id }).first())?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('seals discarded or taken on a Failed row with discarded note when not owned', async () => {
+    const discarded = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    const taken = registerRow('bob', 'requested', ITransactionStatus.Failed);
+    await add(discarded, taken);
+    mockFetchState.mockResolvedValue({ status: 'discarded', attemptCount: 2, lastError: 'bad' });
+    mockFetchIssued.mockImplementation(async label => label === 'bob');
+    mockFetchDomainRecordAccount.mockResolvedValue('mtst1someoneelse');
+    await pass();
+    expect(await inputsOf(discarded.id)).toMatchObject({ phase: 'failed', failure: 'discarded', lastError: 'bad' });
+    expect(await inputsOf(taken.id)).toMatchObject({ phase: 'failed', failure: 'taken', lastError: 'bad' });
+  });
+
+  it('promotes a Failed row when note is discarded or unknown if the name is delivered or owned by this account', async () => {
+    const byOwner = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    const byDelivery = registerRow('bob', 'requested', ITransactionStatus.Failed);
+    await add(byOwner, byDelivery);
+    mockFetchState.mockImplementation(async noteId =>
+      noteId === '0xnote-alice' ? { status: 'discarded', attemptCount: 1 } : { status: 'unknown', attemptCount: 0 }
+    );
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockImplementation(async label => (label === 'alice' ? ACCOUNT : null));
+    mockFindDelivery.mockImplementation(async ({ label }) => ({
+      noteIds: label === 'bob' ? ['0xdelivery-bob'] : [],
+      scannedTo: 1200
+    }));
+    await pass();
+    expect((await inputsOf(byOwner.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: byOwner.id }).first())?.status).toBe(ITransactionStatus.Completed);
+    expect((await inputsOf(byDelivery.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: byDelivery.id }).first())?.status).toBe(ITransactionStatus.Completed);
   });
 });
 
@@ -209,8 +349,8 @@ describe('transition 2: register note state', () => {
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'discarded', lastError: 'bad note' });
   });
 
-  it.each(['pending', 'inflight', 'unknown'] as const)(
-    '%s after the reclaim height → failed / expired',
+  it.each(['pending', 'inflight'] as const)(
+    '%s after the reclaim height and not issued → failed / expired',
     async status => {
       const row = registerRow('alice', 'submitted');
       await add(row);
@@ -220,6 +360,60 @@ describe('transition 2: register note state', () => {
       expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'expired' });
     }
   );
+
+  it.each(['pending', 'inflight'] as const)(
+    '%s after the reclaim height and issued to another → failed / taken',
+    async status => {
+      const row = registerRow('alice', 'submitted');
+      await add(row);
+      mockFetchState.mockResolvedValue({ status, attemptCount: 0 });
+      mockChainTip.mockResolvedValue(1301);
+      mockFetchIssued.mockResolvedValue(true);
+      mockFetchDomainRecordAccount.mockResolvedValue('mtst1other');
+      await pass();
+      expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+    }
+  );
+
+  it.each(['pending', 'inflight'] as const)(
+    '%s after the reclaim height and delivered to this account → issued',
+    async status => {
+      const row = registerRow('alice', 'submitted');
+      await add(row);
+      mockFetchState.mockResolvedValue({ status, attemptCount: 0 });
+      mockChainTip.mockResolvedValue(1301);
+      mockFetchIssued.mockResolvedValue(true);
+      mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+      await pass();
+      expect((await inputsOf(row.id)).phase).toBe('issued');
+    }
+  );
+
+  it('unknown after the reclaim height never expires and waits when not issued', async () => {
+    const row = registerRow('alice', 'submitted');
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockChainTip.mockResolvedValue(1301);
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('submitted');
+    expect(mockChainTip).not.toHaveBeenCalled();
+  });
+
+  it('unknown advances to issued when delivered or owned by this account', async () => {
+    const byOwner = registerRow('alice', 'submitted');
+    const byDelivery = registerRow('bob', 'submitted');
+    await add(byOwner, byDelivery);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockImplementation(async label => (label === 'alice' ? ACCOUNT : null));
+    mockFindDelivery.mockImplementation(async ({ label }) => ({
+      noteIds: label === 'bob' ? ['0xdelivery-bob'] : [],
+      scannedTo: 1200
+    }));
+    await pass();
+    expect((await inputsOf(byOwner.id)).phase).toBe('issued');
+    expect((await inputsOf(byDelivery.id)).phase).toBe('issued');
+  });
 
   it('pending at the reclaim height → waits', async () => {
     const row = registerRow('alice', 'submitted');

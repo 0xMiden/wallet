@@ -1,7 +1,18 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-import { canMoveMidenNamePhase, completeRegisterNameTransaction, patchRegisterNameExtraInputs } from './complete';
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
+import { reportOperation } from 'lib/telemetry/report-operation';
+
+import {
+  canMoveMidenNamePhase,
+  completeRegisterNameTransaction,
+  patchRegisterNameExtraInputs,
+  promoteLandedRegisterNameRow
+} from './complete';
 import { ITransaction, ITransactionStatus, MidenNamePhase, RegisterNameTransaction } from '../db/types';
+
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/backup/adopt-signal', () => ({ signalTransactionCompleted: jest.fn() }));
 
 const txStore: ITransaction[] = [];
 
@@ -182,5 +193,76 @@ describe('completeRegisterNameTransaction', () => {
     expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(stored?.outputNoteIds).toEqual([]);
     expect(storedPhase(row.id)).toBe('submitted');
+  });
+});
+
+describe('promoteLandedRegisterNameRow', () => {
+  it('atomically promotes a Failed row to Completed, advances requested → submitted, clears errors and reports landing', async () => {
+    const row: ITransaction = registerRow('requested');
+    row.status = ITransactionStatus.Failed;
+    row.displayIcon = 'FAILED';
+    row.error = 'offscreen abort';
+    row.rawError = 'raw';
+
+    const promoted = await promoteLandedRegisterNameRow(row.id);
+
+    expect(promoted?.phase).toBe('submitted');
+    expect(promoted?.phaseUpdatedAt).toBeGreaterThan(1);
+    const stored = txStore.find(candidate => candidate.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Completed);
+    expect(stored?.stage).toBe('complete');
+    expect(stored?.displayIcon).toBe('SEND');
+    expect(stored?.displayMessage).toBe('Name requested');
+    expect(stored?.error).toBeUndefined();
+    expect(stored?.rawError).toBeUndefined();
+    expect(stored?.completedAt).toBeGreaterThan(0);
+    expect(storedPhase(row.id)).toBe('submitted');
+    expect(reportOperation).toHaveBeenCalledWith({ operation: 'tx_other', result: 'completed' });
+    expect(signalTransactionCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies an explicit target phase in patch and preserves submitted phase when patch is empty', async () => {
+    const requested = registerRow('requested');
+    requested.status = ITransactionStatus.Failed;
+    const issued = await promoteLandedRegisterNameRow(requested.id, { phase: 'issued' });
+    expect(issued?.phase).toBe('issued');
+    expect(storedPhase(requested.id)).toBe('issued');
+
+    const submitted = registerRow('submitted');
+    submitted.status = ITransactionStatus.Failed;
+    const kept = await promoteLandedRegisterNameRow(submitted.id);
+    expect(kept?.phase).toBe('submitted');
+    expect(kept?.phaseUpdatedAt).toBe(1);
+  });
+
+  it('refuses non-Failed rows, mismatched expectPhase, backups, and other types without reporting', async () => {
+    const completed = registerRow('submitted');
+    completed.status = ITransactionStatus.Completed;
+    await expect(promoteLandedRegisterNameRow(completed.id)).resolves.toBeUndefined();
+
+    const wrongPhase = registerRow('requested');
+    wrongPhase.status = ITransactionStatus.Failed;
+    await expect(
+      promoteLandedRegisterNameRow(wrongPhase.id, {}, { expectPhase: 'submitted' })
+    ).resolves.toBeUndefined();
+
+    const backup: ITransaction = registerRow('requested');
+    backup.status = ITransactionStatus.Failed;
+    backup.restoredFromBackup = true;
+    await expect(promoteLandedRegisterNameRow(backup.id)).resolves.toBeUndefined();
+
+    txStore.push({
+      id: 'send-1',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 1,
+      displayIcon: 'FAILED',
+      extraInputs: { phase: 'requested' }
+    });
+    await expect(promoteLandedRegisterNameRow('send-1')).resolves.toBeUndefined();
+
+    expect(reportOperation).not.toHaveBeenCalled();
+    expect(signalTransactionCompleted).not.toHaveBeenCalled();
   });
 });

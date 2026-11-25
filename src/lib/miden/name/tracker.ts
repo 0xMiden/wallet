@@ -27,14 +27,22 @@ import {
   ITransactionStatus
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { patchRegisterNameExtraInputs } from 'lib/miden/transaction/complete';
+import { patchRegisterNameExtraInputs, promoteLandedRegisterNameRow } from 'lib/miden/transaction/complete';
 import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
+import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 
 import { isMidenNameSupported } from './config';
-import { fetchMidenNameIssued, fetchRegistrationNoteState, findRegistryDeliveryNoteIds, getChainTip } from './reads';
+import {
+  type RegistrationNoteState,
+  fetchMidenNameIssued,
+  fetchRegistrationNoteState,
+  findRegistryDeliveryNoteIds,
+  getChainTip
+} from './reads';
 import { isLiveRegistrationRow, registerNameInputsOf } from './registrations';
+import { fetchDomainRecordAccount } from './resolver';
 
 const LOG_PREFIX = '[miden-name]';
 
@@ -107,16 +115,20 @@ export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps
   }
 }
 
+async function isNameOwnedOrDelivered(row: ITransaction, inputs: IRegisterNameExtraInputs): Promise<boolean> {
+  const owner = await fetchDomainRecordAccount(inputs.label);
+  if (owner !== null) return compareAccountIds(owner, row.accountId);
+  const fromBlock = inputs.deliveryScanFrom ?? inputs.builtAtBlock;
+  const scan = await findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock, label: inputs.label });
+  return scan.noteIds.length > 0;
+}
+
 async function reconcileRow(row: ITransaction, context: PassContext): Promise<void> {
   const inputs = registerNameInputsOf(row);
   if (!inputs) return;
 
   if (row.status === ITransactionStatus.Failed) {
-    await patchRegisterNameExtraInputs(
-      row.id,
-      { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
-      { expectPhase: inputs.phase }
-    );
+    await reconcileFailedRow(row, inputs, context);
     return;
   }
 
@@ -137,14 +149,74 @@ async function reconcileRow(row: ITransaction, context: PassContext): Promise<vo
   }
 }
 
-/** Step 2: read the state of the register note. */
-async function checkRegisterNote(
+/** Step 1: verify on-chain state before sealing a Failed row, or promote if landed. */
+async function reconcileFailedRow(
   row: ITransaction,
   inputs: IRegisterNameExtraInputs,
   context: PassContext
 ): Promise<void> {
-  const expectPhase = inputs.phase;
+  if (awaitingVerdict(row)) return;
+  if (row.neverCommittedAt !== undefined) {
+    await patchRegisterNameExtraInputs(
+      row.id,
+      { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
+      { expectPhase: inputs.phase }
+    );
+    return;
+  }
+
   const state = await fetchRegistrationNoteState(inputs.registrationNoteId);
+  switch (state.status) {
+    case 'consumed':
+    case 'pending':
+    case 'inflight': {
+      const promoted = await promoteLandedRegisterNameRow(row.id, {}, { expectPhase: inputs.phase });
+      if (!promoted) return;
+      await checkRegisterNote(row, promoted, context, state);
+      return;
+    }
+    case 'discarded': {
+      const taken = await fetchMidenNameIssued(inputs.label);
+      if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
+        await promoteLandedRegisterNameRow(row.id, { phase: 'issued' }, { expectPhase: inputs.phase });
+        return;
+      }
+      const lastError = state.lastError ?? row.error;
+      await patchRegisterNameExtraInputs(
+        row.id,
+        {
+          phase: 'failed',
+          failure: taken ? 'taken' : 'discarded',
+          ...(lastError !== undefined ? { lastError } : {})
+        },
+        { expectPhase: inputs.phase }
+      );
+      return;
+    }
+    case 'unknown': {
+      if ((await fetchMidenNameIssued(inputs.label)) && (await isNameOwnedOrDelivered(row, inputs))) {
+        await promoteLandedRegisterNameRow(row.id, { phase: 'issued' }, { expectPhase: inputs.phase });
+        return;
+      }
+      await patchRegisterNameExtraInputs(
+        row.id,
+        { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
+        { expectPhase: inputs.phase }
+      );
+      return;
+    }
+  }
+}
+
+/** Step 2: read the state of the register note. */
+async function checkRegisterNote(
+  row: ITransaction,
+  inputs: IRegisterNameExtraInputs,
+  context: PassContext,
+  prefetchedState?: RegistrationNoteState
+): Promise<void> {
+  const expectPhase = inputs.phase;
+  const state = prefetchedState ?? (await fetchRegistrationNoteState(inputs.registrationNoteId));
   switch (state.status) {
     case 'consumed': {
       // The registry consumed the note. Wait until the issued status is visible.
@@ -155,6 +227,10 @@ async function checkRegisterNote(
     }
     case 'discarded': {
       const taken = await fetchMidenNameIssued(inputs.label);
+      if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
+        await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
+        return;
+      }
       await patchRegisterNameExtraInputs(
         row.id,
         {
@@ -166,16 +242,26 @@ async function checkRegisterNote(
       );
       return;
     }
-    case 'pending':
-    case 'inflight':
     case 'unknown': {
+      if ((await fetchMidenNameIssued(inputs.label)) && (await isNameOwnedOrDelivered(row, inputs))) {
+        await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
+      }
+      return;
+    }
+    case 'pending':
+    case 'inflight': {
       const tip = await context.chainTip();
       if (tip > inputs.reclaimHeight) {
+        const taken = await fetchMidenNameIssued(inputs.label);
+        if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
+          await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
+          return;
+        }
         await patchRegisterNameExtraInputs(
           row.id,
           {
             phase: 'failed',
-            failure: 'expired',
+            failure: taken ? 'taken' : 'expired',
             ...(state.lastError !== undefined ? { lastError: state.lastError } : {})
           },
           { expectPhase }

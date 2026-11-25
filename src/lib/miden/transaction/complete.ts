@@ -44,7 +44,8 @@ import {
   stampPostSubmitStage,
   swapOrderExpiresAt,
   undeliveredDisplayMessage,
-  updateTransactionStatus
+  updateTransactionStatus,
+  verifiedLandingRowFields
 } from './helper';
 import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -1195,6 +1196,50 @@ export const patchRegisterNameExtraInputs = async (
     written = true;
   });
   return written;
+};
+
+/**
+ * Promote a `Failed` `register-name` row whose registration note is proven on
+ * chain to `Completed` atomically with advancing its phase (`requested` →
+ * `submitted`, or the phase in `patch`). Returns the updated `extraInputs` when
+ * written, or `undefined` when declined.
+ */
+export const promoteLandedRegisterNameRow = async (
+  id: string,
+  patch: RegisterNameExtraInputsPatch = {},
+  options: { expectPhase?: MidenNamePhase } = {}
+): Promise<IRegisterNameExtraInputs | undefined> => {
+  let reconciled: ITransaction | undefined;
+  let writtenInputs: IRegisterNameExtraInputs | undefined;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.type !== 'register-name' || tx.restoredFromBackup === true) return false;
+    if (tx.status !== ITransactionStatus.Failed) return false;
+    const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+    if (!inputs) return false;
+    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return false;
+    const defaultPhase: MidenNamePhase = inputs.phase === 'requested' ? 'submitted' : inputs.phase;
+    const nextPhase = patch.phase ?? defaultPhase;
+    if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return false;
+    const next: IRegisterNameExtraInputs = {
+      ...inputs,
+      ...patch,
+      phase: nextPhase,
+      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+    };
+    applyVerifiedLanding(tx, {
+      ...verifiedLandingRowFields(tx),
+      completedAt: tx.completedAt ?? Math.floor(Date.now() / 1000),
+      extraInputs: next
+    });
+    reconciled = tx;
+    writtenInputs = next;
+    return undefined;
+  });
+
+  if (reconciled !== undefined) {
+    reportVerifiedLanding(reconciled);
+  }
+  return writtenInputs;
 };
 
 /**

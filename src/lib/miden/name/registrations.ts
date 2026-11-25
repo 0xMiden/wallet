@@ -18,6 +18,7 @@ import {
   type MidenNamePhase
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
@@ -50,11 +51,11 @@ export function phaseOf(row: ITransaction): MidenNamePhase {
     case 'failed':
       return phase;
     case 'requested':
-      if (row.status === ITransactionStatus.Failed) return 'failed';
+      if (row.status === ITransactionStatus.Failed && !awaitingVerdict(row)) return 'failed';
       if (row.status === ITransactionStatus.Completed) return 'submitted';
       return phase;
     default:
-      return row.status === ITransactionStatus.Failed ? 'failed' : phase;
+      return row.status === ITransactionStatus.Failed && !awaitingVerdict(row) ? 'failed' : phase;
   }
 }
 

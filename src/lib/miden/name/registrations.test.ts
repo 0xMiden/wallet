@@ -97,6 +97,35 @@ describe('phaseOf', () => {
   it('gives requested for a row with no extraInputs', () => {
     expect(phaseOf(row({}))).toBe('requested');
   });
+
+  it('keeps a Failed row awaiting verdict non-terminal instead of mapping to failed', () => {
+    const pendingVerdict = registerRow('alice', { phase: 'requested', status: ITransactionStatus.Failed });
+    pendingVerdict.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: ['0xnote-alice'],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    expect(phaseOf(pendingVerdict)).toBe('requested');
+
+    const submittedVerdict = registerRow('alice', { phase: 'submitted', status: ITransactionStatus.Failed });
+    submittedVerdict.submitEvidence = pendingVerdict.submitEvidence;
+    expect(phaseOf(submittedVerdict)).toBe('submitted');
+
+    const provenDead = registerRow('alice', { phase: 'requested', status: ITransactionStatus.Failed });
+    provenDead.submitEvidence = pendingVerdict.submitEvidence;
+    provenDead.neverCommittedAt = 100;
+    expect(phaseOf(provenDead)).toBe('failed');
+  });
 });
 
 describe('uiStateOf', () => {
