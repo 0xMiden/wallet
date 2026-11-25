@@ -2,8 +2,9 @@ import React, { Suspense } from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { readPortfolioObservations, recordPortfolioObservation } from 'lib/miden/portfolio-observations';
-import { portfolioObservations } from 'lib/miden/repo';
+import { portfolioObservations, transactions } from 'lib/miden/repo';
 import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -118,6 +119,7 @@ beforeEach(async () => {
   mockValue = '6';
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
   await portfolioObservations.clear();
+  await transactions.clear();
   jest.mocked(recordPortfolioObservation).mockReset().mockImplementation(realRecord);
   jest.mocked(readPortfolioObservations).mockReset().mockImplementation(actualObservations.readPortfolioObservations);
 });
@@ -201,9 +203,10 @@ it('keeps an observation just inside the 1W edge and plots its captured time', a
   fireEvent.click(screen.getByRole('radio', { name: '1W' }));
   const chart = await screen.findByTestId('command-chart');
   expect(chart).toHaveAttribute('data-history-kind', 'observations');
-  expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(2);
   expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
-  expect(Number(chart.querySelector('circle')?.getAttribute('cx'))).toBeGreaterThan(0);
+  expect(chart.querySelector('[data-command-chart-gap-line]')).toBeInTheDocument();
+  expect(Number(chart.querySelector('[data-command-chart-point]')?.getAttribute('data-x'))).toBeGreaterThan(0);
   fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
   expect(screen.getByRole('status').textContent).toContain('4.00 USD');
   expect(screen.getByRole('status').textContent).not.toContain('1.00 USD');
@@ -228,9 +231,9 @@ it('keeps dense captured runs continuous after thinning but breaks at a real gap
   render(<CommandPortfolio scope={scope} />);
   fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
-  const area = chart.querySelector('[data-command-chart-area]')?.getAttribute('d');
-  expect(area?.match(/M /g)).toHaveLength(3);
-  expect(chart.querySelectorAll('circle').length).toBeLessThanOrEqual(365);
+  const line = chart.querySelector('[data-command-chart-line]')?.getAttribute('d');
+  expect(line?.match(/M /g)).toHaveLength(3);
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(0);
   expect(screen.getByText('commandHistoryObservationsOnly')).toBeInTheDocument();
 });
 
@@ -407,14 +410,14 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
   render(<CommandPortfolio scope={scope} />);
   fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
-  const circles = chart.querySelectorAll('circle');
-  expect(circles).toHaveLength(3);
-  expect(Number(circles[0]?.getAttribute('cx'))).toBeGreaterThan(85);
-  expect(Number(circles[1]?.getAttribute('cx'))).toBeGreaterThan(95);
+  const points = chart.querySelectorAll('[data-command-chart-point]');
+  expect(points).toHaveLength(3);
+  expect(Number(points[0]?.getAttribute('data-x'))).toBeGreaterThan(85);
+  expect(Number(points[1]?.getAttribute('data-x'))).toBeGreaterThan(95);
   const rect = chart.getBoundingClientRect();
   Object.defineProperty(rect, 'width', { value: 100 });
   jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
-  fireEvent.mouseMove(chart, { clientX: Number(circles[1]?.getAttribute('cx')) });
+  fireEvent.mouseMove(chart, { clientX: Number(points[1]?.getAttribute('data-x')) });
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
   fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
@@ -609,9 +612,9 @@ it('auto-selects Custom and spreads a 10-minute cluster of 3 observations cleanl
   render(<CommandPortfolio scope={scope} />);
   const chart = await screen.findByTestId('command-chart');
   expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
-  const circles = Array.from(chart.querySelectorAll('circle'));
-  expect(circles).toHaveLength(3);
-  const xs = circles.map(circle => Number(circle.getAttribute('cx')));
+  const markers = Array.from(chart.querySelectorAll('[data-command-chart-point]'));
+  expect(markers).toHaveLength(3);
+  const xs = markers.map(marker => Number(marker.getAttribute('data-x')));
   expect(xs[0]).toBeLessThan(10);
   expect(xs[1]).toBeGreaterThan(45);
   expect(xs[1]).toBeLessThan(55);
@@ -652,8 +655,76 @@ it('defaults to 1D when observations span more than a day and lets Custom show a
   render(<CommandPortfolio scope={scope} />);
   const chart = await screen.findByTestId('command-chart');
   expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
-  expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(2);
   fireEvent.click(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' }));
   expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
-  expect(screen.getByTestId('command-chart').querySelectorAll('circle')).toHaveLength(3);
+  expect(screen.getByTestId('command-chart').querySelectorAll('[data-command-chart-point]')).toHaveLength(3);
+});
+
+it('reconstructs a continuous line chart from completed +100, -10, -20 transactions when Custom is active', async () => {
+  store.hidden = false;
+  mockValue = '70';
+  mockAssets = [
+    {
+      tokenId: 'faucet-usdcx',
+      tokenSlug: 'USDCX',
+      balance: 70,
+      balanceBaseUnits: '70000000',
+      fiatPrice: 1,
+      metadata: { name: 'USDCx', symbol: 'USDCX', decimals: 6 }
+    }
+  ];
+  const baseSec = Math.floor((Date.now() - 20 * 60_000) / 1000);
+  await transactions.bulkAdd([
+    {
+      id: 'tx-1',
+      accountId: scope.accountId,
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'RECEIVE',
+      faucetId: 'faucet-usdcx',
+      amount: 100_000_000n,
+      initiatedAt: baseSec,
+      completedAt: baseSec
+    },
+    {
+      id: 'tx-2',
+      accountId: scope.accountId,
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      faucetId: 'faucet-usdcx',
+      amount: 10_000_000n,
+      initiatedAt: baseSec + 5 * 60,
+      completedAt: baseSec + 5 * 60
+    },
+    {
+      id: 'tx-3',
+      accountId: scope.accountId,
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      faucetId: 'faucet-usdcx',
+      amount: 20_000_000n,
+      initiatedAt: baseSec + 10 * 60,
+      completedAt: baseSec + 10 * 60
+    }
+  ]);
+
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  expect(chart).toHaveAttribute('data-history-kind', 'trace');
+  expect(chart.querySelector('[data-command-chart-line]')).toBeInTheDocument();
+  expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(4);
+  const slider = screen.getByRole('slider');
+  fireEvent.change(slider, { target: { value: '0' } });
+  expect(screen.getByRole('status').textContent).toContain('0.00 USD');
+  fireEvent.change(slider, { target: { value: '1' } });
+  expect(screen.getByRole('status').textContent).toContain('100.00 USD');
+  fireEvent.change(slider, { target: { value: '2' } });
+  expect(screen.getByRole('status').textContent).toContain('90.00 USD');
+  fireEvent.change(slider, { target: { value: '3' } });
+  expect(screen.getByRole('status').textContent).toContain('70.00 USD');
 });

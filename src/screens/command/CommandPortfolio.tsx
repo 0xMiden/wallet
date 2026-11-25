@@ -5,16 +5,19 @@ import { useTranslation } from 'react-i18next';
 import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
+import type { ITransaction } from 'lib/miden/db/types';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
   type PortfolioObservation
 } from 'lib/miden/portfolio-observations';
+import * as Repo from 'lib/miden/repo';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
+import { buildActivityHistoryObservations } from './activity-history';
 import { CommandAiBar } from './CommandAiBar';
 import { CommandAssets } from './CommandAssets';
 import { CommandHistoryTrace } from './CommandHistoryTrace';
@@ -68,6 +71,7 @@ export function CommandPortfolio({
   const portfolio = useCommandPortfolio(scope);
   const [selectedRange, setSelectedRange] = useState<HistoryRange | null>(null);
   const [history, setHistory] = useState<{ key: string; rows: readonly PortfolioObservation[] } | null>(null);
+  const [activityRows, setActivityRows] = useState<{ key: string; rows: readonly ITransaction[] } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const accountId = useWalletStore(state => state.currentAccount?.publicKey);
   const ready = useWalletStore(state => state.status === WalletStatus.Ready);
@@ -130,7 +134,39 @@ export function CommandPortfolio({
     };
   }, [key, stableScope]);
 
-  const actual = useMemo(() => (history?.key === key ? history.rows : []), [history, key]);
+  useEffect(() => {
+    let cancelled = false;
+    void Repo.transactions
+      .toArray()
+      .then(rows => {
+        if (!cancelled) setActivityRows({ key, rows });
+      })
+      .catch(() => {
+        if (!cancelled) setActivityRows({ key, rows: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, capturedAt, value]);
+
+  const activityHistory = useMemo(
+    () =>
+      buildActivityHistoryObservations({
+        scope: stableScope,
+        transactions: activityRows?.key === key ? activityRows.rows : [],
+        assets: portfolio.assets,
+        tokenPrices: portfolio.tokenPrices,
+        currentValue: value,
+        coverage,
+        coverageKey
+      }),
+    [activityRows, coverage, coverageKey, key, portfolio.assets, portfolio.tokenPrices, stableScope, value]
+  );
+
+  const actual = useMemo(
+    () => (activityHistory.length >= 2 ? activityHistory : history?.key === key ? history.rows : []),
+    [activityHistory, history, key]
+  );
   const now = Date.now();
   const autoRange: HistoryRange = useMemo(() => {
     if (actual.length < 2) return '1D';
@@ -274,7 +310,7 @@ export function CommandPortfolio({
         <section
           className="min-w-0 border-t border-hairline bg-page bg-[radial-gradient(ellipse_at_bottom_right,var(--ds-accent-tint),transparent_72%)] px-5 py-5 sm:px-8 lg:col-span-12 lg:row-start-2"
           aria-label={t('commandObservedHistory')}
-          aria-busy={history?.key !== key}
+          aria-busy={history?.key !== key || activityRows?.key !== key}
           data-testid="command-history"
         >
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
@@ -313,7 +349,7 @@ export function CommandPortfolio({
               <div
                 data-testid="command-chart"
                 data-history-kind={hasTrace ? 'trace' : 'observations'}
-                className={hasTrace ? 'relative mx-2 mt-5 h-44 sm:h-56' : 'relative mx-2 mt-5 h-28 sm:h-36'}
+                className="relative mx-2 mt-5 h-44 sm:h-56"
                 onMouseMove={event => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (rect.width) {
