@@ -12,6 +12,7 @@
 
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import {
+  isHex,
   keccak256,
   parseTransaction,
   recoverAddress,
@@ -20,11 +21,29 @@ import {
   serializeTransaction,
   stringToHex
 } from 'viem';
-import type { TransactionSerializedEIP1559 } from 'viem';
+import type { Hex, TransactionSerializedEIP1559 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { recoverAuthorizationAddress } from 'viem/utils';
 
+import {
+  batchDigest,
+  batchNonceOf,
+  buildAgglayerDepositCalls,
+  recoverBatchSigner,
+  type BatchEnvelope
+} from 'lib/evm-relay/batch';
+import {
+  SEPOLIA_AGGLAYER_CONFIG,
+  SEPOLIA_CALIBUR_PIN,
+  TEST_ERC20,
+  TEST_EXECUTOR,
+  TEST_FEE_RECIPIENT,
+  TEST_MIDEN_ACCOUNT_HEX
+} from 'lib/evm-relay/batch/testing';
 import * as Passworder from 'lib/miden/passworder';
 import { deriveRelayKeyScalar } from 'lib/miden/relay-key/derive';
+import { planRelaySignature, type RelaySignContext } from 'lib/miden/relay-key/sign-rules';
+import type { RelayChainConfig } from 'lib/remote-config/schema';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -236,58 +255,96 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
   }, 60_000);
 });
 
-describe('Vault.signEvm with the relay key', () => {
+describe('Vault.signRelayDigest', () => {
+  const RELAY_CHAIN: RelayChainConfig = {
+    key: 'sepolia',
+    chainId: 11155111,
+    executor: TEST_EXECUTOR,
+    calibur: SEPOLIA_CALIBUR_PIN,
+    maxFee: { [TEST_ERC20]: '1000' }
+  };
+  const NOW = 1_800_000_000;
+  const relayContext = (): RelaySignContext => ({
+    midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
+    relayAddress: RELAY_ADDR_0,
+    chain: RELAY_CHAIN,
+    agglayer: SEPOLIA_AGGLAYER_CONFIG,
+    nowSeconds: NOW
+  });
   let vault: Vault;
 
   beforeEach(async () => {
     vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
   }, 60_000);
 
-  it('message: recovers the relay address', async () => {
-    const signature = await vault.signEvm(
-      'acc-pub-key-1',
-      { op: 'message', messageHex: stringToHex('hello relay') },
-      'relay'
+  it('signs an authorization that recovers to the relay address and names the pinned Calibur', async () => {
+    const plan = planRelaySignature({ op: 'authorization', chainId: 11155111, nonce: 0 }, relayContext());
+    if (plan.op !== 'authorization') throw new Error('expected an authorization plan');
+    const signature = await vault.signRelayDigest('acc-pub-key-1', plan.digest);
+
+    expect(plan.authorization.address).toBe(SEPOLIA_CALIBUR_PIN.address);
+    expect(await recoverAuthorizationAddress({ authorization: plan.authorization, signature })).toBe(RELAY_ADDR_0);
+  });
+
+  it('signs a batch that recovers to the relay address through recoverBatchSigner', async () => {
+    const salt: Hex = `0x${'0'.repeat(24)}${SEPOLIA_CALIBUR_PIN.address.slice(2).toLowerCase()}`;
+    const batchNonce = batchNonceOf('agglayer-deposit', 4n);
+    const plan = planRelaySignature(
+      {
+        op: 'batch',
+        chainId: 11155111,
+        kind: 'agglayer-deposit',
+        params: { token: TEST_ERC20, amount: '2500000', fee: { recipient: TEST_FEE_RECIPIENT, amount: '1000' } },
+        batchNonce: batchNonce.toString(),
+        salt,
+        deadline: NOW + 900
+      },
+      relayContext()
     );
-    expect(await recoverMessageAddress({ message: 'hello relay', signature })).toBe(RELAY_ADDR_0);
-  });
+    const signature = await vault.signRelayDigest('acc-pub-key-1', plan.digest);
 
-  it('typed-data digest: recovers the relay address', async () => {
-    const digest = keccak256(stringToHex('relay-typed-data'));
-    const signature = await vault.signEvm('acc-pub-key-1', { op: 'typed-data', digest }, 'relay');
-    expect(await recoverAddress({ hash: digest, signature })).toBe(RELAY_ADDR_0);
-  });
-
-  it('transaction: recovers the relay address', async () => {
-    const serializedTransaction = serializeTransaction({
+    const envelope: BatchEnvelope = {
       chainId: 11155111,
-      type: 'eip1559',
-      nonce: 0,
-      gas: 21000n,
-      maxFeePerGas: 1000000000n,
-      maxPriorityFeePerGas: 1000000000n,
-      to: EVM_ADDR_1,
-      value: 1n
+      evmAddress: RELAY_ADDR_0,
+      executor: TEST_EXECUTOR,
+      batchNonce,
+      salt,
+      deadline: BigInt(NOW + 900)
+    };
+    const calls = buildAgglayerDepositCalls(SEPOLIA_AGGLAYER_CONFIG, {
+      token: TEST_ERC20,
+      amount: 2_500_000n,
+      midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
+      fee: { recipient: TEST_FEE_RECIPIENT, amount: 1000n }
     });
-    const signed = await vault.signEvm('acc-pub-key-1', { op: 'transaction', serializedTransaction }, 'relay');
-    const isEip1559 = (value: string): value is TransactionSerializedEIP1559 => value.startsWith('0x02');
-    if (!isEip1559(signed)) throw new Error('the signed transaction is not EIP-1559');
-    expect(await recoverTransactionAddress({ serializedTransaction: signed })).toBe(RELAY_ADDR_0);
+    expect(plan.digest).toBe(batchDigest(SEPOLIA_CALIBUR_PIN, envelope, calls));
+    expect(await recoverBatchSigner(SEPOLIA_CALIBUR_PIN, envelope, calls, signature)).toBe(RELAY_ADDR_0);
   });
 
-  it('the default key still recovers the account EVM address', async () => {
-    const signature = await vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: stringToHex('default') });
-    expect(await recoverMessageAddress({ message: 'default', signature })).toBe(EVM_ADDR_0);
+  const malformedDigests: Hex[] = ['0x01', `0x${'11'.repeat(33)}`, `0x${'zz'.repeat(32)}`];
+  it.each(malformedDigests)('refuses %p as a digest', async digest => {
+    await expect(vault.signRelayDigest('acc-pub-key-1', digest)).rejects.toThrow('Relay digest is not 32 bytes');
   });
 
   it('refuses when the record has no relay address', async () => {
     const seeded = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)], TEST_MNEMONIC, [
       [EVM_ADDR_0, EVM_KEY_0]
     ]);
-    await expect(seeded.signEvm('acc-pub-key-1', { op: 'message', messageHex: '0x01' }, 'relay')).rejects.toThrow(
+    await expect(seeded.signRelayDigest('acc-pub-key-1', keccak256(stringToHex('x')))).rejects.toThrow(
       'Account has no relay key'
     );
   }, 60_000);
+
+  it('signEvm signs with the account key even when a caller still passes a relay key role', async () => {
+    const digest = keccak256(stringToHex('relay-typed-data'));
+    const signature: unknown = await Reflect.apply(vault.signEvm, vault, [
+      'acc-pub-key-1',
+      { op: 'typed-data', digest },
+      'relay'
+    ]);
+    if (!isHex(signature)) throw new Error('expected a hex signature');
+    expect(await recoverAddress({ hash: digest, signature })).toBe(EVM_ADDR_0);
+  });
 });
 
 describe('Vault.backfillRelayEvmAddresses', () => {

@@ -5,9 +5,9 @@ import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
-  EvmKeyRole,
   GuardianSyncStatus,
   ImportedAccountBackup,
+  RelaySignRequest,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -78,6 +78,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeSignEvm = useWalletStore(s => s.signEvm);
+  const storeSignRelay = useWalletStore(s => s.signRelay);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
@@ -268,10 +269,17 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const signEvm = useCallback(
-    async (accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account') => {
-      return storeSignEvm(accountPublicKey, operation, key);
+    async (accountPublicKey: string, operation: SignEvmOperation) => {
+      return storeSignEvm(accountPublicKey, operation);
     },
     [storeSignEvm]
+  );
+
+  const signRelay = useCallback(
+    async (accountPublicKey: string, request: RelaySignRequest) => {
+      return storeSignRelay(accountPublicKey, request);
+    },
+    [storeSignRelay]
   );
 
   const getAuthSecretKey = useCallback(
@@ -442,6 +450,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     updateSettings,
     signTransaction,
     signEvm,
+    signRelay,
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,

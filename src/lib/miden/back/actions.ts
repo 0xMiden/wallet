@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
+import { parseSignature } from 'viem';
 import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
@@ -7,6 +8,7 @@ import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppRe
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { installBackupSignalHandler } from 'lib/backup/adopt-signal';
 import { deleteBackupProfile, onBackupLock, runBackupRefresh } from 'lib/backup/refresh';
+import type { AgglayerDepositConfig } from 'lib/evm-relay/batch';
 import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
@@ -34,7 +36,9 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import { planRelaySignature, RelaySignRuleError, relaySignChainId } from 'lib/miden/relay-key/sign-rules';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
+import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -57,6 +61,7 @@ import {
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getEffectiveNetworkName,
   getEffectiveRpcUrl,
@@ -65,6 +70,8 @@ import {
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
+import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
+import { getRelayChain, selectAgglayerChain, selectAgglayerRecoveryConfig } from 'lib/remote-config/values';
 import {
   BackupRefreshOutcome,
   BackupRefreshReason,
@@ -76,7 +83,8 @@ import {
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
-  EvmKeyRole,
+  RelaySignRequest,
+  RelaySignResult,
   SerializedSpend,
   SignEvmOperation,
   WalletAccount,
@@ -866,10 +874,80 @@ export function signWord(publicKey: string, wordHex: string, transactionId?: str
   });
 }
 
-export function signEvm(accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account') {
+export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
   return withUnlocked(async ({ vault }) => {
-    return await vault.signEvm(accountPublicKey, operation, key);
+    return await vault.signEvm(accountPublicKey, operation);
   });
+}
+
+/**
+ * The Agglayer deposit values of `chainId`: the L1 bridge, the Miden rollup ID as the destination network, and the
+ * `forceUpdateGlobalExitRoot` value that the wallet's own deposit sends (`lib/bridge/providers/agglayer/deposit.ts`).
+ * Null while the chain has no Agglayer route that takes deposits, or while its reads are not there.
+ */
+function relayAgglayerConfig(chainId: number): AgglayerDepositConfig | null {
+  const snapshot = getBridgeConfigSnapshot();
+  const route = selectAgglayerChain(snapshot, chainId)?.bridges.agglayer;
+  const recovery = selectAgglayerRecoveryConfig(snapshot, chainId);
+  if (!route?.depositEnabled || !recovery) return null;
+  return {
+    bridgeAddress: recovery.contractAddress,
+    midenNetworkId: recovery.rollupId,
+    forceUpdateGlobalExitRoot: true
+  };
+}
+
+function signatureParity(yParity: number | undefined): 0 | 1 {
+  switch (yParity) {
+    case 0:
+      return 0;
+    case 1:
+      return 1;
+    default:
+      throw new PublicError('Relay signature has no parity');
+  }
+}
+
+/**
+ * Sign with the relay key of an account under the relay rules (`lib/miden/relay-key/sign-rules.ts`). The backend
+ * builds the digest from its own config and from the account: the request cannot name the delegate, the executor,
+ * the bridge or the Miden destination. The request comes over a port, so the rules read it as untrusted JSON.
+ */
+export async function signRelay(accountPublicKey: string, request: RelaySignRequest): Promise<RelaySignResult> {
+  try {
+    const chainId = relaySignChainId(request);
+    await initBridgeConfig();
+    const chain = getRelayChain(chainId);
+    if (!chain) throw new PublicError('The relay does not serve this chain');
+    const agglayer = relayAgglayerConfig(chainId);
+    await ensureSdkWasmReady();
+    return await withUnlocked(async ({ vault }) => {
+      const account = (await vault.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+      if (!account?.relayEvmAddress) throw new PublicError('Account has no relay key');
+      const plan = planRelaySignature(request, {
+        midenAccountHex: accountRefToSdk(account.publicKey).toString(),
+        relayAddress: account.relayEvmAddress,
+        chain,
+        agglayer,
+        nowSeconds: Math.floor(Date.now() / 1000)
+      });
+      const signature = await vault.signRelayDigest(account.publicKey, plan.digest);
+      switch (plan.op) {
+        case 'authorization': {
+          const { r, s, yParity } = parseSignature(signature);
+          return {
+            op: 'authorization',
+            authorization: { ...plan.authorization, r, s, yParity: signatureParity(yParity) }
+          };
+        }
+        case 'batch':
+          return { op: 'batch', digest: plan.digest, signature };
+      }
+    });
+  } catch (error) {
+    if (error instanceof RelaySignRuleError) throw new PublicError(error.message);
+    throw error;
+  }
 }
 
 export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {

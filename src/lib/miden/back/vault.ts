@@ -57,7 +57,6 @@ import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
-  EvmKeyRole,
   GuardianRecoveryAction,
   SeedPhraseStatus,
   GuardianSyncStatus,
@@ -2808,39 +2807,12 @@ export class Vault {
    * viem `toAccount` CustomSource callbacks of the frontend WalletClient
    * (see lib/epoch/evm-account.ts). Decrypts only the 32-byte leaf key
    * (never the mnemonic), signs, and lets every reference fall out of scope.
-   * With `key` `'relay'`, the relay key signs: the vault derives it from the
-   * decrypted EVM key for this call only, and refuses when its address is not
-   * the account's `relayEvmAddress`.
+   * The relay key never signs here: see `signRelayDigest`.
    */
-  async signEvm(accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account'): Promise<Hex> {
+  async signEvm(accountPublicKey: string, operation: SignEvmOperation): Promise<Hex> {
     return withError('Failed to sign EVM payload', async () => {
-      const accounts = await this.fetchAccounts();
-      const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
-      if (!account?.evmAddress) {
-        throw new PublicError('Account has no EVM key');
-      }
-      const privateKeyHex = await fetchAndDecryptOne<Hex>(
-        accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
-        this.vaultKey
-      );
-      if (!privateKeyHex) {
-        throw new PublicError('EVM key not found');
-      }
-      let evmAccount: PrivateKeyAccount;
-      switch (key) {
-        case 'account':
-          evmAccount = privateKeyToAccount(privateKeyHex);
-          break;
-        case 'relay':
-          evmAccount = relayEvmAccount(privateKeyHex);
-          if (account.relayEvmAddress?.toLowerCase() !== evmAccount.address.toLowerCase()) {
-            throw new PublicError('Account has no relay key');
-          }
-          break;
-        default:
-          // The key role comes over a port, so a value outside the type can reach here at run time.
-          throw new PublicError('Unknown EVM key');
-      }
+      const { key } = await this.fetchEvmPrivateKey(accountPublicKey);
+      const evmAccount = privateKeyToAccount(key);
       switch (operation.op) {
         case 'transaction':
           return evmAccount.signTransaction(parseTransaction(operation.serializedTransaction));
@@ -2850,6 +2822,38 @@ export class Vault {
           return evmAccount.signMessage({ message: { raw: operation.messageHex } });
       }
     });
+  }
+
+  /**
+   * Sign one 32-byte digest with the relay key of the account. Only the relay sign action calls it, with a digest
+   * that the backend built under the relay rules (`lib/miden/relay-key/sign-rules.ts`). The vault derives the relay
+   * key from the decrypted EVM key for this call only, and refuses when its address is not the account's
+   * `relayEvmAddress`.
+   */
+  async signRelayDigest(accountPublicKey: string, digest: Hex): Promise<Hex> {
+    return withError('Failed to sign relay payload', async () => {
+      if (!/^0x[0-9a-fA-F]{64}$/.test(digest)) throw new PublicError('Relay digest is not 32 bytes');
+      const { account, key } = await this.fetchEvmPrivateKey(accountPublicKey);
+      const relayAccount = relayEvmAccount(key);
+      if (account.relayEvmAddress?.toLowerCase() !== relayAccount.address.toLowerCase()) {
+        throw new PublicError('Account has no relay key');
+      }
+      return relayAccount.sign({ hash: digest });
+    });
+  }
+
+  /** The account and its decrypted EVM private key. Throws a `PublicError` when either is missing. */
+  private async fetchEvmPrivateKey(accountPublicKey: string): Promise<{ account: WalletAccount; key: Hex }> {
+    const accounts = await this.fetchAccounts();
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+    if (!account?.evmAddress) {
+      throw new PublicError('Account has no EVM key');
+    }
+    const key = await fetchAndDecryptOne<Hex>(accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()), this.vaultKey);
+    if (!key) {
+      throw new PublicError('EVM key not found');
+    }
+    return { account, key };
   }
 
   /**

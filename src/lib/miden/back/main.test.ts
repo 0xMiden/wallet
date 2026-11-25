@@ -219,6 +219,8 @@ jest.mock('lib/miden/back/actions', () => ({
   getStrictAuthenticationProtectors: jest.fn(),
   verifyStrictActionAuthentication: jest.fn(),
   signTransaction: jest.fn(),
+  signEvm: jest.fn(),
+  signRelay: jest.fn(),
   getAuthSecretKey: jest.fn(),
   getAllDAppSessions: jest.fn(),
   removeDAppSession: jest.fn(),
@@ -1075,6 +1077,22 @@ describe('processRequest', () => {
       signingInputs: 'inputs'
     });
     expect(res.signature).toBe('hex-signature');
+  });
+
+  it('SignRelayRequest forwards the structured request to the relay sign action', async () => {
+    const result = { op: 'batch', digest: `0x${'11'.repeat(32)}`, signature: '0x22' };
+    Actions.signRelay.mockResolvedValueOnce(result);
+    const request = { op: 'authorization', chainId: 11155111, nonce: 0 };
+    const res = await dispatch({ type: WalletMessageType.SignRelayRequest, accountPublicKey: 'pk', request });
+    expect(res).toEqual({ type: WalletMessageType.SignRelayResponse, result });
+    expect(Actions.signRelay).toHaveBeenCalledWith('pk', request);
+  });
+
+  it('SignEvmRequest drops a key role, so the relay key cannot sign a generic payload', async () => {
+    Actions.signEvm.mockResolvedValueOnce('0xsigned');
+    const operation = { op: 'message', messageHex: '0x01' };
+    await dispatch({ type: WalletMessageType.SignEvmRequest, accountPublicKey: 'pk', operation, key: 'relay' });
+    expect(Actions.signEvm.mock.calls[0]).toEqual(['pk', operation]);
   });
 
   it('GetAuthSecretKeyRequest returns the key from Actions', async () => {
