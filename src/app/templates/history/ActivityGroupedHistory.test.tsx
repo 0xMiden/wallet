@@ -470,6 +470,27 @@ describe('ActivityGroupedHistory', () => {
     expect(within(sender()).getByText('1 waiting')).toBeInTheDocument();
   });
 
+  it('counts a failed Guardian-held transfer while Decline is available', () => {
+    mockRealGroupList = true;
+    mockHidden.loaded = false;
+    const holdUntil = Math.floor(Date.now() / 1000) + 600;
+    mockClaims.items = [{ ...claim('guardian-held', 'failed'), holdUntil }];
+    const props = { onReturnToList: jest.fn(), search: '' };
+    const { rerender } = render(<ActivityGroupedHistory {...props} />);
+
+    const sender = () => screen.getByRole('link', { name: /mtst1sender/ });
+    expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    expect(within(sender()).queryByText(/waiting/)).toBeNull();
+
+    mockHidden.loaded = true;
+    rerender(<ActivityGroupedHistory {...props} />);
+
+    expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    expect(within(sender()).getByText('1 waiting')).toBeInTheDocument();
+  });
+
   it('counts a held retry without a hold and omits cached, held-until, and other in-flight claims', () => {
     mockRealGroupList = true;
     mockHidden.loaded = false;
