@@ -88,13 +88,15 @@ Local runs work with the placeholder `database_id`. Local state goes to `.wrangl
 | Input | Kind | Purpose |
 | --- | --- | --- |
 | `JWT_SIGNING_KEY` | Worker secret | HS256 key for the access tokens, 32 characters or more |
+| `GROQ_API_KEY` | Worker secret | Server-side Groq API key used by `POST /v1/compile` (Command AI compiler) |
 | `ALLOWED_ORIGINS` | Worker variable | JSON array of exact allowed origins, no wildcard |
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
 | `DB` | D1 binding | The `miden-wallet-api` database |
 | `AUTH_RATE_LIMIT` | Rate limit binding | Approximate 30 auth requests per caller address per 60 seconds |
 | `STORAGE_RATE_LIMIT` | Rate limit binding | Approximate 120 reads and 120 write units per profile per 60 seconds |
+| `COMMAND_AI_RATE_LIMIT` | Rate limit binding | Approximate 30 `POST /v1/compile` requests per caller address per 60 seconds |
 
-The committed `wrangler.jsonc` names the production database (`database_id`, which is an identifier and not a secret) and holds placeholders for the rest: `ALLOWED_ORIGINS` is `[]`, and `DEPLOYMENT_REVISION` is `unknown`. The deploy workflow renders a release copy with the real values and never commits them. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT` and `STORAGE_RATE_LIMIT` with integers that no other rate limit binding in the account uses (the feature-eligibility Worker uses 189401 and 189402).
+The committed `wrangler.jsonc` names the production database (`database_id`, which is an identifier and not a secret) and holds placeholders for the rest: `ALLOWED_ORIGINS` is `[]`, and `DEPLOYMENT_REVISION` is `unknown`. The deploy workflow renders a release copy with the real values and never commits them. Replace the placeholder `namespace_id` of `AUTH_RATE_LIMIT`, `STORAGE_RATE_LIMIT` and `COMMAND_AI_RATE_LIMIT` with integers that no other rate limit binding in the account uses (the feature-eligibility Worker uses 189401 and 189402).
 
 ## Deployment
 
@@ -109,6 +111,7 @@ The workflow reads these from the repository's Actions secrets and variables, or
 | `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit, D1: Edit and Account Settings: Read, limited to the account that holds the database |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | That account's id |
 | `WALLET_API_JWT_SIGNING_KEY` | secret | The signing key the live Worker holds, from the team password manager. The workflow sets the Worker secret on every run, so another value logs every device out |
+| `GROQ_API_KEY` | secret | Server-side Groq API key passed into Worker secrets for `POST /v1/compile` |
 | `WALLET_API_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost` |
 | `WALLET_API_URL` | variable | `https://miden-wallet-api.utkarsh-s.workers.dev`, no trailing slash |
 

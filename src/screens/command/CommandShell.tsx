@@ -9,6 +9,7 @@ import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 
+import { CommandAiPlanBanner, CommandAiPlanProvider } from './command-ai-plan';
 import { CommandDraftProvider } from './command-drafts';
 import type { CommandRoute } from './command-routes';
 import { CommandDock } from './CommandDock';
@@ -107,50 +108,53 @@ export function CommandShell({
 
   return (
     <CommandDraftProvider scope={scope}>
-      <FlowPresentationProvider value="command">
-        <CommandFlowBackProvider>
-          <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
-            <div
-              data-testid="command-shell"
-              className="dark relative flex h-full min-h-0 w-full flex-col bg-page text-ink"
-            >
-              <CommandHeader scope={scope} />
-              <main className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_top_right,var(--ds-accent-tint),transparent_58%)]">
-                <div
-                  ref={dashboard}
-                  aria-hidden={hasWorkbench || undefined}
-                  data-testid={hasWorkbench ? 'command-workbench-backdrop' : 'command-dashboard'}
-                  className={`absolute inset-0 overflow-y-auto pb-28 [scrollbar-gutter:stable] ${hasWorkbench ? 'pointer-events-none opacity-30' : ''}`}
-                >
-                  <DashboardBoundary key={scopeKey}>
-                    <Suspense fallback={null}>
-                      <CommandDashboard scope={scope} />
-                    </Suspense>
-                  </DashboardBoundary>
-                </div>
-                <div
-                  ref={setPortalHost}
-                  data-command-portals="true"
-                  className="pointer-events-none absolute inset-0 grid min-h-0 place-items-center px-3 pt-3 pb-28 sm:px-7 sm:pt-6"
-                />
-                {route.kind !== 'dashboard' && portalHost && (
-                  <CommandWorkbench route={route} container={portalHost}>
-                    {route.kind === 'operation' ? (
-                      <Suspense key={route.id} fallback={null}>
-                        <CommandOperation>{children}</CommandOperation>
+      <CommandAiPlanProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          <CommandFlowBackProvider>
+            <Dialog.Root open={paletteOpen} onOpenChange={setPaletteOpen}>
+              <div
+                data-testid="command-shell"
+                className="dark relative flex h-full min-h-0 w-full flex-col bg-page text-ink"
+              >
+                <CommandHeader scope={scope} />
+                <CommandAiPlanBanner scope={scope} route={route} />
+                <main className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_top_right,var(--ds-accent-tint),transparent_58%)]">
+                  <div
+                    ref={dashboard}
+                    aria-hidden={hasWorkbench || undefined}
+                    data-testid={hasWorkbench ? 'command-workbench-backdrop' : 'command-dashboard'}
+                    className={`absolute inset-0 overflow-y-auto pb-28 [scrollbar-gutter:stable] ${hasWorkbench ? 'pointer-events-none opacity-30' : ''}`}
+                  >
+                    <DashboardBoundary key={scopeKey}>
+                      <Suspense fallback={null}>
+                        <CommandDashboard scope={scope} />
                       </Suspense>
-                    ) : (
-                      <React.Fragment key={route.action}>{children}</React.Fragment>
-                    )}
-                  </CommandWorkbench>
-                )}
-              </main>
-              <CommandDock activeAction={route.kind === 'flow' ? route.action : undefined} />
-              <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} container={portalHost} />
-            </div>
-          </Dialog.Root>
-        </CommandFlowBackProvider>
-      </FlowPresentationProvider>
+                    </DashboardBoundary>
+                  </div>
+                  <div
+                    ref={setPortalHost}
+                    data-command-portals="true"
+                    className="pointer-events-none absolute inset-0 grid min-h-0 place-items-center px-3 pt-3 pb-28 sm:px-7 sm:pt-6"
+                  />
+                  {route.kind !== 'dashboard' && portalHost && (
+                    <CommandWorkbench route={route} container={portalHost}>
+                      {route.kind === 'operation' ? (
+                        <Suspense key={route.id} fallback={null}>
+                          <CommandOperation>{children}</CommandOperation>
+                        </Suspense>
+                      ) : (
+                        <React.Fragment key={route.action}>{children}</React.Fragment>
+                      )}
+                    </CommandWorkbench>
+                  )}
+                </main>
+                <CommandDock activeAction={route.kind === 'flow' ? route.action : undefined} />
+                <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} container={portalHost} />
+              </div>
+            </Dialog.Root>
+          </CommandFlowBackProvider>
+        </FlowPresentationProvider>
+      </CommandAiPlanProvider>
     </CommandDraftProvider>
   );
 }

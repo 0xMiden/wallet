@@ -9,6 +9,10 @@ export const MAX_BATCH_ENTRIES = 100;
 /** The most entries one feature read returns. A read of more entries continues with `after`. */
 export const MAX_PAGE_ENTRIES = 100;
 export const MAX_BODY_BYTES = 512 * 1024;
+export const COMMAND_AI_MAX_BODY_BYTES = 8 * 1024;
+export const COMMAND_AI_MAX_TEXT_CHARS = 4000;
+export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 2048;
+export const COMMAND_AI_TIMEOUT_MS = 15_000;
 export const NONCE_TTL_MS = 300_000;
 export const TOKEN_TTL_S = 3600;
 export const ENVELOPE_VERSION = 1;
