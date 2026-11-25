@@ -235,7 +235,11 @@ test.describe('Usage analytics egress', () => {
 
       expect(visited).toBe('#/send');
       await sink.settle(SILENCE_WINDOW_MS);
-      expect(describeRequests(sink.requests.slice(beforeTransit))).toEqual([]);
+      // Only `send` events are ruled out. A visit that ended as the transit began (here Receive, from the step
+      // before) is a real, qualified visit and arrives on schedule; the swiped-through pane must not report one.
+      expect(
+        describeRequests(sink.requests.slice(beforeTransit)).filter(line => /eventName\\?":\\?"send_/.test(line))
+      ).toEqual([]);
     });
 
     await test.step('an abandoned multi-step flow reports the step it got to', async () => {
