@@ -300,4 +300,31 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
     expect(result.current.owned).toBeUndefined();
     unmount();
   });
+
+  it('clears rows and owned name on the transition frame when the network changes while support stays true', async () => {
+    await Repo.transactions.bulkAdd([
+      registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }),
+      registerRow('bob', { phase: 'owned', status: ITransactionStatus.Completed, network: 'devnet' })
+    ]);
+    const frames: { rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { result, unmount } = renderHook(() => {
+      const list = useMidenNameRegistrations(ACCOUNT);
+      const owned = useOwnedMidenName(ACCOUNT);
+      frames.push({ rowsLen: list.rows.length, loaded: list.loaded, owned });
+      return { list, owned };
+    });
+    await waitFor(() => expect(result.current.owned).toBe('alice'));
+
+    frames.length = 0;
+    mockNetwork = 'devnet';
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: false, owned: undefined });
+    expect(frames.map(frame => frame.owned)).not.toContain('alice');
+    await waitFor(() => expect(result.current.owned).toBe('bob'));
+    expect(result.current.list.rows).toHaveLength(1);
+    unmount();
+  });
 });
