@@ -106,11 +106,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = !balancesLoading && balances ? (token?.balance ?? 0) : null;
-  // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
-  // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
-  // without one has no dollar figure and no price section.
+  // The developer-only nominal rate is not an asset valuation.
   const priceSymbol = priceSymbolFor(tokenId, symbol);
-  const quote = quotedPrice(tokenPrices, priceSymbol);
+  const displayQuote = quotedPrice(tokenPrices, priceSymbol);
+  const quote = displayQuote?.kind === 'nominal' ? undefined : displayQuote;
   const fiatValue = balance === null || !quote ? null : balance * quote.price;
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
   // an unresolved faucet it is not this user's holding — and the fiat figure

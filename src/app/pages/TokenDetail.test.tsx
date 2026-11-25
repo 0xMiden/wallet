@@ -611,6 +611,26 @@ describe('TokenDetail', () => {
     expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
   });
 
+  it('keeps the fiat line unavailable for an unquoted asset when nominal pricing is enabled', () => {
+    const unquotedId = 'mtst1unquoted';
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      renderPage(
+        {
+          balances: [{ tokenId: unquotedId, balance: 12.5, metadata: { symbol: 'LOCAL', decimals: 2 } }],
+          tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' } }
+        },
+        unquotedId
+      );
+
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(within(hero).getByText('12.50')).toBeInTheDocument();
+      expect(hero.querySelector('p')).toBeNull();
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+
   it('shows the placeholder dash in the fiat line while prices have not loaded, not a missing line', () => {
     renderPage({ tokenPrices: {} });
 
