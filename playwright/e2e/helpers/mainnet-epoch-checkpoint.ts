@@ -142,6 +142,7 @@ const ROOT_KEYS = [
   'returnAmount',
   'evmNonceBefore',
   'reverseAuthority',
+  'unminedDeposit',
   'transactions',
   'returnNoteId',
   'returnMidenTxId',
@@ -175,6 +176,42 @@ function evmSnapshot(value: unknown): value is EpochEvmSnapshot {
     positive(value.nativeUsdMicros)
   );
 }
+
+/** Loss over the three portfolio legs, priced as the original reverse valuation when it has one. */
+export function epochRealizedCost(
+  value: MainnetEpochCheckpoint,
+  after: { native: string; evmToken: string; evmNative: string }
+): bigint {
+  const metadata = record(value.reverseAuthority) ? value.reverseAuthority.valuation : undefined;
+  const stablePrice = record(metadata) && positive(metadata.stableUsdMicros) ? metadata.stableUsdMicros : undefined;
+  const gasPrice = record(metadata) && positive(metadata.gasUsdMicros) ? metadata.gasUsdMicros : undefined;
+  return realizedMainnetLoopLoss([
+    {
+      identity: `miden:${value.native.hex}`,
+      decimals: 6,
+      usdMicros: BigInt(stablePrice ?? value.native.usdMicros),
+      before: BigInt(value.native.balance),
+      after: BigInt(after.native)
+    },
+    {
+      identity: `evm:${value.evm.chainId}:token`,
+      decimals: 6,
+      usdMicros: BigInt(stablePrice ?? value.evm.tokenUsdMicros),
+      before: BigInt(value.evm.tokenBalance),
+      after: BigInt(after.evmToken)
+    },
+    {
+      identity: `evm:${value.evm.chainId}:native`,
+      decimals: 18,
+      usdMicros: BigInt(gasPrice ?? value.evm.nativeUsdMicros),
+      before: BigInt(value.evm.nativeBalance),
+      after: BigInt(after.evmNative)
+    }
+  ]);
+}
+
+// Field-by-field guards above have already validated the whole shape.
+const typed = (value: unknown) => value as MainnetEpochCheckpoint;
 
 function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoint {
   if (
@@ -428,6 +465,43 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
   ) {
     throw new Error('Missing or oversized Epoch reverse authorization');
   }
+  if (value.unminedDeposit !== undefined) {
+    // Closed as not executed: the deposit never reached the chain, so nothing was claimed or paid for it.
+    const unmined = value.unminedDeposit;
+    const journal = Array.isArray(value.transactions) ? (value.transactions as EpochEvmTransaction[]) : undefined;
+    const deposit = journal?.[journal.length - 1];
+    const fees = journal
+      ? journal.reduce((sum, tx) => sum + (amount(tx.feeWei) ? BigInt(tx.feeWei) : -(1n << 300n)), 0n)
+      : -1n;
+    if (
+      !record(unmined) ||
+      !onlyKeys(unmined, ['hash', 'nonce']) ||
+      value.phase !== 'cancelled' ||
+      !deposit ||
+      deposit.kind !== 'deposit' ||
+      deposit.feeWei !== '0' ||
+      !hash(unmined.hash) ||
+      deposit.hash.toLowerCase() !== unmined.hash.toLowerCase() ||
+      deposit.nonce !== unmined.nonce ||
+      journal?.slice(0, -1).some(tx => tx.kind === 'deposit') ||
+      !positive(value.forwardReceived) ||
+      !value.reverseAuthority ||
+      value.consumeAuthority !== undefined ||
+      value.returnNoteId !== undefined ||
+      value.returnMidenTxId !== undefined ||
+      value.reverseReceived !== undefined ||
+      !record(value.after) ||
+      fees !== BigInt(value.paidEvmFees) ||
+      BigInt(typed(value).after!.native) !==
+        BigInt(value.native.balance) - BigInt(value.principal) - BigInt(value.paidMidenFees) ||
+      BigInt(typed(value).after!.evmToken) !== BigInt(value.evm.tokenBalance) + BigInt(value.forwardReceived) ||
+      BigInt(typed(value).after!.evmNative) !== BigInt(value.evm.nativeBalance) - fees ||
+      !amount(value.realizedCostUsdMicros) ||
+      epochRealizedCost(typed(value), typed(value).after!) !== BigInt(value.realizedCostUsdMicros) ||
+      BigInt(value.realizedCostUsdMicros) > BigInt(value.lossBudgetUsdMicros)
+    )
+      throw new Error('Invalid unmined Epoch deposit closure');
+  }
   if (value.phase === 'complete') {
     if (
       value.consumeAuthority === undefined ||
@@ -466,32 +540,7 @@ function assertCheckpoint(value: unknown): asserts value is MainnetEpochCheckpoi
     ) {
       throw new Error('Epoch portfolio contains unattributed credits or debits');
     }
-    const metadata = record(value.reverseAuthority) ? value.reverseAuthority.valuation : undefined;
-    const stablePrice = record(metadata) && positive(metadata.stableUsdMicros) ? metadata.stableUsdMicros : undefined;
-    const gasPrice = record(metadata) && positive(metadata.gasUsdMicros) ? metadata.gasUsdMicros : undefined;
-    const cost = realizedMainnetLoopLoss([
-      {
-        identity: `miden:${value.native.hex}`,
-        decimals: 6,
-        usdMicros: BigInt(stablePrice ?? value.native.usdMicros),
-        before: BigInt(value.native.balance),
-        after: BigInt(value.after.native)
-      },
-      {
-        identity: `evm:${value.evm.chainId}:token`,
-        decimals: 6,
-        usdMicros: BigInt(stablePrice ?? value.evm.tokenUsdMicros),
-        before: BigInt(value.evm.tokenBalance),
-        after: BigInt(value.after.evmToken)
-      },
-      {
-        identity: `evm:${value.evm.chainId}:native`,
-        decimals: 18,
-        usdMicros: BigInt(gasPrice ?? value.evm.nativeUsdMicros),
-        before: BigInt(value.evm.nativeBalance),
-        after: BigInt(value.after.evmNative)
-      }
-    ]);
+    const cost = epochRealizedCost(typed(value), typed(value).after!);
     if (cost !== BigInt(value.realizedCostUsdMicros) || cost > BigInt(value.lossBudgetUsdMicros)) {
       throw new Error('Epoch realized cost is inconsistent or exceeds its authorized loss budget');
     }
