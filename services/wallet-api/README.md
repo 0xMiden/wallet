@@ -100,7 +100,7 @@ The committed `wrangler.jsonc` names the production database (`database_id`, whi
 
 ## Deployment
 
-The Worker is live at `https://miden-wallet-api.utkarsh-s.workers.dev`, on the Cloudflare account that holds the database named in `wrangler.jsonc`. Every deploy is `.github/workflows/deploy-wallet-api.yml`, started by hand from the Actions tab: the workflow has only a `workflow_dispatch` trigger, run with a published release tag or with `deployment_source: main` from `main`. A published release or a merge into `main` deploys nothing. The job type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
+The Worker is live at `https://miden-wallet-api.wiktor-s-e3d.workers.dev`, on the Cloudflare account that holds the database named in `wrangler.jsonc`. Every deploy is `.github/workflows/deploy-wallet-api.yml`, started by hand from the Actions tab: the workflow has only a `workflow_dispatch` trigger, run with a published release tag or with `deployment_source: main` from `main`. A published release or a merge into `main` deploys nothing. The job type-checks the Worker, renders the release config, applies the D1 migrations with `wrangler d1 migrations apply --remote`, deploys with `wrangler deploy --secrets-file`, then runs `check-deployment.mjs`: `/healthz` must answer `ok: true` with the deployed revision, a configured wallet origin must pass the CORS preflight, and an unknown origin must get 403.
 
 A migration runs before the new Worker serves traffic, so every migration must keep working with the Worker that is live until the deploy lands.
 
@@ -113,7 +113,7 @@ The workflow reads these from the repository's Actions secrets and variables, or
 | `WALLET_API_JWT_SIGNING_KEY` | secret | The signing key the live Worker holds, from the team password manager. The workflow sets the Worker secret on every run, so another value logs every device out |
 | `GROQ_API_KEY` | secret | Server-side Groq API key passed into Worker secrets for `POST /v1/compile` |
 | `WALLET_API_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost` |
-| `WALLET_API_URL` | variable | `https://miden-wallet-api.utkarsh-s.workers.dev`, no trailing slash |
+| `WALLET_API_URL` | variable | `https://miden-wallet-api.wiktor-s-e3d.workers.dev`, no trailing slash |
 
 The origins and the revision change the rendered config only; `wrangler.jsonc` stays as committed. The wallet reads the URL from the `0xMiden/wallet-config` document (`features.encryptedBackup` and `backup.baseUrl`); nothing is baked into a build.
 
