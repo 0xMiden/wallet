@@ -108,9 +108,6 @@ export type AddressChain = 'miden' | 'ethereum' | 'solana' | 'bitcoin' | 'near';
 export const detectAddressChain = (address: string): AddressChain => {
   const trimmed = address.trim();
   if (isHexAddress(trimmed)) return 'ethereum';
-  // A Miden address is lower-case letters and digits, so it can also look like a NEAR account name.
-  // A part of a Miden prefix ('mt', 'mtst') is a Miden address that the user still types.
-  if (MIDEN_BECH32_PREFIXES.some(prefix => trimmed.startsWith(prefix) || prefix.startsWith(trimmed))) return 'miden';
   const kind = detectNearIntentsAddressKind(trimmed);
   switch (kind) {
     case 'solana':

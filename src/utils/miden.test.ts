@@ -134,6 +134,19 @@ describe('Miden and Ethereum address utilities', () => {
     expect(detectAddressChain('0x')).toBe('ethereum');
   });
 
+  it('classifies Miden-prefixed NEAR accounts and on-curve Solana keys before Miden prefix matching', () => {
+    const solanaMm1 = 'mm11111111111111111111111111111111111111111';
+    const solanaMtst1 = 'mtst111111111111111111111111111111111111112';
+
+    expect(detectAddressChain('mm1.near')).toBe('near');
+    expect(detectAddressChain('mtst1.near')).toBe('near');
+    expect(detectAddressChain(solanaMm1)).toBe('solana');
+    expect(detectAddressChain(solanaMtst1)).toBe('solana');
+    expect(isValidRecipientAddress('mm1.near')).toBe(true);
+    expect(isValidRecipientAddress('mtst1.near')).toBe(true);
+    expect(isValidRecipientAddress(solanaMm1)).toBe(true);
+  });
+
   it('accepts a Solana, Bitcoin or NEAR address as a recipient by its format', () => {
     expect(isValidRecipientAddress(SOLANA_ADDRESS)).toBe(true);
     expect(isValidRecipientAddress(BITCOIN_ADDRESS)).toBe(true);

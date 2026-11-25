@@ -317,5 +317,32 @@ describe('selectRecentRecipients', () => {
         }
       ]);
     });
+
+    it('detects Miden-prefixed NEAR recipients as near instead of miden', () => {
+      const m1NearRow = bridgedRow(
+        {
+          completedAt: 50,
+          extraInputs: {
+            destinationAddress: 'mm1.near',
+            destinationNetwork: NEAR_INTENTS_NO_EVM_CHAIN_ID,
+            oneClick: {
+              direction: 'miden-to-evm',
+              request: { recipient: 'mm1.near' },
+              destinationAsset: { blockchain: 'near' },
+              config: { chains: [{ id: 'near', name: 'NEAR' }] }
+            }
+          }
+        },
+        'mm1.near'
+      );
+
+      expect(selectRecentRecipients([m1NearRow], ACCOUNT)).toEqual([
+        {
+          address: 'mm1.near',
+          chain: 'near',
+          networkName: undefined
+        }
+      ]);
+    });
   });
 });
