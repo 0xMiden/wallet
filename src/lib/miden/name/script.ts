@@ -11,6 +11,8 @@
 
 import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
 
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+
 import { MidenNameScriptAssetError, MidenNameScriptMismatchError } from './errors';
 import {
   MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH,
@@ -107,6 +109,7 @@ export async function loadRegisterDomainScript(): Promise<NoteScript> {
       `the "registerDomain" payload decodes to ${bytes.length} bytes, expected ${REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH}`
     );
   }
+  await ensureSdkWasmReady();
   const script = NoteScript.deserialize(bytes);
   const actualRoot = script.root().toHex().toLowerCase();
   const expectedRoot = REGISTER_DOMAIN_SCRIPT_ROOT_HEX.toLowerCase();

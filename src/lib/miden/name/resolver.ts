@@ -16,6 +16,7 @@
  */
 
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { MIDEN_NAME_SLOTS, type MidenNameConfig, getMidenNameConfig } from './config';
@@ -62,9 +63,13 @@ async function forwardLookup(
   signal: AbortSignal | undefined,
   scope: EffectiveScope
 ): Promise<AccountIdParts | null> {
+  const domainWord = encodeDomainFelts(label);
+  throwIfAborted(signal);
+  await ensureSdkWasmReady();
+  throwIfAborted(signal);
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const commitmentKey = statusKeyFeltsForLabel(label, registry);
-  const domainWord = encodeDomainFelts(label);
   const storage = await readRegistryStorage(
     config,
     [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],

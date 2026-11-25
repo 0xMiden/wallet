@@ -263,6 +263,9 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
     return cached.quote;
   }
 
+  await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
+
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const token = idPartsFromHex(config.paymentFaucetIdHex);
   const statusKey = statusKeyFeltsForLabel(label, registry);
@@ -308,7 +311,10 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
 /** True when the registry has issued the name (`asset_status` felt 0 is 1). */
 export async function fetchMidenNameIssued(label: string): Promise<boolean> {
   const config = requireConfig();
+  encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
+  await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const statusKey = statusKeyFeltsForLabel(label, registry);
   const storage = await readRegistryStorage(

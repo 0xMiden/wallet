@@ -16,10 +16,11 @@ import { Account, NonFungibleAsset } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { getMidenNameConfig, MIDEN_NAME_SLOTS, type MidenNameConfig } from './config';
-import { type AccountIdParts, type Felts4, decodeDomainFelts } from './encoding';
+import { type AccountIdParts, type Felts4, decodeDomainFelts, encodeDomainFelts } from './encoding';
 import { MidenNameUnsupportedNetworkError } from './errors';
 import { toAccountId } from './note';
 import { assertScopeCurrent, captureEffectiveScope, readRegistryStorage } from './reads';
@@ -76,7 +77,10 @@ function registryNfaKeys(account: Account, registryHex: string): Felts4[] {
  */
 export async function accountHoldsDomainNfa(accountId: string, label: string): Promise<DomainNfaHolding> {
   const config = requireConfig();
+  encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
+  await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   return withWasmClientLock(
     async hold => {
@@ -103,6 +107,8 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
 export async function listOwnedDomainLabels(accountId: string): Promise<string[]> {
   const config = requireConfig();
   const scope = captureEffectiveScope(config.network);
+  await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const nfaKeys = await withWasmClientLock(
     async hold => {

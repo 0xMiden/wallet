@@ -137,7 +137,7 @@ beforeEach(() => {
   proofsCreated = [];
   rpcEndpoints = [];
   clearMidenNameQuoteCache();
-  mockWasmReady.mockResolvedValue(undefined);
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   mockRpcUrl.mockReturnValue('https://rpc-a.example');
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
@@ -626,6 +626,57 @@ describe('readRegistryStorage scope pinning', () => {
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
     ready.resolve(undefined);
     await expect(pending).rejects.toBeInstanceOf(MidenNameAbortedError);
+  });
+});
+
+describe('cold-start WASM readiness gating', () => {
+  it('awaits ensureSdkWasmReady before constructing SDK objects and short-circuits invalid/cached calls', async () => {
+    let wasmReady = false;
+    const ready = deferred<void>();
+    mockWasmReady.mockImplementationOnce(async () => {
+      await ready.promise;
+      wasmReady = true;
+    });
+    const origFromHex = AccountId.fromHex.bind(AccountId);
+    const fromHexSpy = jest.spyOn(AccountId, 'fromHex').mockImplementation(hex => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return origFromHex(hex);
+    });
+
+    try {
+      await expect(fetchMidenNameQuote('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      const quotePromise = fetchMidenNameQuote('alice');
+      await flushMicrotasks();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      ready.resolve(undefined);
+      await expect(quotePromise).resolves.toMatchObject({ label: 'alice' });
+
+      mockWasmReady.mockClear();
+      await expect(fetchMidenNameQuote('alice')).resolves.toMatchObject({ label: 'alice' });
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      wasmReady = false;
+      const ready2 = deferred<void>();
+      mockWasmReady.mockImplementationOnce(async () => {
+        await ready2.promise;
+        wasmReady = true;
+      });
+      await expect(fetchMidenNameIssued('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      setEntry(MIDEN_NAME_SLOTS.assetStatus, statusKeyFeltsForLabel('alice', REGISTRY), [1n, 0n, 0n, 0n]);
+      fromHexSpy.mockClear();
+      const issuedPromise = fetchMidenNameIssued('alice');
+      await flushMicrotasks();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      ready2.resolve(undefined);
+      await expect(issuedPromise).resolves.toBe(true);
+      expect(fromHexSpy).toHaveBeenCalled();
+    } finally {
+      fromHexSpy.mockRestore();
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
@@ -56,6 +57,7 @@ const HOLD = { hold: 'current' };
 
 type LockOperation = (hold: object) => Promise<unknown>;
 
+const mockWasmReady = jest.mocked(ensureSdkWasmReady);
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
 const mockRpcUrl = jest.mocked(getEffectiveRpcUrl);
 const mockRead = jest.mocked(readRegistryStorage);
@@ -107,6 +109,7 @@ beforeEach(() => {
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
   KNOWN_ACCOUNTS.set(OTHER_FAUCET_HEX, { prefix: 0x77n, suffix: 0x88n });
   KNOWN_ACCOUNTS.set(SENDER_HEX, SENDER);
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   mockRpcUrl.mockReturnValue('https://rpc-a.example');
   mockLock.mockImplementation(async operation => operation(HOLD));
@@ -285,6 +288,58 @@ describe('listOwnedDomainLabels', () => {
     });
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(alice.freed).toBe(1);
+  });
+
+  it('awaits ensureSdkWasmReady before constructing SDK objects on cold start', async () => {
+    let wasmReady = false;
+    let resolveReady!: () => void;
+    mockWasmReady.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveReady = () => {
+            wasmReady = true;
+            resolve();
+          };
+        })
+    );
+    const origFromHex = AccountId.fromHex.bind(AccountId);
+    const fromHexSpy = jest.spyOn(AccountId, 'fromHex').mockImplementation(hex => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return origFromHex(hex);
+    });
+
+    try {
+      await expect(accountHoldsDomainNfa(SENDER_HEX, 'Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      const pending = accountHoldsDomainNfa(SENDER_HEX, 'alice');
+      await Promise.resolve();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      resolveReady();
+      await expect(pending).resolves.toBe('held');
+
+      wasmReady = false;
+      let resolveReady2!: () => void;
+      mockWasmReady.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            resolveReady2 = () => {
+              wasmReady = true;
+              resolve();
+            };
+          })
+      );
+      mockGetAccount.mockResolvedValueOnce(null);
+      fromHexSpy.mockClear();
+      const pendingList = listOwnedDomainLabels(SENDER_HEX);
+      await Promise.resolve();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      resolveReady2();
+      await expect(pendingList).resolves.toEqual([]);
+      expect(fromHexSpy).toHaveBeenCalled();
+    } finally {
+      fromHexSpy.mockRestore();
+    }
   });
 });
 

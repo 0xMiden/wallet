@@ -1,3 +1,4 @@
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
@@ -33,6 +34,7 @@ const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 const ALICE = { prefix: 0x1234n, suffix: 0x5600n };
 const ZERO: Felts4 = [0n, 0n, 0n, 0n];
 
+const mockWasmReady = jest.mocked(ensureSdkWasmReady);
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
 const mockRpcUrl = jest.mocked(getEffectiveRpcUrl);
 const mockRead = jest.mocked(readRegistryStorage);
@@ -71,6 +73,7 @@ beforeEach(() => {
   clearMidenNameResolverCache();
   state = new Map();
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   mockRpcUrl.mockReturnValue('https://rpc-a.example');
   mockRead.mockImplementation(fakeRead);
@@ -236,5 +239,47 @@ describe('fetchDomainRecordAccount', () => {
     });
     await expect(fetchDomainRecordAccount('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
+  });
+
+  it('awaits ensureSdkWasmReady on cold start after early exits for invalid labels, unsupported networks, and cache hits', async () => {
+    let wasmReady = false;
+    let resolveReady!: () => void;
+    mockWasmReady.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveReady = () => {
+            wasmReady = true;
+            resolve();
+          };
+        })
+    );
+    const origFromHex = AccountId.fromHex.bind(AccountId);
+    const fromHexSpy = jest.spyOn(AccountId, 'fromHex').mockImplementation(hex => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return origFromHex(hex);
+    });
+
+    try {
+      await expect(resolveMidenName('Al!ce')).resolves.toBeNull();
+      await expect(fetchDomainRecord('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      mockRead.mockResolvedValueOnce({
+        blockNum: 1,
+        slotValue: () => undefined,
+        mapValue: () => accountValue(ALICE)
+      });
+      const pending = resolveMidenName('alice');
+      await Promise.resolve();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      resolveReady();
+      await expect(pending).resolves.toBe('mtst11234');
+
+      mockWasmReady.mockClear();
+      await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
+      expect(mockWasmReady).not.toHaveBeenCalled();
+    } finally {
+      fromHexSpy.mockRestore();
+    }
   });
 });

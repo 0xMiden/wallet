@@ -1,6 +1,8 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+
 import { MidenNameScriptAssetError, MidenNameScriptMismatchError } from './errors';
 import {
   MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH,
@@ -12,6 +14,7 @@ import { loadRegisterDomainScript, resetMidenNameNoteScriptsCacheForTests } from
 import { NoteScript } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
+jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(async () => undefined) }));
 
 interface AssetEntry {
   root: string;
@@ -66,8 +69,11 @@ function serveAsset(body: unknown, status = 200) {
   mockFetch.mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body });
 }
 
+const mockWasmReady = jest.mocked(ensureSdkWasmReady);
+
 beforeEach(() => {
   resetMidenNameNoteScriptsCacheForTests();
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
   NoteScript.deserialize.mockReset().mockImplementation(() => fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX));
   mockFetch.mockReset();
   Object.defineProperty(globalThis, 'fetch', { value: mockFetch, writable: true, configurable: true });
@@ -167,5 +173,33 @@ describe('asset validation', () => {
     const asset = fakeAsset();
     serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, serializedBase64: 'TUFTVA==' } });
     await expect(loadRegisterDomainScript()).rejects.toThrow('decodes to 4 bytes');
+    expect(mockWasmReady).not.toHaveBeenCalled();
+  });
+
+  it('awaits ensureSdkWasmReady before NoteScript.deserialize on cold start', async () => {
+    let wasmReady = false;
+    let resolveReady!: () => void;
+    mockWasmReady.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveReady = () => {
+            wasmReady = true;
+            resolve();
+          };
+        })
+    );
+    const script = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    NoteScript.deserialize.mockImplementationOnce(() => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return script;
+    });
+
+    const pending = loadRegisterDomainScript();
+    for (let i = 0; i < 6; i++) {
+      await Promise.resolve();
+    }
+    expect(NoteScript.deserialize).not.toHaveBeenCalled();
+    resolveReady();
+    await expect(pending).resolves.toBe(script);
   });
 });
