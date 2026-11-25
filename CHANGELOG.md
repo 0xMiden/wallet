@@ -18,6 +18,7 @@
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
 - [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of run 45334301017, which stopped in preflight before any quote or send, as unspent so recovery clears it instead of refusing the next nightly.
 - [CHORE][ci] Name the exited process and print a sanitized, bounded log tail when a mainnet nightly NEAR step fails, and upload the same tail as a public summary instead of leaving the cause unlogged.
+- [CHORE][ci] Harden the public NEAR log tail: redact bearer and basic credentials, reflowed, JSON-escaped and URL-encoded secrets, key-like runs, bech32, base58 and named NEAR addresses and 12-word phrases; publish it only for a failed or cancelled run without failing the job; tail only native NEAR logs in the job log; keep the real cause of a rejected return transfer in the stage file; and add tests for the quoteless preflight gate.
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
 - [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.

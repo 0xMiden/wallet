@@ -149,6 +149,15 @@ describe('funded nightly swap workflow', () => {
       /epoch-reverse\.log|near-(?:forward|recover|reverse)\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/
     );
   });
+  it('sanitizes NEAR process log tails only for a failed or cancelled run, never failing a funded run itself', () => {
+    const sanitize = step('Sanitize NEAR process log tails');
+    expect(sanitize.if).toBe('failure() || cancelled()');
+    expect(String(sanitize.run)).toMatch(
+      /mainnet-log-tail\.mjs[^\n]*> test-results\/mainnet-near-diagnostics\.md \|\| true/
+    );
+    expect(index('Sanitize NEAR process log tails')).toBeGreaterThan(index('Wait for mainnet NEAR return'));
+    expect(index('Sanitize NEAR process log tails')).toBeLessThan(index('Upload public summaries'));
+  });
   it('selects plain P2ID on the NEAR forward review before arming the exact-byte gate', () => {
     const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
     const forward = source.split('export async function runMainnetNearForward(')[1]!;
