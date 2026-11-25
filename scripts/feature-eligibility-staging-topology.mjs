@@ -15,6 +15,7 @@ import {
   MAX_PROVIDER_READS,
   PROVIDER_DEADLINE_MS,
   createTopologyApiBudget,
+  formatTopologyProviderReads,
   isTargetAbsent,
   observeTopologyOwnership,
   observeTopologyWorkerUrl,
@@ -282,6 +283,35 @@ export function topologyCleanupBudget({
   };
 }
 
+function assertPriorBudget({ previous, identity, loaded }) {
+  if (
+    previous?.schema !== 1 ||
+    !same(previous.identity, identity) ||
+    !validProviderReads(previous.providerReads, loaded.value.startedAt) ||
+    previous.providerReads.preflight < loaded.value.preflightCalls
+  )
+    fail('prior_topology_budget_unavailable');
+}
+
+function buildRecoveryResult({ previous, identity, loaded, state, recovered, stats, extra = {} }) {
+  const base = { ...(previous ?? {}) };
+  delete base.ownershipDiagnostic;
+  return {
+    ...base,
+    schema: 1,
+    identity,
+    phase: recovered ? 'recovery_cleanup' : 'cleanup',
+    manifestSha256: hash(JSON.stringify(loaded.value.manifest)),
+    bundleSha256: loaded.value.manifest.bundleSha256,
+    deploymentAttempted:
+      state?.deploymentAttempted ?? (typeof previous?.deploymentAttempted === 'boolean' ? previous.deploymentAttempted : 'unknown'),
+    cleanup: 'pending',
+    reason: 'cleanup_in_progress',
+    ...extra,
+    providerReads: stats
+  };
+}
+
 async function loadPrepared(env, { identity, accountSha256 } = {}) {
   const paths = preparedPaths(env);
   const value = JSON.parse(await readFile(paths.manifest, 'utf8'));
@@ -289,13 +319,12 @@ async function loadPrepared(env, { identity, accountSha256 } = {}) {
   return { paths, value: validatePrepared(value, { identity, accountSha256, bundle }), bundle };
 }
 
-async function readRecoveryReceipt(env, { requireNullResult = false } = {}) {
+async function readRecoveryReceipt(env) {
   const recoveryFile = env.TOPOLOGY_RECOVERY_FILE;
   if (typeof recoveryFile !== 'string') fail('missing_recovery_receipt');
   const recovery = JSON.parse(await readFile(recoveryFile, 'utf8'));
   if (!exactKeys(recovery, ['schema', 'repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha', 'artifactId', 'resultArtifactId']))
     fail('invalid_recovery_receipt');
-  if (requireNullResult && recovery.resultArtifactId !== null) fail('invalid_recovery_receipt');
   const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
   let previous = {};
   let identity;
@@ -390,15 +419,7 @@ async function buildRecoveryFailureFallback(env) {
     preflightCalls: loaded.value.preflightCalls
   });
   const hasPrior = recovery.resultArtifactId !== null;
-  if (hasPrior) {
-    if (
-      previous?.schema !== 1 ||
-      !same(previous.identity, identity) ||
-      !validProviderReads(previous.providerReads, loaded.value.startedAt) ||
-      previous.providerReads.preflight < loaded.value.preflightCalls
-    )
-      fail('prior_topology_budget_unavailable');
-  }
+  if (hasPrior) assertPriorBudget({ previous, identity, loaded });
   let providerReads;
   if (hasPrior) {
     providerReads = previous.providerReads;
@@ -410,26 +431,24 @@ async function buildRecoveryFailureFallback(env) {
       loaded.value.startedAt,
       hasCleanupWindow ? state.cleanupStartedAt : loaded.value.startedAt
     );
-    providerReads = createTopologyApiBudget(async () => null, {
-      now: () => nowMs,
-      startedAt: loaded.value.startedAt,
-      ...(hasCleanupWindow ? { cleanupStartedAt: state.cleanupStartedAt } : {}),
-      initialCalls: { preflight: MAX_PHASE_READS, cleanup: state?.cleanupCalls ?? 0 }
-    }).stats();
+    providerReads = formatTopologyProviderReads({
+      preflight: MAX_PHASE_READS,
+      cleanup: state?.cleanupCalls ?? 0,
+      now: nowMs,
+      preflightStartedAt: loaded.value.startedAt,
+      cleanupStartedAt: hasCleanupWindow ? state.cleanupStartedAt : undefined
+    });
     if (!validProviderReads(providerReads, loaded.value.startedAt)) fail('cleanup_budget_lineage_unavailable');
   }
-  return {
-    schema: 1,
+  return buildRecoveryResult({
+    previous,
     identity,
-    phase: 'recovery_cleanup',
-    manifestSha256: hash(JSON.stringify(loaded.value.manifest)),
-    bundleSha256: loaded.value.manifest.bundleSha256,
-    deploymentAttempted:
-      state?.deploymentAttempted ?? (typeof previous?.deploymentAttempted === 'boolean' ? previous.deploymentAttempted : 'unknown'),
-    cleanup: 'blocked',
-    reason: 'cleanup_failed',
-    providerReads
-  };
+    loaded,
+    state,
+    recovered: true,
+    stats: providerReads,
+    extra: { cleanup: 'blocked', reason: 'cleanup_failed' }
+  });
 }
 
 async function writeRunState(file, value) {
@@ -446,14 +465,13 @@ async function readBoundedJson(response, signal) {
   }
 }
 
-export async function exerciseTopologyScenarios({ baseUrl, bearer, fetchImpl = fetch, timeoutMs = SCENARIO_TIMEOUT_MS } = {}) {
+export async function exerciseTopologyScenarios({ baseUrl, bearer, fetchImpl = fetch } = {}) {
   if (
     !isTopologyWorkersDevUrl(baseUrl) ||
     typeof bearer !== 'string' ||
     bearer.length < 32 ||
     bearer.length > 128 ||
-    typeof fetchImpl !== 'function' ||
-    timeoutMs !== SCENARIO_TIMEOUT_MS
+    typeof fetchImpl !== 'function'
   )
     fail('invalid_scenario_request');
   const results = [];
@@ -475,7 +493,7 @@ export async function exerciseTopologyScenarios({ baseUrl, bearer, fetchImpl = f
           timer = setTimeout(() => {
             controller.abort();
             reject(new Error('scenario_timeout'));
-          }, timeoutMs);
+          }, SCENARIO_TIMEOUT_MS);
         })
       ]);
       const valid =
@@ -667,7 +685,7 @@ export async function execute(env, { createReadApi = createTopologyReadApi, runC
         : 'scenario_failed';
     state.phase = 'exercised';
   } catch (error) {
-    result.reason = ['target_not_absent', 'worker_url_not_ready', 'deployment_failed', 'deployed_worker_ownership_not_verified', 'deployed_worker_route_not_verified', 'scenario_failed'].includes(error?.reason)
+    result.reason = ['target_not_absent', 'deployment_failed', 'deployed_worker_ownership_not_verified', 'deployed_worker_route_not_verified'].includes(error?.reason)
       ? error.reason
       : 'execution_failed';
     state.phase = 'execution_stopped';
@@ -705,13 +723,7 @@ export async function cleanup(
     preflightCalls: loaded.value.preflightCalls
   });
   if (recovered && recovery.resultArtifactId !== null) {
-    if (
-      previous?.schema !== 1 ||
-      !same(previous.identity, identity) ||
-      !validProviderReads(previous.providerReads, loaded.value.startedAt) ||
-      previous.providerReads.preflight < loaded.value.preflightCalls
-    )
-      fail('prior_topology_budget_unavailable');
+    assertPriorBudget({ previous, identity, loaded });
   } else if (!recovered) {
     try {
       const candidate = JSON.parse(await readFile(resultPath(env), 'utf8'));
@@ -731,24 +743,8 @@ export async function cleanup(
     accountId: credentials.accountId,
     token: credentials.token
   });
-  const buildCleanupResult = (stats, extra = {}) => {
-    const base = { ...(previous ?? {}) };
-    delete base.ownershipDiagnostic;
-    return {
-      ...base,
-      schema: 1,
-      identity,
-      phase: recovered ? 'recovery_cleanup' : 'cleanup',
-      manifestSha256: hash(JSON.stringify(loaded.value.manifest)),
-      bundleSha256: loaded.value.manifest.bundleSha256,
-      deploymentAttempted:
-        state?.deploymentAttempted ?? (typeof previous?.deploymentAttempted === 'boolean' ? previous.deploymentAttempted : 'unknown'),
-      cleanup: 'pending',
-      reason: 'cleanup_in_progress',
-      ...extra,
-      providerReads: stats
-    };
-  };
+  const buildCleanupResult = (stats, extra = {}) =>
+    buildRecoveryResult({ previous, identity, loaded, state, recovered, stats, extra });
   let writeCleanupResult = async () => {};
   const budget = createTopologyApiBudget(api, {
     now: Date.now,

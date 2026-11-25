@@ -193,3 +193,47 @@ test('account-bound preparation refuses an existing script with a colliding rate
       : base(path);
   assert.equal(await prepare(options(api)), null);
 });
+
+test('formatTopologyProviderReads returns the frozen budget stats shape', () => {
+  const preflightStartedAt = 1_000;
+  const cleanupStartedAt = 5_000;
+  const nowValue = 12_000;
+  const formatted = topology.formatTopologyProviderReads({
+    preflight: 7,
+    cleanup: 3,
+    preflightStartedAt,
+    cleanupStartedAt,
+    now: nowValue
+  });
+  assert.equal(Object.isFrozen(formatted), true);
+  assert.deepEqual(formatted, {
+    preflight: 7,
+    cleanup: 3,
+    total: 10,
+    elapsedMs: 11_000,
+    preflightStartedAt: 1_000,
+    preflightDeadlineAt: 121_000,
+    cleanupStartedAt: 5_000,
+    cleanupDeadlineAt: 125_000,
+    preflightElapsedMs: 11_000,
+    cleanupElapsedMs: 7_000
+  });
+
+  const budget = topology.createTopologyApiBudget(async () => ({}), {
+    now: () => nowValue,
+    startedAt: preflightStartedAt,
+    cleanupStartedAt,
+    initialCalls: { preflight: 7, cleanup: 3 }
+  });
+  assert.deepEqual(formatted, budget.stats());
+
+  const noCleanup = topology.formatTopologyProviderReads({
+    preflight: 2,
+    cleanup: 0,
+    preflightStartedAt,
+    now: nowValue
+  });
+  assert.equal(noCleanup.cleanupStartedAt, null);
+  assert.equal(noCleanup.cleanupDeadlineAt, null);
+  assert.equal(noCleanup.cleanupElapsedMs, null);
+});

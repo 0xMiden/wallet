@@ -1479,6 +1479,9 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
           identity: prepared.identity,
           phase: 'cleanup',
           deploymentAttempted: true,
+          deploymentExitCode: 0,
+          ownership: 'verified',
+          scenarioResults: [{ scenario: 'cache_reuse', result: 'passed' }],
           cleanup: 'pending',
           reason: null,
           ownershipDiagnostic: { gate: 'stale', form: 'null' },
@@ -1504,6 +1507,9 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
       assert.deepEqual(goodWritten.identity, prepared.identity);
       assert.equal(goodWritten.phase, 'recovery_cleanup');
       assert.equal(goodWritten.deploymentAttempted, true);
+      assert.equal(goodWritten.deploymentExitCode, 0);
+      assert.equal(goodWritten.ownership, 'verified');
+      assert.deepEqual(goodWritten.scenarioResults, [{ scenario: 'cache_reuse', result: 'passed' }]);
       assert.equal(goodWritten.cleanup, 'blocked');
       assert.equal(goodWritten.reason, 'cleanup_failed');
       assert.deepEqual(goodWritten.providerReads, priorReads);

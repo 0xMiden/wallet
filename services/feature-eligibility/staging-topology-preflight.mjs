@@ -67,6 +67,21 @@ export function topologyScriptSettingsMismatch(script) {
   return null;
 }
 
+export function formatTopologyProviderReads({ preflight, cleanup, now, preflightStartedAt, cleanupStartedAt }) {
+  return Object.freeze({
+    preflight,
+    cleanup,
+    total: preflight + cleanup,
+    elapsedMs: now - preflightStartedAt,
+    preflightStartedAt,
+    preflightDeadlineAt: preflightStartedAt + PROVIDER_DEADLINE_MS,
+    cleanupStartedAt: cleanupStartedAt ?? null,
+    cleanupDeadlineAt: cleanupStartedAt === undefined ? null : cleanupStartedAt + PROVIDER_DEADLINE_MS,
+    preflightElapsedMs: now - preflightStartedAt,
+    cleanupElapsedMs: cleanupStartedAt === undefined ? null : now - cleanupStartedAt
+  });
+}
+
 export function createTopologyApiBudget(
   api,
   {
@@ -101,20 +116,13 @@ export function createTopologyApiBudget(
   )
     throw new TypeError('invalid provider budget state');
   const calls = { preflight: preflight.value, cleanup: cleanup.value };
-  const stats = () => {
-    const current = now();
-    return Object.freeze({
+  const stats = () =>
+    formatTopologyProviderReads({
       ...calls,
-      total: calls.preflight + calls.cleanup,
-      elapsedMs: current - starts.preflight,
+      now: now(),
       preflightStartedAt: starts.preflight,
-      preflightDeadlineAt: starts.preflight + PROVIDER_DEADLINE_MS,
-      cleanupStartedAt: starts.cleanup ?? null,
-      cleanupDeadlineAt: starts.cleanup === undefined ? null : starts.cleanup + PROVIDER_DEADLINE_MS,
-      preflightElapsedMs: current - starts.preflight,
-      cleanupElapsedMs: starts.cleanup === undefined ? null : current - starts.cleanup
+      cleanupStartedAt: starts.cleanup
     });
-  };
   const request = phase => async path => {
     if (calls[phase] >= MAX_PHASE_READS || calls.preflight + calls.cleanup >= MAX_PROVIDER_READS)
       throw new Error('provider read budget exhausted');
