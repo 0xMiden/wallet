@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "ロックされた資金に戻る",
   "bridgeRouteViaEpoch": "Via Epochより",
   "bridgeRouteViaAgglayer": "Agglayer経由",
+  "bridgeRouteViaOneClick": "1Click経由",
   "bridgeSpeedFast": "速い",
   "bridgeSpeedSlow": "遅い",
   "swapOrderCreated": "スワップ注文が作成されました！",

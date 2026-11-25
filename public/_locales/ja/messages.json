@@ -4877,6 +4877,10 @@
     "message": "Agglayer経由",
     "englishSource": "Via Agglayer"
   },
+  "bridgeRouteViaOneClick": {
+    "message": "1Click経由",
+    "englishSource": "Via 1Click"
+  },
   "bridgeSpeedFast": {
     "message": "速い",
     "englishSource": "Fast"

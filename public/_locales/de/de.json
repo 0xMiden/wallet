@@ -1078,6 +1078,7 @@
   "returnToLockedFunds": "Zurück zu gesperrten Guthaben",
   "bridgeRouteViaEpoch": "Über Epoch",
   "bridgeRouteViaAgglayer": "Über Agglayer",
+  "bridgeRouteViaOneClick": "Über 1Click",
   "bridgeSpeedFast": "Schnell",
   "bridgeSpeedSlow": "Langsam",
   "swapOrderCreated": "Swap-Auftrag erstellt!",
