@@ -2,7 +2,7 @@
 
 ## 1.18.2 (TBD)
 
-- [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.1.
+- [CHORE][ci] Keep a sanitized, bounded cause and any short error code of a failed Epoch return solve in its failure record and the process log, and keep a sanitized one-line cause on the unresolved Epoch EVM submission error, while the funded gates and every retry rule stay unchanged.
 - [CHORE][ci] Keep a sanitized, bounded cause in the public stage file and process log when a native NEAR mainnet nightly stage is blocked, while the thrown error and every gate stay unchanged.
 - [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
 - [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
@@ -62,6 +62,7 @@
 - [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
 - [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
 - [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
+- [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.1.
 
 ## 1.18.1 (2026-11-23)
 
