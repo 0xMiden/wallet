@@ -1,9 +1,9 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { isAddress } from 'viem';
 
+import { MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
 import { detectNearIntentsAddressKind } from 'lib/one-click/address';
 import { annotateRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 

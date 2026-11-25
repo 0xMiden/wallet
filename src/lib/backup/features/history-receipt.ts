@@ -95,6 +95,7 @@ const receiptFields: Record<ITransactionType, Shape> = {
     // What each payback of the claim paid. A device that did not place the order has no lineage, so these amounts
     // are its only exact record of the fill (multi-device).
     swapPaybackAmounts: byNoteId('decimal'),
+    midenNameClaim: fields({ label: 'string', registerTxId: 'string' }, ['label', 'registerTxId']),
     bridgeIn: fields(
       {
         provider: 'string',
@@ -196,7 +197,23 @@ const receiptFields: Record<ITransactionType, Shape> = {
   },
   'switch-guardian': { commitUnconfirmed: 'boolean', registerFailed: 'boolean', endpointPersistFailed: 'boolean' },
   'replace-hot-key': { newHotPublicKey: 'string', guardianEndpoint: 'string', reRegisterFailed: 'boolean' },
-  'update-procedure-threshold': { procedure: 'string', threshold: 'number' }
+  'update-procedure-threshold': { procedure: 'string', threshold: 'number' },
+  'register-name': {
+    label: 'string',
+    network: 'string',
+    registrationNoteId: 'string',
+    reclaimHeight: 'number',
+    builtAtBlock: 'number',
+    priceBaseUnits: 'decimal',
+    networkFeeBaseUnits: 'decimal',
+    phase: 'string',
+    failure: 'string',
+    lastError: 'string',
+    deliveryNoteId: 'string',
+    claimTxId: 'string',
+    deliveryScanFrom: 'number',
+    phaseUpdatedAt: 'number'
+  }
 };
 
 function readField(field: Field, value: ReceiptInput | undefined): ReceiptValue | undefined {

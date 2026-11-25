@@ -43,6 +43,7 @@ function quote(overrides: Partial<MidenNameQuote> = {}): MidenNameQuote {
   return {
     label: 'alice',
     available: true,
+    priced: true,
     priceBaseUnits: PRICE,
     networkFeeBaseUnits: 210n,
     scriptAllowed: true,

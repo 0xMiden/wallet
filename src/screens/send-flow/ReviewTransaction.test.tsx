@@ -3455,7 +3455,6 @@ describe('ReviewTransaction — Miden Name recipient', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       'alice.miden'
     );
   });
