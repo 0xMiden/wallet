@@ -10203,32 +10203,32 @@
     "englishSource": "This only signs you in"
   },
   "commandAiBarLabel": {
-    "message": "Command assistant",
-    "englishSource": "(untranslated)"
+    "message": "Помічник з команд",
+    "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Send, swap, bridge, earn, or ask about your wallet...",
-    "englishSource": "(untranslated)"
+    "message": "Надсилайте, обмінюйте, переказуйте, заробляйте або запитуйте про свій гаманець...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
     "message": "Run",
-    "englishSource": "(untranslated)"
+    "englishSource": "Run"
   },
   "commandAiWorking": {
-    "message": "Thinking...",
-    "englishSource": "(untranslated)"
+    "message": "Думаю...",
+    "englishSource": "Thinking..."
   },
   "commandAiExpand": {
-    "message": "Expand to multi-line",
-    "englishSource": "(untranslated)"
+    "message": "Розгорнути до багаторядкового",
+    "englishSource": "Expand to multi-line"
   },
   "commandAiCollapse": {
-    "message": "Collapse to single line",
-    "englishSource": "(untranslated)"
+    "message": "Згорнути до одного рядка",
+    "englishSource": "Collapse to single line"
   },
   "commandAiRedactedBadge": {
-    "message": "Protected: $kinds$",
-    "englishSource": "(untranslated)",
+    "message": "Захищено: $kinds$",
+    "englishSource": "Protected: $kinds$",
     "placeholders": {
       "kinds": {
         "content": "$1"
@@ -10236,24 +10236,24 @@
     }
   },
   "commandAiOpenNativeForm": {
-    "message": "Open form",
-    "englishSource": "(untranslated)"
+    "message": "Відкрита форма",
+    "englishSource": "Open form"
   },
   "commandAiChooseBridge": {
-    "message": "Which bridge route do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Який маршрут мосту ви хочете використовувати?",
+    "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "Who do you want to send to?",
-    "englishSource": "(untranslated)"
+    "message": "Кому ви хочете надіслати?",
+    "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {
-    "message": "Multiple contacts match that name. Which one?",
-    "englishSource": "(untranslated)"
+    "message": "Цьому імені відповідає кілька контактів. Який саме?",
+    "englishSource": "Multiple contacts match that name. Which one?"
   },
   "commandAiIncompleteAddressMatches": {
-    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
-    "englishSource": "(untranslated)",
+    "message": "$prefix$ — неповне слово. Можливо, ви мали на увазі один із збережених контактів?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
     "placeholders": {
       "prefix": {
         "content": "$1"
@@ -10261,8 +10261,8 @@
     }
   },
   "commandAiIncompleteAddress": {
-    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "$address$ — це неповна адреса. Введіть повну адресу або виберіть контакт.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
     "placeholders": {
       "address": {
         "content": "$1"
@@ -10270,8 +10270,8 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "Імена ENS у форматі $name$ тут не підтримуються. Введіть повну адресу або виберіть контакт.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -10279,20 +10279,20 @@
     }
   },
   "commandAiWrongNetworkAddress": {
-    "message": "That address belongs to a different Miden network.",
-    "englishSource": "(untranslated)"
+    "message": "Ця адреса належить до іншої мережі Miden.",
+    "englishSource": "That address belongs to a different Miden network."
   },
   "commandAiInvalidAddress": {
-    "message": "Enter a valid Miden or destination address.",
-    "englishSource": "(untranslated)"
+    "message": "Введіть дійсну адресу Miden або адресу призначення.",
+    "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Specify a recipient address or contact name.",
-    "englishSource": "(untranslated)"
+    "message": "Вкажіть адресу одержувача або ім’я контактної особи.",
+    "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
-    "message": "Could not match asset $asset$ in your wallet.",
-    "englishSource": "(untranslated)",
+    "message": "Не вдалося знайти актив $asset$ у вашому гаманці.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
     "placeholders": {
       "asset": {
         "content": "$1"
@@ -10300,100 +10300,100 @@
     }
   },
   "commandAiChooseAsset": {
-    "message": "Which asset do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Який актив ви хочете використовувати?",
+    "englishSource": "Which asset do you want to use?"
   },
   "commandAiChooseAmount": {
-    "message": "How much do you want to send?",
-    "englishSource": "(untranslated)"
+    "message": "Скільки ви хочете надіслати?",
+    "englishSource": "How much do you want to send?"
   },
   "commandAiChooseSwapTarget": {
-    "message": "Which token do you want to receive?",
-    "englishSource": "(untranslated)"
+    "message": "Який токен ви хочете отримати?",
+    "englishSource": "Which token do you want to receive?"
   },
   "commandAiChooseEarnVault": {
-    "message": "Which Earn vault do you want to deposit into?",
-    "englishSource": "(untranslated)"
+    "message": "У яке сховище Earn ви хочете внести кошти?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "Which Earn position do you want to withdraw from?",
-    "englishSource": "(untranslated)"
+    "message": "З якої позиції Earn ви хочете зняти кошти?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
-    "message": "No matching bridge route is available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Наразі відповідний маршрут перекладу недоступний.",
+    "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap is unavailable for that pair right now.",
-    "englishSource": "(untranslated)"
+    "message": "Обмін для цієї пари наразі недоступний.",
+    "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "No Earn vaults or positions are available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Наразі сховища та позиції Earn недоступні.",
+    "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
-    "message": "Live USD price is unavailable for that token. Enter a token amount.",
-    "englishSource": "(untranslated)"
+    "message": "Актуальна ціна в доларах США для цього токена недоступна. Введіть суму токена.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
   },
   "commandAiInvalidModelOutput": {
-    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "Не вдалося безпечно перевірити цей запит. Спробуйте переформулювати його або скористайтеся формою нижче.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
-    "englishSource": "(untranslated)"
+    "message": "Ця дія тут не підтримується. Спробуйте «Send», «Swap», «Bridge», «Earn» або задайте питання щодо гаманця.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
-    "message": "Nothing active to update. Enter a full command.",
-    "englishSource": "(untranslated)"
+    "message": "Немає активних елементів для оновлення. Введіть повну команду.",
+    "englishSource": "Nothing active to update. Enter a full command."
   },
   "commandAiUnconfigured": {
-    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
-    "englishSource": "(untranslated)"
+    "message": "Проксі ШІ не налаштовано. Встановіть кінцеву точку або скористайтеся панеллю дій нижче.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI service is temporarily unavailable. Try again or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "Сервіс штучного інтелекту тимчасово недоступний. Спробуйте ще раз або скористайтеся формою нижче.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {
-    "message": "AI service rate limit reached. Try again shortly.",
-    "englishSource": "(untranslated)"
+    "message": "Досягнуто обмеження частоти запитів до сервісу ШІ. Спробуйте ще раз незабаром.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
   },
   "commandAiQueryBalanceTitle": {
-    "message": "Wallet balance",
-    "englishSource": "(untranslated)"
+    "message": "Баланс гаманця",
+    "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Matching total",
-    "englishSource": "(untranslated)"
+    "message": "Загальна сума збігів",
+    "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
-    "message": "Matching activity",
-    "englishSource": "(untranslated)"
+    "message": "Діяльність зі збігу заявок",
+    "englishSource": "Matching activity"
   },
   "commandAiQueryEmpty": {
-    "message": "No matching entries found.",
-    "englishSource": "(untranslated)"
+    "message": "Відповідних записів не знайдено.",
+    "englishSource": "No matching entries found."
   },
   "commandAiLocalOnlyNote": {
-    "message": "Computed privately on this device",
-    "englishSource": "(untranslated)"
+    "message": "Обчислюється приватно на цьому пристрої",
+    "englishSource": "Computed privately on this device"
   },
   "commandAiRecentTurns": {
-    "message": "Conversation",
-    "englishSource": "(untranslated)"
+    "message": "Розмова",
+    "englishSource": "Conversation"
   },
   "commandAiAssistantName": {
     "message": "Bread Assistant",
-    "englishSource": "(untranslated)"
+    "englishSource": "Bread Assistant"
   },
   "commandAiPlanTitle": {
-    "message": "Action plan",
-    "englishSource": "(untranslated)"
+    "message": "План дій",
+    "englishSource": "Action plan"
   },
   "commandAiPlanProgress": {
-    "message": "Step $current$ of $total$",
-    "englishSource": "(untranslated)",
+    "message": "Крок $current$ із $total$",
+    "englishSource": "Step $current$ of $total$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -10404,8 +10404,8 @@
     }
   },
   "commandAiPlanStepLabel": {
-    "message": "Step $num$",
-    "englishSource": "(untranslated)",
+    "message": "Крок $num$",
+    "englishSource": "Step $num$",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -10413,75 +10413,75 @@
     }
   },
   "commandAiPlanStatusActive": {
-    "message": "Active",
-    "englishSource": "(untranslated)"
+    "message": "Активний",
+    "englishSource": "Active"
   },
   "commandAiPlanStatusPending": {
-    "message": "Up next",
-    "englishSource": "(untranslated)"
+    "message": "Далі",
+    "englishSource": "Up next"
   },
   "commandAiPlanStatusDone": {
-    "message": "Done",
-    "englishSource": "(untranslated)"
+    "message": "Готово",
+    "englishSource": "Done"
   },
   "commandAiPlanConfirmStep": {
-    "message": "Confirm this step in the dialog below, then advance.",
-    "englishSource": "(untranslated)"
+    "message": "Підтвердьте цей крок у діалоговому вікні нижче, а потім продовжуйте.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
   },
   "commandAiPlanStepSubmitted": {
-    "message": "Step submitted! Ready for the next step.",
-    "englishSource": "(untranslated)"
+    "message": "Крок виконано! Готові до наступного кроку.",
+    "englishSource": "Step submitted! Ready for the next step."
   },
   "commandAiPlanCompletedTitle": {
-    "message": "All steps completed",
-    "englishSource": "(untranslated)"
+    "message": "Усі кроки виконано",
+    "englishSource": "All steps completed"
   },
   "commandAiPlanNextStep": {
-    "message": "Next step",
-    "englishSource": "(untranslated)"
+    "message": "Наступний крок",
+    "englishSource": "Next step"
   },
   "commandAiPlanContinue": {
-    "message": "Continue",
-    "englishSource": "(untranslated)"
+    "message": "Продовжити",
+    "englishSource": "Continue"
   },
   "commandAiPlanFinish": {
-    "message": "Finish plan",
-    "englishSource": "(untranslated)"
+    "message": "Завершити план",
+    "englishSource": "Finish plan"
   },
   "commandAiPlanStop": {
-    "message": "Stop",
-    "englishSource": "(untranslated)"
+    "message": "Стоп",
+    "englishSource": "Stop"
   },
   "commandAiPlanMaxAmount": {
-    "message": "Max",
-    "englishSource": "(untranslated)"
+    "message": "Макс",
+    "englishSource": "Max"
   },
   "commandAiPlanPreviousOutput": {
-    "message": "Previous output",
-    "englishSource": "(untranslated)"
+    "message": "Попередній результат",
+    "englishSource": "Previous output"
   },
   "commandAiSamplePrompt1": {
-    "message": "Send 10 USDCx to John",
-    "englishSource": "(untranslated)"
+    "message": "Надіслати 10 USDCx Джону",
+    "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Bridge in 1 ETH and swap it to USDCx",
-    "englishSource": "(untranslated)"
+    "message": "Переведіть 1 ETH і обміняйте його на USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {
-    "message": "Summarize my last week activity",
-    "englishSource": "(untranslated)"
+    "message": "Підсумуйте мою активність за останній тиждень",
+    "englishSource": "Summarize my last week activity"
   },
   "commandAiSamplePrompt4": {
-    "message": "Make 10 USDCx earn in the most efficient way",
-    "englishSource": "(untranslated)"
+    "message": "Заробіть 10 USDCx найефективнішим способом",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
-    "englishSource": "(untranslated)"
+    "message": "Переведіть 1 ETH, обміняйте на USDCx і покладіть у сховище з найвищим прибутком",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {
-    "message": "How much USDCx did I send this month?",
-    "englishSource": "(untranslated)"
+    "message": "Скільки USDCx я надіслав цього місяця?",
+    "englishSource": "How much USDCx did I send this month?"
   }
 }
