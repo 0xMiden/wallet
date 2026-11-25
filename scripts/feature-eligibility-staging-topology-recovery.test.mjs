@@ -527,3 +527,90 @@ test('recovery remains fail-closed for skipped main runs, non-skipped runs, and 
     assert.equal(calls.some(p => p.startsWith('/actions/runs/89/artifacts?')), false);
   }
 });
+
+test('createGitHubReader bounds requests, rejects redirects, stalls, deadlines, and oversized bodies', { timeout: 2_000 }, async () => {
+  const token = 'synthetic-gh-token-for-tests';
+  const redirectHits = [];
+  const targetServer = createServer((_req, res) => {
+    redirectHits.push(_req.url);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"shouldNotReach":true}');
+  });
+  let targetUrl;
+  const serverHits = [];
+  const server = createServer((req, res) => {
+    serverHits.push({ url: req.url, headers: req.headers });
+    if (req.url === '/repos/0xMiden/wallet/ok') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":true}');
+      return;
+    }
+    if (req.url === '/repos/0xMiden/wallet/redirect') {
+      res.writeHead(302, { Location: `${targetUrl}/landed` });
+      res.end();
+      return;
+    }
+    if (req.url === '/repos/0xMiden/wallet/hang-headers') {
+      return;
+    }
+    if (req.url === '/repos/0xMiden/wallet/stall-body') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"partial":');
+      return;
+    }
+    if (req.url === '/repos/0xMiden/wallet/oversized-length') {
+      const payload = JSON.stringify({ data: 'x'.repeat(128) });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)) });
+      res.end(payload);
+      return;
+    }
+    if (req.url === '/repos/0xMiden/wallet/oversized-chunked') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.write('{"data":"');
+      res.write('x'.repeat(80));
+      res.end('"}');
+      return;
+    }
+    res.writeHead(404);
+    res.end('{}');
+  });
+
+  await new Promise(resolve => targetServer.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    targetUrl = `http://127.0.0.1:${targetServer.address().port}`;
+    const apiUrl = `http://127.0.0.1:${server.address().port}`;
+    const reader = recoveryRunner.createGitHubReader({ token, apiUrl, requestTimeoutMs: 50, maxBytes: 64 });
+    assert.deepEqual(await reader('/ok'), { ok: true });
+    assert.equal(serverHits[0].headers.accept, 'application/vnd.github+json');
+    assert.equal(serverHits[0].headers.authorization, `Bearer ${token}`);
+    assert.equal(serverHits[0].headers['x-github-api-version'], '2022-11-28');
+
+    await assert.rejects(reader('/redirect'), /GitHub recovery metadata unavailable/);
+    assert.equal(redirectHits.length, 0);
+
+    await assert.rejects(reader('/hang-headers'), /GitHub recovery metadata unavailable/);
+    await assert.rejects(reader('/stall-body'), /GitHub recovery metadata unavailable/);
+    await assert.rejects(reader('/oversized-length'), /GitHub recovery metadata unavailable/);
+    await assert.rejects(reader('/oversized-chunked'), /GitHub recovery metadata unavailable/);
+
+    let clock = 1_000;
+    const beforeExpiry = serverHits.length;
+    const deadlineReader = recoveryRunner.createGitHubReader({
+      token,
+      apiUrl,
+      deadlineMs: 5_000,
+      now: () => clock
+    });
+    assert.deepEqual(await deadlineReader('/ok'), { ok: true });
+    assert.equal(serverHits.length, beforeExpiry + 1);
+    clock += 5_000;
+    await assert.rejects(deadlineReader('/ok'), /GitHub recovery metadata unavailable/);
+    assert.equal(serverHits.length, beforeExpiry + 1);
+  } finally {
+    server.closeAllConnections?.();
+    targetServer.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => targetServer.close(resolve));
+  }
+});

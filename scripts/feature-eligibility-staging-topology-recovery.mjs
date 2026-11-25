@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readBoundedBytes } from '../services/feature-eligibility/staging-topology-api.mjs';
 
 const REPOSITORY = '0xMiden/wallet';
 const WORKFLOW = '.github/workflows/feature-eligibility-topology.yml';
@@ -197,12 +198,47 @@ export function formatRecoveryOutputs(receipt) {
   return `artifact_id=${receipt.artifactId}\nresult_artifact_id=${receipt.resultArtifactId ?? ''}\nsource_sha=${receipt.sourceSha}\nrun_id=${receipt.runId}\nrun_attempt=${receipt.runAttempt}\n`;
 }
 
-async function github(pathname, token, apiUrl = 'https://api.github.com') {
-  const response = await fetch(`${apiUrl}/repos/${REPOSITORY}${pathname}`, {
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' }
-  });
-  if (!response.ok) throw new Error('GitHub recovery metadata unavailable');
-  return response.json();
+export function createGitHubReader({
+  token,
+  apiUrl = 'https://api.github.com',
+  fetchImpl = fetch,
+  requestTimeoutMs = 5_000,
+  deadlineMs = 120_000,
+  maxBytes = 8 * 1024 * 1024,
+  now = Date.now
+} = {}) {
+  const startedAt = now();
+  return async pathname => {
+    const remaining = deadlineMs - (now() - startedAt);
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('GitHub recovery metadata unavailable');
+    const controller = new AbortController();
+    let timer;
+    try {
+      const work = (async () => {
+        const response = await fetchImpl(`${apiUrl}/repos/${REPOSITORY}${pathname}`, {
+          headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
+          redirect: 'error',
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('GitHub recovery metadata unavailable');
+        const bytes = await readBoundedBytes(response, { maxBytes, signal: controller.signal });
+        if (bytes === null) throw new Error('GitHub recovery metadata unavailable');
+        return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      })();
+      work.catch(() => {});
+      const timeoutRace = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error('GitHub recovery metadata unavailable'));
+        }, Math.min(requestTimeoutMs, remaining));
+      });
+      return await Promise.race([work, timeoutRace]);
+    } catch {
+      throw new Error('GitHub recovery metadata unavailable');
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 }
 
 async function main() {
@@ -219,9 +255,10 @@ async function main() {
     runAttempt: env.GITHUB_RUN_ATTEMPT,
     sourceSha: env.GITHUB_SHA
   };
+  const reader = createGitHubReader({ token, apiUrl: env.GITHUB_API_URL });
   const receipt = await prepareTopologyRecovery(
     { runId: env.CLEANUP_RUN_ID, runAttempt: env.CLEANUP_ATTEMPT },
-    { context, github: pathname => github(pathname, token, env.GITHUB_API_URL) }
+    { context, github: reader }
   );
   const root = env.RUNNER_TEMP;
   if (typeof root !== 'string' || !path.isAbsolute(root) || typeof env.GITHUB_OUTPUT !== 'string')
