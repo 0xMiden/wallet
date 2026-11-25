@@ -8,6 +8,7 @@ import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
+import { activityCounterpartyNames } from './activityGroups';
 import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './testing/activity-group-fixtures';
@@ -258,7 +259,8 @@ describe('ActivityGroupList', () => {
     const originalDecode = decode.getMockImplementation();
     if (!originalDecode) throw new Error('The Jest SDK address decoder is unavailable');
     const firstCall = decode.mock.calls.length;
-    const props = { nameOf: () => undefined, initialLoading: false, loadMore: jest.fn() };
+    const nameOf = activityCounterpartyNames([{ address: counterparties[0]!.accountId, name: 'Saved alias' }]);
+    const props = { nameOf, initialLoading: false, loadMore: jest.fn() };
 
     _resetCanonicalWalletAccountIdsForTest();
     decode.mockImplementation(address => {
@@ -277,7 +279,9 @@ describe('ActivityGroupList', () => {
       rerender(<ActivityGroupList {...props} entries={[...firstPage, ...nextPage]} hasMore={false} />);
 
       expect(rows()).toHaveLength(counterparties.length);
-      expect(rows().find(row => row.dataset.groupId === existingAddress)).toHaveAttribute('data-group-count', '2');
+      const existingGroup = rows().find(row => row.dataset.groupId === existingAddress);
+      expect(existingGroup).toHaveAttribute('data-group-count', '2');
+      expect(existingGroup).toHaveTextContent('Saved alias');
       expect(rows().find(row => row.dataset.groupId === newAddress)).toHaveAttribute('data-group-count', '1');
       expect(decode.mock.calls.length - firstAppendCall).toBe(1);
       expect(decode).toHaveBeenLastCalledWith(newAddress);
