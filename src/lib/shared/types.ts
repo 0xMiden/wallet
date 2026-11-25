@@ -1,4 +1,5 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type { RelayDepositStatus, RelayDepositTarget } from 'lib/evm-relay/deposit';
 import type {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
@@ -91,6 +92,8 @@ export enum WalletMessageType {
   SignEvmResponse = 'SIGN_EVM_RESPONSE',
   SignRelayRequest = 'SIGN_RELAY_REQUEST',
   SignRelayResponse = 'SIGN_RELAY_RESPONSE',
+  RelayDepositTickRequest = 'RELAY_DEPOSIT_TICK_REQUEST',
+  RelayDepositTickResponse = 'RELAY_DEPOSIT_TICK_RESPONSE',
   PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
@@ -1078,6 +1081,18 @@ export interface SignRelayResponse extends WalletMessageBase {
   result: RelaySignResult;
 }
 
+/** One step of an account's deposit-address bridge-in (`lib/evm-relay/deposit.ts`). */
+export interface RelayDepositTickRequest extends WalletMessageBase {
+  type: WalletMessageType.RelayDepositTickRequest;
+  accountPublicKey: string;
+  target: RelayDepositTarget;
+}
+
+export interface RelayDepositTickResponse extends WalletMessageBase {
+  type: WalletMessageType.RelayDepositTickResponse;
+  status: RelayDepositStatus;
+}
+
 export interface PersistNewHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.PersistNewHotKeyRequest;
   newHotPubKey: string;
@@ -1502,6 +1517,7 @@ export type WalletRequest =
   | SignWordRequest
   | SignEvmRequest
   | SignRelayRequest
+  | RelayDepositTickRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | ImportHotKeyPairRequest
@@ -1584,6 +1600,7 @@ export type WalletResponse =
   | SignWordResponse
   | SignEvmResponse
   | SignRelayResponse
+  | RelayDepositTickResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | ImportHotKeyPairResponse

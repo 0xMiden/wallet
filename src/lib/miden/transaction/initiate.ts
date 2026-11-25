@@ -50,6 +50,7 @@ import {
   EarnWithdrawTransaction,
   IAgglayerDelivery,
   IApprovedCustomEffects,
+  IBridgedReceiveRelay,
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
@@ -1395,6 +1396,10 @@ export const initiateBridgedReceiveTransaction = async (args: {
   outputAmount?: string;
   outputSymbol?: string;
   operation?: BridgeOperationInput;
+  /** A source transaction that is known when the row is written, so the row is never without its hash. */
+  evmTxHash?: string;
+  /** A deposit-address bridge-in: its relay job. */
+  relay?: IBridgedReceiveRelay;
 }): Promise<string> => {
   const walletScope = args.operation ? captureBridgeWalletScope() : undefined;
   const dbTransaction = new BridgedReceiveTransaction(
@@ -1409,6 +1414,8 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputSymbol
   );
   dbTransaction.extraInputs.sourceChainId = args.sourceChainId;
+  if (args.evmTxHash !== undefined) dbTransaction.extraInputs.evmTxHash = args.evmTxHash;
+  if (args.relay !== undefined) dbTransaction.extraInputs.relay = args.relay;
   if (args.provider === 'agglayer') {
     if (!args.agglayerRoute) throw new Error('AggLayer recovery values are required');
     dbTransaction.extraInputs.agglayerRoute = args.agglayerRoute;

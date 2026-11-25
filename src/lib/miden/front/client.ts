@@ -3,6 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import constate from 'constate';
 
+import type { RelayDepositTarget } from 'lib/evm-relay/deposit';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
@@ -79,6 +80,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeSignRelay = useWalletStore(s => s.signRelay);
+  const storeRelayDepositTick = useWalletStore(s => s.relayDepositTick);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
@@ -282,6 +284,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeSignRelay]
   );
 
+  const relayDepositTick = useCallback(
+    async (accountPublicKey: string, target: RelayDepositTarget) => {
+      return storeRelayDepositTick(accountPublicKey, target);
+    },
+    [storeRelayDepositTick]
+  );
+
   const getAuthSecretKey = useCallback(
     async (key: string) => {
       return storeGetAuthSecretKey(key);
@@ -451,6 +460,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     signTransaction,
     signEvm,
     signRelay,
+    relayDepositTick,
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,

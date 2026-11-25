@@ -5,6 +5,7 @@
  * store wrapper then dereferences (the exact drift this module exists to end).
  */
 
+import type { RelayDepositStatus, RelayDepositTarget } from 'lib/evm-relay/deposit';
 import {
   type BackupDeleteProfileRequest,
   type BackupRefreshOutcome,
@@ -20,6 +21,7 @@ import {
 import { processInProcessRequest } from './in-process-request-handler';
 
 const RELAY_RESULT: RelaySignResult = { op: 'batch', digest: `0x${'11'.repeat(32)}`, signature: '0x22' };
+const TICK_STATUS: RelayDepositStatus = { kind: 'bridging', rowId: 'row-1' };
 
 const mockRefreshBackup = jest.fn(async (_reason: BackupRefreshReason): Promise<BackupRefreshOutcome> => 'updated');
 const mockDeleteBackup = jest.fn(async (): Promise<BackupRefreshOutcome> => 'unchanged');
@@ -36,9 +38,14 @@ const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
 }));
 const mockSignEvm = jest.fn(async (..._args: unknown[]) => '0xsigned');
 const mockSignRelay = jest.fn(async (_accountPublicKey: string, _request: RelaySignRequest) => RELAY_RESULT);
+const mockRelayDepositTick = jest.fn(
+  async (_accountPublicKey: string, _target: RelayDepositTarget): Promise<RelayDepositStatus> => TICK_STATUS
+);
 jest.mock('lib/miden/back/actions', () => ({
   signEvm: (...args: unknown[]) => mockSignEvm(...args),
   signRelay: (accountPublicKey: string, request: RelaySignRequest) => mockSignRelay(accountPublicKey, request),
+  relayDepositTick: (accountPublicKey: string, target: RelayDepositTarget) =>
+    mockRelayDepositTick(accountPublicKey, target),
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
@@ -83,6 +90,17 @@ describe('processInProcessRequest', () => {
 
     expect(res).toEqual({ type: WalletMessageType.SignRelayResponse, result: RELAY_RESULT });
     expect(mockSignRelay).toHaveBeenCalledWith('pk1', request);
+  });
+
+  it('RelayDepositTickRequest runs one deposit tick and returns its status', async () => {
+    const target: RelayDepositTarget = { provider: 'agglayer', chainId: 8453, token: `0x${'00'.repeat(20)}` };
+    const res = await processInProcessRequest(
+      { type: WalletMessageType.RelayDepositTickRequest, accountPublicKey: 'pk1', target },
+      'test-adapter'
+    );
+
+    expect(res).toEqual({ type: WalletMessageType.RelayDepositTickResponse, status: TICK_STATUS });
+    expect(mockRelayDepositTick).toHaveBeenCalledWith('pk1', target);
   });
 
   it('SignEvmRequest never passes a key role on, so the relay key cannot sign a generic payload', async () => {

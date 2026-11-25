@@ -427,8 +427,27 @@ export interface IAgglayerDelivery {
   scale?: number;
 }
 
+/**
+ * The relay job of a deposit-address bridge-in (`lib/evm-relay/deposit.ts`). The relay service submitted the EVM
+ * transaction for the account's relay address and paid its gas. `jobId` is the EIP-712 digest of the signed batch.
+ * The deposit engine writes this record; the Agglayer tracking reads only the row's own fields.
+ */
+export interface IBridgedReceiveRelay {
+  jobId: string;
+  chainId: number;
+  kind: 'agglayer-deposit';
+  /** The deposited token, lowercase. The zero address is the native coin. */
+  token: string;
+  /** `expired`: the service no longer knows the job, so the Agglayer tracking follows `txHash` alone. */
+  state: 'pending' | 'succeeded' | 'reverted' | 'expired';
+  /** The last transaction hash that the service reported. It is final once `state` is `succeeded` or `reverted`. */
+  txHash: string;
+}
+
 export interface IBridgedReceiveExtraInputs {
   bridgeOperation?: BridgeOperationSnapshot;
+  /** A deposit-address bridge-in: its relay job. Absent on every other row. */
+  relay?: IBridgedReceiveRelay;
   agglayerRoute?: AgglayerRecoveryConfig;
   /** agglayer: the deposited ERC-20's delivery; absent on a native-ETH deposit, whose route names its faucet. */
   agglayerDelivery?: IAgglayerDelivery;

@@ -225,6 +225,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.RelayDepositTickRequest: {
+      const relayDepositStatus = await Actions.relayDepositTick(req.accountPublicKey, req.target);
+      return {
+        type: WalletMessageType.RelayDepositTickResponse,
+        status: relayDepositStatus
+      };
+    }
+
     case WalletMessageType.PersistNewHotKeyRequest: {
       await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
       return {
