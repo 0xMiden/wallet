@@ -28,7 +28,13 @@ import {
   SWAP_RECOVERY_WALLET_SHORTFALL_MICROS,
   type MainnetSwapCheckpoint
 } from './mainnet-swap-checkpoint';
-import { realizedSwapLoss, SWAP_LOSS_CAP, SWAP_TX_FEE_MULTIPLE } from './mainnet-swap-plan';
+import {
+  realizedSwapLoss,
+  SWAP_LOSS_CAP,
+  SWAP_TX_FEE_MULTIPLE,
+  swapValue,
+  type SwapHolding
+} from './mainnet-swap-plan';
 import { isRecord } from '../../../src/lib/update/guards';
 
 export interface MainnetSwapPaybackScope extends TestMainnetSwapScope {
@@ -88,6 +94,12 @@ export interface MainnetSwapBalances {
   offer: bigint;
   request: bigint;
   native: bigint;
+}
+
+// The wallet UI refuses to offer under 1 USD at the live price; refuse here, before a one-shot grant is spent on it.
+export function assertRecoveryOfferMeetsWalletMinimum(offered: SwapHolding, amount: bigint): void {
+  if (swapValue(offered, amount, false) < 1_000_000n)
+    throw new Error('Recovery return offered amount is below the wallet minimum at the live price');
 }
 
 export function authorizeMainnetSwapRecoveryReturn(
