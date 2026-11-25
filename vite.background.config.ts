@@ -330,6 +330,8 @@ export default defineConfig({
     'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     // Loopback-only development override of the encrypted-backup base URL; see vite.extension.config.ts.
     'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
+    // Loopback-only development override of the deposit relay base URL; see vite.extension.config.ts.
+    'process.env.MIDEN_EVM_RELAY_URL': JSON.stringify(process.env.MIDEN_EVM_RELAY_URL ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
     'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(

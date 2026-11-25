@@ -265,6 +265,10 @@ const sharedDefine = {
   // http://localhost or http://127.0.0.1 URL of a local Worker goes before the wallet-config document's
   // backup.baseUrl; any other value is ignored. Empty by default, so every other build reads the document.
   'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
+  // Loopback-only development override of the deposit relay base URL (lib/evm-relay/base-url.ts): an
+  // http://localhost or http://127.0.0.1 URL of a local Worker goes before the wallet-config document's
+  // relay.baseUrl; any other value is ignored. Empty by default, so every other build reads the document.
+  'process.env.MIDEN_EVM_RELAY_URL': JSON.stringify(process.env.MIDEN_EVM_RELAY_URL ?? ''),
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
   // exercising the real side panel / endpoint-override paths. Default 'false'
