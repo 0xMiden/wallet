@@ -85,6 +85,7 @@ export async function prepareTopologyRecovery(input, effects) {
   let historyCount = 0;
   let previousRunNumber = Number.MAX_SAFE_INTEGER;
   let parentFound = false;
+  let currentRunSeen = false;
   for (let page = 1; ; page++) {
     requireValue(page <= MAX_HISTORY_RUNS / 100);
     const listing = await effects.github(
@@ -116,7 +117,11 @@ export async function prepareTopologyRecovery(input, effects) {
         parentFound = true;
         break;
       }
-      if (candidate.id === Number(effects.context.runId)) continue;
+      if (candidate.id === Number(effects.context.runId)) {
+        currentRunSeen = true;
+        continue;
+      }
+      if (!currentRunSeen && candidate.status === 'queued') continue;
       requireValue(typeof candidate.name === 'string');
       const skippedNonMain =
         candidate.status === 'completed' &&
@@ -142,7 +147,7 @@ export async function prepareTopologyRecovery(input, effects) {
     if (historyCount === historyTotal) break;
     requireValue(listing.workflow_runs.length === 100);
   }
-  requireValue(parentFound);
+  requireValue(parentFound && currentRunSeen);
   const artifacts = await listArtifacts(input.runId);
   requireValue(new Set(artifacts.map(value => value.id)).size === artifacts.length);
   const validateArtifact = artifact => {
