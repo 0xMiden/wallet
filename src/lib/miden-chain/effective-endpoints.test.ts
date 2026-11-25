@@ -727,3 +727,19 @@ describe('developer network choice marker', () => {
     expect(writes).toBe(1);
   });
 });
+
+describe('network marker on the root element', () => {
+  it('follows the effective network so the stylesheet can recolor testnet', async () => {
+    const m = loadModule();
+    await m.applyEndpointOverride(m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+    expect(document.documentElement.dataset.network).toBe('mainnet');
+    await m.clearEndpointOverride();
+    expect(document.documentElement.dataset.network).toBe(DEFAULT_NETWORK);
+  });
+
+  it('marks the default network as soon as the module loads', () => {
+    document.documentElement.removeAttribute('data-network');
+    loadModule();
+    expect(document.documentElement.dataset.network).toBe(DEFAULT_NETWORK);
+  });
+});

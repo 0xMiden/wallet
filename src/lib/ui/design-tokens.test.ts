@@ -13,7 +13,7 @@ const tabLayout = fs.readFileSync(path.join(__dirname, '../../app/layouts/TabLay
 const swapIconClass = tabLayout.match(/IconName\.Convert} className="([^"]+)"/)?.[1];
 
 /** The custom properties declared in one top-level block of `@layer base`. */
-function themeVars(selector: ':root' | '.dark'): Record<string, string> {
+function themeVars(selector: string): Record<string, string> {
   const layer = css.slice(css.indexOf('@layer base {'));
   const start = layer.indexOf(`  ${selector} {`);
   const end = layer.indexOf('\n  }', start);
@@ -517,4 +517,32 @@ describe.each([':root', '.dark'] as const)('summary badge arrow in %s', selector
       expect(contrast(color(arrowInkFor(fill)), color(fill))).toBeGreaterThanOrEqual(3);
     }
   );
+});
+
+// On testnet the primary accent is blue, so the network reads at a glance (#1874). The overrides sit on
+// the root element beside `.dark`, so each theme carries its own pair.
+describe.each([':root', '.dark'] as const)('testnet accent in %s', selector => {
+  const testnet = themeVars(`${selector}[data-network='testnet']`);
+  const need = (name: string) => {
+    const value = testnet[name];
+    if (!value) throw new Error(`--${name} not overridden for testnet in ${selector}`);
+    return value;
+  };
+
+  it('turns the primary accent blue', () => {
+    for (const name of ['accent-primary', 'accent-primary-hover', 'ds-accent-tint', 'ds-accent-tint-ink']) {
+      const h = hue(need(name));
+      expect(h).toBeGreaterThanOrEqual(200);
+      expect(h).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('keeps white CTA labels at 3:1 on the blue and its hover', () => {
+    expect(contrast('#FFFFFF', need('accent-primary'))).toBeGreaterThanOrEqual(3);
+    expect(contrast('#FFFFFF', need('accent-primary-hover'))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps the banner ink at 4.5:1 on its tint', () => {
+    expect(contrast(need('ds-accent-tint-ink'), need('ds-accent-tint'))).toBeGreaterThanOrEqual(4.5);
+  });
 });
