@@ -555,3 +555,46 @@ describe('testnet accent reaches the dApp load retry button', () => {
     expect(retry).not.toMatch(/orange/);
   });
 });
+
+describe('testnet recolors the Tailwind primary ramp', () => {
+  const rampNames = [
+    'primary-50',
+    'primary-500',
+    'primary-600',
+    'primary-disabled',
+    'primary-orange',
+    'primary-orange-light',
+    'primary-orange-dark',
+    'primary-orange-lighter',
+    'primary-orange-darker'
+  ];
+
+  it('turns every ramp variable blue on the light root', () => {
+    const testnet = themeVars(":root[data-network='testnet']");
+    for (const name of rampNames) {
+      expect(testnet[name]).toBeDefined();
+      const h = hue(testnet[name]!);
+      expect(h).toBeGreaterThanOrEqual(200);
+      expect(h).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('turns the dark disabled fill blue', () => {
+    const h = hue(themeVars(".dark[data-network='testnet']")['primary-disabled-dark']!);
+    expect(h).toBeGreaterThanOrEqual(200);
+    expect(h).toBeLessThanOrEqual(240);
+  });
+
+  it('keeps the orange default and reads the ramp from those variables outside devnet', () => {
+    expect(themeVars(':root')['primary-500']).toBe('#e77537');
+    for (const [key, name] of [
+      ['50', 'primary-50'],
+      ['500', 'primary-500'],
+      ['600', 'primary-600']
+    ]) {
+      expect(config).toContain(`${key}: brand('`);
+      expect(config).toMatch(new RegExp(`${key}: brand\\('#[0-9A-Fa-f]+', '${name}'\\)`));
+    }
+    expect(config).toContain("'primary-disabled-dark')");
+  });
+});
