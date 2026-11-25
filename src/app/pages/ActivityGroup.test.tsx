@@ -117,7 +117,7 @@ jest.mock('app/templates/history/activityGroups', () => {
   };
 });
 
-// The page's whole job is to hand `History` a predicate; the list itself has its own suite.
+// The page hands History the group's batch filter; History has its own suite.
 let historyProps: Record<string, unknown> = {};
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
@@ -138,10 +138,8 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
 });
 
 const filterGroupEntries = (entries: IHistoryEntry[]) => {
-  const filterEntries = historyProps.filterEntries as ((loaded: IHistoryEntry[]) => IHistoryEntry[]) | undefined;
-  return filterEntries
-    ? filterEntries(entries)
-    : entries.filter(historyProps.predicate as (entry: IHistoryEntry) => boolean);
+  const filterEntries = historyProps.filterEntries as (loaded: readonly IHistoryEntry[]) => IHistoryEntry[];
+  return filterEntries(entries);
 };
 const predicate = () => (historyEntry: IHistoryEntry) => filterGroupEntries([historyEntry]).length === 1;
 
@@ -197,14 +195,18 @@ describe('ActivityGroupPage', () => {
       expect(counterpartyDecodes()).toHaveLength(1);
 
       clearDecodes();
-      const page = render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_BECH32} />);
+      mockClaims.items = [{ note: claimNote('first-note', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      const page = render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
       expect(predicate()(firstEntry)).toBe(true);
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
       expect(counterpartyDecodes()).toHaveLength(1);
 
       clearDecodes();
       list.rerender(<ActivityGroupList {...props} entries={[firstEntry]} />);
-      page.rerender(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_BECH32} />);
+      mockClaims.items = [{ note: claimNote('second-note', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      page.rerender(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
       expect(predicate()(firstEntry)).toBe(true);
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
       expect(counterpartyDecodes()).toHaveLength(0);
     } finally {
       restoreDecoder();

@@ -68,6 +68,7 @@ jest.mock('./ActivityGroupList', () => ({
     nameOf: (address: string) => string | undefined;
     hasMore: boolean;
     searchQuery?: string;
+    accountAddress?: string;
   }) => {
     if (mockRealGroupList) {
       const Real = jest.requireActual('./ActivityGroupList').ActivityGroupList;
@@ -82,6 +83,7 @@ const MockGroupList = (props: {
   nameOf: (address: string) => string | undefined;
   hasMore: boolean;
   searchQuery?: string;
+  accountAddress?: string;
 }) => (
   <div
     data-testid="group-list"
@@ -89,6 +91,7 @@ const MockGroupList = (props: {
     data-has-more={String(props.hasMore)}
     data-keys={props.entries.map(e => e.key).join(',')}
     data-search={props.searchQuery ?? ''}
+    data-account-address={props.accountAddress}
     data-alice={props.nameOf('MTST1ALICE') ?? ''}
     data-stranger={props.nameOf('mtst1stranger') ?? ''}
     data-blank={String(props.nameOf('mtst1blank'))}
@@ -237,12 +240,13 @@ jest.mock('react-i18next', () => ({
     }
   })
 }));
+let mockAccountAddress = '0xme';
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockClaims.items,
     accept: mockAccept,
     acceptMany: jest.fn(),
-    account: { publicKey: '0xme' },
+    account: { publicKey: mockAccountAddress },
     isLoadingNotes: mockClaims.isLoadingNotes
   })
 }));
@@ -317,6 +321,7 @@ describe('ActivityGroupedHistory', () => {
     for (const key of Object.keys(mockReads)) delete mockReads[key];
     mockClaims.items = [];
     mockClaims.isLoadingNotes = false;
+    mockAccountAddress = '0xme';
     mockHidden.ids = new Set();
     mockHidden.loaded = true;
     mockConfirm.mockResolvedValue(true);
@@ -337,6 +342,16 @@ describe('ActivityGroupedHistory', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
     await waitFor(() => expect(mockHide).toHaveBeenCalledWith('note-1'));
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'activityRejectTransfer' }));
+  });
+
+  it('forwards the changed wallet account to the mounted Groups list', () => {
+    const props = { onReturnToList: jest.fn(), search: '' };
+    const { rerender } = render(<ActivityGroupedHistory {...props} />);
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-account-address', '0xme');
+
+    mockAccountAddress = '0xother';
+    rerender(<ActivityGroupedHistory {...props} />);
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-account-address', '0xother');
   });
 
   it('shows waiting transfers for their counterparty without counting a hidden or in-flight claim', () => {

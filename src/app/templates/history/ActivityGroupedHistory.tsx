@@ -76,6 +76,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
                   claims={representedItems}
                   hiddenLoaded={hidden.loaded}
                   nameOf={nameOf}
+                  accountAddress={account.publicKey}
                   initialLoading={view.initialLoading}
                   loadError={view.loadError}
                   onRetry={view.onRetry}

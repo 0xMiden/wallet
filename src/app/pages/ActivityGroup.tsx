@@ -10,10 +10,12 @@ import {
   activityClaimMatcher,
   activityCounterpartyNames,
   activityGroupMatcher,
-  isActivityGroupKind
+  isActivityGroupKind,
+  retainActivityKeyMemory
 } from 'app/templates/history/activityGroups';
 import History from 'app/templates/history/History';
 import { shortAddr } from 'app/templates/history/HistoryView';
+import type { IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
@@ -33,7 +35,7 @@ export interface ActivityGroupPageProps {
 /**
  * One activity group's own page: the Activity feed, narrowed to that group.
  *
- * It is the SAME list the tab renders, handed a predicate — so paging, the rows still in flight,
+ * It is the same list the tab renders, narrowed by group, so paging, the rows still in flight,
  * the date separators and every row's rendering and detail link come with it, and the page can
  * never describe a transaction differently from the feed it was opened from.
  */
@@ -45,28 +47,55 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const address = kind === 'address' ? id?.trim() : undefined;
-  const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
+  const storedKeys = useRef<{
+    account: string;
+    route?: string;
+    keys: Map<string, string>;
+  }>();
+  if (storedKeys.current?.account !== account.publicKey || storedKeys.current.route !== address) {
+    storedKeys.current = { account: account.publicKey, route: address, keys: new Map() };
+  }
+  const activityKeys = storedKeys.current.keys;
+  const nameOf = useMemo(
+    () => activityCounterpartyNames(activityContacts, activityKeys),
+    [activityContacts, activityKeys]
+  );
   const contactName = address && nameOf(address);
 
-  const predicate = useMemo(() => (isActivityGroupKind(kind) ? activityGroupMatcher(kind, id) : undefined), [kind, id]);
   // Claims are drawn as the Activity views draw them: every represented claim keeps its consume row out, and
   // this group's own are drawn as cards, so a claim reads once here, in the groups and in the list.
   const { representedItems, renderPendingItem, hidden, declinedItems } = useActivityClaimList('', 'all');
   const claimMatcher = useMemo(
-    () => (isActivityGroupKind(kind) ? activityClaimMatcher(kind, id) : undefined),
-    [kind, id]
+    () => (isActivityGroupKind(kind) ? activityClaimMatcher(kind, id, activityKeys) : undefined),
+    [kind, id, activityKeys]
   );
   const drawnPendingItems = useMemo(
     () => (claimMatcher ? representedItems.filter(item => claimMatcher(item.note)) : []),
     [representedItems, claimMatcher]
   );
-  const groupDeclinedIds = claimMatcher
-    ? declinedItems.filter(item => claimMatcher(item.note)).map(item => item.note.id)
-    : [];
+  const groupDeclinedItems = useMemo(
+    () => (claimMatcher ? declinedItems.filter(item => claimMatcher(item.note)) : []),
+    [declinedItems, claimMatcher]
+  );
+  const groupDeclinedIds = groupDeclinedItems.map(item => item.note.id);
+
+  const filterEntries = useMemo(() => {
+    if (!isActivityGroupKind(kind)) return undefined;
+    const claimSenders = [...drawnPendingItems, ...groupDeclinedItems].map(item => item.note.senderAddress);
+    return (entries: readonly IHistoryEntry[]) => {
+      const matched = entries.filter(activityGroupMatcher(kind, id, activityKeys));
+      const addresses = address ? [address, ...claimSenders] : [...claimSenders];
+      for (const entry of matched) {
+        if (entry.secondaryAddress) addresses.push(entry.secondaryAddress);
+      }
+      retainActivityKeyMemory(activityKeys, addresses);
+      return matched;
+    };
+  }, [kind, id, address, activityKeys, drawnPendingItems, groupDeclinedItems]);
 
   // An unknown kind, or an address group with no address: nothing to narrow by, so there is no
   // page to show. Back to the tab rather than an empty list that looks like "no activity".
-  if (!isActivityGroupKind(kind) || !predicate) return <Redirect to={ACTIVITY_PATH} />;
+  if (!isActivityGroupKind(kind) || !filterEntries) return <Redirect to={ACTIVITY_PATH} />;
   if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
 
   // The title wears the same mark as the row that opened it: a contact's avatar, or the
@@ -88,7 +117,7 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
         fullHistory
         centerEmptyState
         scrollParentRef={bodyRef}
-        predicate={predicate}
+        filterEntries={filterEntries}
         pendingItems={representedItems}
         drawnPendingItems={drawnPendingItems}
         renderPendingItem={renderPendingItem}

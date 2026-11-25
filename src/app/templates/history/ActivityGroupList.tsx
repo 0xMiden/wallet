@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo } from 'react';
+import React, { memo, RefObject, useMemo, useRef } from 'react';
 
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useTranslation } from 'react-i18next';
@@ -101,6 +101,8 @@ export interface ActivityGroupListProps {
   loadMore: (page: number) => Promise<void>;
   scrollParentRef?: RefObject<HTMLDivElement>;
   searchQuery?: string;
+  /** Drops this list's activity-key memory when the wallet account changes. */
+  accountAddress?: string;
 }
 
 /**
@@ -141,16 +143,24 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
     hasMore,
     loadMore,
     scrollParentRef,
-    searchQuery
+    searchQuery,
+    accountAddress
   }) => {
     const { t } = useTranslation();
     const readState = useActivityReadState();
     const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const query = searchQuery?.trim().toLowerCase() ?? '';
+    // Created with the list and replaced only when the account changes, so a new page of entries
+    // keeps the keys already resolved for this account.
+    const storedKeys = useRef<{ account: string | undefined; keys: Map<string, string> } | undefined>(undefined);
+    if (storedKeys.current === undefined || storedKeys.current.account !== accountAddress) {
+      storedKeys.current = { account: accountAddress, keys: new Map() };
+    }
+    const activityKeys = storedKeys.current.keys;
     const groups = useMemo(() => {
-      const all = groupActivityEntries(entries, nameOf, claims);
+      const all = groupActivityEntries(entries, nameOf, claims, activityKeys);
       return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig)) : all;
-    }, [entries, claims, nameOf, query, t, bridgeConfig]);
+    }, [entries, claims, nameOf, query, t, bridgeConfig, activityKeys]);
 
     if (groups.length === 0) {
       // As in the List view, a failed read outranks one still loading and never reads as "no activity".

@@ -112,21 +112,52 @@ export interface ActivityGroup extends ActivityGroupKey {
 }
 
 /** Resolves a counterparty address to a contact's or an own account's name, or `undefined`. */
-export type ActivityCounterpartyName = (address: string) => string | undefined;
+export type ActivityCounterpartyName = (address: string, knownKey?: string) => string | undefined;
+
+/**
+ * Counterparty text (trimmed, lowercased) to its activity key, for one mounted wallet account.
+ * The list and the group page each keep their own map. Nothing here retains one across mounts.
+ */
+export type ActivityKeyMemory = Map<string, string>;
 
 const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/i;
 
-function activityCounterpartyKey(address: string): string {
-  const fallback = address.trim().toLowerCase();
+function activityCounterpartyText(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+function activityCounterpartyKey(address: string, activityKeys?: ActivityKeyMemory, seen?: Set<string>): string {
+  const fallback = activityCounterpartyText(address);
+  seen?.add(fallback);
   const suffix = fallback.indexOf('_');
-  if (fallback.startsWith('0x') && (suffix < 0 || !MIDEN_ACCOUNT_HEX.test(fallback.slice(0, suffix)))) return fallback;
+  if (fallback.startsWith('0x') && (suffix < 0 || !MIDEN_ACCOUNT_HEX.test(fallback.slice(0, suffix)))) {
+    return fallback;
+  }
+  const remembered = activityKeys?.get(fallback);
+  if (remembered !== undefined) return remembered;
   const canonical = canonicalWalletAccountId(fallback);
   // The SDK helper can fall back to a tag-stripped string when parsing fails.
-  return MIDEN_ACCOUNT_HEX.test(canonical) ? canonical.toLowerCase() : fallback;
+  if (!MIDEN_ACCOUNT_HEX.test(canonical)) return fallback;
+  const key = canonical.toLowerCase();
+  activityKeys?.set(fallback, key);
+  return key;
+}
+
+/** Drops remembered texts this pass did not keep. A non-hex parse fallback is never stored. */
+export function retainActivityKeyMemory(activityKeys: ActivityKeyMemory, texts: Iterable<string>): void {
+  const keep = new Set<string>();
+  for (const text of texts) {
+    const normalized = activityCounterpartyText(text);
+    if (normalized) keep.add(normalized);
+  }
+  for (const text of activityKeys.keys()) {
+    if (!keep.has(text)) activityKeys.delete(text);
+  }
 }
 
 export function activityCounterpartyNames(
-  contacts: readonly { address: string; name: string }[]
+  contacts: readonly { address: string; name: string }[],
+  activityKeys?: ActivityKeyMemory
 ): ActivityCounterpartyName {
   const names = new Map<string, string>();
   for (const contact of contacts) {
@@ -135,7 +166,7 @@ export function activityCounterpartyNames(
     const key = activityCounterpartyKey(contact.address);
     if (!names.has(key)) names.set(key, name);
   }
-  return address => names.get(activityCounterpartyKey(address));
+  return (address, knownKey) => names.get(knownKey ?? activityCounterpartyKey(address, activityKeys));
 }
 
 /** An entry the wallet has queued or is generating: the rows the pending badge counts. */
@@ -168,25 +199,27 @@ function activityAddressGroupKey(counterparty?: string): ActivityGroupKey {
   return { kind: 'other', id: 'other' };
 }
 
-function addressBucket(key: ActivityGroupKey): string {
-  return key.kind === 'address' ? `address:${activityCounterpartyKey(key.id)}` : key.kind;
-}
-
 /**
  * Groups the loaded history entries, newest group first.
  *
  * `nameOf` is consulted once per group, not once per entry: it is the address book plus the
  * user's own accounts, and a group either matches one or shows its truncated address.
+ *
+ * `activityKeys`, when the mounted list supplies it, remembers the counterparties of this pass
+ * and drops the rest. Callers that omit it resolve the keys on each pass.
  */
 export function groupActivityEntries(
   entries: readonly IHistoryEntry[],
   nameOf: ActivityCounterpartyName = () => undefined,
-  claims: readonly PendingActivityItem[] = []
+  claims: readonly PendingActivityItem[] = [],
+  activityKeys?: ActivityKeyMemory
 ): ActivityGroup[] {
   const groups = new Map<string, ActivityGroup>();
+  const seen = activityKeys ? new Set<string>() : undefined;
 
   const getGroup = (key: ActivityGroupKey): ActivityGroup => {
-    const bucket = addressBucket(key);
+    const addressKey = key.kind === 'address' ? activityCounterpartyKey(key.id, activityKeys, seen) : undefined;
+    const bucket = addressKey === undefined ? key.kind : `address:${addressKey}`;
     const existing = groups.get(bucket);
     if (existing) {
       if (existing.kind === 'address' && MIDEN_ACCOUNT_HEX.test(existing.id) && !MIDEN_ACCOUNT_HEX.test(key.id)) {
@@ -202,7 +235,7 @@ export function groupActivityEntries(
       pendingCount: 0,
       claims: [],
       latestTimestamp: -Infinity,
-      name: key.kind === 'address' ? nameOf(key.id) : undefined
+      name: addressKey === undefined ? undefined : nameOf(key.id, addressKey)
     };
     groups.set(bucket, group);
     return group;
@@ -233,6 +266,8 @@ export function groupActivityEntries(
     }
   }
 
+  if (activityKeys && seen) retainActivityKeyMemory(activityKeys, seen);
+
   // Newest group first, then by id so a lap that loads no new entry never reshuffles the list.
   return [...groups.values()].sort((a, b) => b.latestTimestamp - a.latestTimestamp || a.id.localeCompare(b.id));
 }
@@ -241,8 +276,12 @@ export function groupActivityEntries(
  * The predicate the group's own page hands to `History`, so that page is the same list as the
  * feed, narrowed — infinite scroll, the in-flight rows and the row rendering all come with it.
  */
-export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (entry: IHistoryEntry) => boolean {
-  const matches = groupKeyMatcher(kind, id);
+export function activityGroupMatcher(
+  kind: ActivityGroupKind,
+  id?: string,
+  activityKeys?: ActivityKeyMemory
+): (entry: IHistoryEntry) => boolean {
+  const matches = groupKeyMatcher(kind, id, activityKeys);
   return entry => matches(activityGroupKeyOf(entry));
 }
 
@@ -254,15 +293,20 @@ export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress:
 /** `activityGroupMatcher` for claim cards, which have no history entry yet. */
 export function activityClaimMatcher(
   kind: ActivityGroupKind,
-  id?: string
+  id?: string,
+  activityKeys?: ActivityKeyMemory
 ): (note: { faucetId: string; senderAddress: string }) => boolean {
-  const matches = groupKeyMatcher(kind, id);
+  const matches = groupKeyMatcher(kind, id, activityKeys);
   return note => matches(activityClaimGroupKeyOf(note));
 }
 
-function groupKeyMatcher(kind: ActivityGroupKind, id?: string): (key: ActivityGroupKey) => boolean {
-  const wanted = kind === 'address' && id !== undefined ? activityCounterpartyKey(id) : undefined;
-  return key => key.kind === kind && (kind !== 'address' || activityCounterpartyKey(key.id) === wanted);
+function groupKeyMatcher(
+  kind: ActivityGroupKind,
+  id: string | undefined,
+  activityKeys?: ActivityKeyMemory
+): (key: ActivityGroupKey) => boolean {
+  const wanted = kind === 'address' && id !== undefined ? activityCounterpartyKey(id, activityKeys) : undefined;
+  return key => key.kind === kind && (kind !== 'address' || activityCounterpartyKey(key.id, activityKeys) === wanted);
 }
 
 /** The route of a group's page. A category group needs no id; an address carries one. */

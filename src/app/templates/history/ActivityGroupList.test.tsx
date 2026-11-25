@@ -15,16 +15,13 @@ import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './
 
 const FAUCET = 'miden-native-faucet';
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) =>
-      key === 'activityGroupPartialCount'
-        ? `${options?.count}+`
-        : key === 'swapProgressPercent'
-          ? `swapProgressPercent_${options?.percentage}`
-          : key
-  })
-}));
+const mockTranslate = (key: string, options?: Record<string, unknown>) =>
+  key === 'activityGroupPartialCount'
+    ? `${options?.count}+`
+    : key === 'swapProgressPercent'
+      ? `swapProgressPercent_${options?.percentage}`
+      : key;
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockTranslate }) }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => FAUCET }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
@@ -183,6 +180,7 @@ describe('ActivityGroupList', () => {
     const decode = jest.mocked(Address.fromBech32);
     const restoreDecoder = mockActivityCounterpartyDecode();
     const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const currentPage = [firstEntry];
     const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
     const list = (entries: IHistoryEntry[], accountAddress = 'first-account') => {
       const accountProps = { ...props, accountAddress };
@@ -203,11 +201,11 @@ describe('ActivityGroupList', () => {
       expect(decode).not.toHaveBeenCalled();
 
       rerender(list([]));
-      rerender(list([firstEntry]));
+      rerender(list(currentPage));
       expect(decode).toHaveBeenCalledTimes(1);
 
       clearDecodes();
-      rerender(list([firstEntry], 'second-account'));
+      rerender(list(currentPage, 'second-account'));
       expect(decode).toHaveBeenCalledTimes(1);
 
       clearDecodes();
