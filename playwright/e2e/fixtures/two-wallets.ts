@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { browserLaunchOptions } from './browser-launch-options';
+import { prepareWalletPair } from './prepare-wallet-pair';
 import { getEnvironmentConfig } from '../config/environments';
 import { testArtifactDirName } from '../harness/artifact-path';
 import { attachConsoleCapture } from '../harness/browser-capture';
@@ -33,6 +34,7 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
+import { NativeFileCaptureSession } from '../harness/native-file-session.mjs';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { reloadUnpackedExtension } from '../harness/reload-unpacked-extension';
 import {
@@ -130,6 +132,7 @@ type ProfileDebugSession = DebugSession & {
 };
 
 type TwoWalletFixtures = {
+  configuredWallets: Partial<Record<'A' | 'B', Awaited<ReturnType<typeof launchWalletInstance>>>>;
   injectFeeFaucet: boolean;
   walletA: GuardianAwareWalletPage;
   walletB: GuardianAwareWalletPage;
@@ -370,7 +373,17 @@ async function launchWalletInstance(
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
   // browser crash so teardown closes the LIVE context and the fault methods
   // target it.
-  let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
+  const capture = process.env.STRESS_NATIVE_FILE_TRACE === '1'
+    ? await NativeFileCaptureSession.prepare(path.join(outputDir, 'browser-latency', label), label)
+    : undefined;
+  const launch = browserLaunchOptions(extensionPath);
+  let context = await chromium.launchPersistentContext(userDataDir, {
+    ...launch,
+    ...(capture ? { args: [...(launch.args ?? []), ...capture.args], env: capture.env } : {})
+  }).catch(async error => {
+    await capture?.finish(false);
+    throw error;
+  });
 
   let serviceWorker: Worker;
   try {
@@ -380,6 +393,7 @@ async function launchWalletInstance(
     }
   } catch (error) {
     await context.close().catch(() => {});
+    await capture?.finish(false);
     throw error;
   }
   const extensionId = new URL(serviceWorker.url()).host;
@@ -536,6 +550,12 @@ async function launchWalletInstance(
     await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded' });
   }
 
+  await capture?.start(page, serviceWorker, false).catch(async error => {
+    await context.close().catch(() => {});
+    await capture.finish(false);
+    throw error;
+  });
+
   // The service worker loads a ~14MB WASM binary on first run. Until it finishes,
   // the frontend's useIntercomSync fetch times out and the app stays on the
   // loading screen. We reload to give the frontend a fresh retry window.
@@ -659,6 +679,7 @@ async function launchWalletInstance(
       message: `Wallet ${label} browser process died mid-test; relaunching from on-disk profile to resume`,
       data: { userDataDir }
     });
+    capture?.interrupt();
     const next = await relaunchContext(userDataDir, extensionPath);
     context = next.context;
     page = next.page;
@@ -708,6 +729,26 @@ async function launchWalletInstance(
     }
   );
 
+  let captureFinalization: Promise<void> | undefined;
+  const finishNativeCapture = (): Promise<void> => {
+    if (!capture) return Promise.resolve();
+    captureFinalization ??= (async () => {
+      let finalized = false;
+      try {
+        const worker = context.serviceWorkers().find(item => new URL(item.url()).host === extensionId);
+        if (worker && !page.isClosed()) {
+          await capture.end(page, worker);
+          finalized = true;
+        }
+      } finally {
+        if (!await capture.finish(finalized)) {
+          throw new Error(`Wallet ${label} native trace is incomplete. See browser-latency/${label}/summary.json.`);
+        }
+      }
+    })();
+    return captureFinalization;
+  };
+
   // context/page via getters: relaunch reassigns them, and teardown
   // (instance.context.close()) must close the LIVE context, not the dead one.
   return {
@@ -718,6 +759,7 @@ async function launchWalletInstance(
     extensionId,
     userDataDir,
     ownsProfile,
+    finishNativeCapture,
     get page() {
       return page;
     }
@@ -942,10 +984,43 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps, failureSnapshots, midenCli, injectFeeFaucet }, use, testInfo) => {
+  configuredWallets: async ({ timeline, steps, midenCli, injectFeeFaucet }, use) => {
+    const profileA = process.env.E2E_WALLET_A_PROFILE;
+    const profileB = process.env.E2E_WALLET_B_PROFILE;
+    if (!profileA || !profileB) {
+      await use({});
+      return;
+    }
+    const canonicalProfile = (profile: string) =>
+      fs.existsSync(profile) ? fs.realpathSync(profile) : path.resolve(profile);
+    if (canonicalProfile(profileA) === canonicalProfile(profileB)) {
+      throw new Error('Wallet A and Wallet B require separate persistent profiles');
+    }
     const extensionPath = getExtensionPath();
     const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
-    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
+    const closeUnused = async (wallet: Awaited<ReturnType<typeof launchWalletInstance>>) => {
+      try {
+        await wallet.finishNativeCapture();
+      } finally {
+        await closeContextQuietly(wallet.context, wallet.walletPage.page);
+      }
+    };
+    const prepared = await prepareWalletPair(
+      label => launchWalletInstance(label, extensionPath, timeline, steps.outputDir, feeFaucetId), closeUnused
+    );
+    const unused: TwoWalletFixtures['configuredWallets'] = prepared;
+    try {
+      await use(unused);
+    } finally {
+      await Promise.all(Object.values(unused).map(closeUnused));
+    }
+  },
+
+  walletA: async ({ configuredWallets, timeline, steps, failureSnapshots, midenCli, injectFeeFaucet }, use, testInfo) => {
+    const extensionPath = getExtensionPath();
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
+    const instance = configuredWallets.A ?? await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
+    delete configuredWallets.A;
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
 
@@ -953,6 +1028,7 @@ export const test = base.extend<TwoWalletFixtures>({
 
     const isAgentic = process.env.E2E_AGENTIC === 'true';
     const failed = testInfo.status !== 'passed';
+    const nativeCaptureError = await instance.finishNativeCapture().then(() => undefined, error => error);
 
     // Snapshot for the failure report while the page is still open; the
     // `failureReport` fixture writes it out after this teardown returns.
@@ -988,12 +1064,14 @@ export const test = base.extend<TwoWalletFixtures>({
         fs.rmSync(instance.userDataDir, { recursive: true, force: true });
       }
     }
+    if (nativeCaptureError && !failed) throw nativeCaptureError;
   },
 
-  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots, injectFeeFaucet }, use, testInfo) => {
+  walletB: async ({ configuredWallets, timeline, steps, walletA, midenCli, failureSnapshots, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
-    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
+    const instance = configuredWallets.B ?? await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
+    delete configuredWallets.B;
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);
 
@@ -1001,6 +1079,7 @@ export const test = base.extend<TwoWalletFixtures>({
 
     const isAgentic = process.env.E2E_AGENTIC === 'true';
     const failed = testInfo.status !== 'passed';
+    const nativeCaptureError = await instance.finishNativeCapture().then(() => undefined, error => error);
 
     // Snapshot for the failure report BEFORE closing the context (so
     // page.evaluate still works); the `failureReport` fixture assembles and
@@ -1050,6 +1129,7 @@ export const test = base.extend<TwoWalletFixtures>({
         fs.rmSync(instance.userDataDir, { recursive: true, force: true });
       }
     }
+    if (nativeCaptureError && !failed) throw nativeCaptureError;
   }
 });
 
