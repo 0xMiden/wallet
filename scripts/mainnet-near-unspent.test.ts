@@ -424,11 +424,17 @@ describe('native NEAR stage failure cause', () => {
       }
     };
     const recoverNear = jest.fn().mockRejectedValue(hostile);
-    await expect(
-      Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', info(), recoverNear])
-    ).rejects.toThrow('Original native NEAR recovery blocked');
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await expect(
+        Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', info(), recoverNear])
+      ).rejects.toThrow('Original native NEAR recovery blocked');
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('[object Object]'));
+    } finally {
+      log.mockRestore();
+    }
   });
-  it('wraps the blocked return error around the rejected transfer so its cause is not lost', () => {
+  it('source guard: wraps the blocked return error around the rejected transfer so its cause is not lost', () => {
     const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
     expect(source).toMatch(/signed journal, never retry',\s*\{\s*cause: error\s*\}\s*\)/);
   });

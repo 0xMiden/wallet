@@ -770,7 +770,7 @@ describe('known quoteless NEAR preflight stop', () => {
     doubled.jobs[0]!.steps.push({ ...doubled.jobs[0]!.steps.at(-1)! });
     expect(knownUnspentNearPreflight(digest, run(), doubled, now)).toBe(false);
   });
-  it('checks the run before the audited-run table in the script entry point', () => {
+  it('source guard: checks the run before the audited-run table in the script entry point', () => {
     const source = readFileSync(resolve(__dirname, 'mainnet-swap-artifacts.mjs'), 'utf8');
     expect(source.indexOf("id === '45334301017'")).toBeGreaterThan(0);
     expect(source.indexOf("id === '45334301017'")).toBeLessThan(source.indexOf('else if (auditRunId)'));

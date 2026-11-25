@@ -199,7 +199,34 @@ describe('sanitizedTail redaction', () => {
       'phrase',
       { E2E_MAINNET_X: 'pass phrase&v=9/xyz' }
     ],
-    ['a stack frame argument', '    at transfer (to=0xabc key=hunter2value)', 'hunter2value', {}]
+    ['a stack frame argument', '    at transfer (to=0xabc key=hunter2value)', 'hunter2value', {}],
+    ['a stack frame argument before trailing text', '    at async send (key=hunter2value) extra', 'hunter2value', {}],
+    [
+      'a pretty-printed key pair',
+      JSON.stringify(JSON.parse(keyPair), null, 2),
+      'sk-ghijkl34mnop',
+      { E2E_MAINNET_GUARDIAN_KEY_PAIR: keyPair }
+    ],
+    ['a comma-joined mnemonic', `x ${words.replace(/ /g, ',')}`, 'absorb', { E2E_MAINNET_MNEMONIC: words }],
+    [
+      'a JSON array mnemonic',
+      `x ${JSON.stringify(words.split(' '))}`,
+      'absorb',
+      { E2E_MAINNET_MNEMONIC: words }
+    ],
+    ['an uppercased mnemonic', `x ${words.toUpperCase()}`, 'ABSORB', { E2E_MAINNET_MNEMONIC: words }],
+    [
+      'a mnemonic split by log prefixes',
+      `x ${words.replace(/ /g, '\n[log] ')}`,
+      'absorb',
+      { E2E_MAINNET_MNEMONIC: words }
+    ],
+    ['a comma-joined unlabeled mnemonic', `x ${words.replace(/ /g, ', ')}`, 'absorb', {}],
+    ['a camelCase secretKey label', '"secretKey": "shortval1"', 'shortval1', {}],
+    ['a privateKey label', 'privateKey=shortval2', 'shortval2', {}],
+    ['a private_key label', 'private_key: shortval3', 'shortval3', {}],
+    ['a password with no colon', 'password hunter2', 'hunter2', {}],
+    ['a session label', 'Cookie: session=shortval4', 'shortval4', {}]
   ])('removes %s', (_name, line, secret, env) => {
     const report = logTailReport([writeLog(`KeptLine\n${line}\n`)], env);
     expect(report).not.toContain(secret);
@@ -208,6 +235,11 @@ describe('sanitizedTail redaction', () => {
   it('keeps ordinary error text and stack frames with a location', () => {
     const text = 'Error: Native NEAR return blocked\n    at send (/app/helper.ts:12:5)\n    at async <anonymous>';
     expect(sanitizedTail(text, [])).toBe(text);
+  });
+  it('stays fast on a long dotted line', () => {
+    const start = Date.now();
+    sanitizedTail('a.'.repeat(32_768), []);
+    expect(Date.now() - start).toBeLessThan(500);
   });
   it('ignores an empty or short env value', () => {
     expect(sanitizedTail('plain text', ['', 'short'])).toBe('plain text');
