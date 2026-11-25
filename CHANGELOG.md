@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
+- [FIX][all] Arcade sells a fixed package of 1,000 GC for 1 USDCx plus network fees when a sale can fill the package (#1452).
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
