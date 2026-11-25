@@ -546,3 +546,12 @@ describe.each([':root', '.dark'] as const)('testnet accent in %s', selector => {
     expect(contrast(need('ds-accent-tint-ink'), need('ds-accent-tint'))).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe('testnet accent reaches the dApp load retry button', () => {
+  it('uses the primary ramp, which follows the network, not the fixed orange ramp', () => {
+    const dappActive = fs.readFileSync(path.join(__dirname, '../../app/pages/Browser/DappActive.tsx'), 'utf8');
+    const retry = dappActive.match(/className="([^"]+)"\s*>\s*\{t\('retry'\)\}/)?.[1];
+    expect(retry).toContain('bg-primary-500');
+    expect(retry).not.toMatch(/orange/);
+  });
+});
