@@ -94,7 +94,7 @@ describe('screen visit on the wire', () => {
   });
 
   it.each([
-    ['screen', { screen: '0xdeadbeef' }],
+    ['screen', { screen: 'unknown' }],
     ['source', { source: '/send/0xdeadbeef' }],
     ['surface', { surface: 'my-device' }],
     ['order', { order: Number.NaN }],
