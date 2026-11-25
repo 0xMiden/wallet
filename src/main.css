@@ -1100,6 +1100,8 @@ body[data-home-band]::before {
     --ds-launcher-fill: #4c86f0;
     --ds-accent-tint: #18243d;
     --ds-accent-tint-ink: #9dbdf8;
+    --primary-500: #4c86f0;
+    --primary-orange: #4c86f0;
     --primary-disabled-dark: #2b3f66;
   }
 }

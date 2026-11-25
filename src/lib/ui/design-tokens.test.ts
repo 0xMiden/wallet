@@ -587,6 +587,13 @@ describe('testnet recolors the Tailwind primary ramp', () => {
     }
   });
 
+  it('keeps primary text readable at 4.5:1 on the dark surface', () => {
+    const dark = themeVars(".dark[data-network='testnet']");
+    const surface = themeVars('.dark')['color-surface-solid']!;
+    expect(contrast(dark['primary-500']!, surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(dark['primary-orange']!, surface)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('turns the dark disabled fill blue', () => {
     const h = hue(themeVars(".dark[data-network='testnet']")['primary-disabled-dark']!);
     expect(h).toBeGreaterThanOrEqual(200);
