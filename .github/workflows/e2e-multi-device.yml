@@ -43,8 +43,9 @@ on:
   # TEMPORARY, remove before this pull request merges. GitHub can dispatch a workflow
   # only when its file is on the default branch, so this trigger is the only way to
   # run the suite in CI before the merge. It runs every area with the long holds off.
+  # No `branches:` filter: release-workflows.test.ts refuses one on a pull request gate.
+  # The `if:` on the build job limits the run to this suite's own pull request.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
