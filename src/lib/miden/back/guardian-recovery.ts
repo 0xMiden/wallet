@@ -17,7 +17,12 @@ import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
-import { getEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveRpcUrl,
+  getEndpointState,
+  sameEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -123,7 +128,7 @@ function recoveryContextReplaced(): Error {
 }
 
 /** Opaque endpoint identity for a public checkpoint, with keys in deterministic order. */
-export function publicBackfillScope(state: EndpointState): string {
+export function publicBackfillScope(state: EndpointState, effectiveRpcUrl: string): string {
   const override = state.override;
   const fields =
     override &&
@@ -133,7 +138,7 @@ export function publicBackfillScope(state: EndpointState): string {
         const value = Reflect.get(override, key);
         return value === undefined ? [key] : [key, value];
       });
-  const preimage = JSON.stringify([state.feeFaucetId ?? null, fields]);
+  const preimage = JSON.stringify([state.feeFaucetId ?? null, fields, effectiveRpcUrl]);
   return bytesToHex(sha256(new TextEncoder().encode(preimage)));
 }
 
@@ -445,7 +450,7 @@ export async function recoverPendingNotes(
   let checkpointedBlock: number | null = null;
   // The same endpoint must own the selected cursor and every subsequent public read.
   const phase = { generation: historyGeneration, endpoints: getEndpointState() };
-  const publicScope = publicBackfillScope(phase.endpoints);
+  const publicScope = publicBackfillScope(phase.endpoints, getEffectiveRpcUrl());
   const assertPublicPhase = (generation: string) => {
     if (generation !== phase.generation || !sameEndpointState(phase.endpoints, getEndpointState())) {
       throw recoveryContextReplaced();

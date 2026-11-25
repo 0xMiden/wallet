@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2';
+import { bytesToHex } from '@noble/hashes/utils';
 import { GuardianHttpClient, GuardianHttpError } from '@openzeppelin/guardian-client';
 
 import {
@@ -12,7 +14,9 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
 import {
   buildDefaultOverrideFor,
+  buildNetworkChoiceOverride,
   getEffectiveNetworkName,
+  getEffectiveRpcUrl,
   getEndpointState,
   type EndpointState
 } from 'lib/miden-chain/effective-endpoints';
@@ -102,7 +106,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
   return {
     ...actual,
-    getEndpointState: jest.fn(() => actual.getEndpointState())
+    getEndpointState: jest.fn(() => actual.getEndpointState()),
+    getEffectiveRpcUrl: jest.fn(() => actual.getEffectiveRpcUrl())
   };
 });
 jest.mock('lib/guardian-note-recovery-progress', () => ({
@@ -245,10 +250,12 @@ function contextReplaced(): Error {
 }
 
 const mockGetEndpointState = jest.mocked(getEndpointState);
+const mockGetEffectiveRpcUrl = jest.mocked(getEffectiveRpcUrl);
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetEndpointState.mockReturnValue({ override: null, feeFaucetId: undefined });
+  mockGetEffectiveRpcUrl.mockReturnValue('https://default-a.example/rpc');
   jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValue(null);
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -268,6 +275,31 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+describe('public recovery checkpoint scope', () => {
+  it.each([
+    ['no override', null],
+    [
+      'a prover-only override',
+      { ...buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.TESTNET), proverUrl: 'https://prover.example' }
+    ]
+  ])('changes with the default RPC when there is %s', (_kind, override) => {
+    expect(override?.rpcUrl ?? '').toBe('');
+    const endpoints = { override, feeFaucetId: 'fee-same' };
+    const oldRpc = 'https://default-a.example/rpc';
+    const newRpc = 'https://default-b.example/rpc';
+
+    const previousScope = publicBackfillScope(endpoints, oldRpc);
+    const currentScope = publicBackfillScope(endpoints, newRpc);
+
+    expect(previousScope).not.toBe(currentScope);
+    expect(previousScope).toBe(publicBackfillScope(endpoints, oldRpc));
+    for (const scope of [previousScope, currentScope]) {
+      expect(scope).toMatch(/^[0-9a-f]{64}$/);
+      expect(scope).not.toContain('default-');
+    }
+  });
 });
 
 describe('maybeStartGuardianRecovery gating', () => {
@@ -1105,7 +1137,7 @@ describe('detached recovery run', () => {
         updatedAt: Date.now(),
         sourcesClean: true,
         historyGeneration: 'gen-1',
-        publicScope: publicBackfillScope(getEndpointState())
+        publicScope: publicBackfillScope(getEndpointState(), getEffectiveRpcUrl())
       });
       mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
         mockGetEndpointState.mockReturnValue(endpointState('https://other.example/rpc'));
@@ -1299,28 +1331,47 @@ describe('detached recovery run', () => {
       expect(mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'public')).toHaveLength(0);
     });
 
-    it('restarts a public checkpoint sealed for another endpoint', async () => {
-      const account = pendingAccount({ coldPublicKey: '0xcold' });
-      mockFetchProgress.mockResolvedValue({
-        accountId: account.publicKey,
-        step: 'public',
-        startBlock: 0,
-        syncedToBlock: 200_000,
-        latestBlock: 400_000,
-        updatedAt: Date.now(),
-        sourcesClean: true,
-        historyGeneration: 'gen-1',
-        publicScope: publicBackfillScope(endpointState('https://other.example/rpc'))
-      });
-      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 100, latestBlock: 400_000 });
+    it.each(['another endpoint', 'a previous default RPC', 'the legacy scope'])(
+      'restarts a public checkpoint sealed for %s',
+      async kind => {
+        const endpoints = { override: null, feeFaucetId: 'fee-same' };
+        mockGetEndpointState.mockReturnValue(endpoints);
+        mockGetEffectiveRpcUrl.mockReturnValue('https://default-b.example/rpc');
 
-      await recoverPendingNotes(account, 'gen-1');
+        let publicScope: string;
+        switch (kind) {
+          case 'another endpoint':
+            publicScope = publicBackfillScope(endpointState('https://other.example/rpc'), getEffectiveRpcUrl());
+            break;
+          case 'a previous default RPC':
+            publicScope = publicBackfillScope(endpoints, 'https://default-a.example/rpc');
+            break;
+          default:
+            publicScope = bytesToHex(sha256(new TextEncoder().encode(JSON.stringify([endpoints.feeFaucetId, null]))));
+        }
+        const account = pendingAccount({ coldPublicKey: '0xcold' });
+        mockFetchProgress.mockResolvedValue({
+          accountId: account.publicKey,
+          step: 'public',
+          startBlock: 0,
+          syncedToBlock: 200_000,
+          latestBlock: 400_000,
+          updatedAt: Date.now(),
+          sourcesClean: true,
+          historyGeneration: 'gen-1',
+          publicScope
+        });
+        mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 100, latestBlock: 400_000 });
 
-      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
-      expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(100);
-    });
+        await recoverPendingNotes(account, 'gen-1');
+
+        expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
+        expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(100);
+      }
+    );
 
     it('seals a public checkpoint as a hash that does not carry the endpoint', async () => {
+      mockGetEffectiveRpcUrl.mockReturnValue('https://secret.example/rpc');
       const account = pendingAccount({ coldPublicKey: '0xcold' });
       mockGetEndpointState.mockReturnValue(endpointState('https://secret.example/rpc'));
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
@@ -1346,7 +1397,7 @@ describe('detached recovery run', () => {
         updatedAt: Date.now(),
         sourcesClean: true,
         historyGeneration: 'gen-1',
-        publicScope: publicBackfillScope(getEndpointState())
+        publicScope: publicBackfillScope(getEndpointState(), getEffectiveRpcUrl())
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -1379,7 +1430,7 @@ describe('detached recovery run', () => {
         updatedAt: Date.now(),
         sourcesClean: true,
         historyGeneration: 'gen-1',
-        publicScope: publicBackfillScope(getEndpointState())
+        publicScope: publicBackfillScope(getEndpointState(), getEffectiveRpcUrl())
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
