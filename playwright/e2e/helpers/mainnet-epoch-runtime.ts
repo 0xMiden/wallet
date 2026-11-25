@@ -1,6 +1,17 @@
 import { expect } from '@playwright/test';
 import { parseQuoteFromPath } from '@epoch-protocol/epoch-commons-sdk';
-import { createPublicClient, erc20Abi, formatUnits, getAddress, http, isHash, type Hex } from 'viem';
+import {
+  BaseError,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
+  createPublicClient,
+  erc20Abi,
+  formatUnits,
+  getAddress,
+  http,
+  isHash,
+  type Hex
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 import { createHmac, randomBytes } from 'node:crypto';
@@ -60,6 +71,7 @@ import {
   type EpochEvmRecoveryEvidence
 } from './mainnet-epoch-evm';
 import { planEpochRoundTrip } from './mainnet-epoch-ui';
+import { closeEpochUnminedDeposit } from './mainnet-epoch-unmined';
 import { realizedMainnetLoopLoss } from './mainnet-loop-budget';
 import { fetchMainnetOneClickUsdPrices } from './mainnet-one-click-prices';
 import { exportPublicInputNote } from './swap';
@@ -890,6 +902,9 @@ async function finishEpochReturn(
   await persist();
 }
 
+const isAbsent = (error: unknown, type: new (...args: never[]) => Error) =>
+  error instanceof BaseError && !!error.walk(inner => inner instanceof type);
+
 /** Reconcile already signed transactions; this path has no EVM signer or broadcast operation. */
 export async function recoverEpochReturn(
   wallet: GuardianAwareWalletPage,
@@ -908,17 +923,67 @@ export async function recoverEpochReturn(
     state.updatedAt = new Date().toISOString();
     saveMainnetEpochCheckpoint(path, state);
   };
+  const closeUnminedDeposit = async (approvals: EpochEvmRecoveryEvidence[], depositHash: Hex): Promise<boolean> => {
+    const journal = state.transactions ?? [];
+    // Approvals must still reconcile against the original authority, exactly as in a normal recovery.
+    const approved = { ...state, transactions: journal.slice(0, -1) };
+    reconcileEpochEvmReceipts(approved, approvals);
+    const account = getAddress(state.evm.account);
+    const provider = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, account);
+    await wallet.refreshBalancesLanded(90_000);
+    const tokenBalance = await client.readContract({
+      address: getAddress(state.evm.token),
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [account]
+    });
+    const nativeBalance = await client.getBalance({ address: account });
+    const nativeVault = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
+    const reverseStatus = await provider.sdk.getIntentStatus(provider.config, account, state.reverseNonce ?? '');
+    // Last reads before the decision: a deposit mined during the reads above must be seen here.
+    const depositTransaction = await client.getTransaction({ hash: depositHash }).catch(error => {
+      if (isAbsent(error, TransactionNotFoundError)) return undefined;
+      throw error;
+    });
+    const depositReceipt = await client.getTransactionReceipt({ hash: depositHash }).catch(error => {
+      if (isAbsent(error, TransactionReceiptNotFoundError)) return undefined;
+      throw error;
+    });
+    const latestNonce = await client.getTransactionCount({ address: account, blockTag: 'latest' });
+    const pendingNonce = await client.getTransactionCount({ address: account, blockTag: 'pending' });
+    return closeEpochUnminedDeposit(
+      state,
+      { transactions: approved.transactions, paidEvmFees: approved.paidEvmFees },
+      {
+        depositTransaction,
+        depositReceipt,
+        latestNonce,
+        pendingNonce,
+        tokenBalance,
+        nativeBalance,
+        nativeVault,
+        reverseStatus
+      }
+    );
+  };
   try {
     if ((await client.getChainId()) !== state.evm.chainId) throw new Error('Epoch recovery RPC chain changed');
     const evidence: EpochEvmRecoveryEvidence[] = [];
-    for (const entry of state.transactions) {
+    const last = state.transactions.length - 1;
+    for (const [index, entry] of state.transactions.entries()) {
       if (signal.aborted) throw new Error('Epoch recovery aborted');
       const hash = entry.hash;
       if (!hash || !isHash(hash)) throw new Error('Unknown Epoch submission hash; never retry funding');
-      evidence.push({
-        transaction: await client.getTransaction({ hash }),
-        receipt: await client.getTransactionReceipt({ hash })
-      });
+      let transaction: Awaited<ReturnType<typeof client.getTransaction>>;
+      try {
+        transaction = await client.getTransaction({ hash });
+      } catch (error) {
+        // Only the final journaled deposit may be absent, and only a read-only closure may resolve it.
+        if (index !== last || entry.kind !== 'deposit' || !isAbsent(error, TransactionNotFoundError)) throw error;
+        if (await closeUnminedDeposit(evidence, hash)) return await persist();
+        throw error;
+      }
+      evidence.push({ transaction, receipt: await client.getTransactionReceipt({ hash }) });
     }
     const confirmed = reconcileEpochEvmReceipts(state, evidence);
     await persist();
