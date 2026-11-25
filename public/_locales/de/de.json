@@ -2063,7 +2063,7 @@
   "arcadeRankingsPrivate": "Es werden nur die Guthaben in die Rangliste aufgenommen, die Sie freigeben möchten.",
   "arcadeActivityEmptyTitle": "Noch keine Spielaktivität",
   "arcadeActivityEmptyBody": "Transaktionen, die du in Arcade-Spielen durchführst, werden hier angezeigt.",
-  "arcadeGcPurchasePackage": "Kaufen Sie eine beliebige Menge an GC mit USDCx, zuzüglich Netzwerkgebühren.",
+  "arcadeGcPurchasePackage": "Kaufen Sie 1.000 GC für 1 USDCx zuzüglich Netzwerkgebühren.",
   "arcadeGcPurchaseAmountLabel": "GC zum Kauf",
   "arcadeGcPurchaseNoQuote": "—",
   "arcadeGcPurchasePrice": "$price$ USDCx pro GC beim Live-Verkauf.",

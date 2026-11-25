@@ -2071,7 +2071,7 @@
   "arcadeRankingsPrivate": "Yalnızca paylaşmayı seçtiğiniz bakiyeler sıralanır.",
   "arcadeActivityEmptyTitle": "Henüz oyun etkinliği yok",
   "arcadeActivityEmptyBody": "Arcade oyunlarında yaptığınız işlemler burada görünür.",
-  "arcadeGcPurchasePackage": "USDCx ile herhangi bir miktarda GC satın alın; buna ağ ücretleri de eklenir.",
+  "arcadeGcPurchasePackage": "1 USDCx karşılığında 1.000 GC satın alın, artı ağ ücretleri.",
   "arcadeGcPurchaseAmountLabel": "GC satın alacak",
   "arcadeGcPurchaseNoQuote": "—",
   "arcadeGcPurchasePrice": "Canlı satışta GC başına $price$ USDCx.",

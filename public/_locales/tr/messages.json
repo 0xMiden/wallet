@@ -9460,8 +9460,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "USDCx ile herhangi bir miktarda GC satın alın; buna ağ ücretleri de eklenir.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "1 USDCx karşılığında 1.000 GC satın alın, artı ağ ücretleri.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC satın alacak",
@@ -9506,9 +9506,9 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
+    "message": "This purchase fills a public GC sale note on chain.",
     "englishSource": "(untranslated)",
-    "rejectedSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "rejectedSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "Ödeme yaparsınız",

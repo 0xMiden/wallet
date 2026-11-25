@@ -73,6 +73,7 @@ import {
   BridgedSendTransaction,
   EarnDepositTransaction,
   IBridgeClaimStatus,
+  IBridgeProvider,
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
@@ -1060,12 +1061,26 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   });
 };
 
+/** The stored message of a landed bridged-send. A NEAR Intents send can go to a chain that is not EVM. */
+const bridgedSendLandedMessage = (provider: IBridgeProvider | undefined): string => {
+  switch (provider) {
+    case 'usdcx':
+      return 'USDCx burn submitted';
+    case 'near-intents':
+      return 'Sent through NEAR Intents';
+    case 'epoch':
+    case 'agglayer':
+    case undefined:
+      return 'Bridged to EVM';
+  }
+};
+
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const { outputNoteIds, feeFields, transactionId, resultBytes } = keptOrThrow(bridgedSendCompletionRead(tx, result));
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFields,
-    displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
+    displayMessage: bridgedSendLandedMessage(tx.extraInputs?.provider),
     transactionId,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds

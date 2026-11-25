@@ -9468,8 +9468,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "Kaufen Sie eine beliebige Menge an GC mit USDCx, zuzüglich Netzwerkgebühren.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "Kaufen Sie 1.000 GC für 1 USDCx zuzüglich Netzwerkgebühren.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC zum Kauf",
@@ -9514,9 +9514,9 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
+    "message": "This purchase fills a public GC sale note on chain.",
     "englishSource": "(untranslated)",
-    "rejectedSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "rejectedSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "Sie zahlen",

@@ -9459,8 +9459,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "USDCxを使用して、ネットワーク手数料を含め、任意の金額のGCを購入できます。",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "1 USDCxで1,000 GCを購入し、ネットワーク手数料を追加してください。",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GCによる購入",
@@ -9505,8 +9505,8 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "購入するGCの数量を入力してください。この購入により、チェーン上の公開GC販売noteが「fill」されます。",
-    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "message": "この購入により、チェーン上の公開GCセールnoteが約定します。",
+    "englishSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "お支払いください",

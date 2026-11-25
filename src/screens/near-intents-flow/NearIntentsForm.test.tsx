@@ -40,10 +40,7 @@ jest.mock('lib/one-click/client', () => ({
   requestOneClickQuote: (config: NearIntentsConfig, request: OneClickQuoteRequest, dry: boolean) =>
     mockRequestQuote(config, request, dry)
 }));
-jest.mock('lib/one-click/address', () => ({
-  isValidNearIntentsAddress: (kind: string, value: string) =>
-    kind === 'evm' ? /^0x[0-9a-fA-F]{40}$/.test(value) : value.length > 20
-}));
+jest.mock('lib/one-click/address', () => jest.requireActual('lib/one-click/address'));
 const mockPersist = jest.fn<Promise<string>, [unknown]>();
 jest.mock('lib/one-click/tracking', () => ({
   persistNearIntentsDeposit: (input: unknown) => mockPersist(input)
@@ -380,5 +377,15 @@ describe('NearIntentsForm', () => {
 
     expect(screen.getByTestId('near-intents-quote-error')).toHaveTextContent('oneClickQuoteUnavailable');
     expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+  });
+
+  it('accepts a valid non-checksummed mixed-case EVM refund address', async () => {
+    renderForm();
+    typeAmount('46');
+    typeRefund('0x5aaeb6053F3E94C9b9A09f33669435E7Ef1BeAed');
+    await flushQuote();
+
+    expect(screen.queryByTestId('near-intents-refund-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeEnabled();
   });
 });

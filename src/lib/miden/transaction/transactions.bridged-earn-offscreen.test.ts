@@ -535,6 +535,27 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockComplete.bridged).not.toHaveBeenCalled();
   });
 
+  it('NEAR Intents bridged-send → midenClientProxy.sendTransaction with a stage stamp, completed as a bridged-send', async () => {
+    const tx = await run('tx-bs-near-intents', {
+      type: 'bridged-send',
+      secondaryAccountId: 'mm1deposit_qr7qqq9wr6w',
+      faucetId: 'faucet',
+      amount: 1000n,
+      noteType: 'public',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0x2222222222222222222222222222222222222222' }
+    });
+
+    // The row (with its 1Click tracking) reaches `sendTransaction` with a guarded signer, stage stamp, and submit gate.
+    const [calledTx, callback, stamp, gate] = mockProxySendTransaction.mock.calls[0] ?? [];
+    expect(calledTx).toEqual(tx);
+    expect(typeof callback).toBe('function');
+    expect(callback).not.toBe(signCallback);
+    expect(typeof stamp).toBe('function');
+    expect(typeof gate).toBe('function');
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['agglayer', 'usdcx'])(
     '%s pre-built bridged-send delegates the exact request bytes to the proxy with a guarded signer',
     async provider => {

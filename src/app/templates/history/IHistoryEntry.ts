@@ -172,6 +172,7 @@ export interface IHistoryEntry {
   bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
+  bridgeDestinationChain?: { id: string; name: string };
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;
   bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;

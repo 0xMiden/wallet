@@ -9459,8 +9459,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "使用 USDCx 购买任意数量的 GC，另加网络手续费。",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "以 1 USDCx 购买 1,000 GC，另加网络手续费。",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC 买入",
@@ -9505,8 +9505,8 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "输入要购买的 GC 数量。该购买操作将填满链上公开的 GC 销售note。",
-    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "message": "此次购买填满了链上的一份公开 GC 销售note。",
+    "englishSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "您支付",

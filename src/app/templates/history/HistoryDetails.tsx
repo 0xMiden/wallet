@@ -246,6 +246,9 @@ const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy
   };
 };
 
+const allowOutboundBridgeDetails = (entry: IHistoryEntry): boolean =>
+  (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+
 /**
  * Explicit section and address-role policy for `HistoryDetails`, switched exhaustively over
  * `entry.txType` so new transaction types cannot silently inherit another type's sections.
@@ -256,7 +259,7 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
       return {
         bridgeClaim: false,
         inboundBridge: false,
-        oneClick: entry.oneClickTracking !== undefined,
+        oneClick: entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
         from: 'account',
         to: 'secondary'
       };
@@ -269,13 +272,16 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
         to: 'secondary'
       };
     case 'bridged-send': {
-      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim UI
+      const isNearIntents = entry.bridgeProvider === 'near-intents';
+      const allowOutbound = allowOutboundBridgeDetails(entry);
+      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim or 1Click UI
       // and falls back to a standard outbound transfer's From/To addresses.
-      const bridgeClaim = (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+      // NEAR Intents swaps are fulfilled automatically by 1Click and have no L1 claim UI.
+      const bridgeClaim = !isNearIntents && allowOutbound;
       return {
         bridgeClaim,
         inboundBridge: false,
-        oneClick: false,
+        oneClick: isNearIntents && entry.oneClickTracking !== undefined && allowOutbound,
         from: 'account',
         to: bridgeClaim ? 'none' : 'secondary'
       };
@@ -426,6 +432,29 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
     </div>
   );
 };
+
+const isOutboundBridgeHero = (
+  entry: IHistoryEntry | null,
+  sectionPolicy: HistoryDetailsSectionPolicy | undefined
+): boolean =>
+  (sectionPolicy?.bridgeClaim ?? false) ||
+  (entry?.txType === 'bridged-send' && entry.bridgeProvider === 'near-intents' && allowOutboundBridgeDetails(entry));
+
+const ToDetailValue: FC<{
+  bridgeProvider: IHistoryEntry['bridgeProvider'];
+  address: string;
+  account: WalletAccount;
+  allAccounts: WalletAccount[];
+}> = memo(({ bridgeProvider, address, account, allAccounts }) =>
+  bridgeProvider === 'near-intents' ? (
+    <HashChip hash={address} trimHash className="ml-2" />
+  ) : (
+    <ExternalLinkValue
+      displayValue={<AccountDisplay address={address} account={account} allAccounts={allAccounts} />}
+      href={getExplorerAccountUrl(address)}
+    />
+  )
+);
 
 const AccountDisplay: FC<{
   address: string | undefined;
@@ -641,7 +670,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
-          secondaryAddress: tx.secondaryAccountId,
+          secondaryAddress:
+            bridge?.provider === 'near-intents'
+              ? (bridge.destinationAddress ?? tx.secondaryAccountId)
+              : tx.secondaryAccountId,
           processingStartedAt: tx.processingStartedAt,
           txId: tx.id,
           noteType: tx.noteType,
@@ -690,6 +722,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeDestinationChain: bridge?.destinationChain,
           bridgeAgglayerRoute: bridge?.agglayerRoute,
           bridgeEpochAllocatorUrl: bridge?.epochAllocatorUrl,
           bridgeClaimStatus: bridge?.claimStatus,
@@ -841,7 +874,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
   // may have landed, so it reads through the section's own unconfirmed rule like any
   // other unconfirmed bridge-out (#1250).
-  const isBridgeOut = sectionPolicy?.bridgeClaim ?? false;
+  const isBridgeOut = isOutboundBridgeHero(entry, sectionPolicy);
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -1186,11 +1219,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
                   {toAddress && (
                     <DetailRow label={t('to')} data-testid="history-detail-to">
-                      <ExternalLinkValue
-                        displayValue={
-                          <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
-                        }
-                        href={getExplorerAccountUrl(toAddress)}
+                      <ToDetailValue
+                        bridgeProvider={entry?.bridgeProvider}
+                        address={toAddress}
+                        account={account}
+                        allAccounts={allAccounts}
                       />
                     </DetailRow>
                   )}

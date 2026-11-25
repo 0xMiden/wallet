@@ -421,6 +421,16 @@ describe('bridged-send and earn-deposit', () => {
     expect(isEffectChecked('earn-deposit')).toBe(true);
   });
 
+  it('checks near-intents bridged-send outflow without requiring a prebuilt note id', () => {
+    const tx = new BridgedSendTransaction('acct', 100n, '0xevm', 1, 'near-intents', 'bech32:fA');
+    expect(
+      refusalOf(tx, summary({ removed: [fa('fA', 100n), fa('usdcx', 2n)], outputs: [feeNote(2n)] }))
+    ).toBeUndefined();
+    expect(refusalOf(tx, summary({ removed: [fa('fA', 101n), fa('usdcx', 2n)], outputs: [feeNote(2n)] }))).toBe(
+      '101 of bech32:fA leaves (approved 100)'
+    );
+  });
+
   describe.each(prebuilt)('%s', (_kind, faucet, queued) => {
     const approved = (): ITransaction => ({ ...queued(), ...builtNote(BUILT) });
     // The built note carrying `amount` and `extra` assets, then the kernel fee, as one net vault entry per faucet.

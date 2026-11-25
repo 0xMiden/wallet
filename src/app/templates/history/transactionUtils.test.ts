@@ -966,6 +966,31 @@ describe('bridgeStatusOf', () => {
   it('defaults an epoch row with no polled status to pending', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch' }))).toBe('pending');
   });
+
+  it.each([
+    ['depositing', 'pending'],
+    ['processing', 'pending'],
+    ['arriving', 'pending'],
+    ['delivered', 'confirmed'],
+    ['refunded', 'failed'],
+    ['failed', 'failed'],
+    ['expired', 'expired']
+  ] as const)('maps the near-intents outbound phase %s', (phase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({
+          bridgeProvider: 'near-intents',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase })
+        })
+      )
+    ).toBe(expected);
+  });
+
+  it('defaults a near-intents outbound row without tracking to pending and keeps own badge', () => {
+    const entry = bridgeEntry({ bridgeProvider: 'near-intents' });
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    expect(hasOwnBridgeBadge(entry)).toBe(true);
+  });
 });
 
 describe('bridgeRowDisplay', () => {
@@ -1002,6 +1027,59 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
     ).toBe('Base');
+  });
+
+  it('renders a near-intents outbound row with 1Click provider and non-EVM chain name', () => {
+    expect(
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: -1,
+          bridgeDestinationChain: { id: 'sol', name: 'Solana' },
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.95',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase: 'delivered' })
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MUSDC',
+      outSymbol: 'USDC',
+      inLabel: 'MUSDC',
+      outLabel: 'USDC',
+      outAmount: '4.95',
+      providerLabel: '1Click',
+      network: 'Solana',
+      status: 'confirmed'
+    });
+
+    expect(
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: 8453,
+          oneClickTracking: paymentTracking({
+            direction: 'miden-to-evm',
+            phase: 'processing',
+            destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 }
+          })
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MUSDC',
+      outSymbol: 'ETH',
+      inLabel: 'MUSDC',
+      outLabel: 'ETH',
+      outAmount: '5',
+      providerLabel: '1Click',
+      network: 'Base',
+      status: 'pending'
+    });
   });
 
   it('renders an epoch row from its quoted output', () => {
