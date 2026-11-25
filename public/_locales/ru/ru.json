@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "Вернуться к заблокированным средствам",
   "bridgeRouteViaEpoch": "Через Epoch",
   "bridgeRouteViaAgglayer": "Через Agglayer",
+  "bridgeRouteViaOneClick": "Через 1Click",
   "bridgeSpeedFast": "Быстро",
   "bridgeSpeedSlow": "Медленно",
   "swapOrderCreated": "Заявка на своп создана!",

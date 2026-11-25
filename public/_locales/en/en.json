@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "Return to locked funds",
   "bridgeRouteViaEpoch": "Via Epoch",
   "bridgeRouteViaAgglayer": "Via Agglayer",
+  "bridgeRouteViaOneClick": "Via 1Click",
   "bridgeSpeedFast": "Fast",
   "bridgeSpeedSlow": "Slow",
   "swapOrderCreated": "Swap Order Created!",

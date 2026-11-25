@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "Powrót do zablokowanych środków",
   "bridgeRouteViaEpoch": "Za pośrednictwem Epoch",
   "bridgeRouteViaAgglayer": "Za pośrednictwem Agglayer",
+  "bridgeRouteViaOneClick": "Za pośrednictwem 1Click",
   "bridgeSpeedFast": "Szybko",
   "bridgeSpeedSlow": "Powoli",
   "swapOrderCreated": "Zlecenie swapowe zostało utworzone!",

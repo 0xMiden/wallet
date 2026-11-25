@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "返回鎖定資金頁面",
   "bridgeRouteViaEpoch": "經由 Epoch",
   "bridgeRouteViaAgglayer": "經由 Agglayer",
+  "bridgeRouteViaOneClick": "透過 1Click",
   "bridgeSpeedFast": "快速",
   "bridgeSpeedSlow": "緩慢",
   "swapOrderCreated": "掉期訂單已建立！",

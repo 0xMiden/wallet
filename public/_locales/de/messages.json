@@ -4878,6 +4878,10 @@
     "message": "Über Agglayer",
     "englishSource": "Via Agglayer"
   },
+  "bridgeRouteViaOneClick": {
+    "message": "Über 1Click",
+    "englishSource": "Via 1Click"
+  },
   "bridgeSpeedFast": {
     "message": "Schnell",
     "englishSource": "Fast"
