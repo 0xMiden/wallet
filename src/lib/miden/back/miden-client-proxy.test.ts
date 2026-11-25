@@ -62,6 +62,21 @@ jest.mock('lib/miden/sdk/custom-request', () => {
   return { prepareCustomRequestBytes: (...a: any[]) => g.__px.prepareCustomRequestBytes(...a) };
 });
 
+// The public backfill binds each read to the wallet generation. The hook, when a test installs one, sees the
+// real reader so a displacement can be applied on a chosen read; every other call is that reader.
+jest.mock('lib/miden/guardian/history-storage', () => {
+  const actual = jest.requireActual('lib/miden/guardian/history-storage');
+  const g = globalThis as any;
+  return {
+    ...actual,
+    readGuardianHistoryGeneration: () => {
+      const hook = g.__px?.readGuardianHistoryGeneration;
+      if (typeof hook === 'function') return hook(actual.readGuardianHistoryGeneration);
+      return actual.readGuardianHistoryGeneration();
+    }
+  };
+});
+
 // The pending-note recovery's node reads, which run in this realm without the lock.
 jest.mock('lib/miden/sdk/recovery-public-notes', () => {
   const g = globalThis as any;
@@ -566,6 +581,247 @@ describe('MidenClientProxy — flag routing', () => {
       `s:["${Buffer.from([4]).toString('base64')}","${Buffer.from([5, 6]).toString('base64')}"]`
     ]);
     expect(result).toEqual({ imported: 2, failures: 1, saturated: false, nextNoteOffset: 400 });
+  });
+
+  it.each([false, true])('rejects a public read after endpoints change (offscreen=%s)', async offscreen => {
+    const { midenClientProxy } = await loadProxy(offscreen);
+    const { applyEndpointOverride, buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const override = {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://replacement.example/rpc'
+    };
+    let finishRead!: (read: { noteFiles: Uint8Array[]; failures: number; saturated: boolean }) => void;
+    const read = new Promise<{ noteFiles: Uint8Array[]; failures: number; saturated: boolean }>(resolve => {
+      finishRead = resolve;
+    });
+    G.__px.readRecoverablePublicNotes.mockReturnValueOnce(read);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 2, failures: 0 })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999);
+    // Attach the rejection handler before releasing the read.
+    const outcome = pending.catch((error: unknown) => error);
+    await flush();
+    expect(G.__px.readRecoverablePublicNotes).toHaveBeenCalledWith('mtst1guardian', 1_000, 1_999, 0);
+    await applyEndpointOverride(override);
+    finishRead({ noteFiles: [new Uint8Array([4])], failures: 0, saturated: false });
+    await flush();
+    fireReady();
+    const result = await outcome;
+
+    expect(G.__px.inlineImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ name: 'RecoveryContextReplacedError' });
+  });
+
+  it.each([
+    [false, 'endpoint', 'empty', { noteFiles: [], failures: 0, saturated: false }],
+    [false, 'endpoint', 'saturated', { noteFiles: [], failures: 1, saturated: true }],
+    [false, 'endpoint', 'files', { noteFiles: [new Uint8Array([9])], failures: 0, saturated: false }],
+    [true, 'endpoint', 'empty', { noteFiles: [], failures: 0, saturated: false }],
+    [true, 'endpoint', 'saturated', { noteFiles: [], failures: 1, saturated: true }],
+    [true, 'endpoint', 'files', { noteFiles: [new Uint8Array([9])], failures: 0, saturated: false }],
+    [false, 'generation', 'empty', { noteFiles: [], failures: 0, saturated: false }],
+    [false, 'generation', 'saturated', { noteFiles: [], failures: 1, saturated: true }],
+    [false, 'generation', 'files', { noteFiles: [new Uint8Array([9])], failures: 0, saturated: false }],
+    [true, 'generation', 'empty', { noteFiles: [], failures: 0, saturated: false }],
+    [true, 'generation', 'saturated', { noteFiles: [], failures: 1, saturated: true }],
+    [true, 'generation', 'files', { noteFiles: [new Uint8Array([9])], failures: 0, saturated: false }]
+  ] as const)(
+    'rejects a public read (offscreen=%s) after the %s moves (%s)',
+    async (offscreen, move, _shape, payload) => {
+      const { midenClientProxy, RecoveryContextReplacedError } = await loadProxy(offscreen);
+      let finishRead!: (read: { noteFiles: readonly Uint8Array[]; failures: number; saturated: boolean }) => void;
+      const read = new Promise<{ noteFiles: readonly Uint8Array[]; failures: number; saturated: boolean }>(resolve => {
+        finishRead = resolve;
+      });
+      G.__px.readRecoverablePublicNotes.mockReturnValueOnce(read);
+
+      const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999);
+      const outcome = pending.catch((error: unknown) => error);
+      await flush();
+      expect(G.__px.readRecoverablePublicNotes).toHaveBeenCalledWith('mtst1guardian', 1_000, 1_999, 0);
+      if (move === 'endpoint') {
+        const { applyEndpointOverride, buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+        const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+        await applyEndpointOverride({
+          ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+          rpcUrl: 'https://replacement.example/rpc'
+        });
+      } else {
+        const { clearGuardianHistoryCheckpoints } = await import('lib/miden/guardian/history-storage');
+        await clearGuardianHistoryCheckpoints();
+      }
+      finishRead(payload);
+      await flush();
+      fireReady();
+
+      expect(await outcome).toBeInstanceOf(RecoveryContextReplacedError);
+      expect(G.__px.inlineImportRecoveryNoteFiles).not.toHaveBeenCalled();
+      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    [false, 'endpoint'],
+    [true, 'endpoint'],
+    [false, 'generation'],
+    [true, 'generation']
+  ] as const)('rejects the scan range (offscreen=%s) after the %s moves', async (offscreen, move) => {
+    const { midenClientProxy, RecoveryContextReplacedError } = await loadProxy(offscreen);
+    let finishRead!: (range: { startBlock: number; latestBlock: number }) => void;
+    const read = new Promise<{ startBlock: number; latestBlock: number }>(resolve => {
+      finishRead = resolve;
+    });
+    G.__px.resolveRecoveryScanRange.mockReturnValueOnce(read);
+
+    const pending = midenClientProxy.resolveRecoveryScanRange(1_700_000_000);
+    const outcome = pending.catch((error: unknown) => error);
+    await flush();
+    expect(G.__px.resolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
+    if (move === 'endpoint') {
+      const { applyEndpointOverride, buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+      const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+      await applyEndpointOverride({
+        ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+        rpcUrl: 'https://replacement.example/rpc'
+      });
+    } else {
+      const { clearGuardianHistoryCheckpoints } = await import('lib/miden/guardian/history-storage');
+      await clearGuardianHistoryCheckpoints();
+    }
+    finishRead({ startBlock: 7, latestBlock: 99 });
+
+    expect(await outcome).toBeInstanceOf(RecoveryContextReplacedError);
+  });
+
+  it('still imports a public range when the endpoint and the wallet stay put', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+
+    const result = await midenClientProxy.recoverPublicNotesRange('mtst1guardian', 100, 200);
+
+    expect(G.__px.inlineImportRecoveryNoteFiles).toHaveBeenCalledWith(
+      [new Uint8Array([4]), new Uint8Array([5, 6])],
+      G.__px.inlineHold
+    );
+    expect(result).toEqual({ imported: 3, failures: 1, saturated: false, nextNoteOffset: undefined });
+  });
+
+  it.each(['endpoint', 'generation'] as const)(
+    'does not import when the %s moves inside getMidenClient',
+    async move => {
+      const { midenClientProxy, RecoveryContextReplacedError } = await loadProxy(false);
+      G.__px.getMidenClient.mockImplementationOnce(async () => {
+        if (move === 'endpoint') {
+          const { applyEndpointOverride, buildDefaultOverrideFor } =
+            await import('lib/miden-chain/effective-endpoints');
+          const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+          await applyEndpointOverride({
+            ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+            rpcUrl: 'https://replacement.example/rpc'
+          });
+        } else {
+          const { clearGuardianHistoryCheckpoints } = await import('lib/miden/guardian/history-storage');
+          await clearGuardianHistoryCheckpoints();
+        }
+        return {
+          importRecoveryNoteFiles: (...args: unknown[]) => G.__px.inlineImportRecoveryNoteFiles(...args)
+        } as never;
+      });
+
+      await expect(midenClientProxy.recoverPublicNotesRange('mtst1guardian', 100, 200)).rejects.toBeInstanceOf(
+        RecoveryContextReplacedError
+      );
+      expect(G.__px.inlineImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not send the import when the endpoint moves inside the offscreen dispatch', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { applyEndpointOverride, buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const override = {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://replacement.example/rpc'
+    };
+    let reads = 0;
+    G.__px.readGuardianHistoryGeneration = async (real: () => Promise<string>) => {
+      reads += 1;
+      if (reads > 2) await applyEndpointOverride(override);
+      return real();
+    };
+    G.__px.readRecoverablePublicNotes.mockResolvedValueOnce({
+      noteFiles: [new Uint8Array([4])],
+      failures: 0,
+      saturated: false
+    });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 2, failures: 0 })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999);
+    const outcome = pending.catch((error: unknown) => error);
+    await flush();
+    fireReady();
+    await flush();
+
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(await outcome).toMatchObject({ name: 'RecoveryContextReplacedError' });
+  });
+
+  it('refuses the original public context if endpoints change during read preparation', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { readGuardianHistoryGeneration } = await import('lib/miden/guardian/history-storage');
+    const { applyEndpointOverride, buildDefaultOverrideFor, getEndpointState } =
+      await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const expected = { generation: await readGuardianHistoryGeneration(), endpoints: getEndpointState() };
+    G.__px.readRecoverablePublicNotes.mockResolvedValueOnce({ noteFiles: [], failures: 0, saturated: false });
+    let finishPreparation!: (wasm: object) => void;
+    G.__px.getWasmOrThrow.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishPreparation = resolve;
+      })
+    );
+
+    const read = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999, 0, expected);
+    const outcome = read.catch((error: unknown) => error);
+    await flush();
+    expect(G.__px.getWasmOrThrow).toHaveBeenCalled();
+    await applyEndpointOverride({
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://replacement.example/rpc'
+    });
+    finishPreparation({});
+    expect(await outcome).toMatchObject({ name: 'RecoveryContextReplacedError' });
+    expect(G.__px.readRecoverablePublicNotes).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('propagates a recovery context replacement from the offscreen import', async () => {
+    const { midenClientProxy, RecoveryContextReplacedError } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'recovery context replaced',
+      errorName: 'RecoveryContextReplacedError',
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999);
+    const outcome = pending.catch((error: unknown) => error);
+    await flush();
+    fireReady();
+
+    expect(await outcome).toBeInstanceOf(RecoveryContextReplacedError);
   });
 
   it('takes no offscreen op for a range whose read keeps no note', async () => {

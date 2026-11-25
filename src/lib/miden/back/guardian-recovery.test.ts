@@ -10,7 +10,13 @@ import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storag
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import {
+  buildDefaultOverrideFor,
+  getEffectiveNetworkName,
+  getEndpointState,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -19,7 +25,12 @@ import {
   recoverGuardianHistory,
   terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
-import { maybeStartGuardianRecovery, recoverPendingNotes, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
+import {
+  maybeStartGuardianRecovery,
+  publicBackfillScope,
+  recoverPendingNotes,
+  releaseGuardianRecoveriesOnLock
+} from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
@@ -87,6 +98,13 @@ jest.mock('lib/miden-chain/constants', () => {
   };
 });
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  return {
+    ...actual,
+    getEndpointState: jest.fn(() => actual.getEndpointState())
+  };
+});
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
@@ -124,7 +142,7 @@ const GUARDIAN_CREATED_AT_SECONDS = Math.floor(Date.parse('2026-01-01T00:00:00Z'
 
 /** The block ranges the backfill actually asked for, in order. */
 function backfillRanges() {
-  return mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1));
+  return mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1, 4));
 }
 
 /** Watermarks the progress card was told about, in order. */
@@ -215,8 +233,22 @@ async function drainDetachedRun() {
   for (let i = 0; i < 500; i++) await Promise.resolve();
 }
 
+function endpointState(rpcUrl: string): EndpointState {
+  return {
+    override: { ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET), rpcUrl },
+    feeFaucetId: undefined
+  };
+}
+
+function contextReplaced(): Error {
+  return Object.assign(new Error('context replaced'), { name: 'RecoveryContextReplacedError' });
+}
+
+const mockGetEndpointState = jest.mocked(getEndpointState);
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetEndpointState.mockReturnValue({ override: null, feeFaucetId: undefined });
   jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValue(null);
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -1010,7 +1042,7 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
 
     // Each half is a fresh range, so each starts at note page 0.
-    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
+    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1, 4))).toEqual([
       [0, 1_999, 0],
       [0, 999, 0],
       [1_000, 1_999, 0]
@@ -1027,7 +1059,7 @@ describe('detached recovery run', () => {
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
 
-    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
+    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1, 4))).toEqual([
       [0, 1, 0],
       [0, 0, 0],
       [1, 1, 0]
@@ -1062,7 +1094,32 @@ describe('detached recovery run', () => {
       for (const [progress] of publicWrites) expect(progress.historyGeneration).toBe('gen-1');
     });
 
-    it('resumes at the checkpointed block and skips the sources it already did', async () => {
+    it('abandons a scoped cursor if the endpoint changes during the transport drain', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now(),
+        sourcesClean: true,
+        historyGeneration: 'gen-1',
+        publicScope: publicBackfillScope(getEndpointState())
+      });
+      mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
+        mockGetEndpointState.mockReturnValue(endpointState('https://other.example/rpc'));
+      });
+
+      const result = await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockProxy.resolveRecoveryScanRange).not.toHaveBeenCalled();
+      expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+      expect(mockDoSync).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ sourceFailures: 1, deferred: false });
+    });
+
+    it('restarts the public backfill from the beginning for an unscoped checkpoint', async () => {
       const account = pendingAccount({ coldPublicKey: '0xcold' });
       mockFetchProgress.mockResolvedValue({
         accountId: account.publicKey,
@@ -1074,6 +1131,223 @@ describe('detached recovery run', () => {
         sourcesClean: true,
         historyGeneration: 'gen-1'
       });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 100, latestBlock: 400_000 });
+
+      await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(100);
+    });
+
+    it('does not sync or scan a public range after the resolver loses its context', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockRejectedValueOnce(
+        Object.assign(new Error('recovery context replaced'), { name: 'RecoveryContextReplacedError' })
+      );
+
+      const result = await recoverPendingNotes(account, 'gen-1');
+
+      expect(result).toMatchObject({ sourceFailures: 1, deferred: false });
+      expect(mockReportProgress.mock.calls.some(([progress]) => progress.step === 'public')).toBe(false);
+      expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+      expect(mockDoSync).not.toHaveBeenCalled();
+      expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
+    });
+
+    it('skips the closing sync if the wallet changes after the last public checkpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+        mockReportProgress.mockImplementationOnce(async () => {
+          mockUncompleted.mockImplementationOnce(async () => {
+            mockReadGeneration.mockResolvedValue('gen-2');
+            return [];
+          });
+        });
+        return { imported: 1, failures: 0, saturated: false };
+      });
+
+      const result = await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+      expect(mockDoSync).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ sourceFailures: 1, deferred: false });
+    });
+
+    it('abandons the public backfill when the wallet changes between pages', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 });
+      mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+        mockUncompleted.mockImplementationOnce(async () => {
+          mockReadGeneration.mockResolvedValue('gen-2');
+          return [];
+        });
+        return { imported: 1, failures: 0, saturated: false };
+      });
+
+      const result = await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ sourceFailures: 1, deferred: false });
+      expect(mockDoSync).not.toHaveBeenCalled();
+    });
+
+    it('does not continue, sync, or clear the flag when the first public range loses its context', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      mockProxy.recoverPublicNotesRange.mockRejectedValueOnce(contextReplaced());
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+      expect(mockDoSync).not.toHaveBeenCalled();
+      expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      expect(jest.mocked(recoverGuardianHistory)).not.toHaveBeenCalled();
+    });
+
+    it('does not scan after the seed checkpoint loses its endpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      mockReportProgress.mockImplementation(async (progress: GuardianNoteRecoveryProgress) => {
+        if (progress.step === 'public') await gate;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      for (let i = 0; i < 500 && !mockReportProgress.mock.calls.some(([progress]) => progress.step === 'public'); i++) {
+        await Promise.resolve();
+      }
+      expect(mockReportProgress.mock.calls.some(([progress]) => progress.step === 'public')).toBe(true);
+      mockGetEndpointState.mockReturnValue(endpointState('https://other.example/rpc'));
+      release?.();
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+      expect(mockDoSync).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    });
+
+    it('drops the reservation when the seed checkpoint loses its wallet', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      mockReportProgress.mockImplementation(async (progress: GuardianNoteRecoveryProgress) => {
+        if (progress.step === 'public') await gate;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      for (let i = 0; i < 500 && !mockReportProgress.mock.calls.some(([progress]) => progress.step === 'public'); i++) {
+        await Promise.resolve();
+      }
+      expect(mockReportProgress.mock.calls.some(([progress]) => progress.step === 'public')).toBe(true);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      release?.();
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+      expect(mockDoSync).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    });
+
+    it('does not request the next range when the post-chunk checkpoint loses its endpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      let publicReports = 0;
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      mockReportProgress.mockImplementation(async (progress: GuardianNoteRecoveryProgress) => {
+        if (progress.step !== 'public') return;
+        publicReports += 1;
+        if (publicReports === 2) await gate;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      for (let i = 0; i < 500 && publicReports < 2; i++) await Promise.resolve();
+      expect(publicReports).toBe(2);
+      mockGetEndpointState.mockReturnValue(endpointState('https://other.example/rpc'));
+      release?.();
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+      expect(mockDoSync).not.toHaveBeenCalled();
+    });
+
+    it('does not write the public checkpoint when the endpoint moves after the resolver', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      let resolved = false;
+      mockProxy.resolveRecoveryScanRange.mockImplementation(async () => {
+        resolved = true;
+        return { startBlock: 0, latestBlock: 0 } as never;
+      });
+      mockReadGeneration.mockImplementation(async () => {
+        if (resolved) mockGetEndpointState.mockReturnValue(endpointState('https://other.example/rpc'));
+        return 'gen-1';
+      });
+
+      await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'public')).toHaveLength(0);
+    });
+
+    it('restarts a public checkpoint sealed for another endpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now(),
+        sourcesClean: true,
+        historyGeneration: 'gen-1',
+        publicScope: publicBackfillScope(endpointState('https://other.example/rpc'))
+      });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 100, latestBlock: 400_000 });
+
+      await recoverPendingNotes(account, 'gen-1');
+
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(100);
+    });
+
+    it('seals a public checkpoint as a hash that does not carry the endpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockGetEndpointState.mockReturnValue(endpointState('https://secret.example/rpc'));
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
+
+      await recoverPendingNotes(account, 'gen-1');
+
+      const publicWrites = mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'public');
+      expect(publicWrites.length).toBeGreaterThan(0);
+      for (const [progress] of publicWrites) {
+        expect(progress.publicScope).toMatch(/^[0-9a-f]{64}$/);
+        expect(JSON.stringify(progress)).not.toContain('secret.example');
+      }
+    });
+
+    it('resumes at the checkpointed block and skips the sources it already did', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now(),
+        sourcesClean: true,
+        historyGeneration: 'gen-1',
+        publicScope: publicBackfillScope(getEndpointState())
+      });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
       await maybeStartGuardianRecovery(account);
@@ -1082,7 +1356,9 @@ describe('detached recovery run', () => {
       // The expensive source is not re-paid.
       expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
       // The creation-block search is skipped too: 0 means "just give me the tip".
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(0);
+      const phase = { generation: 'gen-1', endpoints: getEndpointState() };
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(0, phase);
+      expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[4]).toEqual(phase);
       // Scanning restarts at the checkpoint, not at block 0.
       expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(200_000);
       expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
@@ -1102,7 +1378,8 @@ describe('detached recovery run', () => {
         latestBlock: 400_000,
         updatedAt: Date.now(),
         sourcesClean: true,
-        historyGeneration: 'gen-1'
+        historyGeneration: 'gen-1',
+        publicScope: publicBackfillScope(getEndpointState())
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -1142,7 +1419,7 @@ describe('detached recovery run', () => {
       // A full fresh pass: every source re-run, and the range resolved from the
       // creation time rather than from the untrusted watermark.
       expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
       expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
     });
 
@@ -1201,7 +1478,7 @@ describe('detached recovery run', () => {
       await drainDetachedRun();
 
       expect(GuardianHttpClient).toHaveBeenCalled();
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
       expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
     });
 
@@ -1221,7 +1498,7 @@ describe('detached recovery run', () => {
       await drainDetachedRun();
 
       expect(GuardianHttpClient).toHaveBeenCalled();
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
       expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
     });
 
@@ -1293,7 +1570,7 @@ describe('detached recovery run', () => {
       // Treated as a fresh pass: every source is paid for, and the scan range is
       // resolved from the account's creation time rather than from the tip.
       expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
     });
 
     it('ignores a record that has not reached the public step yet', async () => {
@@ -1311,7 +1588,7 @@ describe('detached recovery run', () => {
       await drainDetachedRun();
 
       expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
-      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockProxy.resolveRecoveryScanRange.mock.calls[0]?.[0]).toBe(GUARDIAN_CREATED_AT_SECONDS);
     });
 
     it('treats a realm teardown as a deferral, not a failing source', async () => {
@@ -1536,9 +1813,9 @@ describe('detached recovery run', () => {
       await maybeStartGuardianRecovery(account);
       await drainDetachedRun();
 
-      expect(mockProxy.recoverPublicNotesRange.mock.calls).toEqual([
-        [account.publicKey, 0, 999, 0],
-        [account.publicKey, 0, 999, 200]
+      expect(backfillRanges()).toEqual([
+        [0, 999, 0],
+        [0, 999, 200]
       ]);
       // A half-paged range is not scanned, so the watermark waits for the page
       // that finishes it.

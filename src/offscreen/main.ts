@@ -1407,6 +1407,19 @@ const DISPATCH: Record<string, DispatchFn> = {
 let clientPromise: Promise<MidenClientInterface> | null = null;
 
 /**
+ * How many times a reload has discarded the client. A same-endpoint reload still nulls `clientPromise`
+ * without changing `adoptedEndpoints`, so a queued recovery import compares this count, not the state alone.
+ * Not bumped from `adoptEndpoints`: a call adopting its own envelope is not a discard.
+ */
+let clientDiscardCount = 0;
+
+function recoveryContextReplacedError(): Error {
+  const error = new Error('recovery context replaced');
+  error.name = 'RecoveryContextReplacedError';
+  return error;
+}
+
+/**
  * Drop this realm's client when lock recovery declares it poisoned (issue #775).
  *
  * Recovery's own `replaceClientSingletons()` reaches only `midenClientSingleton`,
@@ -1560,6 +1573,11 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
+    // The recovery import's fence is the envelope it was admitted with and the discard count at that
+    // moment. Both are read before any await, so a reload that lands while init or the mutex waits is visible.
+    const recoveryImport = msg.method === 'importRecoveryNoteFiles';
+    const recoveryEndpoints = recoveryImport ? msg.endpoints : undefined;
+    const recoveryDiscardCount = recoveryImport ? clientDiscardCount : 0;
     adoptEndpoints(msg.endpoints);
     await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
@@ -1629,6 +1647,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       if (getCurrentWasmLockHold() !== hold) {
         console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
         throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
+      }
+      if (recoveryImport) {
+        if (
+          adoptedEndpoints === undefined ||
+          recoveryEndpoints === undefined ||
+          !sameEndpointState(adoptedEndpoints, recoveryEndpoints) ||
+          clientDiscardCount !== recoveryDiscardCount
+        ) {
+          throw recoveryContextReplacedError();
+        }
       }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
@@ -1837,6 +1865,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         adoptEndpoints(request.endpoints);
         // Dropped even when the state did not change: seed removal sends this only to discard the client.
         clientPromise = null;
+        clientDiscardCount += 1;
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {

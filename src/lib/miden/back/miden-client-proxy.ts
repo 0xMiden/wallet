@@ -19,6 +19,7 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
@@ -57,7 +58,12 @@ import {
 import { checkStorage, isStorageStalledNow, StorageStalledError } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEndpointState,
+  sameEndpointState,
+  whenEndpointOverridesLoaded,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import {
   annotateOffscreenDeadline,
@@ -217,6 +223,37 @@ function parseRecoveryCounts(method: string, resultB64: string | null): { import
 async function prepareRecoveryRead(): Promise<void> {
   await whenEndpointOverridesLoaded();
   await getWasmOrThrow();
+}
+
+/**
+ * The public backfill's node changed, or the wallet was replaced, between the read and the use of
+ * its result. Not a pipeline kill: the pass fails the source and does not resume it.
+ */
+export class RecoveryContextReplacedError extends Error {
+  constructor() {
+    super('recovery context replaced');
+    this.name = 'RecoveryContextReplacedError';
+  }
+}
+
+/** Wallet and node ownership for a public recovery pass or a standalone read. */
+export interface RecoveryBoundContext {
+  generation: string;
+  endpoints: EndpointState;
+}
+
+function bindRecoveryContext(generation: string, expected?: RecoveryBoundContext): RecoveryBoundContext {
+  if (expected) {
+    assertRecoveryContext(expected, generation);
+    return expected;
+  }
+  return { generation, endpoints: getEndpointState() };
+}
+
+function assertRecoveryContext(bound: RecoveryBoundContext, generation: string): void {
+  if (generation !== bound.generation || !sameEndpointState(bound.endpoints, getEndpointState())) {
+    throw new RecoveryContextReplacedError();
+  }
 }
 
 /**
@@ -538,6 +575,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       reject(new GuardianHistoryDataError(resp.error));
       return;
     }
+    if (resp.errorName === 'RecoveryContextReplacedError') {
+      reject(new RecoveryContextReplacedError());
+      return;
+    }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
@@ -684,7 +725,8 @@ async function dispatchOp(
   args: unknown[],
   deadlineMs: number | null,
   critical: boolean,
-  submitGated = false
+  submitGated = false,
+  boundContext?: RecoveryBoundContext
 ): Promise<string | null> {
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
@@ -703,6 +745,12 @@ async function dispatchOp(
     argsB64 = args.map(encodeArg);
   } catch (error) {
     throw markErrorBeforeSubmit(error);
+  }
+  // Only a bound public import re-reads here. The generation read is the last await; the compare, the
+  // in-flight registration and the send are one turn, so a context that moved is refused before the envelope.
+  if (boundContext) {
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(boundContext, generation);
   }
   return new Promise<string | null>((resolve, reject) => {
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
@@ -761,8 +809,13 @@ async function dispatchOp(
 }
 
 /** The generic (non-critical) RPC entry: generate an op_id and dispatch a read. */
-function dispatchWithDeadline(method: string, args: unknown[], deadlineMs: number | null): Promise<string | null> {
-  return dispatchOp(newOpId(), method, args, deadlineMs, false);
+function dispatchWithDeadline(
+  method: string,
+  args: unknown[],
+  deadlineMs: number | null,
+  boundContext?: RecoveryBoundContext
+): Promise<string | null> {
+  return dispatchOp(newOpId(), method, args, deadlineMs, false, false, boundContext);
 }
 
 /** A read whose op may sign with the reverse-IPC default signer while it runs (see {@link opDefaultSignerOps}). */
@@ -1180,8 +1233,12 @@ export function dispatchGuardianPipeline(
  */
 export const midenClientProxy = {
   /** Generic RPC — forward `method(args)` to the offscreen doc, deadline-guarded. */
-  call(method: string, args: unknown[], opts?: { deadlineMs?: number | null }): Promise<string | null> {
-    return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null);
+  call(
+    method: string,
+    args: unknown[],
+    opts?: { deadlineMs?: number | null; boundContext?: RecoveryBoundContext }
+  ): Promise<string | null> {
+    return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null, opts?.boundContext);
   },
 
   /**
@@ -1801,12 +1858,23 @@ export const midenClientProxy = {
   },
 
   /** Import the serialized `NoteFile`s a public-backfill read kept, under the client lock. */
-  async importRecoveryNoteFiles(noteFiles: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+  async importRecoveryNoteFiles(
+    noteFiles: Uint8Array[],
+    boundContext?: RecoveryBoundContext
+  ): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async hold => (await getMidenClient()).importRecoveryNoteFiles(noteFiles, hold));
+      return withWasmClientLock(async hold => {
+        const client = await getMidenClient();
+        if (boundContext) {
+          const generation = await readGuardianHistoryGeneration();
+          assertRecoveryContext(boundContext, generation);
+        }
+        return client.importRecoveryNoteFiles(noteFiles, hold);
+      });
     }
     const resultB64 = await this.call('importRecoveryNoteFiles', [noteFiles.map(bytesToB64)], {
-      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS,
+      ...(boundContext ? { boundContext } : {})
     });
     return parseRecoveryCounts('importRecoveryNoteFiles', resultB64);
   },
@@ -1815,9 +1883,16 @@ export const midenClientProxy = {
    * Pending-note recovery: resolve the creation-block scan range. Node reads
    * only, so it runs in this realm without the client lock (#2266).
    */
-  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+  async resolveRecoveryScanRange(
+    createdAtSeconds: number,
+    expected?: RecoveryBoundContext
+  ): Promise<{ startBlock: number; latestBlock: number }> {
     await prepareRecoveryRead();
-    return resolveRecoveryScanRange(createdAtSeconds);
+    const bound = bindRecoveryContext(await readGuardianHistoryGeneration(), expected);
+    const range = await resolveRecoveryScanRange(createdAtSeconds);
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(bound, generation);
+    return range;
   },
 
   /**
@@ -1832,13 +1907,19 @@ export const midenClientProxy = {
     accountId: string,
     blockFrom: number,
     blockTo: number,
-    noteOffset = 0
+    noteOffset = 0,
+    expected?: RecoveryBoundContext
   ): Promise<RecoveryRangeResult> {
     await prepareRecoveryRead();
+    const bound = bindRecoveryContext(await readGuardianHistoryGeneration(), expected);
     const read = await readRecoverablePublicNotes(accountId, blockFrom, blockTo, noteOffset);
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(bound, generation);
     if (read.saturated) return { imported: 0, failures: read.failures, saturated: true };
     const imports =
-      read.noteFiles.length > 0 ? await this.importRecoveryNoteFiles(read.noteFiles) : { imported: 0, failures: 0 };
+      read.noteFiles.length > 0
+        ? await this.importRecoveryNoteFiles(read.noteFiles, bound)
+        : { imported: 0, failures: 0 };
     return {
       imported: imports.imported,
       failures: read.failures + imports.failures,

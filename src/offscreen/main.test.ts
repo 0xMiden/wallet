@@ -6104,6 +6104,180 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
   });
   const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS };
 
+  it('refuses a queued recovery import across a same-endpoint reload', async () => {
+    await loadModule();
+    let finishRead!: (account: { serialize: () => Uint8Array }) => void;
+    G.__off.clientGetAccount.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishRead = resolve;
+      })
+    );
+
+    const read = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-read', method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, read);
+    await flush();
+    expect(G.__off.clientGetAccount).toHaveBeenCalledWith('acc');
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+
+    const ack = jest.fn();
+    capturedListener!(reloadReq, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+
+    finishRead({ serialize: () => new Uint8Array([1]) });
+    await flush();
+
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it('refuses a queued recovery import across a different endpoint', async () => {
+    await loadModule();
+    const other = {
+      override: {
+        ...jest.requireActual('lib/miden-chain/effective-endpoints').buildDefaultOverrideFor('devnet'),
+        rpcUrl: 'https://other.example/rpc'
+      },
+      feeFaucetId: undefined
+    };
+    let finishRead!: (account: { serialize: () => Uint8Array }) => void;
+    G.__off.clientGetAccount.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishRead = resolve;
+      })
+    );
+
+    const read = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-read', method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, read);
+    await flush();
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+
+    const ack = jest.fn();
+    capturedListener!({ ...reloadReq, endpoints: other }, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+
+    finishRead({ serialize: () => new Uint8Array([1]) });
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it.each(['same', 'different'] as const)(
+    'refuses a recovery import whose client build is crossed by a %s-endpoint reload',
+    async which => {
+      await loadModule();
+      const endpoints =
+        which === 'same'
+          ? SW_ENDPOINTS
+          : {
+              override: {
+                ...jest.requireActual('lib/miden-chain/effective-endpoints').buildDefaultOverrideFor('devnet'),
+                rpcUrl: 'https://other.example/rpc'
+              },
+              feeFaucetId: undefined
+            };
+      let finishCreate!: (client: { markPoisoned: () => void; importRecoveryNoteFiles: jest.Mock }) => void;
+      G.__off.getMidenClient.mockReturnValueOnce(
+        new Promise(resolve => {
+          finishCreate = resolve;
+        })
+      );
+
+      const imported = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op-recovery',
+          method: 'importRecoveryNoteFiles',
+          argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+        }),
+        {},
+        imported
+      );
+      await flush();
+      expect(G.__off.getMidenClient).toHaveBeenCalled();
+
+      const ack = jest.fn();
+      capturedListener!({ ...reloadReq, endpoints }, {}, ack);
+      await flush();
+      expect(ack).toHaveBeenCalledWith({ ok: true });
+
+      finishCreate({
+        markPoisoned: () => {},
+        importRecoveryNoteFiles: G.__off.clientImportRecoveryNoteFiles
+      });
+      await flush();
+
+      expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+      expect(imported).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+      );
+    }
+  );
+
+  it('finishes an import already inside the client after a reload', async () => {
+    await loadModule();
+    let finishImport!: (result: { imported: number; failures: number }) => void;
+    G.__off.clientImportRecoveryNoteFiles.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishImport = resolve;
+      })
+    );
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+    expect(G.__off.clientImportRecoveryNoteFiles).toHaveBeenCalledTimes(1);
+    expect(imported).not.toHaveBeenCalled();
+
+    const ack = jest.fn();
+    capturedListener!(reloadReq, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+    expect(imported).not.toHaveBeenCalled();
+
+    finishImport({ imported: 2, failures: 0 });
+    await flush();
+
+    expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
+
   it('leaves an in-flight write untouched — it finishes on the client it already captured', async () => {
     await loadModule();
     let finishWrite!: (result: unknown) => void;

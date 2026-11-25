@@ -58,6 +58,35 @@ describe('guardian note recovery progress', () => {
     });
   });
 
+  it('keeps a public scope only on a public step', () => {
+    const entry = (step: string, publicScope: unknown) =>
+      normalizeGuardianNoteRecoveryProgress({ '0xabc': { accountId: '0xabc', step, publicScope } }, '0xabc');
+    expect(entry('public', 'abc')?.publicScope).toBe('abc');
+    expect(entry('public', 7)?.publicScope).toBeUndefined();
+    expect(entry('public', '')?.publicScope).toBeUndefined();
+    expect(entry('history', 'abc')?.publicScope).toBeUndefined();
+  });
+
+  it('round-trips a public scope and drops one stored on a history record', async () => {
+    const scope = 'ab'.repeat(32);
+    mockFetchFromStorage.mockImplementation(async (key: string) => {
+      if (key !== GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY) return null;
+      const stored = mockPutToStorage.mock.calls.filter(call => call[0] === key).at(-1)?.[1];
+      return stored ?? null;
+    });
+
+    await reportGuardianNoteRecoveryProgress({ accountId: '0xabc', step: 'public', publicScope: scope });
+    await expect(fetchGuardianNoteRecoveryProgress('0xabc')).resolves.toMatchObject({
+      step: 'public',
+      publicScope: scope
+    });
+
+    await reportGuardianNoteRecoveryProgress({ accountId: '0xabc', step: 'history', publicScope: scope });
+    const history = await fetchGuardianNoteRecoveryProgress('0xabc');
+    expect(history?.step).toBe('history');
+    expect(history?.publicScope).toBeUndefined();
+  });
+
   it('keeps a string history generation and drops a numeric one', () => {
     const entry = (historyGeneration: unknown) =>
       normalizeGuardianNoteRecoveryProgress(

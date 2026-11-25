@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2';
+import { bytesToHex } from '@noble/hashes/utils';
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import {
@@ -15,6 +17,7 @@ import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions, isRotationAwaitingFunding } from 'lib/miden/transaction/get';
+import { getEndpointState, sameEndpointState, type EndpointState } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
@@ -101,6 +104,37 @@ function isWalletLocked(): boolean {
  */
 function isAbortedOp(error: unknown): boolean {
   return isPipelineKillLink(error);
+}
+
+/** The proxy's context error, matched by name so this module does not import the class. */
+function isRecoveryContextReplaced(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  try {
+    return Reflect.get(error, 'name') === 'RecoveryContextReplacedError';
+  } catch {
+    return false;
+  }
+}
+
+function recoveryContextReplaced(): Error {
+  const error = new Error('recovery context replaced');
+  error.name = 'RecoveryContextReplacedError';
+  return error;
+}
+
+/** Opaque endpoint identity for a public checkpoint, with keys in deterministic order. */
+export function publicBackfillScope(state: EndpointState): string {
+  const override = state.override;
+  const fields =
+    override &&
+    Object.keys(override)
+      .sort()
+      .map(key => {
+        const value = Reflect.get(override, key);
+        return value === undefined ? [key] : [key, value];
+      });
+  const preimage = JSON.stringify([state.feeFaucetId ?? null, fields]);
+  return bytesToHex(sha256(new TextEncoder().encode(preimage)));
 }
 
 /** Defers the pass for an aborted op, recording whether the abort was an eviction. */
@@ -360,7 +394,8 @@ type ResumePoint = { step: 'public'; block: number } | { step: 'history' };
 function resumePointFor(
   account: WalletAccount,
   progress: GuardianNoteRecoveryProgress | null,
-  historyGeneration: string
+  historyGeneration: string,
+  publicScope?: string
 ): ResumePoint | null {
   if (!progress || progress.accountId !== account.publicKey) return null;
   // `sourcesClean` is what makes the watermark trustworthy, and it must be
@@ -381,7 +416,15 @@ function resumePointFor(
   // terminal and never resumed.
   if (progress.historyGeneration !== historyGeneration) return null;
   if (progress.step === 'history' || progress.step === 'history-partial') return { step: 'history' };
-  if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
+  // A public watermark resumes only for the endpoint that wrote it. An absent or different scope starts over.
+  if (
+    progress.step !== 'public' ||
+    progress.syncedToBlock === undefined ||
+    publicScope === undefined ||
+    progress.publicScope !== publicScope
+  ) {
+    return null;
+  }
   return { step: 'public', block: progress.syncedToBlock };
 }
 
@@ -400,10 +443,23 @@ export async function recoverPendingNotes(
   // Highest watermark this pass has persisted, so the deferral log can say
   // whether there is anything to resume from. Null until the public step runs.
   let checkpointedBlock: number | null = null;
+  // The same endpoint must own the selected cursor and every subsequent public read.
+  const phase = { generation: historyGeneration, endpoints: getEndpointState() };
+  const publicScope = publicBackfillScope(phase.endpoints);
+  const assertPublicPhase = (generation: string) => {
+    if (generation !== phase.generation || !sameEndpointState(phase.endpoints, getEndpointState())) {
+      throw recoveryContextReplaced();
+    }
+  };
 
   let resume: ResumePoint | null = null;
   try {
-    resume = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey), historyGeneration);
+    resume = resumePointFor(
+      account,
+      await fetchGuardianNoteRecoveryProgress(account.publicKey),
+      historyGeneration,
+      publicScope
+    );
   } catch (error) {
     console.warn(`[GuardianRecovery] Could not read the checkpoint for ${account.publicKey}; starting over:`, error);
   }
@@ -539,14 +595,23 @@ export async function recoverPendingNotes(
     // A history resume follows a clean notes pass, which already finished the backfill.
     if (resume?.step !== 'history') {
       try {
+        assertPublicPhase(await readGuardianHistoryGeneration());
+        const reportPublic = async (progress: GuardianNoteRecoveryProgress): Promise<void> => {
+          assertPublicPhase(await readGuardianHistoryGeneration());
+          await reportGuardianNoteRecoveryProgress({ ...progress, publicScope });
+          assertPublicPhase(await readGuardianHistoryGeneration());
+        };
         // On a resumed pass only the chain tip is needed, and passing 0 makes the
         // resolver return it after ONE header read instead of binary-searching
         // for a creation block the checkpoint already supersedes.
-        const range = await midenClientProxy.resolveRecoveryScanRange(resumeFromBlock === null ? createdAtSeconds : 0);
+        const range = await midenClientProxy.resolveRecoveryScanRange(
+          resumeFromBlock === null ? createdAtSeconds : 0,
+          phase
+        );
         const latestBlock = range.latestBlock;
         const startBlock = resumeFromBlock === null ? range.startBlock : Math.min(resumeFromBlock, latestBlock);
         console.log(`[GuardianRecovery] Public backfill for ${account.publicKey}: blocks ${startBlock}-${latestBlock}`);
-        await reportGuardianNoteRecoveryProgress({
+        await reportPublic({
           accountId: account.publicKey,
           step: 'public',
           startBlock,
@@ -575,12 +640,14 @@ export async function recoverPendingNotes(
             console.warn(`[GuardianRecovery] Yielding (${yielded}) mid-backfill for ${account.publicKey}`);
             return result;
           }
+          assertPublicPhase(await readGuardianHistoryGeneration());
           try {
             const chunk = await midenClientProxy.recoverPublicNotesRange(
               account.publicKey,
               blockFrom,
               blockTo,
-              noteOffset
+              noteOffset,
+              phase
             );
             result.publicNotes += chunk.imported;
             result.sourceFailures += chunk.failures;
@@ -620,13 +687,17 @@ export async function recoverPendingNotes(
               );
               return result;
             }
+            if (isRecoveryContextReplaced(error)) {
+              result.sourceFailures++;
+              return result;
+            }
             result.sourceFailures++;
             console.warn(
               `[GuardianRecovery] Public backfill chunk ${blockFrom}-${blockTo} failed for ${account.publicKey}:`,
               error
             );
           }
-          await reportGuardianNoteRecoveryProgress({
+          await reportPublic({
             accountId: account.publicKey,
             step: 'public',
             startBlock,
@@ -646,6 +717,10 @@ export async function recoverPendingNotes(
           console.warn(`[GuardianRecovery] Public backfill aborted with the offscreen realm for ${account.publicKey}`);
           return result;
         }
+        if (isRecoveryContextReplaced(error)) {
+          result.sourceFailures++;
+          return result;
+        }
         result.sourceFailures++;
         console.warn(`[GuardianRecovery] Public account-tag recovery failed for ${account.publicKey}:`, error);
       }
@@ -658,6 +733,13 @@ export async function recoverPendingNotes(
         `[GuardianRecovery] Yielding (${yieldedBeforeSync}) before the closing sync for ${account.publicKey}`
       );
       return result;
+    }
+    if (resume?.step !== 'history') {
+      const generation = await readGuardianHistoryGeneration();
+      if (generation !== phase.generation || !sameEndpointState(phase.endpoints, getEndpointState())) {
+        result.sourceFailures++;
+        return result;
+      }
     }
     await doSync(true);
     console.log(
