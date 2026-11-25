@@ -131,7 +131,12 @@ export function recordNearStageCause(error: unknown): void {
       .slice(0, 300);
     console.error(`Native NEAR stage cause: ${cause}`);
   } catch {
-    return; // Diagnostics cannot change the funding gate or the original error.
+    try {
+      console.error(`Native NEAR stage cause: unprintable ${Object.prototype.toString.call(error)}`);
+    } catch {
+      // Diagnostics cannot change the funding gate or the original error.
+    }
+    return;
   }
   try {
     let existing = {};

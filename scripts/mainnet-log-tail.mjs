@@ -7,13 +7,23 @@ const MAX_LINE = 400;
 
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Between words: any punctuation, whitespace or a short bracketed log prefix, so reflowed, comma-joined or prefixed phrases match.
+const separator = lines => `(?:[^A-Za-z0-9\\[${lines ? '' : '\\n'}]|\\[[^\\]\\n]{0,40}\\])+`;
+const SEPARATOR = `(?:${separator(true)}|\\\\[nrt])+`;
+const LINE_SEPARATOR = separator(false);
+
+function collectLeaves(node, out) {
+  if (typeof node === 'string') out.push(node);
+  else if (node && typeof node === 'object') Object.values(node).forEach(child => collectLeaves(child, out));
+}
+
 // Every shape a secret can take in a log: as given, trimmed, JSON-escaped, URL-encoded, or reflowed across whitespace.
 function secretPatterns(secret) {
   const value = secret.trim();
   if (value.length < 8) return [];
   const literals = [value, JSON.stringify(value).slice(1, -1), encodeURIComponent(value)];
   literals.push(literals[2].replace(/%20/g, '+'));
-  const reflowed = value.split(/\s+/).map(escapeRegex).join('(?:\\s|\\\\[nrt])+');
+  const reflowed = value.split(/\s+/).map(escapeRegex).join(SEPARATOR);
   return [...new Set(literals)].map(escapeRegex).concat(reflowed);
 }
 
@@ -22,16 +32,25 @@ function secretPatterns(secret) {
 export function sanitizedTail(text, secrets = []) {
   let out = text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
   for (const secret of secrets)
-    for (const pattern of secretPatterns(secret)) out = out.replace(new RegExp(pattern, 'g'), '[redacted]');
+    for (const pattern of secretPatterns(secret)) out = out.replace(new RegExp(pattern, 'gi'), '[redacted]');
   out = out
-    .replace(/(^\s*at [^(\n]*)\((?![^()\s]*:\d+:\d+\)|<anonymous>\)|native\))[^\n]*\)\s*$/gm, '$1(...)')
+    .replace(/(^\s*at [^(\n]*)\((?![^()\s]*:\d+:\d+\)|<anonymous>\)|native\))[^)\n]*\)/gm, '$1(...)')
     .replace(/(?<![0-9a-fA-F])(?:0x)?[0-9a-fA-F]{32,}(?![0-9a-fA-F])/g, '[redacted-hex]')
     .replace(/(?<![A-Za-z0-9])[A-Za-z0-9]{32,}(?![A-Za-z0-9])/g, '[redacted-key]')
-    .replace(/(?<![A-Za-z0-9-])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.near(?![A-Za-z0-9])/gi, '[redacted-account]')
-    .replace(/(?<![A-Za-z])(?:[a-z]{3,8}\s+){11}[a-z]{3,8}(?:\s+[a-z]{3,8})*(?![A-Za-z])/g, '[redacted-words]')
+    .replace(
+      /(?<![A-Za-z0-9-])[A-Za-z0-9_-]{1,64}(?:\.[A-Za-z0-9_-]{1,64}){0,10}\.near(?![A-Za-z0-9])/gi,
+      '[redacted-account]'
+    )
+    .replace(
+      new RegExp(
+        `(?<![A-Za-z])(?:[a-z]{3,8}${LINE_SEPARATOR}){11}[a-z]{3,8}(?:${LINE_SEPARATOR}[a-z]{3,8})*(?![A-Za-z])`,
+        'gi'
+      ),
+      '[redacted-words]'
+    )
     .replace(/(?<![A-Za-z])(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]')
     .replace(
-      /(?<![A-Za-z0-9])(api[_-]?key|token|secret|authorization|mnemonic|seed|password)(?![A-Za-z0-9])(["']?\s*[:=]\s*)(?:(?:bearer|basic)\s+)?\S+/gi,
+      /(?<![A-Za-z0-9])((?:api|private|secret)[_-]?key|token|secret|authorization|mnemonic|seed|passwd|password|cookie|session)(?![A-Za-z0-9])(["']?\s*[:=]\s*|\s+)(?:(?:bearer|basic)\s+)?\S+/gi,
       '$1$2[redacted]'
     );
   return out
