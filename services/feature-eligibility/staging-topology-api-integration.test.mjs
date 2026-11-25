@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import test from 'node:test';
 import { createTopologyReadApi } from './staging-topology-api.mjs';
 import { createTopologyApiBudget, prepareTopologyInventory } from './staging-topology-preflight.mjs';
@@ -260,4 +261,36 @@ test('createTopologyApiBudget enforces single-layer read caps over createTopolog
   }
   await assert.rejects(budget.preflight('/account'), /provider read budget exhausted/);
   assert.equal(fetchCalls, 250);
+});
+
+test('createTopologyReadApi rejects authenticated redirects', async () => {
+  const targetHits = [];
+  const targetServer = http.createServer((req, res) => {
+    targetHits.push({ url: req.url, auth: req.headers.authorization ?? null });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ success: true, errors: [], result: { subdomain: 'wallet-topology' } }));
+  });
+  await new Promise(resolve => targetServer.listen(0, '127.0.0.1', resolve));
+  const targetPort = targetServer.address().port;
+  const redirectServer = http.createServer((req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${targetPort}${req.url}` });
+    res.end();
+  });
+  await new Promise(resolve => redirectServer.listen(0, '127.0.0.1', resolve));
+  const redirectOrigin = `http://127.0.0.1:${redirectServer.address().port}`;
+  try {
+    const api = createTopologyReadApi({
+      accountId,
+      token,
+      fetchImpl: (url, init) => {
+        const parsed = new URL(url);
+        return fetch(`${redirectOrigin}${parsed.pathname}${parsed.search}`, init);
+      }
+    });
+    assert.equal(await api('/workers/subdomain'), null);
+    assert.deepEqual(targetHits, []);
+  } finally {
+    await new Promise(resolve => redirectServer.close(resolve));
+    await new Promise(resolve => targetServer.close(resolve));
+  }
 });

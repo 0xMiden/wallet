@@ -250,6 +250,7 @@ export function createTopologyReadApi({ accountId, token, fetchImpl = fetch } = 
         const response = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}${suffix}`, {
           method: 'GET',
           headers: { Authorization: `Bearer ${token}` },
+          redirect: 'error',
           signal: controller.signal
         });
         if (kind === 'content') return await contentDigest(response, controller.signal);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -452,6 +453,39 @@ test('topology exercise stops after a transport failure without retrying a scena
     }),
     /invalid_scenario_request/
   );
+});
+
+test('exerciseTopologyScenarios fails closed on redirects', async () => {
+  const targetHits = [];
+  const targetServer = http.createServer((req, res) => {
+    targetHits.push({ url: req.url, auth: req.headers.authorization ?? null });
+    const scenario = new URL(req.url, 'http://127.0.0.1').pathname.split('/').pop();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ scenario, status: 'passed' }));
+  });
+  await new Promise(resolve => targetServer.listen(0, '127.0.0.1', resolve));
+  const targetPort = targetServer.address().port;
+  const redirectServer = http.createServer((req, res) => {
+    res.writeHead(302, { location: `http://127.0.0.1:${targetPort}${req.url}` });
+    res.end();
+  });
+  await new Promise(resolve => redirectServer.listen(0, '127.0.0.1', resolve));
+  const redirectOrigin = `http://127.0.0.1:${redirectServer.address().port}`;
+  try {
+    const results = await exerciseTopologyScenarios({
+      baseUrl: 'https://miden-elig-topology-123-1.example.workers.dev',
+      bearer: 'b'.repeat(32),
+      fetchImpl: (url, init) => {
+        const parsed = new URL(url);
+        return fetch(`${redirectOrigin}${parsed.pathname}${parsed.search}`, init);
+      }
+    });
+    assert.deepEqual(results, [{ scenario: 'cache_reuse', result: 'unavailable' }]);
+    assert.deepEqual(targetHits, []);
+  } finally {
+    await new Promise(resolve => redirectServer.close(resolve));
+    await new Promise(resolve => targetServer.close(resolve));
+  }
 });
 
 test('topology script name and workers.dev URL validators enforce exact boundaries', () => {

@@ -483,6 +483,7 @@ export async function exerciseTopologyScenarios({ baseUrl, bearer, fetchImpl = f
         const response = await fetchImpl(`${baseUrl}/scenario/${scenario}`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${bearer}` },
+          redirect: 'error',
           signal: controller.signal
         });
         return { response, body: await readBoundedJson(response, controller.signal) };
