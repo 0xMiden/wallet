@@ -97,7 +97,12 @@ describe('useMidenNameResolvesHere', () => {
 
   it('returns false in the same render and reads again when the network changes while support stays true', async () => {
     mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
-    const { result, unmount } = renderHook(() => useMidenNameResolvesHere(ACCOUNT_A, 'alice'));
+    const frames: boolean[] = [];
+    const { result, unmount } = renderHook(() => {
+      const value = useMidenNameResolvesHere(ACCOUNT_A, 'alice');
+      frames.push(value);
+      return value;
+    });
     await act(async () => {
       await Promise.resolve();
     });
@@ -105,9 +110,13 @@ describe('useMidenNameResolvesHere', () => {
 
     mockNetwork = 'mainnet';
     mockFetchDomainRecordAccount.mockResolvedValueOnce(null);
+    frames.length = 0;
     act(() => {
       for (const listener of endpointListeners) listener();
     });
+    // Every render after the change, including the one before any effect runs, hides the previous network's result.
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain(true);
     expect(result.current).toBe(false);
     await act(async () => {
       await Promise.resolve();

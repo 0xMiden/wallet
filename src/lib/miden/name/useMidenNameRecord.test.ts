@@ -404,15 +404,24 @@ describe('useMidenNameRecord', () => {
 
   it('resets to checking in the same render and reads again when the network changes while support stays true', async () => {
     mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
-    const { result, unmount } = renderHook(() => useMidenNameRecord(ACCOUNT_A, 'alice'));
+    const frames: MidenNameRecordState[] = [];
+    const { result, unmount } = renderHook(() => {
+      const state = useMidenNameRecord(ACCOUNT_A, 'alice');
+      frames.push(state);
+      return state;
+    });
     await flushMicrotasks();
     expect(result.current).toBe('here');
 
     mockNetwork = 'mainnet';
     mockFetchDomainRecordAccount.mockResolvedValueOnce(null);
+    frames.length = 0;
     act(() => {
       for (const listener of endpointListeners) listener();
     });
+    // Every render after the change, including the one before any effect runs, hides the previous network's state.
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain('here');
     expect(result.current).toBe('checking');
     await flushMicrotasks();
     expect(result.current).toBe('none');
