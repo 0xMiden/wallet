@@ -9,8 +9,10 @@ jest.mock('app/layouts/page-active', () => ({
 }));
 
 let mockSupported = true;
+let mockNetwork = 'testnet';
 const endpointListeners = new Set<() => void>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetwork,
   subscribeEffectiveEndpoints: (listener: () => void) => {
     endpointListeners.add(listener);
     return () => {
@@ -57,6 +59,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockActive = true;
   mockSupported = true;
+  mockNetwork = 'testnet';
 });
 
 afterEach(() => {
@@ -396,6 +399,24 @@ describe('useMidenNameRecord', () => {
     expect(result.current).toBe('checking');
     await flushMicrotasks();
     expect(result.current).toBe('here');
+    unmount();
+  });
+
+  it('resets to checking in the same render and reads again when the network changes while support stays true', async () => {
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    const { result, unmount } = renderHook(() => useMidenNameRecord(ACCOUNT_A, 'alice'));
+    await flushMicrotasks();
+    expect(result.current).toBe('here');
+
+    mockNetwork = 'mainnet';
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(null);
+    act(() => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(result.current).toBe('checking');
+    await flushMicrotasks();
+    expect(result.current).toBe('none');
+    expect(mockFetchDomainRecordAccount).toHaveBeenCalledTimes(2);
     unmount();
   });
 

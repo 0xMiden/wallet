@@ -5,7 +5,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
 import { MidenNameAbortedError } from './errors';
@@ -14,6 +14,7 @@ import { fetchDomainRecordAccount } from './resolver';
 interface ResolvesSnapshot {
   accountId: string | undefined;
   label: string | undefined;
+  network: string;
   supported: boolean;
   resolves: boolean;
 }
@@ -22,9 +23,15 @@ function sameQuery(
   snapshot: ResolvesSnapshot,
   accountId: string | undefined,
   label: string | undefined,
+  network: string,
   supported: boolean
 ): boolean {
-  return snapshot.accountId === accountId && snapshot.label === label && snapshot.supported === supported;
+  return (
+    snapshot.accountId === accountId &&
+    snapshot.label === label &&
+    snapshot.network === network &&
+    snapshot.supported === supported
+  );
 }
 
 /**
@@ -35,17 +42,21 @@ function sameQuery(
  * or label cancels the previous check.
  */
 export function useMidenNameResolvesHere(accountId: string | undefined, label: string | undefined): boolean {
+  const network = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveNetworkName, getEffectiveNetworkName);
   const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
   const [snapshot, setSnapshot] = useState<ResolvesSnapshot>(() => ({
     accountId,
     label,
+    network,
     supported,
     resolves: false
   }));
 
   useEffect(() => {
     setSnapshot(prev =>
-      sameQuery(prev, accountId, label, supported) ? prev : { accountId, label, supported, resolves: false }
+      sameQuery(prev, accountId, label, network, supported)
+        ? prev
+        : { accountId, label, network, supported, resolves: false }
     );
     if (!accountId || label === undefined || !supported) return undefined;
 
@@ -56,6 +67,7 @@ export function useMidenNameResolvesHere(accountId: string | undefined, label: s
           setSnapshot({
             accountId,
             label,
+            network,
             supported,
             resolves: record !== null && compareAccountIds(record, accountId)
           });
@@ -69,7 +81,7 @@ export function useMidenNameResolvesHere(accountId: string | undefined, label: s
     return () => {
       cancelled = true;
     };
-  }, [accountId, label, supported]);
+  }, [accountId, label, network, supported]);
 
-  return sameQuery(snapshot, accountId, label, supported) ? snapshot.resolves : false;
+  return sameQuery(snapshot, accountId, label, network, supported) ? snapshot.resolves : false;
 }
