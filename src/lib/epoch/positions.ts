@@ -208,6 +208,24 @@ interface PositionsQueryResult {
   error?: string;
   stage?: EarnPositionsLoadStage;
   retryable?: boolean;
+  retryAfterMs?: number;
+}
+
+const HTTP_DATE_FORMATS = [
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:\d{2}| \d) \d{2}:\d{2}:\d{2} \d{4}$/
+];
+
+function parsePositionsRetryAfter(header: string | null | undefined): number | undefined {
+  const value = header?.trim();
+  if (!value) return undefined;
+  const seconds = /^\d+$/.test(value);
+  if (!seconds && !HTTP_DATE_FORMATS.some(format => format.test(value))) return undefined;
+  const delay = seconds
+    ? Number(value) * 1000
+    : Date.parse(value.endsWith(' GMT') ? value : `${value} GMT`) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
 }
 
 /**
@@ -228,12 +246,17 @@ async function fetchPositions(
     return await withRequestTimeout(timeoutMs, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
+        const retryAfterMs =
+          res.status === 429 && typeof res.headers?.get === 'function'
+            ? parsePositionsRetryAfter(res.headers.get('retry-after'))
+            : undefined;
         return {
           owner,
           items: [],
           error: `positions request failed (${res.status})`,
           stage,
-          retryable: res.status === 408 || res.status >= 500
+          retryable: res.status === 408 || res.status >= 500 || retryAfterMs !== undefined,
+          retryAfterMs
         };
       }
       stage = 'response_decode';
@@ -281,6 +304,10 @@ async function fetchPositionsBeforeDeadline(
     const result = await fetchPositions(positionsUrl, query, Math.min(POSITIONS_REQUEST_TIMEOUT_MS, remaining));
     if (!result.retryable) return result;
     failure = result;
+    if (result.retryAfterMs && attempts < 2) {
+      if (result.retryAfterMs >= deadline - Date.now()) break;
+      await new Promise<void>(resolve => setTimeout(resolve, result.retryAfterMs));
+    }
   }
   return failure;
 }
