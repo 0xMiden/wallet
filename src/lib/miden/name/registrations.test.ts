@@ -327,4 +327,36 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
     expect(result.current.list.rows).toHaveLength(1);
     unmount();
   });
+
+  it('does not show the pre-drop rows again when support returns after the rows changed', async () => {
+    await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
+    const frames: { rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { result, unmount } = renderHook(() => {
+      const list = useMidenNameRegistrations(ACCOUNT);
+      const owned = useOwnedMidenName(ACCOUNT);
+      frames.push({ rowsLen: list.rows.length, loaded: list.loaded, owned });
+      return { list, owned };
+    });
+    await waitFor(() => expect(result.current.owned).toBe('alice'));
+
+    mockSupported = false;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(result.current.owned).toBeUndefined();
+
+    await Repo.transactions.clear();
+    frames.length = 0;
+    mockSupported = true;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: false, owned: undefined });
+    expect(frames.map(frame => frame.owned)).not.toContain('alice');
+    await waitFor(() => expect(result.current.list.loaded).toBe(true));
+    expect(result.current.list.rows).toHaveLength(0);
+    expect(result.current.owned).toBeUndefined();
+    unmount();
+  });
 });
