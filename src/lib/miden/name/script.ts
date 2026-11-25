@@ -28,7 +28,7 @@ interface SerializedNoteScript {
   serializedBase64: string;
 }
 
-let registerDomainAssetPromise: Promise<SerializedNoteScript> | undefined;
+let registerDomainBytesPromise: Promise<Uint8Array> | undefined;
 
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
@@ -73,36 +73,13 @@ function parseRegisterDomainAsset(value: unknown): SerializedNoteScript {
   return entry;
 }
 
-async function fetchRegisterDomainAsset(): Promise<SerializedNoteScript> {
+async function fetchVerifiedRegisterDomainBytes(captureFirstScript: (script: NoteScript) => void): Promise<Uint8Array> {
   const url = `/${MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new MidenNameScriptAssetError(`HTTP ${response.status} for ${url}`);
   }
-  return parseRegisterDomainAsset(await response.json());
-}
-
-function getRegisterDomainAsset(): Promise<SerializedNoteScript> {
-  if (!registerDomainAssetPromise) {
-    registerDomainAssetPromise = fetchRegisterDomainAsset().catch(error => {
-      // Do not cache a failure: a transient fetch error must not poison the realm.
-      registerDomainAssetPromise = undefined;
-      throw error;
-    });
-  }
-  return registerDomainAssetPromise;
-}
-
-/**
- * Deserialize the register-domain note script and verify its MAST root matches
- * the pinned registry root. Each call returns a NEW `NoteScript`, because a
- * wasm call that takes the script moves it into Rust.
- *
- * Throws MidenNameScriptMismatchError when the root is not the expected root.
- * The caller must load the SDK WASM before it calls this function.
- */
-export async function loadRegisterDomainScript(): Promise<NoteScript> {
-  const entry = await getRegisterDomainAsset();
+  const entry = parseRegisterDomainAsset(await response.json());
   const bytes = base64ToBytes(entry.serializedBase64);
   if (bytes.length !== REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH) {
     throw new MidenNameScriptAssetError(
@@ -117,10 +94,40 @@ export async function loadRegisterDomainScript(): Promise<NoteScript> {
     script.free();
     throw new MidenNameScriptMismatchError(expectedRoot, actualRoot, REGISTER_DOMAIN_LABEL);
   }
-  return script;
+  captureFirstScript(script);
+  return bytes;
+}
+
+/**
+ * Deserialize the register-domain note script and verify its MAST root matches
+ * the pinned registry root. Each call returns a NEW `NoteScript`, because a
+ * wasm call that takes the script moves it into Rust.
+ *
+ * Throws MidenNameScriptMismatchError when the root is not the expected root.
+ */
+export async function loadRegisterDomainScript(): Promise<NoteScript> {
+  if (registerDomainBytesPromise) {
+    const bytes = await registerDomainBytesPromise;
+    return NoteScript.deserialize(bytes);
+  }
+
+  let firstScript: NoteScript | undefined;
+  const pendingBytes = fetchVerifiedRegisterDomainBytes(script => {
+    firstScript = script;
+  }).catch(error => {
+    // Do not cache a failure: any fetch, decode, deserialize, or root error must not poison the realm.
+    if (registerDomainBytesPromise === pendingBytes) {
+      registerDomainBytesPromise = undefined;
+    }
+    throw error;
+  });
+  registerDomainBytesPromise = pendingBytes;
+
+  const bytes = await pendingBytes;
+  return firstScript ?? NoteScript.deserialize(bytes);
 }
 
 /** Drop the cached asset. For tests only. */
 export function resetMidenNameNoteScriptsCacheForTests(): void {
-  registerDomainAssetPromise = undefined;
+  registerDomainBytesPromise = undefined;
 }
