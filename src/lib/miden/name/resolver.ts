@@ -24,9 +24,9 @@ import { type AccountIdParts, encodeDomainFelts, validateMidenLabel } from './en
 import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
 import {
   assertScopeCurrent,
-  awaitScoped,
   captureEffectiveScope,
   type EffectiveScope,
+  type RegistryStorageRead,
   readRegistryStorage
 } from './reads';
 import { accountIdFromParts, decodeAccountWord, idPartsFromHex, statusKeyFeltsForLabel } from './sdk-words';
@@ -71,22 +71,24 @@ async function forwardLookup(
 ): Promise<AccountIdParts | null> {
   const domainWord = encodeDomainFelts(label);
   throwIfAborted(signal);
-  await awaitScoped(scope, ensureSdkWasmReady, signal);
-  assertScopeCurrent(scope, signal);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const commitmentKey = statusKeyFeltsForLabel(label, registry);
-  const storage = await awaitScoped(
-    scope,
-    () =>
-      readRegistryStorage(
-        config,
-        [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
-        'midenNameResolveForward',
-        { scope, signal }
-      ),
-    signal
-  );
-  assertScopeCurrent(scope, signal);
+  let storage: RegistryStorageRead;
+  try {
+    storage = await readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
+      'midenNameResolveForward',
+      { scope, signal }
+    );
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   return (
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, commitmentKey)) ??
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, domainWord))
@@ -102,9 +104,11 @@ export async function fetchDomainRecord(label: string): Promise<AccountIdParts |
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
   const scope = captureEffectiveScope(config.network);
-  const account = await awaitScoped(scope, () => forwardLookup(config, label, undefined, scope));
-  assertScopeCurrent(scope);
-  return account;
+  try {
+    return await forwardLookup(config, label, undefined, scope);
+  } finally {
+    assertScopeCurrent(scope);
+  }
 }
 
 /**
@@ -116,8 +120,12 @@ export async function fetchDomainRecordAccount(label: string): Promise<string | 
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
   const scope = captureEffectiveScope(config.network);
-  const record = await awaitScoped(scope, () => forwardLookup(config, label, undefined, scope));
-  assertScopeCurrent(scope);
+  let record: AccountIdParts | null;
+  try {
+    record = await forwardLookup(config, label, undefined, scope);
+  } finally {
+    assertScopeCurrent(scope);
+  }
   return record === null ? null : getBech32AddressFromAccountId(accountIdFromParts(record));
 }
 
@@ -138,8 +146,12 @@ export async function resolveMidenName(label: string, { signal }: ResolveOptions
   const cached = readCache(cacheKey);
   if (cached) return cached.value;
 
-  const account = await awaitScoped(scope, () => forwardLookup(config, label, signal, scope), signal);
-  assertScopeCurrent(scope, signal);
+  let account: AccountIdParts | null;
+  try {
+    account = await forwardLookup(config, label, signal, scope);
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   if (!account) {
     writeCache(cacheKey, null);
     return null;

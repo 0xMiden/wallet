@@ -31,7 +31,6 @@ jest.mock('./reads', () => {
   return {
     captureEffectiveScope: actual.captureEffectiveScope,
     assertScopeCurrent: actual.assertScopeCurrent,
-    awaitScoped: actual.awaitScoped,
     readRegistryStorage: jest.fn()
   };
 });
@@ -374,14 +373,14 @@ describe('listOwnedDomainLabels', () => {
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockLock.mockClear();
     mockWasmReady.mockImplementationOnce(async () => {
-      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(mockLock).not.toHaveBeenCalled();
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockWasmReady.mockImplementationOnce(async () => {
-      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(mockLock).not.toHaveBeenCalled();
@@ -389,7 +388,7 @@ describe('listOwnedDomainLabels', () => {
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockLock.mockImplementationOnce(async operation => {
       const value = await operation(HOLD);
-      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
       return value;
     });
     await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -398,7 +397,7 @@ describe('listOwnedDomainLabels', () => {
     mockRead.mockClear();
     mockLock.mockImplementationOnce(async operation => {
       const value = await operation(HOLD);
-      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
       return value;
     });
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -413,8 +412,22 @@ describe('listOwnedDomainLabels', () => {
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockRead.mockImplementationOnce(async () => {
-      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
       return storageOf(new Map([[mapKeyOf('alice'), encodeDomainFelts('alice')]]));
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockLock.mockImplementationOnce(async () => {
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      throw new Error('lock boom');
+    });
+    await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockRead.mockImplementationOnce(async () => {
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      throw new Error('read boom');
     });
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
   });

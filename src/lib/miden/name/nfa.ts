@@ -23,7 +23,7 @@ import { getMidenNameConfig, MIDEN_NAME_SLOTS, type MidenNameConfig } from './co
 import { type AccountIdParts, type Felts4, decodeDomainFelts, encodeDomainFelts } from './encoding';
 import { MidenNameUnsupportedNetworkError } from './errors';
 import { toAccountId } from './note';
-import { assertScopeCurrent, awaitScoped, captureEffectiveScope, readRegistryStorage } from './reads';
+import { assertScopeCurrent, captureEffectiveScope, type RegistryStorageRead, readRegistryStorage } from './reads';
 import { domainCommitment, feltsFromWord, idPartsFromHex, isRegistryNfa, keyMatchesCommitment } from './sdk-words';
 
 export type DomainNfaHolding = 'held' | 'not-held';
@@ -79,15 +79,22 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
   const config = requireConfig();
   encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const registry = idPartsFromHex(config.registryAccountIdHex);
-  const holding = await awaitScoped(scope, () =>
-    withWasmClientLock(
+  try {
+    return await withWasmClientLock(
       async hold => {
         assertScopeCurrent(scope);
-        const account = await awaitScoped(scope, () => midenClientProxy.getAccount(toAccountId(accountId).toString()));
-        assertScopeCurrent(scope);
+        let account: Account | null;
+        try {
+          account = await midenClientProxy.getAccount(toAccountId(accountId).toString());
+        } finally {
+          assertScopeCurrent(scope);
+        }
         assertWasmHoldCurrent(hold, 'miden-name-nfa-read: after the account read');
         if (!account) return 'not-held';
         const nfa = findDomainNfa(account, label, registry, config.registryAccountIdHex);
@@ -96,10 +103,10 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
         return 'held';
       },
       { label: 'miden-name-nfa-read' }
-    )
-  );
-  assertScopeCurrent(scope);
-  return holding;
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
 }
 
 /**
@@ -111,31 +118,45 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
 export async function listOwnedDomainLabels(accountId: string): Promise<string[]> {
   const config = requireConfig();
   const scope = captureEffectiveScope(config.network);
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const registry = idPartsFromHex(config.registryAccountIdHex);
-  const nfaKeys = await awaitScoped(scope, () =>
-    withWasmClientLock(
+  let nfaKeys: Felts4[];
+  try {
+    nfaKeys = await withWasmClientLock(
       async hold => {
         assertScopeCurrent(scope);
-        const account = await awaitScoped(scope, () => midenClientProxy.getAccount(toAccountId(accountId).toString()));
-        assertScopeCurrent(scope);
+        let account: Account | null;
+        try {
+          account = await midenClientProxy.getAccount(toAccountId(accountId).toString());
+        } finally {
+          assertScopeCurrent(scope);
+        }
         assertWasmHoldCurrent(hold, 'miden-name-nfa-list: after the account read');
         return account ? registryNfaKeys(account, config.registryAccountIdHex) : [];
       },
       { label: 'miden-name-nfa-list' }
-    )
-  );
-  assertScopeCurrent(scope);
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
   if (nfaKeys.length === 0) return [];
 
   const mapKeys: Felts4[] = nfaKeys.map(key => [key[0], key[1], 0n, 0n]);
-  const storage = await awaitScoped(scope, () =>
-    readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.tokenToDomain, keys: mapKeys }], 'midenNameOwnedNames', {
-      scope
-    })
-  );
-  assertScopeCurrent(scope);
+  let storage: RegistryStorageRead;
+  try {
+    storage = await readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.tokenToDomain, keys: mapKeys }],
+      'midenNameOwnedNames',
+      { scope }
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const labels: string[] = [];
   for (const key of mapKeys) {
     const label = decodeDomainFelts(storage.mapValue(MIDEN_NAME_SLOTS.tokenToDomain, key));

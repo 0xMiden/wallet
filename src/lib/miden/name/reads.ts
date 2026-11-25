@@ -108,15 +108,6 @@ export function assertScopeCurrent(scope: EffectiveScope, signal?: AbortSignal):
   }
 }
 
-/** Await an operation and recheck abort signal and captured scope on both fulfillment and rejection. */
-export async function awaitScoped<T>(scope: EffectiveScope, op: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  try {
-    return await op();
-  } finally {
-    assertScopeCurrent(scope, signal);
-  }
-}
-
 function readWithRpcUrl<T>(
   scope: EffectiveScope,
   read: (rpc: RpcClient) => Promise<T>,
@@ -147,8 +138,11 @@ function requireConfig(): MidenNameConfig {
 type OwnedRpcRunner = <R>(op: (rpc: RpcClient) => Promise<R>, callLabel: string) => Promise<R>;
 
 async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedRpcRunner) => Promise<T>): Promise<T> {
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
   const pending: Promise<void>[] = [];
   const runRpc: OwnedRpcRunner = (op, callLabel) =>
@@ -164,9 +158,11 @@ async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedR
       return attempt;
     }, callLabel);
   try {
-    const result = await awaitScoped(scope, () => run(runRpc));
-    assertScopeCurrent(scope);
-    return result;
+    try {
+      return await run(runRpc);
+    } finally {
+      assertScopeCurrent(scope);
+    }
   } finally {
     void Promise.all(pending).then(() => rpc.free());
   }
@@ -202,66 +198,68 @@ export async function readRegistryStorage(
   const scope = options?.scope ?? captureEffectiveScope(config.network);
   const signal = options?.signal;
   assertScopeCurrent(scope, signal);
-  await awaitScoped(scope, ensureSdkWasmReady, signal);
-  assertScopeCurrent(scope, signal);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   const registryHex = config.registryAccountIdHex.toLowerCase();
 
-  const snapshot = await awaitScoped(
-    scope,
-    () =>
-      withRpcTimeout(
-        () =>
-          readWithRpcUrl<RawProofSnapshot>(
-            scope,
-            async rpc => {
-              const proof = await rpc.getAccountProof(
-                AccountId.fromHex(config.registryAccountIdHex),
-                AccountStorageRequirements.fromSlotAndKeysArray(
-                  requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
-                )
-              );
-              try {
-                const provenId = proof.accountId().toString().toLowerCase();
-                if (provenId !== registryHex) {
-                  return { kind: 'mismatch', message: `proof is for ${provenId}, expected ${registryHex}` };
-                }
-
-                const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
-                const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
-                if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
-                  return { kind: 'mismatch', message: `unsupported commitment_version ${String(version)}` };
-                }
-
-                const blockNum = proof.blockNum();
-                const slotValuesByName = new Map<string, string | undefined>();
-                for (const slot of options?.slotNames ?? []) {
-                  slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
-                }
-
-                const entriesBySlot = new Map<string, Map<string, Felts4>>();
-                for (const { slot } of requests) {
-                  if (proof.hasStorageMapTooManyEntries(slot) === true) {
-                    return { kind: 'mismatch', message: `node did not return the entries of ${slot}` };
-                  }
-                  const entries = new Map<string, Felts4>();
-                  for (const entry of proof.getStorageMapEntries(slot) ?? []) {
-                    entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
-                  }
-                  entriesBySlot.set(slot, entries);
-                }
-
-                return { kind: 'ok', blockNum, slotValuesByName, entriesBySlot };
-              } finally {
-                proof.free();
+  let snapshot: RawProofSnapshot;
+  try {
+    snapshot = await withRpcTimeout(
+      () =>
+        readWithRpcUrl<RawProofSnapshot>(
+          scope,
+          async rpc => {
+            const proof = await rpc.getAccountProof(
+              AccountId.fromHex(config.registryAccountIdHex),
+              AccountStorageRequirements.fromSlotAndKeysArray(
+                requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+              )
+            );
+            try {
+              const provenId = proof.accountId().toString().toLowerCase();
+              if (provenId !== registryHex) {
+                return { kind: 'mismatch', message: `proof is for ${provenId}, expected ${registryHex}` };
               }
-            },
-            signal
-          ),
-        label
-      ),
-    signal
-  );
-  assertScopeCurrent(scope, signal);
+
+              const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
+              const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
+              if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
+                return { kind: 'mismatch', message: `unsupported commitment_version ${String(version)}` };
+              }
+
+              const blockNum = proof.blockNum();
+              const slotValuesByName = new Map<string, string | undefined>();
+              for (const slot of options?.slotNames ?? []) {
+                slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
+              }
+
+              const entriesBySlot = new Map<string, Map<string, Felts4>>();
+              for (const { slot } of requests) {
+                if (proof.hasStorageMapTooManyEntries(slot) === true) {
+                  return { kind: 'mismatch', message: `node did not return the entries of ${slot}` };
+                }
+                const entries = new Map<string, Felts4>();
+                for (const entry of proof.getStorageMapEntries(slot) ?? []) {
+                  entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
+                }
+                entriesBySlot.set(slot, entries);
+              }
+
+              return { kind: 'ok', blockNum, slotValuesByName, entriesBySlot };
+            } finally {
+              proof.free();
+            }
+          },
+          signal
+        ),
+      label
+    );
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
 
   if (snapshot.kind === 'mismatch') {
     throw new MidenNameRegistryMismatchError(snapshot.message);
@@ -303,8 +301,11 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
     return cached.quote;
   }
 
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
 
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const token = idPartsFromHex(config.paymentFaucetIdHex);
@@ -312,8 +313,9 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
   const priceKey = priceKeyFelts(Number(domainWord[3]), token);
   const scriptRoot = feltsFromWord(Word.fromHex(MIDEN_NAME_REGISTER_SCRIPT_ROOT));
 
-  const storage = await awaitScoped(scope, () =>
-    readRegistryStorage(
+  let storage: RegistryStorageRead;
+  try {
+    storage = await readRegistryStorage(
       config,
       [
         { slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] },
@@ -322,9 +324,10 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
       ],
       'midenNameQuote',
       { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot], scope }
-    )
-  );
-  assertScopeCurrent(scope);
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
 
   const status = storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey);
   const price = storage.mapValue(MIDEN_NAME_SLOTS.prices, priceKey);
@@ -356,16 +359,24 @@ export async function fetchMidenNameIssued(label: string): Promise<boolean> {
   const config = requireConfig();
   encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const statusKey = statusKeyFeltsForLabel(label, registry);
-  const storage = await awaitScoped(scope, () =>
-    readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] }], 'midenNameIssued', {
-      scope
-    })
-  );
-  assertScopeCurrent(scope);
+  let storage: RegistryStorageRead;
+  try {
+    storage = await readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] }],
+      'midenNameIssued',
+      { scope }
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
   return storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey)[0] === MIDEN_NAME_ISSUED_MARKER;
 }
 
@@ -409,17 +420,18 @@ function isNoteNotFoundError(error: unknown): boolean {
  */
 export async function fetchRegistrationNoteState(noteIdHex: string): Promise<RegistrationNoteState> {
   const scope = captureEffectiveScope();
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
   let info;
   try {
     // No retry: a retry of a "not found" gives the same result.
-    info = await awaitScoped(scope, () =>
-      withRpcTimeout(
-        () => readWithRpcUrl(scope, rpc => rpc.getNetworkNoteStatus(NoteId.fromHex(noteIdHex))),
-        'midenNameRegistrationNoteStatus',
-        { retries: 0 }
-      )
+    info = await withRpcTimeout(
+      () => readWithRpcUrl(scope, rpc => rpc.getNetworkNoteStatus(NoteId.fromHex(noteIdHex))),
+      'midenNameRegistrationNoteStatus',
+      { retries: 0 }
     );
   } catch (error) {
     assertScopeCurrent(scope);
@@ -448,10 +460,12 @@ async function notesCarryingLabel(
   scope: EffectiveScope
 ): Promise<string[]> {
   if (noteIds.length === 0) return [];
-  const fetched = await awaitScoped(scope, () =>
-    runRpc(rpc => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))), 'midenNameDeliveryNotes')
-  );
-  assertScopeCurrent(scope);
+  let fetched: Awaited<ReturnType<RpcClient['getNotesById']>>;
+  try {
+    fetched = await runRpc(rpc => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))), 'midenNameDeliveryNotes');
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const answered = new Set<string>();
   const matching = new Set<string>();
   for (const entry of fetched) {
@@ -499,12 +513,20 @@ export async function findRegistryDeliveryNoteIds({
   const scope = captureEffectiveScope(config.network);
   const registryHex = config.registryAccountIdHex.toLowerCase();
   fromBlock = Math.max(fromBlock, config.registryCreationBlock);
-  const end = toBlock ?? (await awaitScoped(scope, () => getChainTip(scope)));
-  assertScopeCurrent(scope);
+  let end: number;
+  if (toBlock !== undefined) {
+    end = toBlock;
+  } else {
+    try {
+      end = await getChainTip(scope);
+    } finally {
+      assertScopeCurrent(scope);
+    }
+  }
   if (fromBlock > end) return { noteIds: [], scannedTo: end };
 
-  const scan = await awaitScoped(scope, () =>
-    withOwnedRpcClient(scope, async runRpc => {
+  try {
+    return await withOwnedRpcClient(scope, async runRpc => {
       const noteIds: string[] = [];
       const seen = new Set<string>();
       let cursor = fromBlock;
@@ -512,13 +534,15 @@ export async function findRegistryDeliveryNoteIds({
 
       for (let round = 0; round < MAX_DELIVERY_SCAN_ROUNDS && cursor <= end; round++) {
         const from = cursor;
-        const info = await awaitScoped(scope, () =>
-          runRpc(
+        let info: Awaited<ReturnType<RpcClient['syncNotes']>>;
+        try {
+          info = await runRpc(
             rpc => rpc.syncNotes(from, end, [NoteTag.withAccountTarget(walletAccountIdToSdk(accountId))]),
             'midenNameDeliveryScan'
-          )
-        );
-        assertScopeCurrent(scope);
+          );
+        } finally {
+          assertScopeCurrent(scope);
+        }
         for (const block of info.blocks()) {
           for (const note of block.notes()) {
             if (note.sender().toString().toLowerCase() !== registryHex) continue;
@@ -537,22 +561,34 @@ export async function findRegistryDeliveryNoteIds({
       }
 
       if (label === undefined) return { noteIds, scannedTo };
-      const matching = await awaitScoped(scope, () => notesCarryingLabel(runRpc, noteIds, label, registryHex, scope));
-      assertScopeCurrent(scope);
+      let matching: string[];
+      try {
+        matching = await notesCarryingLabel(runRpc, noteIds, label, registryHex, scope);
+      } finally {
+        assertScopeCurrent(scope);
+      }
       return { noteIds: matching, scannedTo };
-    })
-  );
-  assertScopeCurrent(scope);
-  return scan;
+    });
+  } finally {
+    assertScopeCurrent(scope);
+  }
 }
 
 /** The chain tip block number for the captured or effective RPC endpoint. */
 export async function getChainTip(scope: EffectiveScope = captureEffectiveScope()): Promise<number> {
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
-  const header = await awaitScoped(scope, () =>
-    withRpcTimeout(() => readWithRpcUrl(scope, rpc => rpc.getBlockHeaderByNumber(undefined)), 'midenNameChainTip')
-  );
-  assertScopeCurrent(scope);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope);
+  }
+  let header: Awaited<ReturnType<RpcClient['getBlockHeaderByNumber']>>;
+  try {
+    header = await withRpcTimeout(
+      () => readWithRpcUrl(scope, rpc => rpc.getBlockHeaderByNumber(undefined)),
+      'midenNameChainTip'
+    );
+  } finally {
+    assertScopeCurrent(scope);
+  }
   return Number(header.blockNum());
 }

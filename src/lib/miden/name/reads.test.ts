@@ -1018,14 +1018,14 @@ describe('rejection and microtask scope checks', () => {
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockWasmReady.mockImplementationOnce(async () => {
-      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(rpc.getNetworkNoteStatus).not.toHaveBeenCalled();
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     rpc.getNetworkNoteStatus.mockImplementationOnce(async () => {
-      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
       return { status: 'Pending', attemptCount: 1, lastError: undefined };
     });
     await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -1040,7 +1040,7 @@ describe('rejection and microtask scope checks', () => {
     };
 
     mockWasmReady.mockImplementationOnce(async () => {
-      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     rpc.getAccountProof.mockClear();
     await expect(
@@ -1054,7 +1054,7 @@ describe('rejection and microtask scope checks', () => {
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockWasmReady.mockImplementationOnce(async () => {
-      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     rpc.getAccountProof.mockClear();
     await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -1062,21 +1062,21 @@ describe('rejection and microtask scope checks', () => {
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockWasmReady.mockImplementationOnce(async () => {
-      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(rpc.getAccountProof).not.toHaveBeenCalled();
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockWasmReady.mockImplementationOnce(async () => {
-      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
     });
     await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(rpc.getBlockHeaderByNumber).not.toHaveBeenCalled();
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
-      scheduleTicks(6, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(3, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
       return fakeProof(requirements);
     });
     await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -1084,14 +1084,14 @@ describe('rejection and microtask scope checks', () => {
     await expect(fetchMidenNameQuote('alice')).resolves.toMatchObject({ label: 'alice' });
 
     rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
-      scheduleTicks(6, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      scheduleTicks(3, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
       return fakeProof(requirements);
     });
     await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
 
     rpc.getBlockHeaderByNumber.mockImplementationOnce(async () => {
-      scheduleTicks(4, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      scheduleTicks(2, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
       return { blockNum: () => 1234 };
     });
     await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
@@ -1099,7 +1099,7 @@ describe('rejection and microtask scope checks', () => {
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
     mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
     rpc.syncNotes.mockImplementationOnce(async () => {
-      scheduleTicks(6, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
       return syncResult(165137, []);
     });
     await expect(
@@ -1109,11 +1109,33 @@ describe('rejection and microtask scope checks', () => {
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
     rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xalice' }]]));
     rpc.getNotesById.mockImplementationOnce(async () => {
-      scheduleTicks(6, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
       return [fetchedNote('0xalice')];
     });
     await expect(
       findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 164937, toBlock: 165137, label: 'alice' })
     ).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    clearMidenNameQuoteCache();
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      throw new Error('wasm rejected');
+    });
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getBlockHeaderByNumber.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      throw new Error('tip rejected');
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    rpc.getAccountProof.mockImplementationOnce(async () => {
+      scheduleTicks(3, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      throw new Error('proof rejected');
+    });
+    await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });

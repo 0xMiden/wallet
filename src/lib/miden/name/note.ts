@@ -33,7 +33,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getMidenNameConfig, MIDEN_NAME_RECLAIM_BLOCKS } from './config';
 import { encodeDomainFelts, registerNoteInputs } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
-import { assertScopeCurrent, awaitScoped, captureEffectiveScope, getChainTip } from './reads';
+import { assertScopeCurrent, captureEffectiveScope, getChainTip } from './reads';
 import { loadRegisterDomainScript } from './script';
 import { idParts } from './sdk-words';
 
@@ -126,8 +126,12 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
 
   // A fresh RPC head, not the local sync height. This call also loads the SDK
   // WASM before the code below makes SDK objects.
-  const builtAtBlock = await awaitScoped(scope, () => getChainTip(scope));
-  assertScopeCurrent(scope);
+  let builtAtBlock: number;
+  try {
+    builtAtBlock = await getChainTip(scope);
+  } finally {
+    assertScopeCurrent(scope);
+  }
   const reclaimHeight = builtAtBlock + MIDEN_NAME_RECLAIM_BLOCKS;
   if (!Number.isSafeInteger(reclaimHeight) || reclaimHeight > U32_MAX) {
     throw new RangeError(`Reclaim height ${reclaimHeight} does not fit in a u32`);
@@ -140,19 +144,24 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
   let scriptOwned = true;
 
   try {
-    await awaitScoped(scope, async () => {
+    try {
       script = await loadRegisterDomainScript();
-    });
-    assertScopeCurrent(scope);
-    const loadedScript = script!;
-    const built = await awaitScoped(scope, () =>
-      withWasmClientLock(
+    } finally {
+      assertScopeCurrent(scope);
+    }
+    const loadedScript = script;
+    try {
+      return await withWasmClientLock(
         async hold => {
           assertScopeCurrent(scope);
           const sender = toAccountId(args.senderAccountId);
           const senderId = sender.toString();
-          const senderAccount = await awaitScoped(scope, () => midenClientProxy.getAccount(senderId));
-          assertScopeCurrent(scope);
+          let senderAccount: Awaited<ReturnType<typeof midenClientProxy.getAccount>>;
+          try {
+            senderAccount = await midenClientProxy.getAccount(senderId);
+          } finally {
+            assertScopeCurrent(scope);
+          }
           // An eviction during the read gives the mutex to a successor. The account
           // object is a borrow of that client, so stop before a read of its vault.
           // This hold only builds the request; nothing is submitted, so a stop is safe.
@@ -170,11 +179,19 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
           const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
           const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
           // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
-          const { client } = await awaitScoped(scope, () => getMidenClient());
-          assertScopeCurrent(scope);
+          let client: Awaited<ReturnType<typeof getMidenClient>>['client'];
+          try {
+            ({ client } = await getMidenClient());
+          } finally {
+            assertScopeCurrent(scope);
+          }
           assertWasmHoldCurrent(hold, 'miden-name-register-build: after getting the client');
-          const builder = await awaitScoped(scope, () => feeAwareRequestBuilder(client, senderId, feeSalt));
-          assertScopeCurrent(scope);
+          let builder: Awaited<ReturnType<typeof feeAwareRequestBuilder>>;
+          try {
+            builder = await feeAwareRequestBuilder(client, senderId, feeSalt);
+          } finally {
+            assertScopeCurrent(scope);
+          }
           assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
           // The recipient takes the script: from here the note owns it.
           scriptOwned = false;
@@ -194,10 +211,10 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
           return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };
         },
         { label: 'miden-name-register-build' }
-      )
-    );
-    assertScopeCurrent(scope);
-    return built;
+      );
+    } finally {
+      assertScopeCurrent(scope);
+    }
   } catch (error) {
     // A failure before the recipient took the script leaves it with us: free it.
     if (script && scriptOwned) script.free();
