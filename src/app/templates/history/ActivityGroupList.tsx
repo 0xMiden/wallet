@@ -162,7 +162,9 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
       return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig)) : all;
     }, [entries, claims, nameOf, query, t, bridgeConfig, activityKeys]);
 
-    if (groups.length === 0) {
+    const noGroups = groups.length === 0;
+    const canPage = hasMore && scrollParentRef && !loadError && !initialLoading;
+    if (noGroups && !canPage) {
       // As in the List view, a failed read outranks one still loading and never reads as "no activity".
       if (loadError) {
         return (
@@ -250,7 +252,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
           >
-            {list}
+            {noGroups ? <Spinner /> : list}
           </InfiniteScroll>
         ) : (
           list
