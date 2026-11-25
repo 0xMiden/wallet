@@ -1,0 +1,11 @@
+{
+  "name": "miden-evm-relay",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker that relays the signed EVM batches of the deposit-address bridge. Wrangler bundles it at deploy.",
+  "scripts": {
+    "build": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json",
+    "dev": "npx wrangler@4.151.3 dev --port 8788",
+    "test": "npx jest --config ../../jest.config.ts --rootDir ../.. services/evm-relay/test"
+  }
+}
