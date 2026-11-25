@@ -2,13 +2,30 @@
  * The "resolves to this account" check of an owned Miden Name.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
 import { MidenNameAbortedError } from './errors';
 import { fetchDomainRecordAccount } from './resolver';
+
+interface ResolvesSnapshot {
+  accountId: string | undefined;
+  label: string | undefined;
+  supported: boolean;
+  resolves: boolean;
+}
+
+function sameQuery(
+  snapshot: ResolvesSnapshot,
+  accountId: string | undefined,
+  label: string | undefined,
+  supported: boolean
+): boolean {
+  return snapshot.accountId === accountId && snapshot.label === label && snapshot.supported === supported;
+}
 
 /**
  * True when the registry record of the label points to the account.
@@ -18,16 +35,31 @@ import { fetchDomainRecordAccount } from './resolver';
  * or label cancels the previous check.
  */
 export function useMidenNameResolvesHere(accountId: string | undefined, label: string | undefined): boolean {
-  const [resolves, setResolves] = useState(false);
+  const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
+  const [snapshot, setSnapshot] = useState<ResolvesSnapshot>(() => ({
+    accountId,
+    label,
+    supported,
+    resolves: false
+  }));
 
   useEffect(() => {
-    setResolves(false);
-    if (!accountId || label === undefined || !isMidenNameSupported()) return undefined;
+    setSnapshot(prev =>
+      sameQuery(prev, accountId, label, supported) ? prev : { accountId, label, supported, resolves: false }
+    );
+    if (!accountId || label === undefined || !supported) return undefined;
 
     let cancelled = false;
     fetchDomainRecordAccount(label)
       .then(record => {
-        if (!cancelled) setResolves(record !== null && compareAccountIds(record, accountId));
+        if (!cancelled) {
+          setSnapshot({
+            accountId,
+            label,
+            supported,
+            resolves: record !== null && compareAccountIds(record, accountId)
+          });
+        }
       })
       .catch(error => {
         if (!cancelled && !(error instanceof MidenNameAbortedError)) {
@@ -37,7 +69,7 @@ export function useMidenNameResolvesHere(accountId: string | undefined, label: s
     return () => {
       cancelled = true;
     };
-  }, [accountId, label]);
+  }, [accountId, label, supported]);
 
-  return resolves;
+  return sameQuery(snapshot, accountId, label, supported) ? snapshot.resolves : false;
 }

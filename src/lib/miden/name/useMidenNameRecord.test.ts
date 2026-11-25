@@ -9,6 +9,15 @@ jest.mock('app/layouts/page-active', () => ({
 }));
 
 let mockSupported = true;
+const endpointListeners = new Set<() => void>();
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    endpointListeners.add(listener);
+    return () => {
+      endpointListeners.delete(listener);
+    };
+  }
+}));
 jest.mock('./config', () => ({
   isMidenNameSupported: () => mockSupported
 }));
@@ -339,6 +348,77 @@ describe('useMidenNameRecord', () => {
     });
     expect(result.current).toBe('checking');
 
+    unmount();
+  });
+
+  it('does not overlap slow reads across poll intervals and ignores stale responses', async () => {
+    const first = deferred<string | null>();
+    const second = deferred<string | null>();
+    mockFetchDomainRecordAccount.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    const { result, unmount } = renderHook(() => useMidenNameRecord(ACCOUNT_A, 'alice'));
+    expect(mockFetchDomainRecordAccount).toHaveBeenCalledTimes(1);
+
+    // While first read is still pending past 15s, no second overlapping read starts.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MIDEN_NAME_RECORD_POLL_MS * 2);
+    });
+    expect(mockFetchDomainRecordAccount).toHaveBeenCalledTimes(1);
+
+    // Once the first settles, the next poll is scheduled MIDEN_NAME_RECORD_POLL_MS later.
+    await act(async () => {
+      first.resolve(ACCOUNT_A);
+    });
+    expect(result.current).toBe('here');
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MIDEN_NAME_RECORD_POLL_MS);
+    });
+    expect(mockFetchDomainRecordAccount).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      second.resolve(ACCOUNT_B);
+    });
+    expect(result.current).toBe('elsewhere');
+    unmount();
+  });
+
+  it('reacts to endpoint-support changes without a parent rerender', async () => {
+    mockSupported = false;
+    const { result, unmount } = renderHook(() => useMidenNameRecord(ACCOUNT_A, 'alice'));
+    expect(result.current).toBe('none');
+    expect(mockFetchDomainRecordAccount).not.toHaveBeenCalled();
+
+    mockSupported = true;
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    act(() => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(result.current).toBe('checking');
+    await flushMicrotasks();
+    expect(result.current).toBe('here');
+    unmount();
+  });
+
+  it('ignores out-of-order responses when a newer request settles before an older one', async () => {
+    const older = deferred<string | null>();
+    const newer = deferred<string | null>();
+    mockFetchDomainRecordAccount.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    const { result, rerender, unmount } = renderHook(
+      ({ refreshKey }) => useMidenNameRecord(ACCOUNT_A, 'alice', refreshKey),
+      { initialProps: { refreshKey: '0' } }
+    );
+
+    rerender({ refreshKey: '1' });
+    await act(async () => {
+      newer.resolve(ACCOUNT_B);
+    });
+    expect(result.current).toBe('elsewhere');
+
+    await act(async () => {
+      older.resolve(ACCOUNT_A);
+    });
+    expect(result.current).toBe('elsewhere');
     unmount();
   });
 });

@@ -9,10 +9,11 @@
  * every `MIDEN_NAME_RECORD_POLL_MS` while the page is on screen.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
 import { isMidenNameAbortedError } from './errors';
@@ -72,7 +73,7 @@ export function useMidenNameRecord(
   refreshKey: string = ''
 ): MidenNameRecordState {
   const active = usePageActive();
-  const supported = isMidenNameSupported();
+  const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
   const fallbackState = defaultRecordState(accountId, label, supported);
   const [snapshot, setSnapshot] = useState<RecordSnapshot>(() => ({
     accountId,
@@ -94,26 +95,42 @@ export function useMidenNameRecord(
     }
 
     let cancelled = false;
+    let inFlight = false;
+    let requestSeq = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      timer = setTimeout(read, MIDEN_NAME_RECORD_POLL_MS);
+    };
+
     const read = () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      const seq = ++requestSeq;
       fetchDomainRecordAccount(label)
         .then(record => {
-          if (cancelled) return;
+          if (cancelled || seq !== requestSeq) return;
           const nextState: MidenNameRecordState =
             record === null ? 'none' : compareAccountIds(record, accountId) ? 'here' : 'elsewhere';
           setSnapshot({ accountId, label, refreshKey, supported, state: nextState });
         })
         .catch(error => {
-          if (cancelled || isMidenNameAbortedError(error)) return;
+          if (cancelled || seq !== requestSeq || isMidenNameAbortedError(error)) return;
           console.warn('[miden-name] Record read failed:', error);
           setSnapshot({ accountId, label, refreshKey, supported, state: 'checking' });
+        })
+        .finally(() => {
+          inFlight = false;
+          scheduleNext();
         });
     };
 
     read();
-    const timer = setInterval(read, MIDEN_NAME_RECORD_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      requestSeq += 1;
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [accountId, label, refreshKey, supported, active, fallbackState]);
 

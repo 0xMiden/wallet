@@ -6,7 +6,7 @@
  * tracker (`tracker.ts`) writes the phase.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
@@ -19,7 +19,7 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
 
@@ -105,24 +105,63 @@ export interface MidenNameRegistrationsState {
   loaded: boolean;
 }
 
+interface RegistrationsSnapshot {
+  accountId: string | undefined;
+  network: string;
+  supported: boolean;
+  state: MidenNameRegistrationsState;
+}
+
+const EMPTY_ROWS: ITransaction[] = [];
+
+function defaultRegistrationsState(accountId: string | undefined, supported: boolean): MidenNameRegistrationsState {
+  return { rows: EMPTY_ROWS, loaded: !accountId || !supported };
+}
+
+function sameRegistrationsQuery(
+  snapshot: RegistrationsSnapshot,
+  accountId: string | undefined,
+  network: string,
+  supported: boolean
+): boolean {
+  return snapshot.accountId === accountId && snapshot.network === network && snapshot.supported === supported;
+}
+
 /** Live list of the registrations of an account (see `listMidenNameRegistrations`). */
 export function useMidenNameRegistrations(accountId: string | undefined): MidenNameRegistrationsState {
-  const [state, setState] = useState<MidenNameRegistrationsState>({ rows: [], loaded: false });
-  const supported = isMidenNameSupported();
+  const network = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveNetworkName, getEffectiveNetworkName);
+  const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
+  const fallback = useMemo(() => defaultRegistrationsState(accountId, supported), [accountId, supported]);
+  const [snapshot, setSnapshot] = useState<RegistrationsSnapshot>(() => ({
+    accountId,
+    network,
+    supported,
+    state: fallback
+  }));
 
   useEffect(() => {
-    setState({ rows: [], loaded: false });
+    setSnapshot(prev =>
+      sameRegistrationsQuery(prev, accountId, network, supported)
+        ? prev
+        : { accountId, network, supported, state: fallback }
+    );
     if (!accountId || !supported) {
-      setState({ rows: [], loaded: true });
       return undefined;
     }
-    return subscribeToLiveQuery(() => listMidenNameRegistrations(accountId), {
-      next: rows => setState({ rows, loaded: true }),
+    let cancelled = false;
+    const unsubscribe = subscribeToLiveQuery(() => listMidenNameRegistrations(accountId), {
+      next: rows => {
+        if (!cancelled) setSnapshot({ accountId, network, supported, state: { rows, loaded: true } });
+      },
       error: error => console.error('[miden-name] Failed to read registrations:', error)
     });
-  }, [accountId, supported]);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [accountId, network, supported, fallback]);
 
-  return state;
+  return sameRegistrationsQuery(snapshot, accountId, network, supported) ? snapshot.state : fallback;
 }
 
 /** The label of the newest owned registration, or undefined. */
@@ -137,7 +176,7 @@ export function ownedLabelOf(rows: ITransaction[]): string | undefined {
  * deployment.
  */
 export function useOwnedMidenName(accountId: string | undefined): string | undefined {
-  const supported = isMidenNameSupported();
+  const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
   const { rows } = useMidenNameRegistrations(supported ? accountId : undefined);
   return supported ? ownedLabelOf(rows) : undefined;
 }

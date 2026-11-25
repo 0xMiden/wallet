@@ -11,9 +11,26 @@ jest.mock('./tracker', () => ({
 }));
 
 let mockSupported = true;
+const endpointListeners = new Set<() => void>();
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    endpointListeners.add(listener);
+    return () => {
+      endpointListeners.delete(listener);
+    };
+  }
+}));
 jest.mock('./config', () => ({
   isMidenNameSupported: () => mockSupported
 }));
+
+const setSupportedAndNotify = async (supported: boolean) => {
+  mockSupported = supported;
+  await act(async () => {
+    for (const listener of endpointListeners) listener();
+    await jest.advanceTimersByTimeAsync(0);
+  });
+};
 
 const mockSign = jest.fn();
 jest.mock('lib/miden/front/client', () => ({
@@ -97,6 +114,24 @@ describe('MidenNameWatcher', () => {
     await settle();
     await advance();
     expect(mockReconcile).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('starts polling when endpoint override switches to supported without remounting and stops when disabled', async () => {
+    mockSupported = false;
+    const view = render(<MidenNameWatcher />);
+    await settle();
+    await advance();
+    expect(mockReconcile).not.toHaveBeenCalled();
+
+    await setSupportedAndNotify(true);
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    await advance();
+    expect(mockReconcile).toHaveBeenCalledTimes(2);
+
+    await setSupportedAndNotify(false);
+    await advance();
+    expect(mockReconcile).toHaveBeenCalledTimes(2);
     view.unmount();
   });
 
