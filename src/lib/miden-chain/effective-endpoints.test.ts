@@ -737,6 +737,34 @@ describe('network marker on the root element', () => {
     expect(document.documentElement.dataset.network).toBe(DEFAULT_NETWORK);
   });
 
+  it('follows a stored override when a realm loads it', async () => {
+    const m = loadModule();
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    document.documentElement.dataset.network = 'stale';
+    await m.loadEndpointOverrides();
+    expect(document.documentElement.dataset.network).toBe('mainnet');
+  });
+
+  it('follows the state a realm adopts from another realm', async () => {
+    const source = loadModule();
+    await source.applyEndpointOverride(source.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+    const adopted = loadModule();
+    document.documentElement.dataset.network = 'stale';
+    adopted.adoptEndpointState(source.getEndpointState());
+    expect(document.documentElement.dataset.network).toBe('mainnet');
+  });
+
+  it('keeps the network of the stored override when its developer marker is forgotten', async () => {
+    const m = loadModule();
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = {
+      ...m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET),
+      developerChoice: true
+    };
+    document.documentElement.dataset.network = 'stale';
+    await m.forgetDeveloperNetworkChoice();
+    expect(document.documentElement.dataset.network).toBe('mainnet');
+  });
+
   it('marks the default network as soon as the module loads', () => {
     document.documentElement.removeAttribute('data-network');
     loadModule();
