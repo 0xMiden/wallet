@@ -21,6 +21,7 @@ jest.mock('./reads', () => {
   return {
     captureEffectiveScope: actual.captureEffectiveScope,
     assertScopeCurrent: actual.assertScopeCurrent,
+    awaitScoped: actual.awaitScoped,
     readRegistryStorage: jest.fn()
   };
 });
@@ -281,5 +282,55 @@ describe('fetchDomainRecordAccount', () => {
     } finally {
       fromHexSpy.mockRestore();
     }
+  });
+
+  it('aborts on interleaved microtask switches, late signal aborts, and rejection arms without caching', async () => {
+    registerAlice();
+
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      return res;
+    });
+    await expect(resolveMidenName('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+
+    const controller = new AbortController();
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      queueMicrotask(() => queueMicrotask(() => controller.abort()));
+      return res;
+    });
+    await expect(resolveMidenName('alice', { signal: controller.signal })).rejects.toBeInstanceOf(
+      MidenNameAbortedError
+    );
+
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return res;
+    });
+    await expect(fetchDomainRecordAccount('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return res;
+    });
+    await expect(fetchDomainRecord('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+
+    const controller2 = new AbortController();
+    mockRead.mockImplementationOnce(async () => {
+      controller2.abort();
+      throw new Error('rpc down');
+    });
+    await expect(resolveMidenName('alice', { signal: controller2.signal })).rejects.toBeInstanceOf(
+      MidenNameAbortedError
+    );
+
+    await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
+    expect(mockRead).toHaveBeenCalledTimes(6);
   });
 });

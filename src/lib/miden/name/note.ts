@@ -12,6 +12,7 @@ import {
   NoteAssets,
   NoteMetadata,
   NoteRecipient,
+  type NoteScript,
   NoteStorage,
   NoteTag,
   NoteType,
@@ -32,7 +33,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getMidenNameConfig, MIDEN_NAME_RECLAIM_BLOCKS } from './config';
 import { encodeDomainFelts, registerNoteInputs } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
-import { assertScopeCurrent, captureEffectiveScope, getChainTip } from './reads';
+import { assertScopeCurrent, awaitScoped, captureEffectiveScope, getChainTip } from './reads';
 import { loadRegisterDomainScript } from './script';
 import { idParts } from './sdk-words';
 
@@ -125,8 +126,7 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
 
   // A fresh RPC head, not the local sync height. This call also loads the SDK
   // WASM before the code below makes SDK objects.
-  const builtAtBlock = await getChainTip(scope);
-  assertScopeCurrent(scope);
+  const builtAtBlock = await awaitScoped(scope, () => getChainTip(scope));
   const reclaimHeight = builtAtBlock + MIDEN_NAME_RECLAIM_BLOCKS;
   if (!Number.isSafeInteger(reclaimHeight) || reclaimHeight > U32_MAX) {
     throw new RangeError(`Reclaim height ${reclaimHeight} does not fit in a u32`);
@@ -135,60 +135,65 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
   // The script bytes come from a static asset. Fetch them BEFORE the lock, so
   // that a slow fetch does not park the client. The script is a plain SDK
   // object, not a client call, so it needs no lock.
-  const script = await loadRegisterDomainScript();
+  let script: NoteScript | undefined;
   let scriptOwned = true;
 
   try {
-    assertScopeCurrent(scope);
-    return await withWasmClientLock(
-      async hold => {
-        assertScopeCurrent(scope);
-        const sender = toAccountId(args.senderAccountId);
-        const senderId = sender.toString();
-        const senderAccount = await midenClientProxy.getAccount(senderId);
-        // An eviction during the read gives the mutex to a successor. The account
-        // object is a borrow of that client, so stop before a read of its vault.
-        // This hold only builds the request; nothing is submitted, so a stop is safe.
-        assertWasmHoldCurrent(hold, 'miden-name-register-build: after the sender account read');
-        assertScopeCurrent(scope);
+    await awaitScoped(scope, async () => {
+      script = await loadRegisterDomainScript();
+    });
+    const loadedScript = script!;
+    return await awaitScoped(scope, () =>
+      withWasmClientLock(
+        async hold => {
+          assertScopeCurrent(scope);
+          const sender = toAccountId(args.senderAccountId);
+          const senderId = sender.toString();
+          const senderAccount = await awaitScoped(scope, () => midenClientProxy.getAccount(senderId));
+          // An eviction during the read gives the mutex to a successor. The account
+          // object is a borrow of that client, so stop before a read of its vault.
+          // This hold only builds the request; nothing is submitted, so a stop is safe.
+          assertWasmHoldCurrent(hold, 'miden-name-register-build: after the sender account read');
 
-        const registry = AccountId.fromHex(config.registryAccountIdHex);
-        if (!registry.isPublic()) {
-          throw new MidenNameRegistryMismatchError('the registry account is not public');
-        }
-        const asset = resolveHeldFungibleAsset(
-          senderAccount ?? undefined,
-          config.paymentFaucetIdHex,
-          args.priceBaseUnits
-        );
-        const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
-        const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
-        // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
-        const builder = await feeAwareRequestBuilder((await getMidenClient()).client, senderId, feeSalt);
-        assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
-        assertScopeCurrent(scope);
-        // The recipient takes the script: from here the note owns it.
-        scriptOwned = false;
-        const note = Note.withAttachments(
-          new NoteAssets([asset]),
-          new NoteMetadata(sender, NoteType.Public, NoteTag.withAccountTarget(registry)),
-          new NoteRecipient(randomSerialWord(), script, storage),
-          [new NetworkAccountTarget(registry).toAttachment()]
-        );
-        // Read the id BEFORE the note goes into the NoteArray: that call moves
-        // the note into Rust.
-        const registrationNoteId = note.id().toString();
-        const requestBytes = builder
-          .withOwnOutputNotes(new NoteArray([note]))
-          .build()
-          .serialize();
-        return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };
-      },
-      { label: 'miden-name-register-build' }
+          const registry = AccountId.fromHex(config.registryAccountIdHex);
+          if (!registry.isPublic()) {
+            throw new MidenNameRegistryMismatchError('the registry account is not public');
+          }
+          const asset = resolveHeldFungibleAsset(
+            senderAccount ?? undefined,
+            config.paymentFaucetIdHex,
+            args.priceBaseUnits
+          );
+          const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
+          const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
+          // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
+          const builder = await awaitScoped(scope, async () =>
+            feeAwareRequestBuilder((await awaitScoped(scope, () => getMidenClient())).client, senderId, feeSalt)
+          );
+          assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
+          // The recipient takes the script: from here the note owns it.
+          scriptOwned = false;
+          const note = Note.withAttachments(
+            new NoteAssets([asset]),
+            new NoteMetadata(sender, NoteType.Public, NoteTag.withAccountTarget(registry)),
+            new NoteRecipient(randomSerialWord(), loadedScript, storage),
+            [new NetworkAccountTarget(registry).toAttachment()]
+          );
+          // Read the id BEFORE the note goes into the NoteArray: that call moves
+          // the note into Rust.
+          const registrationNoteId = note.id().toString();
+          const requestBytes = builder
+            .withOwnOutputNotes(new NoteArray([note]))
+            .build()
+            .serialize();
+          return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };
+        },
+        { label: 'miden-name-register-build' }
+      )
     );
   } catch (error) {
     // A failure before the recipient took the script leaves it with us: free it.
-    if (scriptOwned) script.free();
+    if (script && scriptOwned) script.free();
     throw error;
   }
 }

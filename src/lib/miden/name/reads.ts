@@ -108,6 +108,16 @@ export function assertScopeCurrent(scope: EffectiveScope): void {
   }
 }
 
+/** Await an operation and recheck abort signal and captured scope on both fulfillment and rejection. */
+export async function awaitScoped<T>(scope: EffectiveScope, op: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  try {
+    return await op();
+  } finally {
+    if (signal?.aborted) throw new MidenNameAbortedError();
+    assertScopeCurrent(scope);
+  }
+}
+
 function readWithRpcUrl<T>(scope: EffectiveScope, read: (rpc: RpcClient) => Promise<T>): Promise<T> {
   assertScopeCurrent(scope);
   const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
@@ -134,8 +144,7 @@ function requireConfig(): MidenNameConfig {
 type OwnedRpcRunner = <R>(op: (rpc: RpcClient) => Promise<R>, callLabel: string) => Promise<R>;
 
 async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedRpcRunner) => Promise<T>): Promise<T> {
-  await ensureSdkWasmReady();
-  assertScopeCurrent(scope);
+  await awaitScoped(scope, ensureSdkWasmReady);
   const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
   const pending: Promise<void>[] = [];
   const runRpc: OwnedRpcRunner = (op, callLabel) =>
@@ -151,7 +160,7 @@ async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedR
       return attempt;
     }, callLabel);
   try {
-    return await run(runRpc);
+    return await awaitScoped(scope, () => run(runRpc));
   } finally {
     void Promise.all(pending).then(() => rpc.free());
   }
@@ -174,21 +183,22 @@ export async function readRegistryStorage(
   options?: ReadRegistryStorageOptions
 ): Promise<RegistryStorageRead> {
   const scope = options?.scope ?? captureEffectiveScope(config.network);
-  await ensureSdkWasmReady();
-  assertScopeCurrent(scope);
+  await awaitScoped(scope, ensureSdkWasmReady);
   const registryHex = config.registryAccountIdHex.toLowerCase();
 
-  const proof = await withRpcTimeout(
-    () =>
-      readWithRpcUrl(scope, rpc =>
-        rpc.getAccountProof(
-          AccountId.fromHex(config.registryAccountIdHex),
-          AccountStorageRequirements.fromSlotAndKeysArray(
-            requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+  const proof = await awaitScoped(scope, () =>
+    withRpcTimeout(
+      () =>
+        readWithRpcUrl(scope, rpc =>
+          rpc.getAccountProof(
+            AccountId.fromHex(config.registryAccountIdHex),
+            AccountStorageRequirements.fromSlotAndKeysArray(
+              requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+            )
           )
-        )
-      ),
-    label
+        ),
+      label
+    )
   );
 
   let blockNum: number;
@@ -263,8 +273,7 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
     return cached.quote;
   }
 
-  await ensureSdkWasmReady();
-  assertScopeCurrent(scope);
+  await awaitScoped(scope, ensureSdkWasmReady);
 
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const token = idPartsFromHex(config.paymentFaucetIdHex);
@@ -272,15 +281,17 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
   const priceKey = priceKeyFelts(Number(domainWord[3]), token);
   const scriptRoot = feltsFromWord(Word.fromHex(MIDEN_NAME_REGISTER_SCRIPT_ROOT));
 
-  const storage = await readRegistryStorage(
-    config,
-    [
-      { slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] },
-      { slot: MIDEN_NAME_SLOTS.prices, keys: [priceKey] },
-      { slot: MIDEN_NAME_SLOTS.feeSchedule, keys: [scriptRoot] }
-    ],
-    'midenNameQuote',
-    { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot], scope }
+  const storage = await awaitScoped(scope, () =>
+    readRegistryStorage(
+      config,
+      [
+        { slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] },
+        { slot: MIDEN_NAME_SLOTS.prices, keys: [priceKey] },
+        { slot: MIDEN_NAME_SLOTS.feeSchedule, keys: [scriptRoot] }
+      ],
+      'midenNameQuote',
+      { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot], scope }
+    )
   );
 
   const status = storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey);
@@ -313,15 +324,13 @@ export async function fetchMidenNameIssued(label: string): Promise<boolean> {
   const config = requireConfig();
   encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
-  await ensureSdkWasmReady();
-  assertScopeCurrent(scope);
+  await awaitScoped(scope, ensureSdkWasmReady);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const statusKey = statusKeyFeltsForLabel(label, registry);
-  const storage = await readRegistryStorage(
-    config,
-    [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] }],
-    'midenNameIssued',
-    { scope }
+  const storage = await awaitScoped(scope, () =>
+    readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] }], 'midenNameIssued', {
+      scope
+    })
   );
   return storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey)[0] === MIDEN_NAME_ISSUED_MARKER;
 }
@@ -399,12 +408,12 @@ async function notesCarryingLabel(
   runRpc: OwnedRpcRunner,
   noteIds: string[],
   label: string,
-  registryHex: string
+  registryHex: string,
+  scope: EffectiveScope
 ): Promise<string[]> {
   if (noteIds.length === 0) return [];
-  const fetched = await runRpc(
-    rpc => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))),
-    'midenNameDeliveryNotes'
+  const fetched = await awaitScoped(scope, () =>
+    runRpc(rpc => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))), 'midenNameDeliveryNotes')
   );
   const answered = new Set<string>();
   const matching = new Set<string>();
@@ -453,54 +462,53 @@ export async function findRegistryDeliveryNoteIds({
   const scope = captureEffectiveScope(config.network);
   const registryHex = config.registryAccountIdHex.toLowerCase();
   fromBlock = Math.max(fromBlock, config.registryCreationBlock);
-  const end = toBlock ?? (await getChainTip(scope));
+  const end = toBlock ?? (await awaitScoped(scope, () => getChainTip(scope)));
   if (fromBlock > end) return { noteIds: [], scannedTo: end };
 
-  return withOwnedRpcClient(scope, async runRpc => {
-    const noteIds: string[] = [];
-    const seen = new Set<string>();
-    let cursor = fromBlock;
-    let scannedTo = fromBlock - 1;
+  return awaitScoped(scope, () =>
+    withOwnedRpcClient(scope, async runRpc => {
+      const noteIds: string[] = [];
+      const seen = new Set<string>();
+      let cursor = fromBlock;
+      let scannedTo = fromBlock - 1;
 
-    for (let round = 0; round < MAX_DELIVERY_SCAN_ROUNDS && cursor <= end; round++) {
-      const from = cursor;
-      const info = await runRpc(
-        rpc => rpc.syncNotes(from, end, [NoteTag.withAccountTarget(walletAccountIdToSdk(accountId))]),
-        'midenNameDeliveryScan'
-      );
-      assertScopeCurrent(scope);
-      for (const block of info.blocks()) {
-        for (const note of block.notes()) {
-          if (note.sender().toString().toLowerCase() !== registryHex) continue;
-          const id = note.noteId().toString();
-          if (seen.has(id)) continue;
-          seen.add(id);
-          noteIds.push(id);
+      for (let round = 0; round < MAX_DELIVERY_SCAN_ROUNDS && cursor <= end; round++) {
+        const from = cursor;
+        const info = await awaitScoped(scope, () =>
+          runRpc(
+            rpc => rpc.syncNotes(from, end, [NoteTag.withAccountTarget(walletAccountIdToSdk(accountId))]),
+            'midenNameDeliveryScan'
+          )
+        );
+        for (const block of info.blocks()) {
+          for (const note of block.notes()) {
+            if (note.sender().toString().toLowerCase() !== registryHex) continue;
+            const id = note.noteId().toString();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            noteIds.push(id);
+          }
         }
+        const reached = Math.min(info.blockTo(), end);
+        // A node that does not move the cursor forward stops the scan here, so
+        // the loop cannot run with no progress.
+        if (reached < from) break;
+        scannedTo = reached;
+        cursor = reached + 1;
       }
-      const reached = Math.min(info.blockTo(), end);
-      // A node that does not move the cursor forward stops the scan here, so
-      // the loop cannot run with no progress.
-      if (reached < from) break;
-      scannedTo = reached;
-      cursor = reached + 1;
-    }
 
-    if (label === undefined) return { noteIds, scannedTo };
-    const matching = await notesCarryingLabel(runRpc, noteIds, label, registryHex);
-    assertScopeCurrent(scope);
-    return { noteIds: matching, scannedTo };
-  });
+      if (label === undefined) return { noteIds, scannedTo };
+      const matching = await awaitScoped(scope, () => notesCarryingLabel(runRpc, noteIds, label, registryHex, scope));
+      return { noteIds: matching, scannedTo };
+    })
+  );
 }
 
 /** The chain tip block number for the captured or effective RPC endpoint. */
 export async function getChainTip(scope: EffectiveScope = captureEffectiveScope()): Promise<number> {
-  await ensureSdkWasmReady();
-  assertScopeCurrent(scope);
-  const header = await withRpcTimeout(
-    () => readWithRpcUrl(scope, rpc => rpc.getBlockHeaderByNumber(undefined)),
-    'midenNameChainTip'
+  await awaitScoped(scope, ensureSdkWasmReady);
+  const header = await awaitScoped(scope, () =>
+    withRpcTimeout(() => readWithRpcUrl(scope, rpc => rpc.getBlockHeaderByNumber(undefined)), 'midenNameChainTip')
   );
-  assertScopeCurrent(scope);
   return Number(header.blockNum());
 }

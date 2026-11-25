@@ -31,6 +31,7 @@ jest.mock('./reads', () => {
   return {
     captureEffectiveScope: actual.captureEffectiveScope,
     assertScopeCurrent: actual.assertScopeCurrent,
+    awaitScoped: actual.awaitScoped,
     readRegistryStorage: jest.fn()
   };
 });
@@ -340,6 +341,50 @@ describe('listOwnedDomainLabels', () => {
     } finally {
       fromHexSpy.mockRestore();
     }
+  });
+
+  it('aborts on rejection arms and interleaved microtask scope switches', async () => {
+    mockWasmReady.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('wasm failure');
+    });
+    await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('wasm failure');
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockGetAccount.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('vault failure');
+    });
+    await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockGetAccount.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('vault failure');
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockLock.mockImplementationOnce(async operation => {
+      const value = await operation(HOLD);
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      return value;
+    });
+    await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockRead.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('registry failure');
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });
 

@@ -39,6 +39,7 @@ jest.mock('./reads', () => {
   return {
     captureEffectiveScope: actual.captureEffectiveScope,
     assertScopeCurrent: actual.assertScopeCurrent,
+    awaitScoped: actual.awaitScoped,
     getChainTip: jest.fn()
   };
 });
@@ -324,6 +325,48 @@ describe('buildRegisterNameRequest', () => {
       buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
     ).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(switchedScript.free).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockLoadScript.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('script fetch failed');
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const clientSwitchScript = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(clientSwitchScript);
+    mockGetMidenClient.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('client init failed');
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(clientSwitchScript.free).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const lockFailScript = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(lockFailScript);
+    mockLock.mockImplementationOnce(async () => {
+      mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      throw new Error('lock failed');
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(lockFailScript.free).toHaveBeenCalledTimes(1);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockTip.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('tip failed');
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });
 
