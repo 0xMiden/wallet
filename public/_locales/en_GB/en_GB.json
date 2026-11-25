@@ -2277,5 +2277,6 @@
   "commandAiPlanFinish": "Finish plan",
   "commandAiPlanStop": "Stop",
   "commandAiPlanMaxAmount": "Max",
-  "commandAiPlanPreviousOutput": "Previous output"
+  "commandAiPlanPreviousOutput": "Previous output",
+  "commandHistoryRangeCustom": "Custom"
 }

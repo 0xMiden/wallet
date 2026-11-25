@@ -103,7 +103,10 @@ jest.mock('./useCommandPortfolio', () => ({
   })
 }));
 
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+
 beforeEach(async () => {
+  HTMLElement.prototype.scrollIntoView = jest.fn();
   mockAssets = rows;
   mockAllocation = [];
   store.hidden = true;
@@ -119,7 +122,10 @@ beforeEach(async () => {
   jest.mocked(readPortfolioObservations).mockReset().mockImplementation(actualObservations.readPortfolioObservations);
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  jest.restoreAllMocks();
+});
 
 it('shows a scoped value during refresh and a quiet placeholder when no value is safe', () => {
   store.hidden = false;
@@ -220,6 +226,7 @@ it('keeps dense captured runs continuous after thinning but breaks at a real gap
     }).filter((_, index) => index !== 300)
   );
   render(<CommandPortfolio scope={scope} />);
+  fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
   const area = chart.querySelector('[data-command-chart-area]')?.getAttribute('d');
   expect(area?.match(/M /g)).toHaveLength(3);
@@ -398,6 +405,7 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
     coverageKey: 'priced:priced'
   });
   render(<CommandPortfolio scope={scope} />);
+  fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
   const circles = chart.querySelectorAll('circle');
   expect(circles).toHaveLength(3);
@@ -585,4 +593,67 @@ it('keeps balances usable when the optional history write fails, and refuses an 
   view.unmount();
   save.mockReset();
   warn.mockRestore();
+});
+
+it('auto-selects Custom and spreads a 10-minute cluster of 3 observations cleanly across the chart', async () => {
+  store.hidden = false;
+  const end = capturedAt;
+  const start = end - 10 * 60_000;
+  const mid = end - 5 * 60_000;
+  jest.spyOn(Date, 'now').mockReturnValue(end + 60_000);
+  jest.mocked(readPortfolioObservations).mockResolvedValue([
+    { ...scope, bucket: start, capturedAt: start, currency: 'USD', value: '0', coverage: 'complete', coverageKey: 'p' },
+    { ...scope, bucket: mid, capturedAt: mid, currency: 'USD', value: '100', coverage: 'complete', coverageKey: 'p' },
+    { ...scope, bucket: end, capturedAt: end, currency: 'USD', value: '70', coverage: 'complete', coverageKey: 'p' }
+  ]);
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  const circles = Array.from(chart.querySelectorAll('circle'));
+  expect(circles).toHaveLength(3);
+  const xs = circles.map(circle => Number(circle.getAttribute('cx')));
+  expect(xs[0]).toBeLessThan(10);
+  expect(xs[1]).toBeGreaterThan(45);
+  expect(xs[1]).toBeLessThan(55);
+  expect(xs[2]).toBeGreaterThan(90);
+});
+
+it('defaults to 1D when observations span more than a day and lets Custom show all observations', async () => {
+  store.hidden = false;
+  const now = capturedAt + 60_000;
+  jest.spyOn(Date, 'now').mockReturnValue(now);
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 3 * 24 * 60 * 60_000,
+    capturedAt: capturedAt - 3 * 24 * 60 * 60_000,
+    currency: 'USD',
+    value: '2',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 2 * bucketMs,
+    capturedAt: capturedAt - 2 * bucketMs,
+    currency: 'USD',
+    value: '5',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    currency: 'USD',
+    value: '6',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
+  expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' }));
+  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByTestId('command-chart').querySelectorAll('circle')).toHaveLength(3);
 });

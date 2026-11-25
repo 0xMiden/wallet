@@ -26,7 +26,7 @@ const DAY_MS = 24 * 60 * 60_000;
 const BALANCE_PLACEHOLDER = '---';
 const PORTFOLIO_COLUMN_PADDING = 'px-5 py-6 sm:px-8';
 const PORTFOLIO_HEADER = 'flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1';
-const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
+const PRESET_RANGES = { '1D': 1, '1W': 7, '1M': 30, '3M': 90, '1Y': 365 } as const;
 const ALLOCATION_COLORS = [
   'text-accent-primary',
   'text-accent-receive-ink',
@@ -34,13 +34,8 @@ const ALLOCATION_COLORS = [
   'text-accent-earn-ink',
   'text-accent-tint-ink'
 ] as const;
-type HistoryRange = keyof typeof RANGES;
-const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
-  { id: '1W', label: '1W' },
-  { id: '1M', label: '1M' },
-  { id: '3M', label: '3M' },
-  { id: '1Y', label: '1Y' }
-];
+type PresetRange = keyof typeof PRESET_RANGES;
+type HistoryRange = 'CUSTOM' | PresetRange;
 
 export function CommandPortfolio({
   scope,
@@ -52,6 +47,17 @@ export function CommandPortfolio({
   recentActions?: React.ReactNode;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const rangeItems = useMemo<{ id: HistoryRange; label: string }[]>(
+    () => [
+      { id: 'CUSTOM', label: t('commandHistoryRangeCustom') },
+      { id: '1D', label: '1D' },
+      { id: '1W', label: '1W' },
+      { id: '1M', label: '1M' },
+      { id: '3M', label: '3M' },
+      { id: '1Y', label: '1Y' }
+    ],
+    [t]
+  );
   const displayOptions = {
     minimumFractionDigits: 2,
     trimTrailingZeros: false,
@@ -61,7 +67,6 @@ export function CommandPortfolio({
   const [hidden, setHidden] = useCommandPrivacy();
   const portfolio = useCommandPortfolio(scope);
   const [selectedRange, setSelectedRange] = useState<HistoryRange | null>(null);
-  const range = selectedRange ?? '1M';
   const [history, setHistory] = useState<{ key: string; rows: readonly PortfolioObservation[] } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const accountId = useWalletStore(state => state.currentAccount?.publicKey);
@@ -99,7 +104,7 @@ export function CommandPortfolio({
     void recordPortfolioObservation(observation)
       .then(async (): Promise<void> => {
         if (cancelled) return;
-        const rows = await readPortfolioObservations(stableScope, Date.now() - RANGES['1Y'] * DAY_MS);
+        const rows = await readPortfolioObservations(stableScope, Date.now() - PRESET_RANGES['1Y'] * DAY_MS);
         if (!cancelled) setHistory({ key, rows });
       })
       .catch(() => {
@@ -113,7 +118,7 @@ export function CommandPortfolio({
 
   useEffect(() => {
     let cancelled = false;
-    void readPortfolioObservations(stableScope, Date.now() - RANGES['1Y'] * DAY_MS)
+    void readPortfolioObservations(stableScope, Date.now() - PRESET_RANGES['1Y'] * DAY_MS)
       .then(rows => {
         if (!cancelled) setHistory({ key, rows });
       })
@@ -126,10 +131,42 @@ export function CommandPortfolio({
   }, [key, stableScope]);
 
   const actual = useMemo(() => (history?.key === key ? history.rows : []), [history, key]);
-  const points = useMemo(
-    () => actual.filter(row => row.capturedAt >= Date.now() - RANGES[range] * DAY_MS),
-    [actual, range]
-  );
+  const now = Date.now();
+  const autoRange: HistoryRange = useMemo(() => {
+    if (actual.length < 2) return '1D';
+    const observedSpanMs = actual[actual.length - 1]!.capturedAt - actual[0]!.capturedAt;
+    const hasDayPoints = actual.filter(row => row.capturedAt >= now - DAY_MS).length >= 2;
+    return observedSpanMs >= DAY_MS && hasDayPoints ? '1D' : 'CUSTOM';
+  }, [actual, now]);
+  const range: HistoryRange = selectedRange ?? autoRange;
+  const { points, rangeStart, rangeMs } = useMemo(() => {
+    if (range === 'CUSTOM') {
+      if (actual.length >= 2) {
+        const firstAt = actual[0]!.capturedAt;
+        const lastAt = actual[actual.length - 1]!.capturedAt;
+        const rawSpan = Math.max(0, lastAt - firstAt);
+        const pad = rawSpan > 0 ? Math.max(rawSpan * 0.04, 1_000) : 60_000;
+        const start = firstAt - pad;
+        return {
+          points: actual,
+          rangeStart: start,
+          rangeMs: Math.max(1, lastAt + pad - start)
+        };
+      }
+      return {
+        points: actual,
+        rangeStart: now - DAY_MS,
+        rangeMs: DAY_MS
+      };
+    }
+    const windowMs = PRESET_RANGES[range] * DAY_MS;
+    const start = now - windowMs;
+    return {
+      points: actual.filter(row => row.capturedAt >= start),
+      rangeStart: start,
+      rangeMs: windowMs
+    };
+  }, [actual, now, range]);
   const { samples, gaps } = useMemo(() => {
     const stride = Math.max(1, Math.ceil(points.length / 365));
     const samples: { row: (typeof points)[number]; run: number }[] = [];
@@ -151,8 +188,6 @@ export function CommandPortfolio({
   const min = Math.min(...values);
   const span = Math.max(...values) - min;
   const hasTrace = samples.some((sample, index) => index > 0 && samples[index - 1]?.run === sample.run);
-  const rangeMs = RANGES[range] * DAY_MS;
-  const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
     y: span ? 82 - (64 * (Number(row.value) - min)) / span : 50,
@@ -247,10 +282,10 @@ export function CommandPortfolio({
             <SegmentedControl<HistoryRange>
               aria-label={t('commandHistoryRange')}
               size="sm"
-              layout="fill"
-              className="w-52 min-w-0 max-w-full px-1"
+              layout="scroll"
+              className="min-w-0 max-w-full px-1"
               value={range}
-              items={RANGE_ITEMS}
+              items={rangeItems}
               onChange={next => {
                 setSelectedRange(next);
                 setSelected(null);
