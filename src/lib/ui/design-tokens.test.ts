@@ -4,6 +4,7 @@ import path from 'path';
 import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { CARD_COLORS } from 'lib/settings/constants';
 import { ARROW_INK, arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { ACCENT_HEX, PRIMARY_HEX } from 'utils/brand-colors';
 
 import { escapeForRegExp, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
 
@@ -592,16 +593,51 @@ describe('testnet recolors the Tailwind primary ramp', () => {
     expect(h).toBeLessThanOrEqual(240);
   });
 
-  it('keeps the orange default and reads the ramp from those variables outside devnet', () => {
+  it('keeps the orange default in the stylesheet', () => {
     expect(themeVars(':root')['primary-500']).toBe('#e77537');
-    for (const [key, name] of [
-      ['50', 'primary-50'],
-      ['500', 'primary-500'],
-      ['600', 'primary-600']
-    ]) {
-      expect(config).toContain(`${key}: brand('`);
-      expect(config).toMatch(new RegExp(`${key}: brand\\('#[0-9A-Fa-f]+', '${name}'\\)`));
+  });
+
+  // Tailwind resolves the config at build time: outside a devnet build the ramp must read the variables above.
+  const tailwindColors = (network: string | undefined) => {
+    const previous = process.env.MIDEN_NETWORK;
+    if (network === undefined) delete process.env.MIDEN_NETWORK;
+    else process.env.MIDEN_NETWORK = network;
+    try {
+      let colors: Record<string, any> = {};
+      jest.isolateModules(() => {
+        colors = require('../../../tailwind.config').default.theme.colors;
+      });
+      return colors;
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_NETWORK;
+      else process.env.MIDEN_NETWORK = previous;
     }
-    expect(config).toContain("'primary-disabled-dark')");
+  };
+
+  it.each([undefined, 'testnet', 'mainnet'])('reads every ramp color from a variable in a %s build', network => {
+    const colors = tailwindColors(network);
+    expect(colors.primary).toEqual({
+      50: 'var(--primary-50)',
+      500: 'var(--primary-500)',
+      600: 'var(--primary-600)'
+    });
+    expect(colors['primary-orange']).toBe('var(--primary-orange)');
+    expect(colors['primary-orange-dark']).toBe('var(--primary-orange-dark)');
+    expect(colors['primary-disabled']).toEqual({
+      DEFAULT: 'var(--primary-disabled)',
+      dark: 'var(--primary-disabled-dark)'
+    });
+  });
+
+  it('keeps the fixed slate ramp in a devnet build', () => {
+    const colors = tailwindColors('devnet');
+    expect(colors.primary[500]).toBe('#7286A0');
+    expect(colors['primary-orange']).toBe('#8A9DB5');
+    expect(colors['primary-disabled'].DEFAULT).toBe('#C4CCD7');
+  });
+
+  it('hands inline-style consumers the live accent variable outside a devnet build', () => {
+    expect(PRIMARY_HEX).toBe('var(--accent-primary)');
+    expect(ACCENT_HEX).toBe('var(--accent-primary)');
   });
 });
