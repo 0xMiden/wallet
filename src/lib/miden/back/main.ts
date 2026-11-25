@@ -845,10 +845,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature: wordSignature
       };
     case WalletMessageType.SignEvmRequest:
-      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation, req.key);
+      const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
       return {
         type: WalletMessageType.SignEvmResponse,
         result: evmSignResult
+      };
+    case WalletMessageType.SignRelayRequest:
+      const relaySignResult = await Actions.signRelay(req.accountPublicKey, req.request);
+      return {
+        type: WalletMessageType.SignRelayResponse,
+        result: relaySignResult
       };
     case WalletMessageType.PersistNewHotKeyRequest:
       await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
