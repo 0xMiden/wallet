@@ -554,6 +554,13 @@ describe('testnet accent reaches the dApp load retry button', () => {
     expect(retry).toContain('bg-primary-500');
     expect(retry).not.toMatch(/orange/);
   });
+
+  it('gives the dApp confirmation deny button the primary ramp too', () => {
+    const modal = fs.readFileSync(path.join(__dirname, '../../app/pages/Browser/DappConfirmationModal.tsx'), 'utf8');
+    const deny = modal.match(/data-testid="dapp-confirmation-deny"[^>]*className="([^"]+)"/s)?.[1];
+    expect(deny).toContain('border-primary-500');
+    expect(deny).not.toMatch(/orange/);
+  });
 });
 
 describe('testnet recolors the Tailwind primary ramp', () => {
