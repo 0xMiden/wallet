@@ -54,7 +54,11 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from 'lib/one-click/address';
 import { useNearIntentsConfig } from 'lib/one-click/config';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
-import { NearIntentsSendQuoteChangedError, startNearIntentsSend } from 'lib/one-click/send';
+import {
+  NearIntentsSendQuoteChangedError,
+  NearIntentsSendSupersededError,
+  startNearIntentsSend
+} from 'lib/one-click/send';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature } from 'lib/remote-config/availability';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
@@ -189,6 +193,19 @@ export const ReviewTransaction: React.FC = () => {
       getEffectiveRpcUrl() === rpcUrl,
     [publicKey, networkName, rpcUrl]
   );
+  // One controller per submission. It aborts on unmount and when the account, network or RPC changes,
+  // and a context change clears any in-flight loading flags from the previous submission.
+  const submissionAbort = useRef<AbortController | undefined>(undefined);
+  const submittingRef = useRef(false);
+  useEffect(() => {
+    submittingRef.current = false;
+    setIsSubmitting(false);
+    setRequestingDepositAddress(false);
+    return () => {
+      submissionAbort.current?.abort();
+      submissionAbort.current = undefined;
+    };
+  }, [publicKey, networkName, rpcUrl]);
 
   const { signTransaction } = useMidenContext();
 
@@ -793,6 +810,9 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitError(undefined);
       setSubmitErrorId(undefined);
       setSpendingLimitChallenge(undefined);
+      submissionAbort.current?.abort();
+      const submission = new AbortController();
+      submissionAbort.current = submission;
       // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
       let admittedId: string | undefined;
       const recordAdmission = (txId: string) => {
@@ -838,12 +858,14 @@ export const ReviewTransaction: React.FC = () => {
                 accountAddress: publicKey,
                 // The send stops when the new quote pays less than the minimum that the user saw here.
                 reviewedMinAmountOut: BigInt(reviewed.quote.minAmountOut),
-                authorization
+                authorization,
+                signal: submission.signal,
+                isCurrent: isCurrentSubmission
               });
             } finally {
-              setRequestingDepositAddress(false);
+              if (isCurrentSubmission()) setRequestingDepositAddress(false);
             }
-            recordAdmission(txId);
+            if (isCurrentSubmission()) recordAdmission(txId);
             wakeWorker();
             break;
           }
@@ -923,6 +945,13 @@ export const ReviewTransaction: React.FC = () => {
         if (admittedId !== undefined) return;
         // The queue's rejection before a returned or observed row leaves nothing admitted.
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
+        // A send that the page or account left behind shows nothing: no error and no state update.
+        if (
+          error instanceof NearIntentsSendSupersededError ||
+          (route === 'near-intents' && submission.signal.aborted)
+        ) {
+          return;
+        }
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -1020,7 +1049,6 @@ export const ReviewTransaction: React.FC = () => {
           combineDateAndTime(recallDate, recallTime) <= new Date() ||
           !recallBlocks ||
           !/^[1-9]\d*$/.test(recallBlocks)));
-  const submittingRef = useRef(false);
   const onSubmit = useCallback(async () => {
     if (
       submittingRef.current ||
@@ -1080,7 +1108,7 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
     } finally {
-      submittingRef.current = false;
+      if (isCurrentSubmission()) submittingRef.current = false;
     }
   }, [
     bridgeBlocked,

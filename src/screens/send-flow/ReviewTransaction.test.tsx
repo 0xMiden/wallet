@@ -26,7 +26,11 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isValidNearIntentsAddress } from 'lib/one-click/address';
 import { OneClickHttpError } from 'lib/one-click/client';
 import { OneClickDeadlineError } from 'lib/one-click/deadline';
-import { NearIntentsSendQuoteChangedError, startNearIntentsSend } from 'lib/one-click/send';
+import {
+  NearIntentsSendQuoteChangedError,
+  NearIntentsSendSupersededError,
+  startNearIntentsSend
+} from 'lib/one-click/send';
 import type { NearIntentsSendPair } from 'lib/one-click/send';
 import type { NearIntentsConfig, OneClickQuoteResponse } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
@@ -3862,7 +3866,9 @@ describe('ReviewTransaction — NEAR Intents', () => {
       accountId: 'pubkey-1',
       accountAddress: 'pubkey-1',
       reviewedMinAmountOut: 19_400_000n,
-      authorization: undefined
+      authorization: undefined,
+      signal: expect.any(AbortSignal),
+      isCurrent: expect.any(Function)
     });
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
     expect(initiateMock).not.toHaveBeenCalled();
@@ -3886,6 +3892,84 @@ describe('ReviewTransaction — NEAR Intents', () => {
     });
     await flush();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+  });
+
+  it('aborts and marks stale a pending startNearIntentsSend on unmount and ignores superseded rejections', async () => {
+    setNearIntentsRoute();
+    const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+    beginFlowMock.mockReturnValue(handle);
+    settleSendFlow(flow => flow.cancel());
+    const pending = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValue(pending.promise);
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    const arg = jest.mocked(startNearIntentsSend).mock.calls[0]?.[0];
+    expect(arg?.signal).toBeInstanceOf(AbortSignal);
+    expect(arg?.signal?.aborted).toBe(false);
+    expect(arg?.isCurrent?.()).toBe(true);
+    unmount();
+    expect(arg?.signal?.aborted).toBe(true);
+    expect(arg?.isCurrent?.()).toBe(false);
+
+    await act(async () => {
+      pending.resolve('tx-near');
+    });
+    await flush();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(handle.complete).not.toHaveBeenCalled();
+    settleSendFlow(flow => flow.cancel());
+
+    jest.mocked(startNearIntentsSend).mockRejectedValueOnce(new NearIntentsSendSupersededError());
+    render(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+  });
+
+  it('aborts and shields a newer account submission when publicKey changes mid-flight', async () => {
+    setNearIntentsRoute();
+    const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+    beginFlowMock.mockReturnValue(handle);
+    settleSendFlow(flow => flow.cancel());
+    const first = deferred<string>();
+    const second = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    const firstArg = jest.mocked(startNearIntentsSend).mock.calls[0]?.[0];
+    expect(firstArg?.signal?.aborted).toBe(false);
+
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(firstArg?.signal?.aborted).toBe(true);
+    expect(firstArg?.isCurrent?.()).toBe(false);
+
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+
+    await act(async () => {
+      first.resolve('tx-stale');
+    });
+    await flush();
+    expect(handle.complete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    // A stale settlement must not unlock `submittingRef` while the newer submission is still running.
+    await clickSubmit();
+    expect(startNearIntentsSend).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve('tx-fresh');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh', 'replacestate');
+    settleSendFlow(flow => flow.cancel());
   });
 
   it('gives the button its label back when the deposit address request fails', async () => {

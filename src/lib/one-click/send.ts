@@ -32,6 +32,14 @@ export class NearIntentsSendQuoteChangedError extends Error {
   }
 }
 
+/** The caller aborted the send, or it is no longer current, before the deposit row was created. */
+export class NearIntentsSendSupersededError extends Error {
+  constructor() {
+    super('The NEAR Intents send was superseded before the deposit was queued.');
+    this.name = 'NearIntentsSendSupersededError';
+  }
+}
+
 /**
  * One destination chain that the config offers for a send. `evmChainId` is set only for an EVM chain the wallet
  * knows.
@@ -166,6 +174,10 @@ export interface StartNearIntentsSendInput extends NearIntentsSendQuoteInput {
   /** The lowest output the user reviewed, in destination base units. The deposit quote must not be below it. */
   reviewedMinAmountOut?: bigint;
   authorization?: SpendingLimitAuthorization;
+  /** Aborts the deposit quote request. An aborted signal also stops the send before the row is created. */
+  signal?: AbortSignal;
+  /** Returns false when the account, network or page changed. The send then stops before the row is created. */
+  isCurrent?: () => boolean;
 }
 
 /**
@@ -188,7 +200,7 @@ export async function startNearIntentsSend(input: StartNearIntentsSendInput): Pr
   const request = buildNearIntentsSendRequest(normalized);
   // `requestOneClickQuote` checks the signature, the binding to the request, the deposit address, the deadline
   // and the configured pair.
-  const quote = await requestOneClickQuote(input.config, request, false);
+  const quote = await requestOneClickQuote(input.config, request, false, undefined, input.signal);
   const depositAddress = quote.quote.depositAddress;
   if (!depositAddress || isPreviewRefundAddress(depositAddress)) {
     throw new Error('The 1Click deposit quote has no usable deposit address. Request a new quote.');
@@ -200,6 +212,8 @@ export async function startNearIntentsSend(input: StartNearIntentsSendInput): Pr
     }
   }
 
+  // The quote took time. The row must not be created for an account, network or page that has gone.
+  if (input.signal?.aborted || input.isCurrent?.() === false) throw new NearIntentsSendSupersededError();
   return initiateOneClickMidenDeposit(
     {
       request,
