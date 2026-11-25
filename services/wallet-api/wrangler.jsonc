@@ -21,7 +21,7 @@
       "database_name": "miden-wallet-api",
       // The production database, from `wrangler d1 create miden-wallet-api`. The id is not a secret.
       // Local `wrangler dev` and `wrangler d1 migrations apply --local` do not use it.
-      "database_id": "8e645d00-84d0-4da5-a5f3-ae17563ca9d9",
+      "database_id": "c502b95a-ecfb-409f-8a90-9ac6a91a39fb",
       "migrations_dir": "migrations"
     }
   ],
