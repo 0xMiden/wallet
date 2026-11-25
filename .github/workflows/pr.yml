@@ -465,7 +465,7 @@ jobs:
             echo "native-toolbar ${{ needs.native-toolbar.result }}"; exit 1; fi
           echo "unit, mock-e2e and native-toolbar ok"
 
-  # Run the unit suite under coverage in three shards and merge their maps.
+  # Run the unit suite under coverage in independent processes and merge their maps.
   # The required-check name stays on the merge gate.
   # The shard count is the matrix length: steps and the name read it as
   # strategy.job-total, and coverage-gate's COVERAGE_SHARDS must match it
@@ -476,7 +476,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-latest
     env:
       JEST_COVERAGE_SHARD: '1'
@@ -510,6 +510,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set -euo pipefail
           node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
@@ -522,14 +523,7 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          worker_args=(--maxWorkers=2)
-          if [[ "$SHARD" == 2 ]]; then
-            # This shard has stalled repeatedly in Jest's parallel worker pool.
-            worker_args=(--runInBand)
-            export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=8192"
-          fi
-          yarn test:coverage "${worker_args[@]}" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
-
+          yarn test:coverage --runInBand --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
           node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
@@ -553,7 +547,7 @@ jobs:
     runs-on: ubuntu-slim
     env:
       # Must equal the length of the coverage job's matrix.
-      COVERAGE_SHARDS: 3
+      COVERAGE_SHARDS: 6
     steps:
       - name: Check shards
         env:
@@ -580,7 +574,14 @@ jobs:
       - name: Merge shards and enforce 95%
         env:
           NODE_PATH: ${{ runner.temp }}/covtools/node_modules
-        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+        run: |
+          node scripts/merge-jest-coverage.mjs \
+            coverage-shards/coverage-shard-1/coverage-final.json \
+            coverage-shards/coverage-shard-2/coverage-final.json \
+            coverage-shards/coverage-shard-3/coverage-final.json \
+            coverage-shards/coverage-shard-4/coverage-final.json \
+            coverage-shards/coverage-shard-5/coverage-final.json \
+            coverage-shards/coverage-shard-6/coverage-final.json
       # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
       # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
       # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.

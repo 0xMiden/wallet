@@ -259,13 +259,8 @@ test('the coverage step launches and stops the sampler before running coverage',
     'trap stop_sampler EXIT',
     "trap 'exit 130' INT",
     "trap 'exit 143' TERM",
-    'worker_args=(--maxWorkers=2)',
-    'if [[ "$SHARD" == 2 ]]; then',
-    "  # This shard has stalled repeatedly in Jest's parallel worker pool.",
-    '  worker_args=(--runInBand)',
-    '  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=8192"',
-    'fi',
-    'yarn test:coverage "${worker_args[@]}" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json'
+    'yarn test:coverage --runInBand --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json',
+    'node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json'
   ].join('\n'));
 });
 
