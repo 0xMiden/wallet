@@ -5,6 +5,7 @@ import Fuse from 'fuse.js';
 import PQueue from 'p-queue';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { remapBalanceRows } from 'lib/miden/balance-snapshot';
 import {
   DEFAULT_TOKEN_METADATA,
   AssetMetadata,
@@ -14,7 +15,6 @@ import {
   putToStorage,
   isMidenAsset
 } from 'lib/miden/front';
-import { remapBalanceRows } from 'lib/miden/balance-snapshot';
 import { DEFAULT_TOKEN_METADATA as UNKNOWN_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import {
