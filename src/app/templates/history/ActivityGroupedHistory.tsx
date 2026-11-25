@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 
-import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { useActivityContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 
 import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
@@ -40,10 +40,10 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
 }) => {
   const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
     useActivityClaimList(search, 'all');
-  const { allContacts } = useFilteredContacts();
+  const activityContacts = useActivityContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const nameOf = useMemo(() => activityCounterpartyNames(allContacts), [allContacts]);
+  const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
 
   return (
     <>

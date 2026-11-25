@@ -17,7 +17,7 @@ import { shortAddr } from 'app/templates/history/HistoryView';
 import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
-import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { useActivityContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { Redirect } from 'lib/woozie';
 
 // Where the page goes back to when there is no history to pop, and where an unknown group redirects.
@@ -40,12 +40,12 @@ export interface ActivityGroupPageProps {
 export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   const { t } = useTranslation();
   const account = useAccount();
-  const { allContacts } = useFilteredContacts();
+  const activityContacts = useActivityContacts();
   const back = useBackWithFallback(ACTIVITY_PATH);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const address = kind === 'address' ? id?.trim() : undefined;
-  const nameOf = useMemo(() => activityCounterpartyNames(allContacts), [allContacts]);
+  const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
   const contactName = address && nameOf(address);
 
   const predicate = useMemo(() => (isActivityGroupKind(kind) ? activityGroupMatcher(kind, id) : undefined), [kind, id]);
