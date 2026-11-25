@@ -7,7 +7,8 @@ import { join } from 'node:path';
 
 import {
   epochSolveFailureMetadata,
-  observeEpochSolveFailure
+  observeEpochSolveFailure,
+  unresolvedSubmissionError
 } from '../playwright/e2e/helpers/mainnet-epoch-diagnostics';
 
 jest.mock('node:crypto', () => ({
@@ -93,6 +94,7 @@ describe('scoped first Epoch solve failure observer', () => {
     fs.writeFileSync(checkpoint, '{"original":"unchanged"}', { mode: 0o600 });
   });
   afterEach(() => {
+    delete process.env.E2E_MAINNET_TEST_SECRET;
     jest.restoreAllMocks();
     fs.rmSync(directory, { recursive: true, force: true });
   });
@@ -134,7 +136,6 @@ describe('scoped first Epoch solve failure observer', () => {
       message(prefix, { name: 'CompactSDKError', code: 'DEPOSIT_FAILED', cause: { name: 'Error', message: raw } })
     );
     await flush();
-    delete process.env.E2E_MAINNET_TEST_SECRET;
     const saved = fs.readFileSync(target, 'utf8'),
       result = JSON.parse(saved);
     expect(result.kind).toBe('compact-sdk-error');
@@ -249,5 +250,29 @@ describe('scoped first Epoch solve failure observer', () => {
       throw new Error(privateMarker);
     });
     expect(() => stop()).not.toThrow();
+  });
+});
+
+describe('unresolvedSubmissionError', () => {
+  afterEach(() => {
+    delete process.env.E2E_MAINNET_TEST_SECRET;
+  });
+
+  it('keeps the generic message and a sanitized one-line cause of the real failure', () => {
+    process.env.E2E_MAINNET_TEST_SECRET = 'synthetic-rpc-credential-value';
+    const raw = Object.assign(new Error('replacement transaction underpriced https://rpc.example/v1/k?x=1 synthetic-rpc-credential-value\nsecond line'), {
+      name: 'TransactionExecutionError'
+    });
+    const error = unresolvedSubmissionError(raw);
+    expect(error.message).toMatch(/^Epoch EVM submission is unresolved; reconcile the saved signed hashes/);
+    const cause = error.cause as Error;
+    expect(cause.name).toBe('TransactionExecutionError');
+    expect(cause.message).toBe('replacement transaction underpriced [url]');
+    expect(cause.message).not.toContain('second line');
+  });
+
+  it('survives a non-error throw', () => {
+    expect((unresolvedSubmissionError('boom').cause as Error).message).toBe('boom');
+    expect((unresolvedSubmissionError(undefined).cause as Error).message).toBe('');
   });
 });
