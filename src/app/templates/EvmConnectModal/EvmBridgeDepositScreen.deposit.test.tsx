@@ -4580,7 +4580,7 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
     }) as never;
   };
 
-  const confirmErc20Deposit = async () => {
+  const openErc20Route = async () => {
     render(depositScreen(undefined, EVM_WALLET));
     await settle();
     fireEvent.click(screen.getByTestId('open-token-drawer'));
@@ -4591,7 +4591,12 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
     await settle();
     fireEvent.click(screen.getByTestId('continue'));
     await settle();
-    fireEvent.click(await screen.findByTestId('confirm-route'));
+    await screen.findByTestId('confirm-route');
+  };
+
+  const confirmErc20Deposit = async () => {
+    await openErc20Route();
+    fireEvent.click(screen.getByTestId('confirm-route'));
     fireEvent.click(await screen.findByTestId('confirm-deposit'));
     await settle();
   };
@@ -4660,6 +4665,14 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
     await settle();
 
     expect(mockLastErc20Rows).toEqual([expect.objectContaining({ name: 'WETH' })]);
+  });
+
+  it('shows the AggLayer payout using the registered receiving asset', async () => {
+    await openErc20Route();
+
+    const payouts = JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
+    expect(payouts.agglayer).toEqual({ assetId: WBTC_LISTING.midenFaucetId, amount: '1.5', symbol: 'WBTC' });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
   });
 
   it('approves and bridges a listed ERC-20 at its own decimals and saves its delivery faucet', async () => {

@@ -29,6 +29,7 @@ import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvm
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
+import { amountExceedsTokenDecimals } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
@@ -2201,6 +2202,34 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       symbol: midenUsdc.symbol
     };
   }, [amount, epochFlow, epochQuote, epochStatus, evmAddress, evmUsdc, midenAccount.publicKey, midenUsdc]);
+  const slowPayout = useMemo(() => {
+    if (slowAvailability.state !== 'available' || !isValidAmount(amount)) return undefined;
+    const delivery =
+      erc20?.delivery ??
+      (ownFastKey === 'USDC' && evmUsdc && evmUsdc.chainId === agglayerChainId
+        ? selectAgglayerRegistryToken(bridgeConfig, evmUsdc.address.toLowerCase(), agglayerChainId)
+        : undefined);
+    if (!delivery) return undefined;
+    const decimals = slowSourceDecimals - delivery.scale;
+    if (decimals < 0 || amountExceedsTokenDecimals(amount, decimals)) return undefined;
+    const units = toBaseUnits(amount, decimals);
+    if (!units || units <= 0n) return undefined;
+    return {
+      assetId: delivery.midenFaucetId,
+      amount: formatUnits(units, decimals),
+      symbol: erc20?.symbol ?? usdcSymbol
+    };
+  }, [
+    agglayerChainId,
+    amount,
+    bridgeConfig,
+    erc20,
+    evmUsdc,
+    ownFastKey,
+    slowAvailability.state,
+    slowSourceDecimals,
+    usdcSymbol
+  ]);
   const displayedError: DepositError | null =
     route === 'epoch' && epochFlow === 'evm-to-miden'
       ? epochError == null
@@ -2546,7 +2575,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               route={route}
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
-              payouts={{ epoch: fastPayout }}
+              payouts={{ epoch: fastPayout, agglayer: slowPayout }}
               fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
@@ -2629,6 +2658,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       configuredFastAvailability,
       fastFeeUsd,
       fastPayout,
+      slowPayout,
       handleAmountChange,
       handleConfirm,
       handleContinue,
