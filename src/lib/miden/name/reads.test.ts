@@ -75,8 +75,7 @@ function setEntry(slot: string, key: Felts4, value: bigint[]): void {
   mapEntries.set(slot, entries);
 }
 
-type FakeProof = ReturnType<typeof createFakeProof>;
-let proofsCreated: FakeProof[] = [];
+let proofsCreated: Array<{ free: jest.Mock<void, []> }> = [];
 
 function createFakeProof(requirements: AccountStorageRequirements) {
   let freed = false;
