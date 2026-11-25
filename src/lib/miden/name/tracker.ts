@@ -4,13 +4,18 @@
  * One pass (`reconcileMidenNameRegistrations`) moves each non-terminal
  * `register-name` row of the effective network one step forward:
  *
- *   1. register row Failed                      → failed / tx-failed
+ *   1. register row Failed or Unconfirmed,     → read the register note state (never submitted or
+ *      no verdict pending                          neverCommittedAt rows seal failed / tx-failed at once):
+ *                                                 consumed, pending, inflight → promote, then as in 2
+ *                                                 discarded → failed / taken or discarded
+ *                                                 unknown and tip > reclaimHeight → failed / tx-failed
  *   2. register row Completed, phase submitted  → read the register note state:
  *      (or requested, see `phaseOf`)              consumed + issued → issued
  *                                                 discarded         → failed / taken or discarded
  *                                                 not consumed and tip > reclaimHeight → failed / expired
  *   3. issued   → find the delivery note, queue a consume of it → claiming
- *   4. claiming → claim row Completed → owned; claim row Failed → issued
+ *   4. claiming → claim row Completed → owned; claim row Failed → issued, or
+ *                 failed / claim-failed after MAX_CLAIM_ATTEMPTS
  *
  * The tracker uses RPC reads and Dexie only. It does not call `syncState()` and
  * it does not take the WASM client lock itself: only
