@@ -147,6 +147,26 @@ it.each(['ready', 'error'] as const)('displays a fresher cached quote without re
   });
 });
 
+it('shows the cached-quote total on the first frame even when another held token has no quote', () => {
+  const now = Date.now();
+  rows = [row('priced', 3), row('unquoted', 1)];
+  tagBalanceSnapshot(
+    rows,
+    { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt: now },
+    scope.accountId
+  );
+  mockCachedPrices = {
+    priced: { ...quote, price: 4, observedAt: now - 1000, change24h: NaN, percentageChange24h: NaN }
+  };
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  render(<Probe />);
+  expect(JSON.parse(screen.getByRole('status').textContent ?? '')).toMatchObject({
+    value: '12',
+    coverage: 'partial',
+    canRecord: false
+  });
+});
+
 it('shows a proven USDCx balance while the unrelated market feed is loading, without recording history', () => {
   expect(fixedQuote('USDCX')?.price).toBe(1);
   rows = [row('fixed', 7.25)];

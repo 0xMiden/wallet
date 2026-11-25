@@ -75,7 +75,7 @@ export function unresolvedSubmissionError(raw: unknown): Error {
     const rawName = record && Object.getOwnPropertyDescriptor(record, 'name')?.value;
     const rawMessage = record ? Object.getOwnPropertyDescriptor(record, 'message')?.value : raw;
     if (typeof rawName === 'string') name = publicCause(rawName.slice(0, 80));
-    if (typeof rawMessage === 'string') text = publicCause((rawMessage.split('\n', 1)[0] ?? '').slice(0, 400));
+    if (typeof rawMessage === 'string') text = publicCause((rawMessage.split('\n')[0] ?? '').slice(0, 400));
   } catch {
     // A hostile error object must not replace the unresolved-submission failure.
   }

@@ -159,6 +159,8 @@ describe('EarnIntentWatcher local reconciliation', () => {
 
   // A restored row is a receipt: the device that made the withdrawal owns its state, and the backup brings the
   // result. This device does not change it, also when it cannot verify it (`updateEarnWithdrawPhase` refuses it).
+  // Real timers: under fake timers `waitFor` spends its budget in event-loop turns, not wall time, so the slow
+  // instrumented coverage run (dynamic import plus Dexie reads) exhausts it before the pass reaches the sentinel.
   it.each(pendingPhases)(
     'leaves a restored %s withdrawal whose poll key is owned as it was restored',
     async phase => {
