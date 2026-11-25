@@ -3823,6 +3823,16 @@ describe('History narrowed and re-rendered by its caller', () => {
     expect(mockHistoryViewProps.hasMore).toBe(true);
   });
 
+  it('calls the batch filter with an empty result without changing paging', async () => {
+    const filterEntries = jest.fn((entries: readonly IHistoryEntry[]) => [...entries]);
+
+    await renderHistory({ predicate: () => false, filterEntries });
+
+    expect(filterEntries).toHaveBeenCalledWith([]);
+    expect(entryKeys()).toEqual([]);
+    expect(mockHistoryViewProps.hasMore).toBe(true);
+  });
+
   it('hands `renderEntries` the same entries and paging state instead of the timeline', async () => {
     let seen: any;
     await act(async () => {

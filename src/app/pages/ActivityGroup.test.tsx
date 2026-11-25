@@ -137,7 +137,13 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   ...over
 });
 
-const predicate = () => historyProps.predicate as (entry: IHistoryEntry) => boolean;
+const filterGroupEntries = (entries: IHistoryEntry[]) => {
+  const filterEntries = historyProps.filterEntries as ((loaded: IHistoryEntry[]) => IHistoryEntry[]) | undefined;
+  return filterEntries
+    ? filterEntries(entries)
+    : entries.filter(historyProps.predicate as (entry: IHistoryEntry) => boolean);
+};
+const predicate = () => (historyEntry: IHistoryEntry) => filterGroupEntries([historyEntry]).length === 1;
 
 describe('ActivityGroupPage', () => {
   beforeEach(() => {
@@ -200,6 +206,31 @@ describe('ActivityGroupPage', () => {
       page.rerender(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_BECH32} />);
       expect(predicate()(firstEntry)).toBe(true);
       expect(counterpartyDecodes()).toHaveLength(0);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it('drops a decoded history spelling after an empty detail pass', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode();
+    const counterpartyEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const counterpartyDecodes = () => decode.mock.calls.filter(([address]) => address === ACTIVITY_COUNTERPARTY_BECH32);
+
+    try {
+      _resetCanonicalWalletAccountIdsForTest();
+      render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+      expect(counterpartyDecodes()).toHaveLength(0);
+
+      expect(filterGroupEntries([])).toEqual([]);
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+      expect(counterpartyDecodes()).toHaveLength(1);
     } finally {
       restoreDecoder();
       _resetCanonicalWalletAccountIdsForTest();
