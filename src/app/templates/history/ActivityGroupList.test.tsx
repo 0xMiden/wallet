@@ -655,6 +655,27 @@ describe('ActivityGroupList', () => {
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
     });
 
+    it('can search older pages when the first page has no matching group', () => {
+      const firstPage = searchable();
+      const olderMatch = entry({ secondaryAddress: 'mtst1oldercontact', timestamp: 1 });
+      const props = {
+        nameOf,
+        searchQuery: 'oldercontact',
+        initialLoading: false,
+        loadMore: jest.fn(),
+        scrollParentRef: { current: document.createElement('div') }
+      };
+      const { rerender } = render(<ActivityGroupList {...props} entries={firstPage} hasMore />);
+
+      expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      mockScroller.props?.loadMore(2);
+      expect(props.loadMore).toHaveBeenCalledWith(2);
+
+      rerender(<ActivityGroupList {...props} entries={[...firstPage, olderMatch]} hasMore={false} />);
+      expect(screen.getByTestId('activity-group-row')).toHaveAttribute('data-group-id', 'mtst1oldercontact');
+    });
+
     it('shows the empty state when no group matches', () => {
       renderList(searchable(), { nameOf, searchQuery: 'zzzz-nothing' });
       expect(screen.queryByTestId('activity-group-row')).toBeNull();

@@ -1490,6 +1490,26 @@ describe('HistoryView infinite scroll wiring', () => {
     makeEntry({ key: 'b', message: 'B', txId: 'txb', transactionIcon: 'SEND', amount: '2', token: 'MDN' })
   ];
 
+  it('can load older pages when no entries in the first page belong to the group', () => {
+    const props = {
+      ...baseProps,
+      centerEmptyState: true,
+      fullHistory: true,
+      loadMore: jest.fn(),
+      scrollParentRef: { current: document.createElement('div') }
+    };
+    const { rerender } = render(<HistoryView {...props} entries={[]} hasMore />);
+
+    expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-hasmore', 'true');
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+    mockScroller.props?.loadMore(2);
+    expect(props.loadMore).toHaveBeenCalledWith(2);
+
+    rerender(<HistoryView {...props} entries={twoEntries} />);
+    expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-hasmore', 'false');
+    expect(screen.queryByText('noOperationsFound')).toBeNull();
+  });
+
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
     const parent = document.createElement('div');
     const loadMore = jest.fn();
