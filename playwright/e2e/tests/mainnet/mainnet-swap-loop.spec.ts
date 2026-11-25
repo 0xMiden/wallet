@@ -49,6 +49,7 @@ import {
   swapQuoteRefusal
 } from '../../helpers/mainnet-swap-ui';
 import { exportPublicInputNote } from '../../helpers/swap';
+import { AUDITED_HELD_SWAP, closeSwapHeldDust } from '../../helpers/mainnet-swap-held';
 import { getEnvironmentConfig } from '../../config/environments';
 import {
   assertRecoveryOfferMeetsWalletMinimum,
@@ -333,6 +334,49 @@ async function evidence(
     });
   }
   return { rows, orders };
+}
+
+/** Read-only: closes the audited unfillable first return as held, never quoting, signing or submitting. */
+async function closeHeldDust(wallet: GuardianAwareWalletPage, state: MainnetSwapCheckpoint, runId: string) {
+  const authority = state.forwardRequestAuthority;
+  if (
+    state.phase !== 'reverse-authorized' ||
+    state.sourceRunId !== AUDITED_HELD_SWAP.sourceRunId ||
+    state.recoveryReturnAuthorizedAt === undefined ||
+    !authority
+  )
+    return false;
+  const payback = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, {
+    kind: 'swap',
+    accountId: Address.fromBech32(state.account).accountId().toString(),
+    faucetId: state.offer.hex,
+    amount: state.principal,
+    requestedFaucetId: state.request.hex,
+    requestedAmount: authority.minimumReceive,
+    noteId: authority.noteId,
+    orderId: authority.orderId
+  });
+  const { rows, orders } = await evidence(wallet);
+  const closed = closeSwapHeldDust(state, {
+    runId,
+    now: Date.now(),
+    balances: await balances(wallet, state),
+    payback,
+    orders,
+    pendingWalletRows: rows.filter(
+      row =>
+        row.status === TxStatus.Queued ||
+        row.status === TxStatus.GeneratingTransaction ||
+        row.status === TxStatus.Unconfirmed
+    ).length
+  });
+  if (!closed) return false;
+  persist(state);
+  observeSwap('reverse', state)(
+    { recoveryEffect: 'read_only' },
+    { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' }
+  );
+  return true;
 }
 
 async function authorizeReturn(
@@ -893,6 +937,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   if (mainnetSwapNextAction(state) === 'stop')
     throw new Error('The checkpoint requires operator recovery before another spend');
   if (mode === 'recover') {
+    if (await closeHeldDust(walletB, state, runId)) return;
     if (process.env.MAINNET_SWAP_PRIOR_FORWARD_UNSPENT === 'true') {
       if (
         state.sourceRunId !== '45118679621' ||

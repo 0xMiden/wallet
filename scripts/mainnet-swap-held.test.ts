@@ -247,13 +247,16 @@ it('keeps every signing, submission and quoting primitive out of the held closur
     /sendRawTransaction|sendTransaction|signTransaction|writeContract|privateKeyToAccount|armMainnet|releaseMainnet|runPreparedSwap|prepareMainnetSwapReview|readLiveSwapLeg|authorizeMainnetSwap|reviewed\.submit|\.submit\(/;
   const helper = readFileSync('playwright/e2e/helpers/mainnet-swap-held.ts', 'utf8');
   const spec = readFileSync('playwright/e2e/tests/mainnet/mainnet-swap-loop.spec.ts', 'utf8');
-  const start = spec.indexOf('closeSwapHeldDust(');
-  const end = spec.indexOf('if (mode ===', start);
+  const start = spec.indexOf('async function closeHeldDust');
+  const end = spec.indexOf('async function authorizeReturn', start);
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  expect(spec.slice(start - 600, end)).toContain('readMainnetSwapPayback');
+  const wiring = spec.slice(start, end);
+  expect(wiring).toContain('readMainnetSwapPayback');
+  expect(wiring).toContain('closeSwapHeldDust(');
+  expect(spec).toContain('if (await closeHeldDust(walletB, state, runId)) return;');
   expect(helper).not.toMatch(forbidden);
-  expect(spec.slice(start - 600, end)).not.toMatch(forbidden);
+  expect(wiring).not.toMatch(forbidden);
 });
 
 it('is wired into the nightly workflow as a resolved terminal phase', () => {

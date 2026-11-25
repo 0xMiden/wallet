@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { realizedSwapLoss } from './mainnet-swap-plan';
+
 export interface SavedSwapHolding {
   faucetId: string;
   hex: string;
@@ -25,6 +27,38 @@ export function minimumFirstSwapRecoveryReturn(
   )
     return original;
   return original - 101n;
+}
+
+const savedHolding = (saved: SavedSwapHolding) => ({
+  ...saved,
+  balance: BigInt(saved.balance),
+  usdMicros: BigInt(saved.usdMicros)
+});
+
+/** Vault balances a held closure must find: principal and fees spent, the unsold return still held. */
+export function expectedHeldAfter(
+  state: Pick<MainnetSwapCheckpoint, 'offer' | 'request' | 'principal' | 'paidFees' | 'returnAmount'>
+): { offer: string; request: string; native: string } | undefined {
+  const spent = BigInt(state.principal) + BigInt(state.paidFees);
+  if (BigInt(state.offer.balance) < spent || state.returnAmount === undefined) return undefined;
+  const stable = (BigInt(state.offer.balance) - spent).toString();
+  return {
+    offer: stable,
+    request: (BigInt(state.request.balance) + BigInt(state.returnAmount)).toString(),
+    native: stable
+  };
+}
+
+/** The held token is not credited, so the whole spent principal and fees count against the loss budget. */
+export function swapHeldCost(
+  state: Pick<MainnetSwapCheckpoint, 'offer' | 'request' | 'native'>,
+  after: { offer: string; native: string }
+): bigint {
+  return realizedSwapLoss([
+    { before: savedHolding(state.offer), after: BigInt(after.offer) },
+    { before: savedHolding(state.request), after: BigInt(state.request.balance) },
+    { before: savedHolding(state.native), after: BigInt(after.native) }
+  ]);
 }
 
 export type SwapLoopPhase =
@@ -180,6 +214,40 @@ function claimAuthority(value: unknown): value is MainnetSwapClaimAuthority {
     )
   );
 }
+function validHeldDust(value: MainnetSwapCheckpoint, forward: unknown): boolean {
+  const held: unknown = value.heldDust;
+  const expected = expectedHeldAfter(value);
+  return (
+    value.phase === 'cancelled' &&
+    record(held) &&
+    Object.keys(held).every(key => ['token', 'amount', 'reason', 'after'].includes(key)) &&
+    held.reason === 'no_return_liquidity' &&
+    held.token === value.request.faucetId &&
+    value.request.faucetId !== value.native.faucetId &&
+    value.offer.faucetId === value.native.faucetId &&
+    amount(held.amount) &&
+    BigInt(held.amount) > 0n &&
+    held.amount === value.forwardReceived &&
+    held.amount === value.returnAmount &&
+    value.forwardRefunded === '0' &&
+    requestAuthority(forward) &&
+    value.forwardOrderId === forward.orderId &&
+    value.recoveryReturnAuthorizedAt !== undefined &&
+    record(value.returnBaseline) &&
+    [
+      value.reverseOrderId,
+      value.reverseRequestAuthority,
+      value.reverseClaimAuthority,
+      value.recoveryReturnReplacement,
+      value.recoveryClaimNativeBefore
+    ].every(field => field === undefined) &&
+    value.lossBudgetUsdMicros !== undefined &&
+    expected !== undefined &&
+    JSON.stringify(held.after) === JSON.stringify(expected) &&
+    JSON.stringify(value.returnBaseline) === JSON.stringify(expected) &&
+    value.realizedCostUsdMicros === swapHeldCost(value, expected).toString()
+  );
+}
 function valid(value: unknown): value is MainnetSwapCheckpoint {
   if (
     !record(value) ||
@@ -225,6 +293,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     return false;
   if (
     value.phase === 'cancelled' &&
+    value.heldDust === undefined &&
     (value.forwardRefunded !== value.principal || value.forwardReceived !== '0' || !amount(value.forwardOrderId))
   )
     return false;
@@ -272,7 +341,10 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
     (!timestamp(value.recoveryReturnAuthorizedAt) ||
       Date.parse(value.recoveryReturnAuthorizedAt) < Date.parse(value.createdAt) ||
       Date.parse(value.recoveryReturnAuthorizedAt) > Date.parse(value.updatedAt) ||
-      !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)) ||
+      !(
+        ['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)) ||
+        (value.phase === 'cancelled' && value.heldDust !== undefined)
+      ) ||
       !amount(value.forwardReceived) ||
       !amount(value.returnAmount) ||
       !record(value.returnBaseline))
@@ -383,7 +455,8 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       BigInt(claim.amount) < BigInt(source.minimumReceive) ||
       claim.expiresAt <= Date.parse(value.createdAt) ||
       claim.expiresAt > Date.parse(value.updatedAt) + 300_000 ||
-      ['unspent', 'cancelled'].includes(String(value.phase))
+      value.phase === 'unspent' ||
+      (value.phase === 'cancelled' && value.heldDust === undefined)
     )
       return false;
   }
@@ -398,6 +471,7 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       !['reverse-authorized', 'complete', 'recovery-required'].includes(String(value.phase)))
   )
     return false;
+  if (value.heldDust !== undefined && !validHeldDust(value as unknown as MainnetSwapCheckpoint, forward)) return false;
   if (value.phase === 'unspent' && (forward !== undefined || reverse !== undefined)) return false;
   if (value.phase === 'complete' && forward !== undefined && reverse === undefined) return false;
   return Object.keys(value).every(key =>
@@ -438,10 +512,13 @@ function valid(value: unknown): value is MainnetSwapCheckpoint {
       'reverseReceived',
       'recoveryClaimNativeBefore',
       'returnAmount',
-      'returnBaseline'
+      'returnBaseline',
+      'heldDust'
     ].includes(key)
   );
 }
+
+export const isMainnetSwapCheckpoint = valid;
 
 export function loadMainnetSwapCheckpoint(path: string): MainnetSwapCheckpoint | undefined {
   let text: string;
