@@ -1050,38 +1050,45 @@ describe('bridgeRowDisplay', () => {
       inLabel: 'MUSDC',
       outLabel: 'USDC',
       outAmount: '4.95',
-      amountLabel: 'USDC',
       providerLabel: '1Click',
       network: 'Solana',
       status: 'confirmed'
     });
 
-    expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({
-          token: 'MUSDC',
-          amount: '5',
-          bridgeProvider: 'near-intents',
-          bridgeDestinationNetwork: 8453,
-          oneClickTracking: paymentTracking({
-            direction: 'miden-to-evm',
-            phase: 'processing',
-            destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 }
-          })
+    const nearIntentsNoQuote = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        bridgeOutputSymbol: 'ETH'
+      })
+    );
+    expect(nearIntentsNoQuote.outSymbol).toBe('ETH');
+    expect(nearIntentsNoQuote.outLabel).toBe('ETH');
+    expect(nearIntentsNoQuote.outAmount).toBeUndefined();
+    expect('amountLabel' in nearIntentsNoQuote).toBe(false);
+
+    const nearIntentsQuoted = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        oneClickTracking: paymentTracking({
+          direction: 'miden-to-evm',
+          phase: 'processing',
+          destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+          quote: {
+            quote: { amountOutFormatted: '0.00219' }
+          } as unknown as NonNullable<ReturnType<typeof paymentTracking>['quote']>
         })
-      )
-    ).toEqual({
-      inSymbol: 'MUSDC',
-      outSymbol: 'ETH',
-      inLabel: 'MUSDC',
-      outLabel: 'ETH',
-      outAmount: '5',
-      amountLabel: 'ETH',
-      providerLabel: '1Click',
-      network: 'Base',
-      status: 'pending'
-    });
+      })
+    );
+    expect(nearIntentsQuoted.outAmount).toBe('0.00219');
+    expect(nearIntentsQuoted.outLabel).toBe('ETH');
   });
 
   it('renders an epoch row from its quoted output', () => {
@@ -1104,7 +1111,6 @@ describe('bridgeRowDisplay', () => {
       outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
-      amountLabel: 'USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -1137,7 +1143,6 @@ describe('bridgeRowDisplay', () => {
         inLabel: token,
         outLabel: token,
         outAmount: '1.2',
-        amountLabel: token,
         providerLabel: 'Agglayer',
         network: 'Sepolia',
         status: 'confirmed'
@@ -1158,7 +1163,6 @@ describe('bridgeRowDisplay', () => {
       inLabel: NO_TOKEN,
       outLabel: 'USDC',
       outAmount: undefined,
-      amountLabel: 'USDC',
       providerLabel: 'Bridge',
       network: 'Sepolia',
       status: 'pending'
@@ -1173,6 +1177,13 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
     ).toBe('0.015');
+  });
+
+  it('omits amountLabel on Circle xReserve bridgeRowDisplay output', () => {
+    const xReserve = bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'USDC', amount: '10', bridgeProvider: 'usdcx' }));
+    expect(xReserve.outAmount).toBe('10');
+    expect(xReserve.outLabel).toBe('USDC');
+    expect('amountLabel' in xReserve).toBe(false);
   });
 });
 
@@ -1209,7 +1220,6 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'ETH',
       outLabel: 'MIDEN',
       outAmount: '3',
-      amountLabel: 'MIDEN',
       providerLabel: 'Agglayer',
       network: 'Miden',
       status: 'confirmed'
@@ -1339,7 +1349,6 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'USDC',
       outLabel: NO_TOKEN,
       outAmount: undefined,
-      amountLabel: NO_TOKEN,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
@@ -1365,7 +1374,6 @@ describe('bridgeInRowDisplay', () => {
       inLabel: 'USDC',
       outLabel: 'USDCx',
       outAmount: '5',
-      amountLabel: 'USDCx',
       providerLabel: 'Circle xReserve',
       network: 'Miden',
       status: 'pending'

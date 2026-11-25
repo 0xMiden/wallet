@@ -170,7 +170,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   const { t } = useTranslation();
   const epochReturn = useEpochReturnState(entry, entry.address, entry.restoredFromBackup === true);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-  const { inLabel, outLabel, outAmount, amountLabel, providerLabel, network, status } =
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
     entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
@@ -202,7 +202,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
       <div className="flex shrink-0 max-w-1/2 flex-col items-end gap-1">
         {outAmount !== undefined && (
           <span className="max-w-full truncate text-sm font-medium leading-tight text-ink">
-            {outAmount} {amountLabel}
+            {outAmount} {outLabel}
           </span>
         )}
         <StatusBadge status={epochReturn.status ?? (hasOwnBridgeBadge(entry) ? bridgeBadgeStatusOf(entry) : status)} />

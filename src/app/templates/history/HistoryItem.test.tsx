@@ -9,8 +9,10 @@ import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes `t:<key>` back and we can assert which label branch rendered.
+// The mock keeps its interpolation arguments so tests can assert what each label was given.
+const mockT = jest.fn((key: string, _options?: Record<string, unknown>) => `t:${key}`);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => `t:${key}` })
+  useTranslation: () => ({ t: mockT })
 }));
 
 // `useAppEnv` reads a module-scoped holder so individual tests can flip
@@ -121,6 +123,7 @@ const contentRoot = (container: HTMLElement) => container.querySelector('div.py-
 
 beforeEach(() => {
   mockCompact = false;
+  mockT.mockClear();
   mockIsMobile.mockReturnValue(false);
   mockIsFaucetRequest.mockReturnValue(false);
 });
@@ -138,7 +141,6 @@ describe('HistoryItem', () => {
       inLabel: 'Test Epoch USDC',
       outLabel: 'Test Epoch USDC',
       outAmount: '4.98',
-      amountLabel: 'Test Epoch USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -149,30 +151,59 @@ describe('HistoryItem', () => {
     expect(screen.getByText('4.98 Test Epoch USDC')).toBeInTheDocument();
   });
 
-  it('shows a NEAR Intents send with the sent amount, its symbol and the destination chain', () => {
-    jest.mocked(bridgeRowDisplay).mockReturnValue({
-      inSymbol: 'ETH',
-      outSymbol: 'SOL',
-      inLabel: 'ETH',
-      outLabel: 'SOL',
-      outAmount: '0.0105',
-      amountLabel: 'ETH',
-      providerLabel: 'NEAR Intents',
-      network: 'Solana',
-      status: 'pending'
-    });
+  it('shows a NEAR Intents send with the quoted destination amount, its symbol and the destination chain', () => {
+    mockBridgeRowDisplay.mockImplementation(jest.requireActual('./transactionUtils').bridgeRowDisplay);
 
     render(
       <HistoryItem
-        entry={makeEntry({ txType: 'bridged-send', bridgeProvider: 'near-intents' })}
+        entry={makeEntry({
+          txType: 'bridged-send',
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: -1,
+          bridgeDestinationChain: { id: 'sol', name: 'Solana' },
+          oneClickTracking: {
+            direction: 'miden-to-evm',
+            phase: 'processing',
+            destinationAsset: { assetId: 'sol-sol', blockchain: 'sol', symbol: 'SOL', decimals: 9 },
+            quote: { quote: { amountOutFormatted: '2.5' } }
+          }
+        })}
         fullHistory
         lastEntry={false}
       />
     );
 
-    expect(screen.getByText('0.0105 ETH')).toBeInTheDocument();
+    expect(screen.getByText('2.5 SOL')).toBeInTheDocument();
+    expect(screen.queryByText('5 SOL')).not.toBeInTheDocument();
     expect(screen.getByText('t:bridgeRowTitle')).toBeInTheDocument();
     expect(screen.getByText('t:bridgeRowVia')).toBeInTheDocument();
+    expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'MUSDC', to: 'SOL' });
+    expect(mockT).toHaveBeenCalledWith('bridgeRowVia', { provider: '1Click', network: 'Solana' });
+  });
+
+  it('shows no destination amount for a NEAR Intents send without a destination quote', () => {
+    mockBridgeRowDisplay.mockImplementation(jest.requireActual('./transactionUtils').bridgeRowDisplay);
+
+    render(
+      <HistoryItem
+        entry={makeEntry({
+          txType: 'bridged-send',
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: -1,
+          bridgeDestinationChain: { id: 'sol', name: 'Solana' },
+          bridgeOutputSymbol: 'SOL'
+        })}
+        fullHistory
+        lastEntry={false}
+      />
+    );
+
+    expect(screen.queryByText(/ SOL$/)).not.toBeInTheDocument();
+    expect(screen.getByText('t:bridgeRowTitle')).toBeInTheDocument();
   });
 
   it.each([
@@ -188,7 +219,6 @@ describe('HistoryItem', () => {
       inLabel: 'Miden USDCx',
       outLabel: 'Sepolia USDC',
       outAmount: '10',
-      amountLabel: 'Sepolia USDC',
       providerLabel: 'USDCx',
       network: 'Sepolia',
       status: 'pending'
@@ -590,7 +620,6 @@ describe('HistoryItem', () => {
         inLabel: 'USDC',
         outLabel: longToken,
         outAmount: longAmount.toString(),
-        amountLabel: longToken,
         providerLabel: 'Epoch',
         network: 'Sepolia',
         status: 'pending'

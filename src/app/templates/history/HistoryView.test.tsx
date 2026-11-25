@@ -449,7 +449,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'MIDEN',
       outLabel: 'USDC',
       outAmount: '10',
-      amountLabel: 'USDC',
       providerLabel: 'AggLayer',
       network: 'Sepolia',
       status: 'failed'
@@ -483,7 +482,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'USDC',
       outLabel: 'USDCx',
       outAmount: '10',
-      amountLabel: 'USDCx',
       providerLabel: '1Click',
       network: 'Miden',
       status: 'expired'
@@ -511,7 +509,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'MIDEN',
       outLabel: 'USDC',
       outAmount: '10.65',
-      amountLabel: 'USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -522,7 +519,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'USDC',
       outLabel: 'ETH',
       outAmount: '0.015123',
-      amountLabel: 'ETH',
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
@@ -552,7 +548,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'Test Epoch USDC',
       outLabel: 'Test Epoch USDC',
       outAmount: '4.98',
-      amountLabel: 'Test Epoch USDC',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -563,7 +558,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'Test Epoch USDC',
       outLabel: 'Test Epoch USDC',
       outAmount: '3',
-      amountLabel: 'Test Epoch USDC',
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
@@ -599,7 +593,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
         inLabel: 'Miden USDCx',
         outLabel: 'Sepolia USDC',
         outAmount: '10',
-        amountLabel: 'Sepolia USDC',
         providerLabel: 'USDCx',
         network: 'Sepolia',
         status: 'pending'
@@ -638,7 +631,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       inLabel: 'Sepolia USDC',
       outLabel: 'Miden USDCx',
       outAmount: '10',
-      amountLabel: 'Miden USDCx',
       providerLabel: 'USDCx',
       network: 'Miden',
       status: 'confirmed'
@@ -1575,7 +1567,6 @@ describe('HistoryView Guardian ops', () => {
       inLabel: 'MIDEN',
       outLabel: 'USDC',
       outAmount: '10',
-      amountLabel: 'USDC',
       providerLabel: 'AggLayer',
       network: 'Sepolia',
       status: 'confirmed'

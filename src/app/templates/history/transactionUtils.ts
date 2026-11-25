@@ -407,8 +407,6 @@ export interface BridgeRowDisplay {
    * while in flight, then the credited amount rounded down once received.
    */
   outAmount?: string;
-  /** The label shown after `outAmount`. */
-  amountLabel: string;
   providerLabel: string;
   network: string;
   status: BridgeStatus;
@@ -440,7 +438,6 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       inLabel: inSymbol,
       outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
-      amountLabel: inSymbol,
       providerLabel: 'Circle xReserve',
       network,
       status: bridgeStatusOf(entry)
@@ -451,7 +448,14 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     entry.oneClickTracking?.destinationAsset.symbol ??
     (entry.bridgeProvider === 'agglayer' ? inSymbol : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
-  const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
+  // A NEAR Intents row's `amount` is the Miden side, so it falls back to the 1Click quote or shows none.
+  const quotedOutAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol);
+  const nearIntentsQuote =
+    entry.oneClickTracking?.direction === 'miden-to-evm' ? entry.oneClickTracking.quote.quote : undefined;
+  const outAmount =
+    entry.bridgeProvider === 'near-intents'
+      ? (quotedOutAmount ?? formatMoneyAmount(nearIntentsQuote?.amountOutFormatted, 'receives', outSymbol))
+      : (quotedOutAmount ?? entry.amount);
   const providerLabel =
     entry.bridgeProvider === 'agglayer'
       ? 'Agglayer'
@@ -471,7 +475,6 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
     outLabel,
     outAmount,
-    amountLabel: outLabel,
     providerLabel,
     network,
     status: bridgeStatusOf(entry)
@@ -539,7 +542,6 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
     inLabel,
     outLabel,
     outAmount,
-    amountLabel: outLabel,
     providerLabel,
     network: 'Miden',
     status: bridgeStatusOf(entry)
