@@ -372,6 +372,7 @@ interface InFlightOp {
   reject: (err: unknown) => void;
   timer: ReturnType<typeof setTimeout> | null;
   method: string;
+  boundContext?: RecoveryBoundContext;
   /** The op's full deadline (ms), retained so a paused deadline can be re-armed
    * from scratch after a sign round-trip. `null` ⇒ no deadline. */
   deadlineMs: number | null;
@@ -785,7 +786,8 @@ async function dispatchOp(
       paused: false,
       timerPhase: critical ? 'backstop' : 'dispatch',
       started: false,
-      lastObservedStage: 'not_observed'
+      lastObservedStage: 'not_observed',
+      ...(boundContext ? { boundContext } : {})
     });
 
     const envelope: OffscreenCallRequest = {
@@ -892,6 +894,23 @@ export function markOpStarted(op_id: string): void {
           void onDeadline(op_id);
         }, op.deadlineMs)
       : null;
+}
+
+export function acknowledgeRecoveryImportStart(opId: string): Promise<{ ok: boolean }> | undefined {
+  const op = inFlight.get(opId);
+  const bound = op?.boundContext;
+  if (op?.method !== 'importRecoveryNoteFiles' || !bound) return undefined;
+
+  return readGuardianHistoryGeneration()
+    .then(generation => {
+      const current = inFlight.get(opId);
+      if (current !== op || current.method !== 'importRecoveryNoteFiles' || current.boundContext !== bound) {
+        return { ok: false };
+      }
+      assertRecoveryContext(bound, generation);
+      return { ok: true };
+    })
+    .catch(() => ({ ok: false }));
 }
 
 /**

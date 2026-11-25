@@ -70,6 +70,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
   return {
     ...actual,
     markOpStarted: jest.fn(),
+    acknowledgeRecoveryImportStart: jest.fn(() => undefined),
     handleOffscreenStageEvent: jest.fn(),
     handleOffscreenSubmitGate: jest.fn(async () => ({ ok: true })),
     reloadOffscreenEndpointOverrides: jest.fn(async () => true)
@@ -1540,6 +1541,27 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['accepted', () => Promise.resolve({ ok: true }), true],
+    ['denied', () => Promise.resolve({ ok: false }), false],
+    ['invalid', () => Promise.resolve({ ok: true, generation: 'gen-secret' }), false],
+    ['rejected', () => Promise.reject(new Error('port closed')), false]
+  ] as const)('answers a %s recovery import acknowledgement', async (_name, reply, ok) => {
+    proxyMock.acknowledgeRecoveryImportStart.mockImplementationOnce(reply);
+    const sendResponse = jest.fn();
+
+    const ret = signListener()(
+      { target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-import' },
+      ownSender,
+      sendResponse
+    );
+
+    expect(ret).toBe(true);
+    expect(proxyMock.markOpStarted).toHaveBeenCalledWith('op-import');
+    await flushMicro();
+    expect(sendResponse).toHaveBeenCalledWith({ ok });
+  });
+
   it('routes an OFFSCREEN_TELEMETRY_EVENT to the telemetry handler and returns false', async () => {
     // The offscreen document is the one realm that can neither install a page
     // transport nor be detected as the worker — it has a `window` and never
@@ -1583,7 +1605,14 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     });
 
     it('refuses an op-started signal from another extension, so a write deadline cannot be armed remotely', () => {
-      const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'not-ours' }, foreign, jest.fn());
+      const sendResponse = jest.fn();
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'not-ours' },
+        foreign,
+        sendResponse
+      );
+      expect(proxyMock.acknowledgeRecoveryImportStart).not.toHaveBeenCalled();
+      expect(sendResponse).not.toHaveBeenCalled();
 
       expect(ret).toBe(false);
       expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
@@ -1702,7 +1731,10 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
   });
 
   it('ignores an OFFSCREEN_OP_STARTED with a non-string op_id (no markOpStarted, no crash)', () => {
-    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, ownSender, jest.fn());
+    const sendResponse = jest.fn();
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, ownSender, sendResponse);
+    expect(proxyMock.acknowledgeRecoveryImportStart).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(ret).toBe(false);
     expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
   });

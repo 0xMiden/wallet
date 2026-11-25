@@ -15,6 +15,7 @@ import * as Actions from 'lib/miden/back/actions';
 import { APPROVAL_CONFIRMATION_TYPES } from 'lib/miden/back/approval-confirmation';
 import { intercom } from 'lib/miden/back/defaults';
 import {
+  acknowledgeRecoveryImportStart,
   handleOffscreenSignRequest,
   handleOffscreenStageEvent,
   handleOffscreenSubmitGate,
@@ -344,18 +345,31 @@ function registerOffscreenSignHandler(): void {
     }
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
-    // deadline now. Fire-and-forget: no async response, so don't hold the port.
+    // deadline now. Only a context-bound recovery import waits for a reply.
     if (m.type === OFFSCREEN_OP_STARTED) {
-      if (typeof m.op_id === 'string') {
-        const opId = m.op_id;
-        afterInitialStartup(() => markOpStarted(opId));
-      }
-      return false;
+      if (typeof m.op_id !== 'string') return false;
+      const opId = m.op_id;
+      afterInitialStartup(() => markOpStarted(opId));
+      const acknowledgement = acknowledgeRecoveryImportStart(opId);
+      if (!acknowledgement) return false;
+      void acknowledgement.then(
+        reply => {
+          const ok =
+            typeof reply === 'object' &&
+            reply !== null &&
+            Reflect.ownKeys(reply).length === 1 &&
+            Reflect.ownKeys(reply)[0] === 'ok' &&
+            reply.ok === true;
+          sendResponse({ ok });
+        },
+        () => sendResponse({ ok: false })
+      );
+      return true;
     }
     // Per-step stage stamp (PR #524): the offscreen write named by `op_id` entered
     // `stage`. Forward it to that op's registered callback, which stamps the
     // transaction row so the generating-transaction screen can show a duration per
-    // step. Fire-and-forget like the start signal — no response, so don't hold the
+    // step. Fire-and-forget, so don't hold the
     // port; the handler itself swallows an unknown op and a throwing callback.
     // `isTransactionStage` is a VALUE check, not just a type check — see its doc.
     if (m.type === OFFSCREEN_STAGE_EVENT) {

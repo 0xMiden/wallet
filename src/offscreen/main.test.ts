@@ -20,7 +20,12 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import { encodeArg, OFFSCREEN_SIGN_REQUEST, OFFSCREEN_SUBMIT_GATE } from 'lib/miden/back/offscreen-codec';
+import {
+  encodeArg,
+  OFFSCREEN_OP_STARTED,
+  OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_SUBMIT_GATE
+} from 'lib/miden/back/offscreen-codec';
 import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
@@ -682,7 +687,9 @@ function installChromeMock() {
       getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
-        Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
+        Promise.resolve(
+          m?.type === OFFSCREEN_SUBMIT_GATE || m?.type === OFFSCREEN_OP_STARTED ? { ok: true } : undefined
+        )
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
@@ -6242,6 +6249,108 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
       );
     }
   );
+
+  const askForRecoveryImport = () => {
+    const reply = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery-start',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      reply
+    );
+    return reply;
+  };
+
+  const mockStartReply = (reply: () => Promise<unknown>) =>
+    G.chrome.runtime.sendMessage.mockImplementation((message?: { type?: string }) =>
+      message?.type === OFFSCREEN_OP_STARTED ? reply() : Promise.resolve(undefined)
+    );
+
+  it.each([
+    ['missing', () => Promise.resolve(undefined)],
+    ['denied', () => Promise.resolve({ ok: false })],
+    ['extra field', () => Promise.resolve({ ok: true, generation: 'gen-1' })],
+    ['wrong type', () => Promise.resolve({ ok: 'true' })],
+    ['null', () => Promise.resolve(null)],
+    ['rejected', () => Promise.reject(new Error('port closed'))]
+  ] as const)('skips recovery import on a %s start acknowledgement', async (_name, reply) => {
+    await loadModule();
+    mockStartReply(reply);
+    const imported = askForRecoveryImport();
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it('normalizes a synchronous recovery import start-signal throw', async () => {
+    await loadModule();
+    mockStartReply(() => {
+      throw new Error('port closed');
+    });
+    const imported = askForRecoveryImport();
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it.each(['reload', 'successor lock'] as const)(
+    'skips recovery import after a %s while the start acknowledgement is pending',
+    async interruption => {
+      await loadModule();
+      let acknowledge!: (reply: { ok: true }) => void;
+      mockStartReply(
+        () =>
+          new Promise(resolve => {
+            acknowledge = resolve;
+          })
+      );
+      const imported = askForRecoveryImport();
+      await flush();
+
+      expect(acknowledge).toBeDefined();
+      expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+      const miden = jest.requireMock('lib/miden/sdk/miden-client');
+      const currentHold = miden.getCurrentWasmLockHold;
+      const reply = jest.fn();
+      try {
+        if (interruption === 'reload') {
+          capturedListener!(reloadReq, {}, reply);
+          await flush();
+        } else {
+          miden.getCurrentWasmLockHold = () => ({ mock: 'successor' });
+        }
+        expect(reply.mock.calls).toEqual(interruption === 'reload' ? [[{ ok: true }]] : []);
+        acknowledge({ ok: true });
+        await flush();
+
+        expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+        expect(imported).toHaveBeenCalledWith(
+          expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+        );
+      } finally {
+        miden.getCurrentWasmLockHold = currentHold;
+      }
+    }
+  );
+
+  it('allows an ordinary read when its start-signal promise rejects', async () => {
+    await loadModule();
+    mockStartReply(() => Promise.reject(new Error('port closed')));
+    const reply = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, reply);
+    await flush();
+
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
 
   it('finishes an import already inside the client after a reload', async () => {
     await loadModule();

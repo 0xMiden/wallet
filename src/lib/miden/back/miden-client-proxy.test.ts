@@ -806,6 +806,106 @@ describe('MidenClientProxy — flag routing', () => {
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
+  it.each(['generation', 'endpoint', 'settled operation', 'failed generation read', 'unchanged context'] as const)(
+    'answers a recovery import start acknowledgement with %s',
+    async change => {
+      const proxy = await loadProxy(true);
+      const history = await import('lib/miden/guardian/history-storage');
+      const endpoints = await import('lib/miden-chain/effective-endpoints');
+      const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+      const bound = {
+        generation: await history.readGuardianHistoryGeneration(),
+        endpoints: endpoints.getEndpointState()
+      };
+      const result = { imported: 1, failures: 0 };
+      let finishImport!: () => void;
+      fakeChrome.runtime.sendMessage.mockImplementation(
+        (env: { op_id: string }) =>
+          new Promise(resolve => {
+            finishImport = () =>
+              resolve({
+                ok: true,
+                op_id: env.op_id,
+                resultB64: Buffer.from(JSON.stringify(result)).toString('base64'),
+                durationMs: 0
+              });
+          })
+      );
+      const pending = proxy.midenClientProxy.importRecoveryNoteFiles([new Uint8Array([4])], bound);
+      await flush();
+      fireReady();
+      await flush();
+
+      const env = fakeChrome.runtime.sendMessage.mock.calls[0]?.[0];
+      let releaseRead!: () => void;
+      const readGate = new Promise<void>(resolve => {
+        releaseRead = resolve;
+      });
+      try {
+        expect(env).toMatchObject({ method: 'importRecoveryNoteFiles' });
+        expect(env).not.toHaveProperty('boundContext');
+        expect(JSON.stringify(env)).not.toContain(bound.generation);
+
+        G.__px.readGuardianHistoryGeneration = async (real: () => Promise<string>) => {
+          await readGate;
+          if (change === 'failed generation read') throw new Error('history store unavailable');
+          return real();
+        };
+        const acknowledge = Reflect.get(proxy, 'acknowledgeRecoveryImportStart') as
+          | ((opId: string) => Promise<{ ok: boolean }> | undefined)
+          | undefined;
+        const acknowledgement = acknowledge?.(env.op_id);
+
+        if (change === 'generation') {
+          await history.clearGuardianHistoryCheckpoints();
+        } else if (change === 'endpoint') {
+          await endpoints.applyEndpointOverride({
+            ...endpoints.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+            rpcUrl: 'https://replacement.example/rpc'
+          });
+        } else if (change === 'settled operation') {
+          finishImport();
+          await pending;
+        }
+        expect(proxy.__test.inFlightOpIds().includes(env.op_id)).toBe(change !== 'settled operation');
+        releaseRead();
+
+        expect(await acknowledgement).toEqual({ ok: change === 'unchanged context' });
+      } finally {
+        releaseRead();
+        finishImport();
+        await pending;
+      }
+    }
+  );
+
+  it('leaves an ordinary read start acknowledgement fire-and-forget', async () => {
+    const proxy = await loadProxy(true);
+    let finishRead!: () => void;
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: { op_id: string }) =>
+        new Promise(resolve => {
+          finishRead = () => resolve({ ok: true, op_id: env.op_id, durationMs: 0 });
+        })
+    );
+    const pending = proxy.midenClientProxy.call('getAccount', ['acc'], { deadlineMs: 1_000 });
+    await flush();
+    fireReady();
+    await flush();
+
+    try {
+      const [opId] = proxy.__test.inFlightOpIds();
+      const acknowledge = Reflect.get(proxy, 'acknowledgeRecoveryImportStart') as
+        | ((id: string | undefined) => unknown)
+        | undefined;
+      expect(opId).toBeDefined();
+      expect(acknowledge?.(opId)).toBeUndefined();
+    } finally {
+      finishRead();
+      await pending;
+    }
+  });
+
   it('propagates a recovery context replacement from the offscreen import', async () => {
     const { midenClientProxy, RecoveryContextReplacedError } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({

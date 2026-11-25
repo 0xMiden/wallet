@@ -1670,14 +1670,34 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         currentOpId = msg.op_id;
       };
       // Now that this op has WON the WASM mutex and is about to execute, tell the
-      // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
-      // Fire-and-forget: queue-wait behind other ops was off-budget; the clock
-      // starts here. Sent from inside the lock so it fires exactly once per op,
-      // only for a real dispatch (unknown-method / init-failure paths never reach
-      // here). `Promise.resolve(...)` tolerates a mock sendMessage that returns a
-      // non-promise; the response is intentionally ignored.
+      // SW to arm its write deadline at execution start. A recovery import also needs
+      // the SW to confirm its storage context after the queue wait.
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
-      void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      if (recoveryImport) {
+        let reply: unknown;
+        try {
+          reply = await chrome.runtime.sendMessage(started);
+        } catch {
+          throw recoveryContextReplacedError();
+        }
+        if (
+          typeof reply !== 'object' ||
+          reply === null ||
+          Reflect.ownKeys(reply).length !== 1 ||
+          Reflect.ownKeys(reply)[0] !== 'ok' ||
+          !('ok' in reply) ||
+          reply.ok !== true ||
+          getCurrentWasmLockHold() !== hold ||
+          adoptedEndpoints === undefined ||
+          recoveryEndpoints === undefined ||
+          !sameEndpointState(adoptedEndpoints, recoveryEndpoints) ||
+          clientDiscardCount !== recoveryDiscardCount
+        ) {
+          throw recoveryContextReplacedError();
+        }
+      } else {
+        void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      }
       recordProveTiming(`call '${msg.method}' client ready; dispatching`);
       // The dispatch's own identity, built from the hold the lock handed THIS
       // callback — the only point at which "the op that owns this hold" is
