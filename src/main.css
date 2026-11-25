@@ -1547,11 +1547,56 @@ body[data-home-band]::before {
   }
 }
 
+@keyframes command-chart-energy {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  58% {
+    stroke-dashoffset: -12;
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    stroke-dashoffset: -12;
+    opacity: 0;
+  }
+}
+
+@keyframes command-chart-beacon {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.75;
+  }
+  75%,
+  100% {
+    transform: translate(-50%, -50%) scale(2.8);
+    opacity: 0;
+  }
+}
+
+.command-chart-energy-spark {
+  animation: command-chart-energy 4.6s ease-in-out infinite;
+}
+
+.command-chart-beacon {
+  animation: command-chart-beacon 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .command-ai-wave::before,
   .command-ai-wave-busy::before {
     animation: none;
     transform: none;
     background: none;
+  }
+
+  .command-chart-energy-spark,
+  .command-chart-beacon {
+    animation: none;
+    opacity: 0;
   }
 }

@@ -208,7 +208,33 @@ export function CommandPortfolio({
     : '';
   const values = samples.map(({ row }) => Number(row.value));
   const min = Math.min(...values);
-  const span = Math.max(...values) - min;
+  const maxVal = Math.max(...values);
+  const span = maxVal - min;
+  const firstSampleValue = samples.length >= 2 ? Number(samples[0]!.row.value) : null;
+  const lastSampleValue = samples.length >= 2 ? Number(samples[samples.length - 1]!.row.value) : null;
+  const periodDelta =
+    !hidden &&
+    firstSampleValue !== null &&
+    lastSampleValue !== null &&
+    Number.isFinite(firstSampleValue) &&
+    Number.isFinite(lastSampleValue)
+      ? {
+          amount: lastSampleValue - firstSampleValue,
+          percentage: firstSampleValue > 0 ? ((lastSampleValue - firstSampleValue) / firstSampleValue) * 100 : null
+        }
+      : null;
+  const yTicks =
+    span > 0
+      ? [
+          { top: 18, value: maxVal },
+          { top: 50, value: min + span / 2 },
+          { top: 82, value: min }
+        ]
+      : [{ top: 50, value: min }];
+  const formatAxisTime = (ts: number) =>
+    rangeMs <= DAY_MS
+      ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
   const hasTrace = samples.some((sample, index) => index > 0 && samples[index - 1]?.run === sample.run);
   const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
@@ -299,8 +325,35 @@ export function CommandPortfolio({
           aria-busy={history?.key !== key || activityRows?.key !== key}
           data-testid="command-history"
         >
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
+              {periodDelta && (
+                <span
+                  data-testid="command-chart-delta"
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-caption font-semibold tabular-nums ${
+                    periodDelta.amount >= 0
+                      ? 'border-accent-receive-ink/30 bg-accent-receive-ink/10 text-accent-receive-ink'
+                      : 'border-negative-tint-ink/30 bg-negative-tint/15 text-negative-tint-ink'
+                  }`}
+                >
+                  <span>
+                    {periodDelta.amount >= 0 ? '+' : '-'}$
+                    {formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}
+                  </span>
+                  {periodDelta.percentage !== null && (
+                    <span className="opacity-85">
+                      ({periodDelta.percentage >= 0 ? '+' : '-'}
+                      {formatAmountDisplay(Math.abs(periodDelta.percentage), {
+                        ...displayOptions,
+                        formatting: 'fixed'
+                      })}
+                      {t('percentSign')})
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
             <SegmentedControl<HistoryRange>
               aria-label={t('commandHistoryRange')}
               size="sm"
@@ -351,19 +404,50 @@ export function CommandPortfolio({
                 }}
               >
                 <CommandHistoryTrace key={range} points={chartPoints} reveal={selectedRange !== null} />
-                {activePoint && (
-                  <div
+                {yTicks.map(tick => (
+                  <span
+                    key={tick.top}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-accent-primary/45 to-transparent"
-                    style={{ left: `${activePoint.x}%` }}
+                    className="pointer-events-none absolute right-1 -translate-y-1/2 rounded bg-page/75 px-1 text-[11px] text-muted/75 backdrop-blur-xs tabular-nums"
+                    style={{ top: `${tick.top}%` }}
                   >
-                    <span
-                      data-testid="command-chart-marker"
-                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
-                      style={{ top: `${activePoint.y}%` }}
-                    />
-                  </div>
+                    ${formatAmountDisplay(tick.value, displayOptions)}
+                  </span>
+                ))}
+                {activePoint && sample && (
+                  <>
+                    <div
+                      data-testid="command-chart-tooltip"
+                      className="pointer-events-none absolute top-1 z-10 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-accent-primary/35 bg-fill/90 px-2.5 py-1 text-[11px] font-medium text-ink shadow-md backdrop-blur-md tabular-nums"
+                      style={{ left: `${Math.max(12, Math.min(88, activePoint.x))}%` }}
+                    >
+                      <span className="font-semibold text-accent-tint-ink">
+                        ${formatAmountDisplay(Number(sample.value), displayOptions)}
+                      </span>
+                      <span className="text-muted">·</span>
+                      <span className="text-muted">{formatAxisTime(sample.capturedAt)}</span>
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-transparent via-accent-primary/75 to-transparent shadow-[0_0_8px_var(--accent-primary)]"
+                      style={{ left: `${activePoint.x}%` }}
+                    >
+                      <span
+                        data-testid="command-chart-marker"
+                        className="absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink shadow-[0_0_12px_var(--accent-primary)] ring-2 ring-accent-primary/60"
+                        style={{ top: `${activePoint.y}%` }}
+                      />
+                    </div>
+                  </>
                 )}
+              </div>
+              <div
+                aria-hidden="true"
+                className="mx-2 mt-1 flex items-center justify-between text-[11px] text-muted/75 tabular-nums"
+              >
+                <span>{formatAxisTime(rangeStart)}</span>
+                <span>{formatAxisTime(rangeStart + rangeMs / 2)}</span>
+                <span>{formatAxisTime(rangeStart + rangeMs)}</span>
               </div>
               <input
                 type="range"
