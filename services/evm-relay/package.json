@@ -5,8 +5,9 @@
   "description": "Cloudflare Worker that relays the signed EVM batches of the deposit-address bridge. Wrangler bundles it at deploy.",
   "scripts": {
     "build": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.test.json",
+    "check-deployment": "node check-deployment.mjs",
     "dev": "npx wrangler@4.151.3 dev --port 8788",
-    "test": "npx jest --config ../../jest.config.ts --rootDir ../.. services/evm-relay/test"
+    "test": "node --test check-deployment.test.mjs prepare-deployment.test.mjs && npx jest --config ../../jest.config.ts --rootDir ../.. services/evm-relay/test"
   },
   "dependencies": {
     "viem": "^2.57.10"
