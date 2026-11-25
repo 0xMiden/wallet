@@ -400,7 +400,7 @@ export function CommandAiBar({
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-2.5 rounded-3xl border border-hairline bg-fill/75 px-5 py-3 shadow-sm transition-colors focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/20"
+        className={`relative flex flex-col gap-2.5 overflow-hidden rounded-3xl border border-hairline bg-fill/75 px-5 py-3 shadow-sm transition-colors focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/20 command-ai-wave${busy ? ' command-ai-wave-busy' : ''}`}
       >
         {expanded && turns.length > 0 && (
           <div

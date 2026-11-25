@@ -1504,3 +1504,54 @@ body[data-home-band]::before {
     opacity: 1;
   }
 }
+
+.command-ai-wave {
+  position: relative;
+  overflow: hidden;
+}
+
+.command-ai-wave::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(110deg, transparent 35%, #dce5ed0a 43%, #edf2f51c 50%, #dce5ed0a 57%, transparent 65%);
+  transform: translateX(-100%);
+  animation: command-ai-silver-wave 7s ease-in-out infinite;
+}
+
+.command-ai-wave-busy::before {
+  background: linear-gradient(110deg, transparent 35%, #dce5ed14 43%, #edf2f528 50%, #dce5ed14 57%, transparent 65%);
+  animation: command-ai-silver-wave-busy 2.2s ease-in-out infinite;
+}
+
+@keyframes command-ai-silver-wave {
+  0% {
+    transform: translateX(-100%);
+  }
+  15%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes command-ai-silver-wave-busy {
+  0% {
+    transform: translateX(-100%);
+  }
+  45%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-ai-wave::before,
+  .command-ai-wave-busy::before {
+    animation: none;
+    transform: none;
+    background: none;
+  }
+}
