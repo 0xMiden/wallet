@@ -547,6 +547,47 @@ describe('transition 3: issued → claiming', () => {
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'claiming', claimTxId: 'mine' });
   });
 
+  it('adopts a Completed consume row already tagged for this registration straight to owned', async () => {
+    const row = registerRow('alice', 'issued');
+    await add(
+      row,
+      consumeRow('mine-done', '0xdelivery', ITransactionStatus.Completed, {
+        midenNameClaim: { label: 'alice', registerTxId: row.id }
+      })
+    );
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(startProcessing).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'mine-done'
+    });
+  });
+
+  it('prefers the Completed tagged consume over a live one of the same note', async () => {
+    const row = registerRow('alice', 'issued');
+    await add(
+      row,
+      consumeRow('mine-queued', '0xdelivery', ITransactionStatus.Queued, {
+        midenNameClaim: { label: 'alice', registerTxId: row.id }
+      }),
+      consumeRow('mine-done', '0xdelivery', ITransactionStatus.Completed, {
+        midenNameClaim: { label: 'alice', registerTxId: row.id }
+      })
+    );
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(startProcessing).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'mine-done'
+    });
+  });
+
   it('asks the scan for the notes of its own label, so two registrations get their own notes', async () => {
     const alice = registerRow('alice', 'issued');
     const bob = registerRow('bob', 'issued');
@@ -658,6 +699,37 @@ describe('transition 4: claiming', () => {
 });
 
 describe('row selection and isolation', () => {
+  it('queries Repo.transactions via the type index and ignores unrelated send rows', async () => {
+    const sendRow: ITransaction = {
+      id: 'send-1',
+      type: 'send',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND'
+    };
+    const regRow = registerRow('alice', 'submitted');
+    await add(sendRow, regRow);
+    mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
+    mockFetchIssued.mockResolvedValue(true);
+
+    const whereSpy = jest.spyOn(Repo.transactions, 'where');
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+    try {
+      await pass();
+      expect(whereSpy).toHaveBeenCalledWith('type');
+      expect(filterSpy).not.toHaveBeenCalled();
+    } finally {
+      whereSpy.mockRestore();
+      filterSpy.mockRestore();
+    }
+
+    expect(mockFetchState).toHaveBeenCalledTimes(1);
+    expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
+    expect((await inputsOf(regRow.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: 'send-1' }).first())?.type).toBe('send');
+  });
+
   it('ignores backup, wrong-network and terminal rows', async () => {
     const backup = registerRow('backup', 'submitted');
     backup.restoredFromBackup = true;

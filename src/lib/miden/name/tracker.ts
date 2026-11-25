@@ -49,8 +49,6 @@ const LOG_PREFIX = '[miden-name]';
 export interface MidenNameTrackerDeps {
   /** Start the transaction loop after the tracker queued a claim consume. */
   startProcessing: () => void;
-  /** Clock (ms since epoch). Tests replace it. The default is `Date.now`. */
-  now?: () => number;
 }
 
 /** State that the rows of one pass share. */
@@ -88,7 +86,11 @@ function needsTracking(row: ITransaction, network: string): boolean {
 export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps): Promise<void> {
   if (!isMidenNameSupported()) return;
   const network = getEffectiveNetworkName();
-  const rows = await Repo.transactions.filter(row => needsTracking(row, network)).toArray();
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('register-name')
+    .filter(row => needsTracking(row, network))
+    .toArray();
   if (rows.length === 0) return;
 
   let tip: Promise<number> | undefined;
@@ -301,7 +303,7 @@ function linkedRowIdOf(row: ITransaction): string | undefined {
  */
 type DeliveryNoteState =
   /** A live consume row of this row claims it. */
-  | { kind: 'ours'; claimTxId: string }
+  | { kind: 'ours'; claimTxId: string; completed: boolean }
   /** A live consume row with no name tag has it: adopt it. */
   | { kind: 'untagged'; claimTxId: string; completed: boolean }
   /** A live consume row of an other register row has it. */
@@ -311,8 +313,12 @@ type DeliveryNoteState =
 
 function deliveryNoteState(ownerRowId: string, consumeRows: ITransaction[]): DeliveryNoteState {
   const live = consumeRows.filter(row => row.status !== ITransactionStatus.Failed);
-  const ours = live.find(row => linkedRowIdOf(row) === ownerRowId);
-  if (ours) return { kind: 'ours', claimTxId: ours.id };
+  const oursRows = live.filter(row => linkedRowIdOf(row) === ownerRowId);
+  // Prefer a Completed row: the name is already in the account.
+  const ours = oursRows.find(row => row.status === ITransactionStatus.Completed) ?? oursRows[0];
+  if (ours) {
+    return { kind: 'ours', claimTxId: ours.id, completed: ours.status === ITransactionStatus.Completed };
+  }
   if (live.length === 0) return { kind: 'free' };
   if (live.some(row => linkedRowIdOf(row) !== undefined)) return { kind: 'settled' };
   // Prefer a Completed row: the name is already in the account.
@@ -333,6 +339,24 @@ async function markClaiming(
     { expectPhase: 'issued' }
   );
   if (written) context.deps.startProcessing();
+}
+
+async function markClaimOrOwned(
+  row: ITransaction,
+  deliveryNoteId: string,
+  claimTxId: string,
+  completed: boolean,
+  context: PassContext
+): Promise<void> {
+  if (completed) {
+    await patchRegisterNameExtraInputs(
+      row.id,
+      { phase: 'owned', deliveryNoteId, claimTxId },
+      { expectPhase: 'issued' }
+    );
+    return;
+  }
+  await markClaiming(row, deliveryNoteId, claimTxId, context);
 }
 
 /**
@@ -358,21 +382,13 @@ async function claimDeliveryNote(
     switch (state.kind) {
       case 'ours':
         // A claim was queued, but the phase write did not occur (for example the realm closed).
-        await markClaiming(row, noteId, state.claimTxId, context);
+        await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
         return;
       case 'untagged':
         // A consume of this name's note lost its tag. Adopt it: with no tag the
         // consume completion cannot move this row, and the scan would pass the note.
         await tagConsumeAsMidenNameClaim(state.claimTxId, inputs.label, row.id);
-        if (state.completed) {
-          await patchRegisterNameExtraInputs(
-            row.id,
-            { phase: 'owned', deliveryNoteId: noteId, claimTxId: state.claimTxId },
-            { expectPhase: 'issued' }
-          );
-        } else {
-          await markClaiming(row, noteId, state.claimTxId, context);
-        }
+        await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
         return;
       case 'settled':
         continue;
