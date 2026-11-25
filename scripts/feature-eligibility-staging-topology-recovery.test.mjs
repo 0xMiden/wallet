@@ -102,8 +102,6 @@ function lineageEffects({
   historyTotal,
   includeSelected = true,
   includeCurrent = includeSelected,
-  attemptsByRun = {},
-  artifactsByRun = {},
   contextOverrides = {}
 } = {}) {
   const calls = [];
@@ -145,22 +143,10 @@ function lineageEffects({
       const page = Number(historyPage[1]);
       return { total_count: totalCount, workflow_runs: history.slice((page - 1) * 100, page * 100) };
     }
-    const runAttempt = pathname.match(/^\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/);
-    if (runAttempt) {
-      const runId = Number(runAttempt[1]);
-      const attemptNumber = Number(runAttempt[2]);
-      if (runId === selected.id) return selected;
-      const provided = attemptsByRun[runId];
-      if (provided) return provided[attemptNumber - 1] ?? null;
-      const candidate = history.find(run => run.id === runId);
-      return candidate ? { ...candidate, run_attempt: attemptNumber } : null;
-    }
     const runArtifacts = pathname.match(/^\/actions\/runs\/([1-9][0-9]*)\/artifacts\?per_page=100&page=(\d+)$/);
-    if (runArtifacts) {
-      const runId = Number(runArtifacts[1]);
+    if (runArtifacts && Number(runArtifacts[1]) === selected.id) {
       const page = Number(runArtifacts[2]);
-      const listed = runId === selected.id ? baseArtifacts : (artifactsByRun[runId] ?? []);
-      return { total_count: listed.length, artifacts: listed.slice((page - 1) * 100, page * 100) };
+      return { total_count: baseArtifacts.length, artifacts: baseArtifacts.slice((page - 1) * 100, page * 100) };
     }
     throw new Error(`unexpected GitHub endpoint: ${pathname}`);
   };
@@ -198,7 +184,6 @@ test('recovery refuses exact cleanup parent markers before reading attempts or c
   const cases = [
     {
       runs: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' })],
-      attemptsByRun: { 89: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' })] },
       candidateIds: [89]
     },
     {
@@ -206,26 +191,16 @@ test('recovery refuses exact cleanup parent markers before reading attempts or c
         githubRecord({ id: 90, run_attempt: 1, name: marker, conclusion: 'failure' }),
         githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' })
       ],
-      attemptsByRun: {
-        90: [githubRecord({ id: 90, run_attempt: 1, name: marker, conclusion: 'failure' })],
-        89: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' })]
-      },
       candidateIds: [90, 89]
     },
     {
       runs: [githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' })],
-      attemptsByRun: {
-        89: [
-          githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' }),
-          githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' })
-        ]
-      },
       candidateIds: [89]
     }
   ];
 
-  for (const { runs, attemptsByRun, candidateIds } of cases) {
-    const { calls, value } = lineageEffects({ runs, attemptsByRun });
+  for (const { runs, candidateIds } of cases) {
+    const { calls, value } = lineageEffects({ runs });
 
     await assert.rejects(
       prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value),
@@ -240,92 +215,11 @@ test('recovery refuses exact cleanup parent markers before reading attempts or c
       false
     );
   }
-});
-
-test('recovery blocks any matching cleanup attempt that is non-failed or incompletely described', async () => {
-  const marker = 'cleanup_run_id=77 cleanup_attempt=1';
-  const failed = githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' });
-  const failureAttempt = attempt =>
-    githubRecord({ id: 89, run_attempt: attempt, name: marker, conclusion: 'failure' });
-  const cases = [
-    {
-      run: failed,
-      attemptsByRun: { 89: [githubRecord({ ...failureAttempt(1), conclusion: 'success' }), failureAttempt(2)] }
-    },
-    {
-      run: githubRecord({ id: 89, name: marker, conclusion: 'success' }),
-      attemptsByRun: { 89: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'success' })] }
-    },
-    {
-      run: githubRecord({ id: 86, name: marker, status: 'queued', conclusion: null }),
-      attemptsByRun: { 86: [githubRecord({ id: 86, run_attempt: 1, name: marker, status: 'queued', conclusion: null })] }
-    },
-    {
-      run: githubRecord({ id: 89, name: marker, status: 'in_progress', conclusion: null }),
-      attemptsByRun: { 89: [githubRecord({ id: 89, run_attempt: 1, name: marker, status: 'in_progress', conclusion: null })] }
-    },
-    {
-      run: githubRecord({ id: 89, name: marker, conclusion: undefined }),
-      attemptsByRun: { 89: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: undefined })] }
-    },
-    {
-      run: githubRecord({ id: 89, name: marker, status: 'unknown', conclusion: null }),
-      attemptsByRun: { 89: [githubRecord({ id: 89, run_attempt: 1, name: marker, status: 'unknown', conclusion: null })] }
-    },
-    {
-      run: failed,
-      attemptsByRun: { 89: [failureAttempt(1), null] }
-    },
-    {
-      run: githubRecord({ id: 89, run_attempt: undefined, name: marker, conclusion: 'failure' }),
-      attemptsByRun: { 89: [] }
-    }
-  ];
-
-  for (const candidate of cases) {
-    const { value } = lineageEffects({ runs: [candidate.run], attemptsByRun: candidate.attemptsByRun });
-    await assert.rejects(
-      prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value),
-      /Recovery provenance blocked/
-    );
-  }
-});
-
-test('recovery blocks matching cleanup attempts that have prepared or result artifacts', async () => {
-  const marker = 'cleanup_run_id=77 cleanup_attempt=1';
-  const candidate = githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' });
-  const failedAttempts = [
-    githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' }),
-    githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' })
-  ];
-
-  for (const kind of ['prepared', 'result']) {
-    const artifact = {
-      id: 3456,
-      name: `eligibility-topology-${kind}-89-1`,
-      expired: false,
-      size_in_bytes: 1024,
-      workflow_run: { id: 89, repository_id: 1, head_repository_id: 1, head_branch: 'main', head_sha: sourceSha }
-    };
-    const { value } = lineageEffects({
-      runs: [candidate],
-      attemptsByRun: { 89: failedAttempts },
-      artifactsByRun: { 89: [artifact] }
-    });
-    await assert.rejects(
-      prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value),
-      /Recovery provenance blocked/
-    );
-  }
-
-  const ambiguous = lineageEffects({
-    runs: [candidate],
-    attemptsByRun: { 89: failedAttempts },
-    artifactsByRun: { 89: [{ id: 3457, workflow_run: { id: 89 } }] }
-  });
+  const { value: strictHarness } = lineageEffects({ runs: [githubRecord({ id: 89 })] });
+  await assert.rejects(() => strictHarness.github('/actions/runs/89/attempts/1'), /unexpected GitHub endpoint/);
   await assert.rejects(
-    prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, ambiguous.value),
-    /Recovery provenance blocked/
+    () => strictHarness.github('/actions/runs/89/artifacts?per_page=100&page=1'),
+    /unexpected GitHub endpoint/
   );
 });
 
@@ -585,11 +479,7 @@ test('recovery ignores completed skipped non-main workflow dispatches matching p
       status: 'completed',
       conclusion: 'skipped'
     });
-    const { calls, value } = lineageEffects({
-      runs: [skippedRun],
-      attemptsByRun: { 89: [skippedRun] },
-      artifactsByRun: { 89: [] }
-    });
+    const { calls, value } = lineageEffects({ runs: [skippedRun] });
     const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value);
     assert.equal(receipt.runId, '77');
     assert.equal(calls.some(p => p.startsWith('/actions/runs/89/attempts/')), false);
@@ -628,11 +518,7 @@ test('recovery remains fail-closed for skipped main runs, non-skipped runs, and 
 
   for (const overrides of blockingCases) {
     const candidate = githubRecord({ ...baseSkipped, ...overrides });
-    const { calls, value } = lineageEffects({
-      runs: [candidate],
-      attemptsByRun: { 89: [candidate] },
-      artifactsByRun: { 89: [] }
-    });
+    const { calls, value } = lineageEffects({ runs: [candidate] });
     await assert.rejects(
       prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value),
       /Recovery provenance blocked/
