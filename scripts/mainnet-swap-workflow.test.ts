@@ -144,6 +144,7 @@ describe('funded nightly swap workflow', () => {
     expect(paths.split('\n')).toContain('test-results/mainnet-epoch-state/roundtrip.json.return-solve-failure.json');
     expect(paths.split('\n')).toContain('test-results/mainnet-near-return-failure.json');
     expect(paths.split('\n')).toContain('test-results/mainnet-near-forward-stage.json');
+    expect(paths.split('\n')).toContain('test-results/mainnet-near-diagnostics.md');
     expect(paths).not.toMatch(
       /epoch-reverse\.log|near-(?:forward|recover|reverse)\.log|RUNNER_TEMP|epoch-reverse-results|mainnet-epoch-state\/\*/
     );
