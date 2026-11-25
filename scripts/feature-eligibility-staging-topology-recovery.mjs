@@ -7,6 +7,18 @@ const REPOSITORY = '0xMiden/wallet';
 const WORKFLOW = '.github/workflows/feature-eligibility-topology.yml';
 const MAX_ARTIFACT_BYTES = 12 * 1024 * 1024;
 const MAX_HISTORY_RUNS = 1000;
+const MAX_JOB_LOOKUPS = 5;
+const marker = /^cleanup_run_id=([1-9][0-9]{0,17}) cleanup_attempt=([1-9][0-9]{0,5})$/;
+const NOT_EXECUTED_STATUSES = ['queued', 'waiting', 'requested', 'pending'];
+const RUN_ONLY_STEPS = [
+  'Bundle exact topology Worker',
+  'Observe inventory and prepare exact run artifact',
+  'Retain pre-deployment recovery artifact',
+  'Deploy and exercise all synthetic scenarios',
+  'Clean exact current run'
+];
+const RETAIN_STEP = 'Retain unchanged prepared artifact for continuation';
+const RECOVER_STEP = 'Recover exact prior Worker cleanup';
 const id = value => typeof value === 'string' && /^[1-9][0-9]{0,17}$/.test(value);
 const attempt = value => typeof value === 'string' && /^[1-9][0-9]{0,5}$/.test(value);
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
@@ -51,7 +63,6 @@ export async function prepareTopologyRecovery(input, effects) {
     validRun(run) &&
       validRun(prior) &&
       prior.run_attempt === Number(input.runAttempt) &&
-      run.run_attempt >= prior.run_attempt &&
       run.head_sha === prior.head_sha &&
       run.workflow_id === prior.workflow_id &&
       run.repository.id === prior.repository.id
@@ -80,7 +91,53 @@ export async function prepareTopologyRecovery(input, effects) {
     }
     return artifacts;
   };
-  const marker = /^cleanup_run_id=([1-9][0-9]{0,17}) cleanup_attempt=([1-9][0-9]{0,5})$/;
+  let jobLookups = 0;
+  const neverRetained = async candidate => {
+    if (
+      !(
+        candidate.status === 'completed' &&
+        candidate.event === 'workflow_dispatch' &&
+        candidate.head_branch === 'main' &&
+        candidate.path === WORKFLOW &&
+        candidate.workflow_id === prior.workflow_id &&
+        candidate.repository?.id === prior.repository.id &&
+        candidate.repository.full_name === REPOSITORY &&
+        candidate.repository.fork === false &&
+        candidate.run_attempt === 1 &&
+        ['failure', 'cancelled', 'timed_out'].includes(candidate.conclusion)
+      )
+    )
+      return false;
+    if (jobLookups >= MAX_JOB_LOOKUPS) return false;
+    jobLookups++;
+    let listing;
+    try {
+      listing = await effects.github(`/actions/runs/${candidate.id}/jobs?per_page=100&filter=latest`);
+    } catch {
+      return false;
+    }
+    if (!(Array.isArray(listing?.jobs) && listing.total_count === 1 && listing.jobs.length === 1)) return false;
+    const [job] = listing.jobs;
+    if (
+      !(
+        job?.run_id === candidate.id &&
+        job.name === 'topology' &&
+        job.status === 'completed' &&
+        job.run_attempt === 1 &&
+        Array.isArray(job.steps) &&
+        job.steps.length <= 100
+      )
+    )
+      return false;
+    if (job.steps.length === 0) return job.runner_id === null && ['cancelled', 'skipped'].includes(job.conclusion);
+    const names = job.steps.map(step => step?.name);
+    if (names.some(name => typeof name !== 'string') || new Set(names).size !== names.length) return false;
+    const conclusionOf = name => job.steps.find(step => step.name === name)?.conclusion;
+    return (
+      [...RUN_ONLY_STEPS, RECOVER_STEP].every(name => conclusionOf(name) === 'skipped') &&
+      ['skipped', 'failure'].includes(conclusionOf(RETAIN_STEP))
+    );
+  };
   const seenRuns = new Set();
   let historyTotal;
   let historyCount = 0;
@@ -122,7 +179,7 @@ export async function prepareTopologyRecovery(input, effects) {
         currentRunSeen = true;
         continue;
       }
-      if (!currentRunSeen && candidate.status === 'queued') continue;
+      if (!currentRunSeen && NOT_EXECUTED_STATUSES.includes(candidate.status)) continue;
       requireValue(typeof candidate.name === 'string');
       const skippedNonMain =
         candidate.status === 'completed' &&
@@ -138,8 +195,10 @@ export async function prepareTopologyRecovery(input, effects) {
         candidate.repository?.fork === false;
       if (skippedNonMain) continue;
       const parent = marker.exec(candidate.name);
-      requireValue(!candidate.name.startsWith(`cleanup_run_id=${input.runId} `) || parent !== null);
-      requireValue(parent?.[1] !== input.runId || parent?.[2] !== input.runAttempt);
+      const blocksParent =
+        (candidate.name.startsWith(`cleanup_run_id=${input.runId} `) && parent === null) ||
+        (parent?.[1] === input.runId && parent?.[2] === input.runAttempt);
+      if (blocksParent) requireValue(await neverRetained(candidate));
     }
     if (parentFound) {
       requireValue(historyCount === historyTotal || listing.workflow_runs.length === 100);
@@ -174,10 +233,7 @@ export async function prepareTopologyRecovery(input, effects) {
     requireValue(matches.length === 1);
     return validateArtifact(matches[0]);
   };
-  const isCleanupRun =
-    typeof prior.name === 'string' &&
-    prior.name.startsWith('cleanup_run_id=') &&
-    prior.name !== 'cleanup_run_id= cleanup_attempt=';
+  const isCleanupRun = typeof prior.name === 'string' && marker.test(prior.name);
   const artifactId = artifactFor(`eligibility-topology-prepared-${input.runId}-${input.runAttempt}`);
   const resultArtifactId = artifactFor(`eligibility-topology-result-${input.runId}-${input.runAttempt}`, {
     optional: !isCleanupRun

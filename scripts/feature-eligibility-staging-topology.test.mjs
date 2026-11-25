@@ -1609,3 +1609,57 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
     await rm(prepared.runnerTemp, { recursive: true, force: true });
   }
 });
+
+test('cleanup-recovered-interrupted writes fallback only when result.json is absent', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
+    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
+    const recoveryFile = path.join(recoveryDir, 'recovery.json');
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    await writeFile(
+      recoveryFile,
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: null
+      })}\n`,
+      { mode: 0o600 }
+    );
+    const cliEnv = {
+      ...prepared.env,
+      TOPOLOGY_RECOVERY_FILE: recoveryFile,
+      TOPOLOGY_PRIOR_RESULT_FILE: '',
+      CLEANUP_RUN_ID: context.runId,
+      CLEANUP_ATTEMPT: context.runAttempt
+    };
+    delete cliEnv.CLOUDFLARE_API_TOKEN;
+    const runMissingResult = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered-interrupted'], {
+      env: cliEnv,
+      encoding: 'utf8'
+    });
+    assert.equal(runMissingResult.status, 1);
+    const written = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(written.identity, prepared.identity);
+    assert.equal(written.phase, 'recovery_cleanup');
+    assert.equal(written.cleanup, 'blocked');
+    assert.equal(written.reason, 'cleanup_failed');
+
+    const sentinel = `${JSON.stringify({ sentinel: true })}\n`;
+    await writeFile(resultFile, sentinel, { mode: 0o600 });
+    const runExistingResult = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered-interrupted'], {
+      env: cliEnv,
+      encoding: 'utf8'
+    });
+    assert.equal(runExistingResult.status, 1);
+    assert.equal(await readFile(resultFile, 'utf8'), sentinel);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});

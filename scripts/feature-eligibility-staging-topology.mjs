@@ -845,7 +845,30 @@ async function main() {
   if (operation === 'execute') return await execute(process.env);
   if (operation === 'cleanup') return await cleanup(process.env);
   if (operation === 'cleanup-recovered') return await cleanup(process.env, true);
+  if (operation === 'cleanup-recovered-interrupted') {
+    const env = process.env;
+    const existing = await lstat(resultPath(env)).then(
+      () => true,
+      () => false
+    );
+    if (!existing) {
+      const fallback = (await buildRecoveryFailureFallback(env).catch(() => null)) ?? recoveryFailureIdentityNull();
+      await writeResult(env, fallback);
+    }
+    return 1;
+  }
   fail('invalid_operation');
+}
+
+function recoveryFailureIdentityNull() {
+  return {
+    schema: 1,
+    identity: null,
+    phase: 'recovery_cleanup',
+    deploymentAttempted: 'unknown',
+    cleanup: 'blocked',
+    reason: 'cleanup_failed'
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -858,15 +881,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const operation = process.argv[2];
       let fallback;
       if (operation === 'cleanup-recovered') {
-        fallback =
-          (await buildRecoveryFailureFallback(env).catch(() => null)) ?? {
-            schema: 1,
-            identity: null,
-            phase: 'recovery_cleanup',
-            deploymentAttempted: 'unknown',
-            cleanup: 'blocked',
-            reason: 'cleanup_failed'
-          };
+        fallback = (await buildRecoveryFailureFallback(env).catch(() => null)) ?? recoveryFailureIdentityNull();
       } else if (operation === 'execute' || operation === 'cleanup') {
         fallback = await buildSameRunFailureResult(env, operation);
       } else {

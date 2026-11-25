@@ -1,5 +1,5 @@
 name: Eligibility staging topology acceptance
-run-name: cleanup_run_id=${{ inputs.cleanup_run_id }} cleanup_attempt=${{ inputs.cleanup_attempt }}
+run-name: ${{ inputs.operation == 'cleanup' && format('cleanup_run_id={0} cleanup_attempt={1}', inputs.cleanup_run_id, inputs.cleanup_attempt) || format('topology_operation={0}', inputs.operation) }}
 
 on:
   workflow_dispatch:
@@ -129,6 +129,7 @@ jobs:
           path: ${{ runner.temp }}/eligibility-topology-prior-result
       - name: Retain unchanged prepared artifact for continuation
         if: inputs.operation == 'cleanup'
+        id: retained_prepared
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: eligibility-topology-prepared-${{ github.run_id }}-${{ github.run_attempt }}
@@ -137,6 +138,7 @@ jobs:
           retention-days: 3
       - name: Recover exact prior Worker cleanup
         if: inputs.operation == 'cleanup'
+        id: recover_cleanup
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -145,6 +147,16 @@ jobs:
           CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
           CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
         run: node scripts/feature-eligibility-staging-topology.mjs cleanup-recovered
+      - name: Write fallback evidence for interrupted recovery
+        if: always() && inputs.operation == 'cleanup' && steps.retained_prepared.outcome == 'success' && steps.recover_cleanup.outcome != 'success' && steps.recover_cleanup.outcome != 'failure'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TOPOLOGY_RECOVERY_FILE: ${{ runner.temp }}/eligibility-topology-recovery/recovery.json
+          TOPOLOGY_PRIOR_RESULT_FILE: ${{ steps.recovery.outputs.result_artifact_id != '' && format('{0}/eligibility-topology-prior-result/result.json', runner.temp) || '' }}
+          CLEANUP_RUN_ID: ${{ inputs.cleanup_run_id }}
+          CLEANUP_ATTEMPT: ${{ inputs.cleanup_attempt }}
+        run: node scripts/feature-eligibility-staging-topology.mjs cleanup-recovered-interrupted
       - name: Retain sanitized topology evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

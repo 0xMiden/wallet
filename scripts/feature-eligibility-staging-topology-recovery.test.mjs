@@ -102,6 +102,7 @@ function lineageEffects({
   historyTotal,
   includeSelected = true,
   includeCurrent = includeSelected,
+  jobsByRun = {},
   contextOverrides = {}
 } = {}) {
   const calls = [];
@@ -147,6 +148,15 @@ function lineageEffects({
     if (runArtifacts && Number(runArtifacts[1]) === selected.id) {
       const page = Number(runArtifacts[2]);
       return { total_count: baseArtifacts.length, artifacts: baseArtifacts.slice((page - 1) * 100, page * 100) };
+    }
+    const runJobs = pathname.match(/^\/actions\/runs\/([1-9][0-9]*)\/jobs\?per_page=100&filter=latest$/);
+    if (runJobs) {
+      const runId = Number(runJobs[1]);
+      if (Object.hasOwn(jobsByRun, runId)) {
+        const entry = jobsByRun[runId];
+        if (entry instanceof Error) throw entry;
+        return entry;
+      }
     }
     throw new Error(`unexpected GitHub endpoint: ${pathname}`);
   };
@@ -613,4 +623,150 @@ test('createGitHubReader bounds requests, rejects redirects, stalls, deadlines, 
     await new Promise(resolve => server.close(resolve));
     await new Promise(resolve => targetServer.close(resolve));
   }
+});
+
+function nonConsumingJobsPayload(runId, { retainConclusion = 'skipped', recoverConclusion = 'skipped', runOnlyConclusion = 'skipped', overrides = {}, stepOverrides = {}, omitStep } = {}) {
+  const stepNames = [
+    'Bundle exact topology Worker',
+    'Observe inventory and prepare exact run artifact',
+    'Retain pre-deployment recovery artifact',
+    'Deploy and exercise all synthetic scenarios',
+    'Clean exact current run',
+    'Retain unchanged prepared artifact for continuation',
+    'Recover exact prior Worker cleanup'
+  ].filter(name => name !== omitStep);
+  const steps = stepNames.map(name => {
+    const conclusion =
+      name === 'Retain unchanged prepared artifact for continuation'
+        ? retainConclusion
+        : name === 'Recover exact prior Worker cleanup'
+          ? recoverConclusion
+          : runOnlyConclusion;
+    return {
+      name,
+      status: 'completed',
+      conclusion,
+      ...(stepOverrides[name] ?? {})
+    };
+  });
+  return {
+    total_count: 1,
+    jobs: [
+      {
+        id: runId * 10,
+        run_id: runId,
+        run_attempt: 1,
+        name: 'topology',
+        status: 'completed',
+        conclusion: 'failure',
+        runner_id: 42,
+        steps,
+        ...overrides
+      }
+    ]
+  };
+}
+
+test('recovery permits retry of a parent whose failed cleanup dispatch never retained continuation', async () => {
+  const marker = 'cleanup_run_id=77 cleanup_attempt=1';
+  const failedRun89 = githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' });
+  const retryable = lineageEffects({
+    runs: [failedRun89],
+    jobsByRun: { 89: nonConsumingJobsPayload(89) }
+  });
+  const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, retryable.value);
+  assert.equal(receipt.runId, '77');
+  assert.equal(retryable.calls.some(p => p.startsWith('/actions/runs/89/attempts/')), false);
+  assert.equal(retryable.calls.some(p => p.startsWith('/actions/runs/89/artifacts?')), false);
+
+  const retainFailedRun = lineageEffects({
+    runs: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'failure' })],
+    jobsByRun: { 89: nonConsumingJobsPayload(89, { retainConclusion: 'failure' }) }
+  });
+  assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, retainFailedRun.value)).runId, '77');
+
+  const malformedFailed = lineageEffects({
+    runs: [githubRecord({ id: 89, run_attempt: 1, name: 'cleanup_run_id=77 cleanup_attempt=', conclusion: 'failure' })],
+    jobsByRun: { 89: nonConsumingJobsPayload(89) }
+  });
+  assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, malformedFailed.value)).runId, '77');
+
+  for (const status of ['waiting', 'pending', 'requested']) {
+    const dup = lineageEffects({
+      runs: [
+        githubRecord({ id: 89, status, conclusion: null, name: marker }),
+        githubRecord({ id: 88, status: 'in_progress', name: marker })
+      ]
+    });
+    assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, dup.value)).runId, '77');
+  }
+
+  const envRejected = lineageEffects({
+    runs: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'cancelled' })],
+    jobsByRun: {
+      89: {
+        total_count: 1,
+        jobs: [{ id: 890, run_id: 89, run_attempt: 1, name: 'topology', status: 'completed', conclusion: 'cancelled', runner_id: null, steps: [] }]
+      }
+    }
+  });
+  assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, envRejected.value)).runId, '77');
+
+  const blockingGuards = [
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { retainConclusion: 'success' }) } },
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { recoverConclusion: 'success' }) } },
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { recoverConclusion: 'failure' }) } },
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { recoverConclusion: 'cancelled' }) } },
+    { runs: [failedRun89], jobsByRun: { 89: new Error('GitHub recovery metadata unavailable') } },
+    { runs: [failedRun89], jobsByRun: { 89: { total_count: 2, jobs: nonConsumingJobsPayload(89).jobs } } },
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { overrides: { run_id: 90 } }) } },
+    { runs: [githubRecord({ id: 89, run_attempt: 2, name: marker, conclusion: 'failure' })], jobsByRun: { 89: nonConsumingJobsPayload(89) } },
+    { runs: [failedRun89], jobsByRun: { 89: nonConsumingJobsPayload(89, { omitStep: 'Recover exact prior Worker cleanup' }) } },
+    { runs: [githubRecord({ id: 89, run_attempt: 1, name: marker, conclusion: 'success' })], jobsByRun: { 89: nonConsumingJobsPayload(89) } },
+    {
+      runs: [94, 93, 92, 91, 90, 89].map(id => githubRecord({ id, run_attempt: 1, name: marker, conclusion: 'failure' })),
+      jobsByRun: Object.fromEntries([94, 93, 92, 91, 90, 89].map(id => [id, nonConsumingJobsPayload(id)]))
+    }
+  ];
+  for (const config of blockingGuards) {
+    const { value } = lineageEffects(config);
+    await assert.rejects(prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value), /Recovery provenance blocked/);
+  }
+});
+
+test('topology workflow names only cleanup dispatches and emits fallback evidence', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/feature-eligibility-topology.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /run-name:.*inputs\.operation == 'cleanup'/);
+  assert.match(workflow, /id:\s*retained_prepared/);
+  assert.match(workflow, /id:\s*recover_cleanup/);
+  assert.match(
+    workflow,
+    /if:\s*always\(\)\s*&&\s*inputs\.operation == 'cleanup'\s*&&\s*steps\.retained_prepared\.outcome == 'success'\s*&&\s*steps\.recover_cleanup\.outcome != 'success'\s*&&\s*steps\.recover_cleanup\.outcome != 'failure'/
+  );
+  assert.match(workflow, /node scripts\/feature-eligibility-staging-topology\.mjs cleanup-recovered-interrupted/);
+});
+
+test('prepareTopologyRecovery treats non-cleanup run-name formats as optional result artifact', async () => {
+  const preparedOnly = [
+    {
+      id: 1234,
+      name: 'eligibility-topology-prepared-88-1',
+      expired: false,
+      size_in_bytes: 1024,
+      workflow_run: {
+        id: 88,
+        repository_id: 1,
+        head_repository_id: 1,
+        head_branch: 'main',
+        head_sha: sourceSha
+      }
+    }
+  ];
+  const nonCleanupPrior = lineageEffects({
+    selected: githubRecord({ id: 88, run_attempt: 1, name: 'topology_operation=run' }),
+    artifacts: preparedOnly,
+    contextOverrides: { runId: '99' }
+  });
+  const receipt = await prepareTopologyRecovery({ runId: '88', runAttempt: '1' }, nonCleanupPrior.value);
+  assert.equal(receipt.resultArtifactId, null);
 });
