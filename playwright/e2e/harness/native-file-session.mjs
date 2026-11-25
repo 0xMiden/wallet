@@ -5,6 +5,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { auditNativeFileCapture, prepareNativeFileCapture } from './native-file-capture.mjs';
 import { PrivatePerfetto } from './private-perfetto.mjs';
 
+const END_MARKER_TIMEOUT_MS = 5_000;
+
 function recordBoundary({ marker, requireProbe, useWalletProbe }) {
   const record = async () => {
     if (requireProbe) {
@@ -133,12 +135,23 @@ export class NativeFileCaptureSession {
   async end(page, worker) {
     if (!this.verified || this.interrupted || this.endedAt) return;
     const [pageMark, workerMark] = this.markers('end');
-    await Promise.all([
-      page.evaluate(recordBoundary, { marker: pageMark, requireProbe: false }),
-      worker.evaluate(recordBoundary, { marker: workerMark, requireProbe: false })
-    ]);
-    this.endedAt = Date.now();
-    await this.perfetto.save();
+    let timer;
+    try {
+      await Promise.race([
+        Promise.all([
+          page.evaluate(recordBoundary, { marker: pageMark, requireProbe: false }),
+          worker.evaluate(recordBoundary, { marker: workerMark, requireProbe: false })
+        ]),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Wallet capture end markers timed out')), END_MARKER_TIMEOUT_MS);
+        })
+      ]);
+      this.endedAt = Date.now();
+    } catch (error) {
+      this.endMarkerError = error instanceof Error ? error.message : String(error);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async finish(contextClosed) {
@@ -146,8 +159,10 @@ export class NativeFileCaptureSession {
     let problem;
     const required = [...this.markers('start'), ...this.markers('end')];
     try {
+      // Save what Perfetto already recorded even if the browser could not mark the end.
+      if (this.verified) await this.perfetto.save();
       if (!contextClosed || this.interrupted || !this.verified || !this.endedAt) {
-        throw new Error('Browser or workload closed with incomplete coverage');
+        throw new Error(this.endMarkerError ?? 'Browser or workload closed with incomplete coverage');
       }
       stats = await auditNativeFileCapture(this.plan.file, `wallet.capture.run.${this.wallet}.`, true);
       if (!stats.streamingV2) throw new Error('Perfetto trace lacks the effective streaming buffer configuration');
@@ -168,7 +183,7 @@ export class NativeFileCaptureSession {
     await writeFile(join(this.root, 'summary.json'), JSON.stringify({
       format: 'perfetto-file', wallet: this.wallet, file: 'browser-0001/browser.pftrace',
       complete, verified: this.verified, finished: true, started: 1, saved: Number(complete),
-      failures: Number(!complete), problem, stats
+      failures: Number(!complete), partial: !complete && existsSync(this.plan.file), problem, stats
     }) + '\n', { mode: 0o600 });
     return complete;
   }

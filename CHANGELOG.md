@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][e2e] Stream native IndexedDB traces during wallet tests and keep the partial trace when the browser stops responding.
 - [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
 - [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
 - [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
