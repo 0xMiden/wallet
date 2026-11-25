@@ -20,6 +20,7 @@ export function screenForPath(pathname: string): TelemetryScreen {
     case 'bridge':
       return pathname === '/bridge/deposit' ? 'funding' : 'other';
     case 'browser':
+    case 'arcade':
       return 'explore';
     case 'history':
     case 'history-details':

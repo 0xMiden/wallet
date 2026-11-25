@@ -24,6 +24,7 @@ describe('screenForPath', () => {
     ['/me', 'me'],
     ['/me/badges', 'me'],
     ['/browser', 'explore'],
+    ['/arcade/coins', 'explore'],
     ['/history', 'activity'],
     ['/history/some-program', 'activity'],
     ['/history-details/tx-1', 'activity'],
