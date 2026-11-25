@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHORE][ci] Add the multi-device E2E suite: device roles, claims of one note on several devices, the encrypted backup and swaps across devices, on testnet against a local wallet-api Worker, dispatched from Release E2E.
 - [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Show when Claim All is waiting for an automatic retry.
 - [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.

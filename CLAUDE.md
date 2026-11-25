@@ -337,6 +337,11 @@ Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` co
 
 **Agentic mode** (`E2E_AGENTIC=true` or `yarn test:e2e:blockchain:agentic`): on failure, browsers stay open 10 min; `test-results/debug-session.json` has connection info; `report.json` has `failureCategory`, `diagnosticHints`, `stateAtFailure`, `browserErrors`. Hot-reload via `chrome.runtime.reload()` preserves IndexedDB/vault.
 
+### Multi-device suite
+`playwright/e2e/tests/multi-device/` (own config `playwright.multi-device.config.ts`, fixture `fixtures/multi-device.ts` with `walletA`, `walletB`, `walletC` and `walletApi`) covers several devices of one Guardian account and the encrypted backup. It runs on testnet against a LOCAL wallet-api Worker: `yarn test:e2e:multi-device:build` bakes `MIDEN_WALLET_API_URL=http://127.0.0.1:8787`, and the config's global setup (`harness/wallet-api-dev-server.ts`) starts `wrangler dev` with a new D1 state, a throwaway signing key and `ALLOWED_ORIGINS` set to this build's extension origin, then stops it. The id of an unpacked extension is the SHA-256 of the real path of `dist/chrome_unpacked`, so a build moved to another path gets another origin; the fixture checks the real id against the Worker after each launch. The base config ignores the directory, and no spec there may be named `guardian-*.spec.ts`, which the Guardian config selects. Spec names start with their area (`roles-`, `claims-`, `backup-`, `swap-`), which is what a leg of `e2e-multi-device.yml` selects after `harness-smoke.spec.ts`. That workflow is dispatch-only (`-f suite=<area> -f long_holds=true`); Release E2E dispatches it with the long holds. The local Worker enforces the real rate limits and every wallet calls from 127.0.0.1, so a helper never polls it: `waitForBackupSettled` reads the wallet's own stored state.
+
+`recoverGuardianFromSeed` and `completeHotKeyRotation` (`helpers/wallet-page.ts`) answer the gate's device-role step with `role` (default `'main'`, the replace rotation the older specs expect) and press Keep on the recovery-phrase sheet through a locator handler; a spec that tests that sheet passes `recoveryPhrasePrompt: 'leave'`.
+
 ### iOS simulator harness
 Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
 
@@ -453,7 +458,7 @@ listed against it are the PREVIOUS commit's.
 - **Re-trigger without a new commit** where the workflow allows it:
   `gh workflow run <file>.yml --repo 0xMiden/wallet --ref main`.
   Dispatchable: `e2e-blockchain`, `e2e-android`, `e2e-bridge`, `e2e-bridge-in`,
-  `e2e-resilience`. NOT dispatchable (push-only, so they need a fresh commit):
+  `e2e-resilience`, `e2e-multi-device`. NOT dispatchable (push-only, so they need a fresh commit):
   `coverage-badge` (Badges), Build Production, CodeQL.
 - **The E2E suites no longer run on push at all** (#1714): Release E2E
   (`release-e2e.yml`) dispatches the testnet suites nightly and per release, and
