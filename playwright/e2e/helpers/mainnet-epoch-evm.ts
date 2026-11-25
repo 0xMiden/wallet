@@ -160,6 +160,8 @@ export function reconcileEpochEvmReceipts(
   return deposited && successful;
 }
 
+const EPOCH_EVM_FEE_HEADROOM = 2n;
+
 export interface EpochEvmEnvelope {
   chainId: number;
   to: Address;
@@ -286,17 +288,23 @@ export function createEpochEvmSender(
           throw new Error('Epoch live portfolio differs from its exact attributed balances');
         const estimatedGas = await client.estimateGas({ account, ...checked });
         const fees = await client.estimateFeesPerGas();
-        const maxFeePerGas = fees.maxFeePerGas;
+        const estimatedMaxFee = fees.maxFeePerGas;
         const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? 0n;
         if (
           estimatedGas <= 0n ||
-          maxFeePerGas === undefined ||
-          maxFeePerGas <= 0n ||
+          estimatedMaxFee === undefined ||
+          estimatedMaxFee <= 0n ||
           maxPriorityFeePerGas < 0n ||
-          maxPriorityFeePerGas > maxFeePerGas
+          maxPriorityFeePerGas > estimatedMaxFee
         )
           throw new Error('Invalid Epoch EVM fee estimate');
         const gas = (estimatedGas * 6n + 4n) / 5n;
+        // Headroom so a few blocks of base-fee rise cannot leave the signed transaction underpriced and dropped;
+        // the cap keeps the worst case inside the remaining budget, and the fresh estimate itself must still fit.
+        const affordable = (BigInt(state.evmFeeBudget) - BigInt(state.paidEvmFees)) / gas;
+        const headroom = estimatedMaxFee * EPOCH_EVM_FEE_HEADROOM;
+        const maxFeePerGas = headroom < affordable ? headroom : affordable;
+        if (maxFeePerGas < estimatedMaxFee) throw new Error('Epoch EVM envelope exceeds the remaining fee budget');
         const maximumFee = gas * maxFeePerGas;
         if (maximumFee > BigInt(state.evmFeeBudget) - BigInt(state.paidEvmFees))
           throw new Error('Epoch EVM envelope exceeds the remaining fee budget');

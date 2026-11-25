@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHORE][ci] Price each Epoch return EVM transaction at up to twice the fresh fee estimate taken at signing, never above what the remaining fee budget allows, so a rise in the base fee within minutes cannot leave the deposit underpriced and dropped; the receipt wait, the loss cap and every signing rule are unchanged.
 - [FIX][ci] Close an original Epoch return whose deposit was signed but never reached the chain as not executed, using public reads only (no transaction or receipt for the deposit, account nonce unchanged, token and native balances exactly as recorded, original approval reconciled, provider reports no fill), so the mainnet nightly stops failing in Epoch recovery on it; every other mismatch stays fail-closed, nothing is signed or resent, and the loss budget is unchanged. The approval it left outstanding stays in place. Residual risk: the unmined signed deposit could still be mined later if another node holds it and the base fee drops, moving at most about 0.98 USDC into the Compact, and the close does not detect that.
 - [CHORE][ci] Keep a sanitized, bounded cause and any short error code of a failed Epoch return solve in its failure record and the process log, and keep a sanitized one-line cause on the unresolved Epoch EVM submission error, while the funded gates and every retry rule stay unchanged.
 - [CHORE][ci] Keep a sanitized, bounded cause in the public stage file and process log when a native NEAR mainnet nightly stage is blocked, while the thrown error and every gate stay unchanged.
