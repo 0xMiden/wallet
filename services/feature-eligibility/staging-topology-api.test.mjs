@@ -131,22 +131,36 @@ test('read adapter rejects arbitrary paths before network access', async () => {
   assert.equal(calls, 0);
 });
 
-test('read adapter propagates phase-budget aborts to the in-flight fetch', async () => {
+test('read adapter propagates phase-budget aborts to the in-flight fetch', { timeout: 500 }, async () => {
   const phase = new AbortController();
   let requestSignal;
+  let markStarted;
+  let releaseFetch;
+  const started = new Promise(resolve => {
+    markStarted = resolve;
+  });
   const api = create({
     accountId,
     token,
     fetchImpl: async (_url, init) => {
       requestSignal = init.signal;
-      await new Promise(resolve => init.signal.addEventListener('abort', resolve, { once: true }));
-      return Response.json({ success: false, errors: [] });
+      markStarted();
+      await new Promise(resolve => {
+        releaseFetch = resolve;
+      });
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
     }
   });
   const request = api('/account', { signal: phase.signal });
-  phase.abort();
-  await request;
-  assert.equal(requestSignal.aborted, true);
+  try {
+    await started;
+    assert.equal(requestSignal.aborted, false);
+    phase.abort();
+    assert.equal(requestSignal.aborted, true);
+  } finally {
+    releaseFetch?.();
+  }
+  assert.equal(await request, null);
 });
 
 test('script deleter accepts only the exact topology worker path without force options', async () => {

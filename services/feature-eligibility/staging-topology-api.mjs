@@ -259,7 +259,14 @@ export function createTopologyReadApi({
     if (!Number.isFinite(remaining) || remaining <= 0) return null;
     calls[phase]++;
     const controller = new AbortController();
-    const abort = () => controller.abort();
+    let settleAbort;
+    const abortRace = new Promise(resolve => {
+      settleAbort = resolve;
+    });
+    const abort = () => {
+      controller.abort();
+      settleAbort(null);
+    };
     signal?.addEventListener('abort', abort, { once: true });
     const timeoutMs = Math.min(CALL_TIMEOUT_MS, remaining);
     let timer;
@@ -298,15 +305,8 @@ export function createTopologyReadApi({
         if (kind === 'script-settings') return scriptSettingsMetadata(body);
         return body;
       };
-      return await Promise.race([
-        work(),
-        new Promise(resolve => {
-          timer = setTimeout(() => {
-            controller.abort();
-            resolve(null);
-          }, timeoutMs);
-        })
-      ]);
+      timer = setTimeout(abort, timeoutMs);
+      return await Promise.race([work(), abortRace]);
     } catch {
       return null;
     } finally {
