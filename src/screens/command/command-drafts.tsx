@@ -21,9 +21,10 @@ export interface CommandDrafts {
     expirySeconds: string;
     slippageBps: number;
     autoAccept: boolean;
+    autoReview?: boolean;
   };
   earn: { mode: 'deposit' | 'withdraw'; subjectId: string; amount: string };
-  bridge: { direction: 'in' | 'out'; route: string; amount: string; externalAccountId: string };
+  bridge: { direction: 'in' | 'out'; route: string; amount: string; externalAccountId: string; autoReview?: boolean };
 }
 
 interface SendAdmission {

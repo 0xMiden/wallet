@@ -93,6 +93,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const clearCommandDraft = commandDrafts?.clearDraft;
   const [savedDraft] = useState(() => (command ? commandDrafts?.readDraft('swap') : undefined));
   const savedSwap = savedDraft?.engine === 'swap' ? savedDraft : undefined;
+  const autoReviewPending = useRef(Boolean(savedSwap?.autoReview));
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
   const { publicKey } = useAccount();
@@ -453,7 +454,23 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     !swapEtaBlocksSubmit(swapQuote.quote.eta) &&
     validExpiry;
 
+  useEffect(() => {
+    if (
+      !command ||
+      !autoReviewPending.current ||
+      currentStep !== SwapFlowStep.SwapAmounts ||
+      !canProceed ||
+      !swapQuote.quote
+    ) {
+      return;
+    }
+    autoReviewPending.current = false;
+    setReviewQuote(swapQuote.quote);
+    navigateTo(SwapFlowStep.ReviewSwap);
+  }, [command, currentStep, canProceed, swapQuote.quote, navigateTo]);
+
   const onOfferAmountChange = useCallback((amount: string) => {
+    autoReviewPending.current = false;
     setOfferAmount(amount);
     setRequestAmount('');
     setRequestEdited(false);
@@ -461,6 +478,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, []);
 
   const onRequestAmountChange = useCallback((amount: string) => {
+    autoReviewPending.current = false;
     setRequestAmount(amount);
     setOfferAmount('');
     setRequestEdited(true);
@@ -468,6 +486,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, []);
 
   const onSwapDirection = useCallback(() => {
+    autoReviewPending.current = false;
     setOfferToken(requestToken);
     setRequestToken(offerToken);
     if (command) {
@@ -503,6 +522,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // anchored draft keeps its target and stays blocked while the pair is unsupported.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
+      autoReviewPending.current = false;
       const currentToken = selectingSide === 'offer' ? offerToken : requestToken;
       if (token.faucetId === currentToken.faucetId) return;
       const flipsPair =

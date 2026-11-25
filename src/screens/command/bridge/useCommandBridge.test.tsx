@@ -71,7 +71,8 @@ jest.mock('@reown/appkit/react', () => ({
   useAppKitNetwork: () => ({ chainId: 11155111 }),
   useDisconnect: () => ({ disconnect: jest.fn() })
 }));
-jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => jest.fn() }));
+const mockBackFallback = jest.fn();
+jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBackFallback }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => null }));
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ locked: mockLocked, signTransaction: jest.fn() }),
@@ -769,4 +770,52 @@ it('keeps the rejected admitted workbench readonly with original disclosure and 
   expect(screen.queryByRole('button', { name: 'confirm' })).toBeNull();
   fireEvent.submit(form);
   expect(submitReviewedBridge).toHaveBeenCalledTimes(1);
+});
+
+it('auto-advances once to review when seeded with an AI autoReview bridge draft, and stays on form after back', async () => {
+  const { CommandFlowBackProvider, FlowPresentationProvider } = jest.requireActual<
+    typeof import('components/flow/FlowPresentation')
+  >('components/flow/FlowPresentation');
+  const route = deriveBridgeRoutes(mockSnapshot).find(item => item.provider === 'xreserve' && item.mode === 'send');
+  if (!route) throw new Error('Missing enabled Circle source');
+  jest.mocked(quoteBridgeTransfer).mockImplementation(async req => quote(req, '5.9'));
+  function SeedAndBridge() {
+    const drafts = useCommandDrafts();
+    const [seeded, setSeeded] = React.useState(false);
+    if (!seeded) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            drafts.writeDraft('bridge', {
+              direction: 'out',
+              route: route!.id,
+              amount: '6',
+              externalAccountId: accounts.evmAddress,
+              autoReview: true
+            });
+            setSeeded(true);
+          }}
+        >
+          Seed
+        </button>
+      );
+    }
+    return <CommandBridge />;
+  }
+  render(
+    <CommandDraftProvider scope={scope}>
+      <FlowPresentationProvider value="command">
+        <CommandFlowBackProvider>
+          <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+            <SeedAndBridge />
+          </CommandWorkbench>
+        </CommandFlowBackProvider>
+      </FlowPresentationProvider>
+    </CommandDraftProvider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Seed' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
 });

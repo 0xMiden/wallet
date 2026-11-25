@@ -2,8 +2,9 @@ import React, { Suspense } from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { readPortfolioObservations, recordPortfolioObservation } from 'lib/miden/portfolio-observations';
-import { portfolioObservations } from 'lib/miden/repo';
+import { portfolioObservations, transactions } from 'lib/miden/repo';
 import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -103,7 +104,10 @@ jest.mock('./useCommandPortfolio', () => ({
   })
 }));
 
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+
 beforeEach(async () => {
+  HTMLElement.prototype.scrollIntoView = jest.fn();
   mockAssets = rows;
   mockAllocation = [];
   store.hidden = true;
@@ -115,11 +119,15 @@ beforeEach(async () => {
   mockValue = '6';
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
   await portfolioObservations.clear();
+  await transactions.clear();
   jest.mocked(recordPortfolioObservation).mockReset().mockImplementation(realRecord);
   jest.mocked(readPortfolioObservations).mockReset().mockImplementation(actualObservations.readPortfolioObservations);
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  jest.restoreAllMocks();
+});
 
 it('shows a scoped value during refresh and a quiet placeholder when no value is safe', () => {
   store.hidden = false;
@@ -195,9 +203,10 @@ it('keeps an observation just inside the 1W edge and plots its captured time', a
   fireEvent.click(screen.getByRole('radio', { name: '1W' }));
   const chart = await screen.findByTestId('command-chart');
   expect(chart).toHaveAttribute('data-history-kind', 'observations');
-  expect(chart.querySelectorAll('circle')).toHaveLength(2);
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(2);
   expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
-  expect(Number(chart.querySelector('circle')?.getAttribute('cx'))).toBeGreaterThan(0);
+  expect(chart.querySelector('[data-command-chart-gap-line]')).toBeInTheDocument();
+  expect(Number(chart.querySelector('[data-command-chart-point]')?.getAttribute('data-x'))).toBeGreaterThan(0);
   fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
   expect(screen.getByRole('status').textContent).toContain('4.00 USD');
   expect(screen.getByRole('status').textContent).not.toContain('1.00 USD');
@@ -220,10 +229,11 @@ it('keeps dense captured runs continuous after thinning but breaks at a real gap
     }).filter((_, index) => index !== 300)
   );
   render(<CommandPortfolio scope={scope} />);
+  fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
-  const area = chart.querySelector('[data-command-chart-area]')?.getAttribute('d');
-  expect(area?.match(/M /g)).toHaveLength(3);
-  expect(chart.querySelectorAll('circle').length).toBeLessThanOrEqual(365);
+  const line = chart.querySelector('[data-command-chart-line]')?.getAttribute('d');
+  expect(line?.match(/M /g)).toHaveLength(3);
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(0);
   expect(screen.getByText('commandHistoryObservationsOnly')).toBeInTheDocument();
 });
 
@@ -398,15 +408,16 @@ it('positions samples by observation time, and mouse and keyboard inspect the sa
     coverageKey: 'priced:priced'
   });
   render(<CommandPortfolio scope={scope} />);
+  fireEvent.click(screen.getByRole('radio', { name: '1M' }));
   const chart = await screen.findByTestId('command-chart');
-  const circles = chart.querySelectorAll('circle');
-  expect(circles).toHaveLength(3);
-  expect(Number(circles[0]?.getAttribute('cx'))).toBeGreaterThan(85);
-  expect(Number(circles[1]?.getAttribute('cx'))).toBeGreaterThan(95);
+  const points = chart.querySelectorAll('[data-command-chart-point]');
+  expect(points).toHaveLength(3);
+  expect(Number(points[0]?.getAttribute('data-x'))).toBeGreaterThan(85);
+  expect(Number(points[1]?.getAttribute('data-x'))).toBeGreaterThan(95);
   const rect = chart.getBoundingClientRect();
   Object.defineProperty(rect, 'width', { value: 100 });
   jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
-  fireEvent.mouseMove(chart, { clientX: Number(circles[1]?.getAttribute('cx')) });
+  fireEvent.mouseMove(chart, { clientX: Number(points[1]?.getAttribute('data-x')) });
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
   fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
   expect(screen.getByRole('status').textContent).toContain('5.00 USD');
@@ -585,4 +596,175 @@ it('keeps balances usable when the optional history write fails, and refuses an 
   view.unmount();
   save.mockReset();
   warn.mockRestore();
+});
+
+it('defaults to 1D and auto-fits a 10-minute cluster of 3 observations without a Custom button', async () => {
+  store.hidden = false;
+  const end = capturedAt;
+  const start = end - 10 * 60_000;
+  const mid = end - 5 * 60_000;
+  jest.spyOn(Date, 'now').mockReturnValue(end + 60_000);
+  jest.mocked(readPortfolioObservations).mockResolvedValue([
+    { ...scope, bucket: start, capturedAt: start, currency: 'USD', value: '0', coverage: 'complete', coverageKey: 'p' },
+    { ...scope, bucket: mid, capturedAt: mid, currency: 'USD', value: '100', coverage: 'complete', coverageKey: 'p' },
+    { ...scope, bucket: end, capturedAt: end, currency: 'USD', value: '70', coverage: 'complete', coverageKey: 'p' }
+  ]);
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.queryByRole('radio', { name: 'commandHistoryRangeCustom' })).not.toBeInTheDocument();
+  const markers = Array.from(chart.querySelectorAll('[data-command-chart-point]'));
+  expect(markers).toHaveLength(3);
+  const xs = markers.map(marker => Number(marker.getAttribute('data-x')));
+  expect(xs[0]).toBeLessThan(10);
+  expect(xs[1]).toBeGreaterThan(45);
+  expect(xs[1]).toBeLessThan(55);
+  expect(xs[2]).toBeGreaterThan(90);
+});
+
+it('defaults to 1D when observations span more than a day and lets 1W show all observations', async () => {
+  store.hidden = false;
+  const now = capturedAt + 60_000;
+  jest.spyOn(Date, 'now').mockReturnValue(now);
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 3 * 24 * 60 * 60_000,
+    capturedAt: capturedAt - 3 * 24 * 60 * 60_000,
+    currency: 'USD',
+    value: '2',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 2 * bucketMs,
+    capturedAt: capturedAt - 2 * bucketMs,
+    currency: 'USD',
+    value: '5',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    currency: 'USD',
+    value: '6',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(2);
+  fireEvent.click(screen.getByRole('radio', { name: '1W' }));
+  expect(screen.getByRole('radio', { name: '1W' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByTestId('command-chart').querySelectorAll('[data-command-chart-point]')).toHaveLength(3);
+});
+
+it('reconstructs a continuous line chart from completed +100, -10, -20 transactions under auto-fitted 1D', async () => {
+  store.hidden = false;
+  mockValue = '70';
+  mockAssets = [
+    {
+      tokenId: 'faucet-usdcx',
+      tokenSlug: 'USDCX',
+      balance: 70,
+      balanceBaseUnits: '70000000',
+      fiatPrice: 1,
+      metadata: { name: 'USDCx', symbol: 'USDCX', decimals: 6 }
+    }
+  ];
+  const baseSec = Math.floor((Date.now() - 20 * 60_000) / 1000);
+  await transactions.bulkAdd([
+    {
+      id: 'tx-1',
+      accountId: scope.accountId,
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'RECEIVE',
+      faucetId: 'faucet-usdcx',
+      amount: 100_000_000n,
+      initiatedAt: baseSec,
+      completedAt: baseSec
+    },
+    {
+      id: 'tx-2',
+      accountId: scope.accountId,
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      faucetId: 'faucet-usdcx',
+      amount: 10_000_000n,
+      initiatedAt: baseSec + 5 * 60,
+      completedAt: baseSec + 5 * 60
+    },
+    {
+      id: 'tx-3',
+      accountId: scope.accountId,
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND',
+      faucetId: 'faucet-usdcx',
+      amount: 20_000_000n,
+      initiatedAt: baseSec + 10 * 60,
+      completedAt: baseSec + 10 * 60
+    }
+  ]);
+
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
+  expect(chart).toHaveAttribute('data-history-kind', 'trace');
+  expect(chart.querySelector('[data-command-chart-line]')).toBeInTheDocument();
+  expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
+  expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(4);
+  const slider = screen.getByRole('slider');
+  fireEvent.change(slider, { target: { value: '0' } });
+  expect(screen.getByRole('status').textContent).toContain('0.00 USD');
+  fireEvent.change(slider, { target: { value: '1' } });
+  expect(screen.getByRole('status').textContent).toContain('100.00 USD');
+  fireEvent.change(slider, { target: { value: '2' } });
+  expect(screen.getByRole('status').textContent).toContain('90.00 USD');
+  fireEvent.change(slider, { target: { value: '3' } });
+  expect(screen.getByRole('status').textContent).toContain('70.00 USD');
+});
+
+it('clears chart crosshair and callout when mouse leaves the chart', async () => {
+  store.hidden = false;
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 2 * bucketMs,
+    capturedAt: capturedAt - 2 * bucketMs,
+    currency: 'USD',
+    value: '4',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    currency: 'USD',
+    value: '6',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.queryByTestId('command-chart-tooltip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-chart-marker')).not.toBeInTheDocument();
+
+  const rect = chart.getBoundingClientRect();
+  Object.defineProperty(rect, 'width', { value: 100 });
+  jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
+  fireEvent.mouseMove(chart, { clientX: 0 });
+  expect(screen.getByTestId('command-chart-tooltip')).toHaveTextContent('$4.00');
+  expect(screen.getByTestId('command-chart-marker')).toBeInTheDocument();
+  expect(screen.getByRole('status').textContent).toContain('4.00 USD');
+
+  fireEvent.mouseLeave(chart);
+  expect(screen.queryByTestId('command-chart-tooltip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-chart-marker')).not.toBeInTheDocument();
+  expect(screen.getByRole('status').textContent).toContain('6.00 USD');
 });

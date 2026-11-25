@@ -15,7 +15,7 @@ import type { GeoLookup } from 'lib/remote-config/geo';
 import { type BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
-import { CommandDraftProvider } from 'screens/command/command-drafts';
+import { CommandDraftProvider, useCommandDrafts } from 'screens/command/command-drafts';
 
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
@@ -3765,4 +3765,49 @@ it.each(['account', 'network'])('refuses a changed %s while authorization is ope
   await act(async () => authorize(true));
   expect(mockInitiateSwap).not.toHaveBeenCalled();
   expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapBalanceUnavailable');
+});
+
+it('auto-advances once to ReviewSwap when seeded with an AI autoReview swap draft, and stays on form after back', async () => {
+  mockRealNavigator = true;
+  mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 5n, {}, { slippageBps: 50 }) };
+  const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
+  function SeedAndSwap() {
+    const drafts = useCommandDrafts();
+    const [seeded, setSeeded] = React.useState(false);
+    if (!seeded) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            drafts.writeDraft('swap', {
+              engine: 'swap',
+              payTokenId: 'faucet-A',
+              receiveTokenId: 'faucet-B',
+              payAmount: '10',
+              expirySeconds: '120',
+              slippageBps: 50,
+              autoAccept: true,
+              autoReview: true
+            });
+            setSeeded(true);
+          }}
+        >
+          Seed
+        </button>
+      );
+    }
+    return <SwapFlow />;
+  }
+  render(
+    <CommandDraftProvider scope={scope}>
+      <FlowPresentationProvider value="command">
+        <SeedAndSwap />
+      </FlowPresentationProvider>
+    </CommandDraftProvider>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Seed' }));
+  await screen.findByTestId('rs-back');
+  fireEvent.click(screen.getByTestId('rs-back'));
+  await waitFor(() => expect(screen.queryByTestId('rs-back')).not.toBeInTheDocument());
+  expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
 });

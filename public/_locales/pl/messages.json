@@ -10203,5 +10203,287 @@
   "loginSignatureTitle": {
     "message": "To służy wyłącznie do zalogowania się",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "Command assistant",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlaceholder": {
+    "message": "Send, swap, bridge, earn, or ask about your wallet...",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSendButton": {
+    "message": "Run",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiWorking": {
+    "message": "Thinking...",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiExpand": {
+    "message": "Expand to multi-line",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiCollapse": {
+    "message": "Collapse to single line",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRedactedBadge": {
+    "message": "Protected: $kinds$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "Open form",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseBridge": {
+    "message": "Which bridge route do you want to use?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseRecipient": {
+    "message": "Who do you want to send to?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "Multiple contacts match that name. Which one?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "That address belongs to a different Miden network.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiInvalidAddress": {
+    "message": "Enter a valid Miden or destination address.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiMissingRecipient": {
+    "message": "Specify a recipient address or contact name.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiAssetNotFound": {
+    "message": "Could not match asset $asset$ in your wallet.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "Which asset do you want to use?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseAmount": {
+    "message": "How much do you want to send?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "Which token do you want to receive?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "Which Earn vault do you want to deposit into?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "Which Earn position do you want to withdraw from?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "No matching bridge route is available right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSwapUnavailable": {
+    "message": "Swap is unavailable for that pair right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiEarnUnavailable": {
+    "message": "No Earn vaults or positions are available right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "Live USD price is unavailable for that token. Enter a token amount.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiUnsupported": {
+    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiNoActiveDraft": {
+    "message": "Nothing active to update. Enter a full command.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiUnconfigured": {
+    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AI service is temporarily unavailable. Try again or use a form below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRateLimited": {
+    "message": "AI service rate limit reached. Try again shortly.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "Wallet balance",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "Matching total",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "Matching activity",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryEmpty": {
+    "message": "No matching entries found.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "Computed privately on this device",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRecentTurns": {
+    "message": "Conversation",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanTitle": {
+    "message": "Action plan",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanProgress": {
+    "message": "Step $current$ of $total$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "Step $num$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "Active",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "Up next",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "Done",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "Confirm this step in the dialog below, then advance.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "Step submitted! Ready for the next step.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "All steps completed",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanNextStep": {
+    "message": "Next step",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanContinue": {
+    "message": "Continue",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanFinish": {
+    "message": "Finish plan",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStop": {
+    "message": "Stop",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "Previous output",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "Send 10 USDCx to John",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "Bridge in 1 ETH and swap it to USDCx",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "Summarize my last week activity",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "Make 10 USDCx earn in the most efficient way",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "How much USDCx did I send this month?",
+    "englishSource": "(untranslated)"
   }
 }
