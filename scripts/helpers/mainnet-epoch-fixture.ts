@@ -69,3 +69,28 @@ export function epochCheckpointFixture(): MainnetEpochCheckpoint {
     forwardNonce: '9'
   };
 }
+
+/** An original reverse whose approval mined but whose deposit never reached the chain. */
+export function epochUnminedDepositFixture(): MainnetEpochCheckpoint {
+  const note = `0x${'a'.repeat(64)}`;
+  return {
+    ...epochCheckpointFixture(),
+    phase: 'recovery-required',
+    paidMidenFees: '14',
+    paidEvmFees: '1000',
+    forwardNoteId: note,
+    forwardMidenTxId: note,
+    forwardAuthority: { minimumOutput: '1000001', bindingHash: note, reclaimHeight: 7200, mandateReclaimHeight: 2200 },
+    forwardRequestAuthority: epochForwardRequestAuthorityFixture(note, epochCheckpointFixture().createdAt),
+    forwardEvmTxHash: note,
+    forwardReceived: '999981',
+    reverseNonce: '10',
+    returnAmount: '999981',
+    evmNonceBefore: 0,
+    reverseAuthority: epochReverseAuthorityFixture(),
+    transactions: [
+      { kind: 'approve', nonce: 0, hash: `0x${'b'.repeat(64)}`, feeWei: '1000' },
+      { kind: 'deposit', nonce: 1, hash: `0x${'c'.repeat(64)}` }
+    ]
+  };
+}

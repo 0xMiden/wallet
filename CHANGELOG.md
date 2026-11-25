@@ -2,7 +2,10 @@
 
 ## 1.18.2 (TBD)
 
-- [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
+- [FIX][ci] Make the mainnet nightly swap planner refuse any loop whose legs are under 100000 base units, so an illiquid dust-sized intermediate such as 1728 units of WBTC for about 1 USD, whose return quote timed out at execution, is never chosen.
+- [CHORE][ci] Price each Epoch return EVM transaction at up to twice the fresh fee estimate taken at signing, never above what the remaining fee budget allows (an approval takes at most half of it so the deposit keeps room), so a rise in the base fee within minutes cannot leave the deposit underpriced and dropped; the receipt wait, the loss cap and every signing rule are unchanged.
+- [FIX][ci] Close an original Epoch return whose deposit was signed but never reached the chain as not executed, using public reads only (no transaction or receipt for the deposit, account nonce unchanged, token and native balances exactly as recorded, original approval reconciled, provider reports no fill), so the mainnet nightly stops failing in Epoch recovery on it; every other mismatch stays fail-closed, nothing is signed or resent, and the loss budget is unchanged. The approval it left outstanding stays in place. Residual risk: the unmined signed deposit could still be mined later if another node holds it and the base fee drops, moving at most about 0.98 USDC into the Compact, and the close does not detect that.
+- [CHORE][ci] Keep a sanitized, bounded cause and any short error code of a failed Epoch return solve in its failure record and the process log, and keep a sanitized one-line cause on the unresolved Epoch EVM submission error, while the funded gates and every retry rule stay unchanged.
 - [CHORE][ci] Keep a sanitized, bounded cause in the public stage file and process log when a native NEAR mainnet nightly stage is blocked, while the thrown error and every gate stay unchanged.
 - [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
 - [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
@@ -19,6 +22,7 @@
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
 - [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of run 45334301017, which stopped in preflight before any quote or send, as unspent so recovery clears it instead of refusing the next nightly.
 - [CHORE][ci] Name the exited process and print a sanitized, bounded log tail when a mainnet nightly NEAR step fails, and upload the same tail as a public summary instead of leaving the cause unlogged.
+- [CHORE][ci] Harden the public NEAR log tail: redact bearer and basic credentials, reflowed, JSON-escaped and URL-encoded secrets, key-like runs, bech32, base58 and named NEAR addresses and 12-word phrases; publish it only for a failed or cancelled run without failing the job; tail only native NEAR logs in the job log; keep the real cause of a rejected return transfer in the stage file; and add tests for the quoteless preflight gate.
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
 - [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
@@ -51,6 +55,7 @@
 
 - [FIX][all] Bridge in shows why Connect wallet did nothing when the wallet picker fails to open, instead of leaving a button that silently does nothing.
 - [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
+- [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
 - [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
 - [CHANGE][mobile] Build the App Store iOS app, and compile iOS on every pull request, with Xcode 27 and the iOS 27 SDK, which App Store Connect makes mandatory from April 2027 (ITMS-90725). The iOS app now uses the UIScene life cycle, which that SDK needs for the app to start, so deep links and Universal Links arrive through the scene delegate; Capacitor moves to 8.6.2 on iOS and Android; the iOS hot key signer moves to `swift-secp256k1` 0.25.1, which that compiler needs, and makes the same public keys and signatures.
 

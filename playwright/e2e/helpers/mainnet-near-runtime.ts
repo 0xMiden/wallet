@@ -24,7 +24,11 @@ import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagn
 import { armRecallBlocks } from './recall';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
-import { cappedMainnetRecoveryBudget, realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
+import {
+  cappedMainnetRecoveryBudget,
+  realizedMainnetLoopLoss,
+  remainingMainnetLoopBudget
+} from './mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from './mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from './mainnet-one-click-config';
@@ -110,17 +114,31 @@ const unquotedUnspentNearRuns = new Set(['45334301017']);
 const STAGE_FILE = 'test-results/mainnet-near-forward-stage.json';
 
 // Keeps the discarded cause of a blocked stage in the public stage file and the process log; the caller still throws its own generic error.
+// A generic wrapper carries the real error as its cause, so the deepest one is recorded: the stage can be recorded twice.
 export function recordNearStageCause(error: unknown): void {
+  let cause: string;
   try {
     const secrets = Object.entries(process.env)
       .filter(([key]) => key.startsWith('E2E_MAINNET_'))
       .map(([, value]) => value ?? '');
-    const raw = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    const cause = sanitizedTail(raw, secrets)
+    let root = error;
+    for (let depth = 0; depth < 5 && root instanceof Error && root.cause !== undefined; depth++) root = root.cause;
+    const raw = root instanceof Error ? `${root.name}: ${root.message.split('\n')[0]}` : String(root).split('\n')[0];
+    cause = sanitizedTail(raw ?? '', secrets)
       .replace(/https?:\/\/\S+/gi, '[url]')
       .replace(/\?\S+/g, '?[query]')
       .replace(/\s+/g, ' ')
       .slice(0, 300);
+    console.error(`Native NEAR stage cause: ${cause}`);
+  } catch {
+    try {
+      console.error(`Native NEAR stage cause: unprintable ${Object.prototype.toString.call(error)}`);
+    } catch {
+      // Diagnostics cannot change the funding gate or the original error.
+    }
+    return;
+  }
+  try {
     let existing = {};
     try {
       existing = JSON.parse(readFileSync(STAGE_FILE, 'utf8'));
@@ -129,9 +147,8 @@ export function recordNearStageCause(error: unknown): void {
     }
     mkdirSync('test-results', { recursive: true });
     writeFileSync(STAGE_FILE, JSON.stringify({ ...existing, cause }), { mode: 0o600 });
-    console.error(`Native NEAR stage cause: ${cause}`);
   } catch {
-    // Diagnostics cannot change the funding gate or the original error.
+    // An unwritable stage file still leaves the cause in the process log.
   }
 }
 
@@ -1207,7 +1224,9 @@ export async function runMainnetNearReverse(
     } catch (error) {
       senderRejected = true;
       recordNearStageCause(error);
-      throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
+      throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry', {
+        cause: error
+      });
     }
     // The page's own status is evidence only: the transfer is already broadcast, so a slow row never fails the leg.
     await expect(wallet.page.getByTestId('near-intents-deposit-status'))

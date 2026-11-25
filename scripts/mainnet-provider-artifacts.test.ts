@@ -1,4 +1,6 @@
 /** @jest-environment node */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   chooseSwapCheckpoint,
   swapStepAttempted,
@@ -744,7 +746,9 @@ describe('known quoteless NEAR preflight stop', () => {
     { head_branch: 'wiktor/other' },
     { event: 'workflow_dispatch' },
     { run_attempt: 2 },
-    { conclusion: 'success' }
+    { conclusion: 'success' },
+    { workflow_id: 1 },
+    { status: 'in_progress' }
   ])('rejects changed provenance %j', changed => {
     expect(knownUnspentNearPreflight(digest, { ...run(), ...changed }, stopJobs(), now)).toBe(false);
   });
@@ -754,5 +758,21 @@ describe('known quoteless NEAR preflight stop', () => {
     const later = stopJobs();
     later.jobs[0]!.steps[4]!.conclusion = 'success';
     expect(knownUnspentNearPreflight(digest, run(), later, now)).toBe(false);
+  });
+  it.each([NaN, 1.5])('rejects a clock of %s', clock => {
+    expect(knownUnspentNearPreflight(digest, run(), stopJobs(), clock)).toBe(false);
+  });
+  it('rejects a missing or duplicated retained-checkpoint step', () => {
+    const missing = stopJobs();
+    missing.jobs[0]!.steps.pop();
+    expect(knownUnspentNearPreflight(digest, run(), missing, now)).toBe(false);
+    const doubled = stopJobs();
+    doubled.jobs[0]!.steps.push({ ...doubled.jobs[0]!.steps.at(-1)! });
+    expect(knownUnspentNearPreflight(digest, run(), doubled, now)).toBe(false);
+  });
+  it('source guard: checks the run before the audited-run table in the script entry point', () => {
+    const source = readFileSync(resolve(__dirname, 'mainnet-swap-artifacts.mjs'), 'utf8');
+    expect(source.indexOf("id === '45334301017'")).toBeGreaterThan(0);
+    expect(source.indexOf("id === '45334301017'")).toBeLessThan(source.indexOf('else if (auditRunId)'));
   });
 });

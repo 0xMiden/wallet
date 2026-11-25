@@ -350,6 +350,52 @@ test('accepts canonically signed zero-priority-fee approval and deposit without 
   assert.deepEqual(c.counts(), { signed: 2, broadcasts: 2 });
   assert.equal(c.state.paidEvmFees, '2000');
 });
+test('signs with a bounded multiple of the fresh fee estimate so a base-fee rise cannot underprice the deposit', async () => {
+  const c = senderFixture();
+  const sender = c.build();
+  const seen = [];
+  const sign = c.input.sign;
+  c.input.sign = async tx => {
+    seen.push([tx.maxFeePerGas, tx.maxPriorityFeePerGas]);
+    return sign(tx);
+  };
+  await sender.send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  await sender.send(deposit(c.state, c.expiry), activeSignal());
+  assert.deepEqual(seen, [
+    [4n, 1n],
+    [4n, 1n]
+  ]);
+});
+test('never lets the headroom exceed the remaining fee budget, falling back to the largest fee that fits', async () => {
+  const c = senderFixture();
+  c.input.client.estimateFeesPerGas = async () => ({ maxFeePerGas: 20_000_000n, maxPriorityFeePerGas: 1n });
+  let signedFee;
+  const sign = c.input.sign;
+  c.input.sign = async tx => {
+    signedFee = tx.maxFeePerGas;
+    assert.ok(tx.gas * tx.maxFeePerGas <= BigInt(c.state.evmFeeBudget) - BigInt(c.state.paidEvmFees));
+    return sign(tx);
+  };
+  await c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  const gas = ((await c.input.client.estimateGas()) * 6n + 4n) / 5n;
+  assert.equal(signedFee, BigInt(c.state.evmFeeBudget) / gas);
+});
+test('caps an approval at half the remaining fee budget so the deposit keeps room', async () => {
+  const c = senderFixture();
+  const gas = ((await c.input.client.estimateGas()) * 6n + 4n) / 5n;
+  const affordable = BigInt(c.state.evmFeeBudget) / gas;
+  const estimate = (affordable * 3n) / 8n;
+  c.input.client.estimateFeesPerGas = async () => ({ maxFeePerGas: estimate, maxPriorityFeePerGas: 1n });
+  const seen = [];
+  const sign = c.input.sign;
+  c.input.sign = async tx => {
+    seen.push(tx.maxFeePerGas);
+    return sign(tx);
+  };
+  await c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  assert.equal(seen[0], affordable / 2n);
+  assert.ok(seen[0] >= estimate);
+});
 test('binds the actual SDK deposit expiry within the uploaded window instead of assuming a dry-quote timestamp stays unchanged', async () => {
   const c = senderFixture();
   c.setAllowance(BigInt(c.state.returnAmount));
