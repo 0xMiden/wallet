@@ -223,6 +223,16 @@ export function CommandPortfolio({
           percentage: firstSampleValue > 0 ? ((lastSampleValue - firstSampleValue) / firstSampleValue) * 100 : null
         }
       : null;
+  const deltaAmountLabel = periodDelta
+    ? `${periodDelta.amount >= 0 ? '+' : '-'}$${formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}`
+    : null;
+  const deltaPercentageLabel =
+    periodDelta && periodDelta.percentage !== null
+      ? `(${periodDelta.percentage >= 0 ? '+' : '-'}${formatAmountDisplay(Math.abs(periodDelta.percentage), {
+          ...displayOptions,
+          formatting: 'fixed'
+        })}${t('percentSign')})`
+      : null;
   const yTicks =
     span > 0
       ? [
@@ -337,20 +347,8 @@ export function CommandPortfolio({
                       : 'border-negative-tint-ink/30 bg-negative-tint/15 text-negative-tint-ink'
                   }`}
                 >
-                  <span>
-                    {periodDelta.amount >= 0 ? '+' : '-'}$
-                    {formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}
-                  </span>
-                  {periodDelta.percentage !== null && (
-                    <span className="opacity-85">
-                      ({periodDelta.percentage >= 0 ? '+' : '-'}
-                      {formatAmountDisplay(Math.abs(periodDelta.percentage), {
-                        ...displayOptions,
-                        formatting: 'fixed'
-                      })}
-                      {t('percentSign')})
-                    </span>
-                  )}
+                  <span>{deltaAmountLabel}</span>
+                  {deltaPercentageLabel !== null && <span className="opacity-85">{deltaPercentageLabel}</span>}
                 </span>
               )}
             </div>
