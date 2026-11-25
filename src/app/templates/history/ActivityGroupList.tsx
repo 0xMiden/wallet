@@ -88,6 +88,8 @@ function relativeTime(timestamp: number): string | undefined {
 export interface ActivityGroupListProps {
   entries: IHistoryEntry[];
   claims?: readonly PendingActivityItem[];
+  /** Hidden notes have loaded, so the claim card offers Decline. A fee-blocked transfer counts only then. */
+  hiddenLoaded?: boolean;
   /** Resolves a counterparty to a contact's or an own account's name. */
   nameOf: ActivityCounterpartyName;
   initialLoading: boolean;
@@ -131,6 +133,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
   ({
     entries,
     claims,
+    hiddenLoaded = false,
     nameOf,
     initialLoading,
     loadError,
@@ -181,7 +184,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
       // has no block of air between the rule and the first conversation.
       <ListGroup surface="plain" data-testid="activity-group-list">
         {groups.map(group => {
-          const waitingCount = group.claims.filter(isActivityClaimWaiting).length;
+          const waitingCount = group.claims.filter(claim => isActivityClaimWaiting(claim, hiddenLoaded)).length;
           return (
             <ListRow
               key={`${group.kind}:${group.id}`}

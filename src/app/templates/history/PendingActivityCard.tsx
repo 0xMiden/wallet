@@ -66,9 +66,11 @@ function claimActionState(item: PendingActivityItem) {
   return { canAccept, feeBlocked, held };
 }
 
-export function isActivityClaimWaiting(item: PendingActivityItem): boolean {
+export function isActivityClaimWaiting(item: PendingActivityItem, hiddenLoaded: boolean): boolean {
   const { canAccept, feeBlocked, held } = claimActionState(item);
-  return item.holdUntil === undefined && ((canAccept && !feeBlocked) || held);
+  // Decline is on the card only after hidden notes load. A fee-blocked note counts while that
+  // Decline is enabled; a held retry counts without it.
+  return item.holdUntil === undefined && ((canAccept && !feeBlocked) || held || (feeBlocked && hiddenLoaded));
 }
 
 function formatDateTime(unixSeconds: number): string {

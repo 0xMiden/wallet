@@ -8,14 +8,14 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   ACTIVITY_COUNTERPARTY_BECH32,
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
 } from './testing/activity-group-fixtures';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import type { PendingActivityItem } from './PendingActivityCard';
 
 const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   key: 'entry-1',
@@ -313,6 +313,7 @@ describe('ActivityGroupedHistory', () => {
     mockClaims.items = [];
     mockClaims.isLoadingNotes = false;
     mockHidden.ids = new Set();
+    mockHidden.loaded = true;
     mockConfirm.mockResolvedValue(true);
   });
 
@@ -422,12 +423,52 @@ describe('ActivityGroupedHistory', () => {
 
   it('counts a transfer that can be declined even when the fee blocks acceptance', () => {
     mockRealGroupList = true;
+    mockHidden.loaded = false;
     mockClaims.items = [{ ...claim('no-fee', 'pending'), cannotPayFee: true }];
+
+    const view = render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const sender = () => screen.getByRole('link', { name: /mtst1sender/ });
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    expect(within(sender()).queryByText(/waiting/)).toBeNull();
+
+    mockHidden.loaded = true;
+    view.rerender(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    expect(within(sender()).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it('counts a held retry without a hold and omits cached, held-until, and other in-flight claims', () => {
+    mockRealGroupList = true;
+    mockHidden.loaded = false;
+    const sentBy = (id: string, status: PendingActivityItem['status'], senderAddress: string): PendingActivityItem => {
+      const item = claim(id, status);
+      return { ...item, note: { ...item.note, senderAddress } };
+    };
+    const cached = sentBy('cached', 'pending', 'mtst1cache');
+    cached.note = { ...cached.note, fromCache: true };
+    const until = sentBy('until', 'pending', 'mtst1hold');
+    until.holdUntil = 1_700_000_000;
+    mockClaims.items = [
+      { ...sentBy('held-retry', 'claiming', 'mtst1held'), held: true },
+      cached,
+      until,
+      sentBy('inflight', 'claiming', 'mtst1busy')
+    ];
 
     render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
 
-    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
-    expect(within(screen.getByRole('link', { name: /mtst1sender/ })).getByText('1 waiting')).toBeInTheDocument();
+    const claims = screen.getByTestId('activity-group-claims');
+    const heldCard = claims.querySelector('[data-pending-note-id="held-retry"]');
+    if (!(heldCard instanceof HTMLElement)) throw new Error('Missing held claim card');
+    expect(within(heldCard).queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    expect(within(screen.getByRole('link', { name: /mtst1held/ })).getByText('1 waiting')).toBeInTheDocument();
+    for (const sender of ['mtst1cache', 'mtst1hold', 'mtst1busy']) {
+      expect(within(screen.getByRole('link', { name: new RegExp(sender) })).queryByText(/waiting/)).toBeNull();
+    }
   });
 
   it('groups a tagged hex reference with the equivalent bare account ID', () => {
