@@ -82,7 +82,8 @@ export function useCommandPortfolio(scope: AccountScope) {
   const value =
     current &&
     hiddenReady &&
-    (pricesStatus === 'ready' || canValueWithoutFeed || (usesCachedPrice && !partial)) &&
+    // A fresh cached quote values the held tokens it covers, as the Sidebar total does; coverage says the rest are unpriced.
+    (pricesStatus === 'ready' || canValueWithoutFeed || usesCachedPrice) &&
     (!held || pricedRows.length > 0)
       ? String(total)
       : null;
