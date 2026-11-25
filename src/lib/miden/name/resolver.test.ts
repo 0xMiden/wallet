@@ -330,6 +330,69 @@ describe('fetchDomainRecordAccount', () => {
       MidenNameAbortedError
     );
 
+    const scheduleTicks = (ticks: number, fn: () => void) => {
+      const step = (remaining: number) => {
+        if (remaining <= 1) queueMicrotask(fn);
+        else queueMicrotask(() => step(remaining - 1));
+      };
+      step(ticks);
+    };
+
+    helpers.getBech32AddressFromAccountId.mockClear();
+    mockRead.mockClear();
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    await expect(resolveMidenName('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockRead).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return res;
+    });
+    await expect(resolveMidenName('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      scheduleTicks(4, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return res;
+    });
+    await expect(resolveMidenName('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const controller3 = new AbortController();
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      scheduleTicks(4, () => controller3.abort());
+      return res;
+    });
+    await expect(resolveMidenName('alice', { signal: controller3.signal })).rejects.toBeInstanceOf(
+      MidenNameAbortedError
+    );
+    expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
+
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      scheduleTicks(4, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      return res;
+    });
+    await expect(fetchDomainRecordAccount('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      const res = await fakeRead(config, requests);
+      scheduleTicks(4, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return res;
+    });
+    await expect(fetchDomainRecord('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+
     await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
     expect(mockRead).toHaveBeenCalledTimes(6);
   });

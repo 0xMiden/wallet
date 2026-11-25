@@ -127,6 +127,7 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
   // A fresh RPC head, not the local sync height. This call also loads the SDK
   // WASM before the code below makes SDK objects.
   const builtAtBlock = await awaitScoped(scope, () => getChainTip(scope));
+  assertScopeCurrent(scope);
   const reclaimHeight = builtAtBlock + MIDEN_NAME_RECLAIM_BLOCKS;
   if (!Number.isSafeInteger(reclaimHeight) || reclaimHeight > U32_MAX) {
     throw new RangeError(`Reclaim height ${reclaimHeight} does not fit in a u32`);
@@ -142,14 +143,16 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
     await awaitScoped(scope, async () => {
       script = await loadRegisterDomainScript();
     });
+    assertScopeCurrent(scope);
     const loadedScript = script!;
-    return await awaitScoped(scope, () =>
+    const built = await awaitScoped(scope, () =>
       withWasmClientLock(
         async hold => {
           assertScopeCurrent(scope);
           const sender = toAccountId(args.senderAccountId);
           const senderId = sender.toString();
           const senderAccount = await awaitScoped(scope, () => midenClientProxy.getAccount(senderId));
+          assertScopeCurrent(scope);
           // An eviction during the read gives the mutex to a successor. The account
           // object is a borrow of that client, so stop before a read of its vault.
           // This hold only builds the request; nothing is submitted, so a stop is safe.
@@ -168,8 +171,10 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
           const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
           // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
           const { client } = await awaitScoped(scope, () => getMidenClient());
+          assertScopeCurrent(scope);
           assertWasmHoldCurrent(hold, 'miden-name-register-build: after getting the client');
           const builder = await awaitScoped(scope, () => feeAwareRequestBuilder(client, senderId, feeSalt));
+          assertScopeCurrent(scope);
           assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
           // The recipient takes the script: from here the note owns it.
           scriptOwned = false;
@@ -191,6 +196,8 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
         { label: 'miden-name-register-build' }
       )
     );
+    assertScopeCurrent(scope);
+    return built;
   } catch (error) {
     // A failure before the recipient took the script leaves it with us: free it.
     if (script && scriptOwned) script.free();

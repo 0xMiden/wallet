@@ -395,6 +395,73 @@ describe('buildRegisterNameRequest', () => {
     expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
     expect(script.free).toHaveBeenCalledTimes(1);
   });
+
+  it('aborts on double-microtask continuation switches after awaited helpers and outer lock return', async () => {
+    const mockLoadScript = jest.requireMock<{
+      loadRegisterDomainScript: jest.Mock<Promise<{ script: string; free: jest.Mock }>, []>;
+    }>('./script').loadRegisterDomainScript;
+
+    mockTip.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return 1000;
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockLoadScript).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const script1 = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockImplementationOnce(async () => {
+      queueMicrotask(() =>
+        queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)))
+      );
+      return script1;
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(script1.free).toHaveBeenCalledTimes(1);
+    expect(mockLock).not.toHaveBeenCalled();
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const scriptClient = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(scriptClient);
+    mockFeeAwareRequestBuilder.mockClear();
+    mockGetMidenClient.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return { client: FAKE_CLIENT };
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
+    expect(scriptClient.free).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const scriptBuilder = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(scriptBuilder);
+    mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      return new TransactionRequestBuilder().withFeeConversionSalt(SALT);
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(scriptBuilder.free).toHaveBeenCalledTimes(1);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const script2 = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(script2);
+    mockLock.mockImplementationOnce(async operation => {
+      const value = await operation(HOLD);
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return value;
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+  });
 });
 
 describe('registerNameRowAccounts', () => {

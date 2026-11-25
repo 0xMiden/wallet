@@ -372,17 +372,49 @@ describe('listOwnedDomainLabels', () => {
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
 
     mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockLock.mockClear();
+    mockWasmReady.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+    });
+    await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockLock).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockLock).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockLock.mockImplementationOnce(async operation => {
       const value = await operation(HOLD);
-      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
       return value;
     });
     await expect(accountHoldsDomainNfa(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
 
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockRead.mockClear();
+    mockLock.mockImplementationOnce(async operation => {
+      const value = await operation(HOLD);
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return value;
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockRead).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
     mockRead.mockImplementationOnce(async () => {
       mockRpcUrl.mockReturnValue('https://rpc-b.example');
       throw new Error('registry failure');
+    });
+    await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockRead.mockImplementationOnce(async () => {
+      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      return storageOf(new Map([[mapKeyOf('alice'), encodeDomainFelts('alice')]]));
     });
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameAbortedError);
   });

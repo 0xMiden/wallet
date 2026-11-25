@@ -80,12 +80,14 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
   encodeDomainFelts(label);
   const scope = captureEffectiveScope(config.network);
   await awaitScoped(scope, ensureSdkWasmReady);
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
-  return awaitScoped(scope, () =>
+  const holding = await awaitScoped(scope, () =>
     withWasmClientLock(
       async hold => {
         assertScopeCurrent(scope);
         const account = await awaitScoped(scope, () => midenClientProxy.getAccount(toAccountId(accountId).toString()));
+        assertScopeCurrent(scope);
         assertWasmHoldCurrent(hold, 'miden-name-nfa-read: after the account read');
         if (!account) return 'not-held';
         const nfa = findDomainNfa(account, label, registry, config.registryAccountIdHex);
@@ -96,6 +98,8 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
       { label: 'miden-name-nfa-read' }
     )
   );
+  assertScopeCurrent(scope);
+  return holding;
 }
 
 /**
@@ -108,18 +112,21 @@ export async function listOwnedDomainLabels(accountId: string): Promise<string[]
   const config = requireConfig();
   const scope = captureEffectiveScope(config.network);
   await awaitScoped(scope, ensureSdkWasmReady);
+  assertScopeCurrent(scope);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const nfaKeys = await awaitScoped(scope, () =>
     withWasmClientLock(
       async hold => {
         assertScopeCurrent(scope);
         const account = await awaitScoped(scope, () => midenClientProxy.getAccount(toAccountId(accountId).toString()));
+        assertScopeCurrent(scope);
         assertWasmHoldCurrent(hold, 'miden-name-nfa-list: after the account read');
         return account ? registryNfaKeys(account, config.registryAccountIdHex) : [];
       },
       { label: 'miden-name-nfa-list' }
     )
   );
+  assertScopeCurrent(scope);
   if (nfaKeys.length === 0) return [];
 
   const mapKeys: Felts4[] = nfaKeys.map(key => [key[0], key[1], 0n, 0n]);
@@ -128,6 +135,7 @@ export async function listOwnedDomainLabels(accountId: string): Promise<string[]
       scope
     })
   );
+  assertScopeCurrent(scope);
   const labels: string[] = [];
   for (const key of mapKeys) {
     const label = decodeDomainFelts(storage.mapValue(MIDEN_NAME_SLOTS.tokenToDomain, key));
