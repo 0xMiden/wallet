@@ -29,5 +29,10 @@ export function isHistoryEntryUnread(state: ActivityReadState, entry: IHistoryEn
  * what this computes.
  */
 export function isActivityGroupUnread(state: ActivityReadState, group: ActivityGroup): boolean {
-  return group.entries.some(entry => isHistoryEntryUnread(state, entry));
+  return (
+    group.entries.some(entry => isHistoryEntryUnread(state, entry)) ||
+    group.claims.some(
+      ({ note }) => !isActivityRead(state, pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN)
+    )
+  );
 }

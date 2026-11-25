@@ -136,7 +136,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Remembered per device in the app's settings module, so the tab reopens in the view the user
-  // left it in; `list` until they choose otherwise.
+  // left it in. With no saved preference, Activity opens in Groups.
   const savedView = useActivityView();
   // A link's request shows the List for that visit without changing the saved view. Switching to the
   // Activity tab from another tab goes to `/history`, which asks for nothing.
