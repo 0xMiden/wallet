@@ -100,8 +100,12 @@ const auditedUnspentNearNonce = new Map([
   ['44970377919', 85],
   ['45055827591', 87],
   ['45072272341', 87],
-  ['45092013711', 87]
+  ['45092013711', 87],
+  // Stopped in preflight before any quote; 90 is the nonce its funded predecessor left, balances equal the checkpoint.
+  ['45334301017', 90]
 ]);
+
+const unquotedUnspentNearRuns = new Set(['45334301017']);
 
 const STAGE_FILE = 'test-results/mainnet-near-forward-stage.json';
 
@@ -1267,7 +1271,7 @@ export async function verifyUnstartedNearForward(
     expectedNonce === undefined ||
     state.authorizationRunId !== state.sourceRunId ||
     state.phase !== 'forward-authorized' ||
-    !quote ||
+    (!quote && !unquotedUnspentNearRuns.has(state.sourceRunId)) ||
     state.sendAuthority ||
     state.forwardMidenTxId ||
     state.forwardEvmTxHash ||
@@ -1289,7 +1293,7 @@ export async function verifyUnstartedNearForward(
     state.evm.chainId !== 42161 ||
     !Number.isFinite(windowEnd) ||
     Date.now() <= windowEnd ||
-    Date.now() <= Date.parse(quote.deadline) ||
+    (quote && Date.now() <= Date.parse(quote.deadline)) ||
     (await wallet.getAccountAddress()) !== state.account
   )
     throw new Error('Original NEAR pre-authorization is live or has an unresolved execution fingerprint');
@@ -1313,6 +1317,7 @@ export async function verifyUnstartedNearForward(
     (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== expectedNonce
   )
     throw new Error('Original NEAR EVM inventory or unused nonce changed');
+  if (!quote) return;
   const status = await fetchOneClickStatus(
     {
       serviceUrl: state.serviceUrl,

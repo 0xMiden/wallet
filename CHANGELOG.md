@@ -16,6 +16,7 @@
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of run 45334301017, which stopped in preflight before any quote or send, as unspent so recovery clears it instead of refusing the next nightly.
 - [CHORE][ci] Name the exited process and print a sanitized, bounded log tail when a mainnet nightly NEAR step fails, and upload the same tail as a public summary instead of leaving the cause unlogged.
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
