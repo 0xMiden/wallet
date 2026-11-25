@@ -10209,32 +10209,32 @@
     "englishSource": "This only signs you in"
   },
   "commandAiBarLabel": {
-    "message": "Command assistant",
-    "englishSource": "(untranslated)"
+    "message": "Assistente de comandos",
+    "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Send, swap, bridge, earn, or ask about your wallet...",
-    "englishSource": "(untranslated)"
+    "message": "Envie, troque, faça uma ponte, ganhe ou pergunte sobre sua carteira...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
-    "message": "Run",
-    "englishSource": "(untranslated)"
+    "message": "Executar",
+    "englishSource": "Run"
   },
   "commandAiWorking": {
-    "message": "Thinking...",
-    "englishSource": "(untranslated)"
+    "message": "Pensando...",
+    "englishSource": "Thinking..."
   },
   "commandAiExpand": {
-    "message": "Expand to multi-line",
-    "englishSource": "(untranslated)"
+    "message": "Expandir para várias linhas",
+    "englishSource": "Expand to multi-line"
   },
   "commandAiCollapse": {
-    "message": "Collapse to single line",
-    "englishSource": "(untranslated)"
+    "message": "Reduzir para uma única linha",
+    "englishSource": "Collapse to single line"
   },
   "commandAiRedactedBadge": {
-    "message": "Protected: $kinds$",
-    "englishSource": "(untranslated)",
+    "message": "Protegido: $kinds$",
+    "englishSource": "Protected: $kinds$",
     "placeholders": {
       "kinds": {
         "content": "$1"
@@ -10242,24 +10242,24 @@
     }
   },
   "commandAiOpenNativeForm": {
-    "message": "Open form",
-    "englishSource": "(untranslated)"
+    "message": "Formulário aberto",
+    "englishSource": "Open form"
   },
   "commandAiChooseBridge": {
-    "message": "Which bridge route do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Qual rota de ponte você deseja usar?",
+    "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "Who do you want to send to?",
-    "englishSource": "(untranslated)"
+    "message": "Para quem você deseja enviar?",
+    "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {
-    "message": "Multiple contacts match that name. Which one?",
-    "englishSource": "(untranslated)"
+    "message": "Vários contatos correspondem a esse nome. Qual deles?",
+    "englishSource": "Multiple contacts match that name. Which one?"
   },
   "commandAiIncompleteAddressMatches": {
-    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
-    "englishSource": "(untranslated)",
+    "message": "$prefix$ está incompleto. Você quis dizer um dos seus contatos salvos?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
     "placeholders": {
       "prefix": {
         "content": "$1"
@@ -10267,8 +10267,8 @@
     }
   },
   "commandAiIncompleteAddress": {
-    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "$address$ é um endereço incompleto. Insira um endereço completo ou escolha um contato.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
     "placeholders": {
       "address": {
         "content": "$1"
@@ -10276,8 +10276,8 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "Nomes ENS como $name$ não são suportados aqui. Insira um endereço completo ou escolha um contato.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -10285,20 +10285,20 @@
     }
   },
   "commandAiWrongNetworkAddress": {
-    "message": "That address belongs to a different Miden network.",
-    "englishSource": "(untranslated)"
+    "message": "Esse endereço pertence a uma rede Miden diferente.",
+    "englishSource": "That address belongs to a different Miden network."
   },
   "commandAiInvalidAddress": {
-    "message": "Enter a valid Miden or destination address.",
-    "englishSource": "(untranslated)"
+    "message": "Insira um endereço Miden ou de destino válido.",
+    "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Specify a recipient address or contact name.",
-    "englishSource": "(untranslated)"
+    "message": "Especifique um endereço de destinatário ou nome de contato.",
+    "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
-    "message": "Could not match asset $asset$ in your wallet.",
-    "englishSource": "(untranslated)",
+    "message": "Não foi possível encontrar o ativo $asset$ em sua carteira.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
     "placeholders": {
       "asset": {
         "content": "$1"
@@ -10306,100 +10306,100 @@
     }
   },
   "commandAiChooseAsset": {
-    "message": "Which asset do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Qual ativo você deseja usar?",
+    "englishSource": "Which asset do you want to use?"
   },
   "commandAiChooseAmount": {
-    "message": "How much do you want to send?",
-    "englishSource": "(untranslated)"
+    "message": "Quanto você deseja enviar?",
+    "englishSource": "How much do you want to send?"
   },
   "commandAiChooseSwapTarget": {
-    "message": "Which token do you want to receive?",
-    "englishSource": "(untranslated)"
+    "message": "Qual token você deseja receber?",
+    "englishSource": "Which token do you want to receive?"
   },
   "commandAiChooseEarnVault": {
-    "message": "Which Earn vault do you want to deposit into?",
-    "englishSource": "(untranslated)"
+    "message": "Em qual cofre do Earn você deseja fazer o depósito?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "Which Earn position do you want to withdraw from?",
-    "englishSource": "(untranslated)"
+    "message": "De qual posição do Earn você deseja fazer o saque?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
-    "message": "No matching bridge route is available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Não há nenhuma rota de ponte de correspondência disponível no momento.",
+    "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap is unavailable for that pair right now.",
-    "englishSource": "(untranslated)"
+    "message": "A troca não está disponível para esse par no momento.",
+    "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "No Earn vaults or positions are available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Não há cofres nem posições do Earn disponíveis no momento.",
+    "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
-    "message": "Live USD price is unavailable for that token. Enter a token amount.",
-    "englishSource": "(untranslated)"
+    "message": "O preço em tempo real em USD não está disponível para esse token. Insira uma quantidade do token.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
   },
   "commandAiInvalidModelOutput": {
-    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "Não foi possível verificar essa solicitação com segurança. Tente reformular ou use um dos formulários abaixo.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
-    "englishSource": "(untranslated)"
+    "message": "Essa ação não é suportada aqui. Tente “Enviar”, “Trocar”, “Bridge”, “Ganhar” ou uma pergunta sobre carteira.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
-    "message": "Nothing active to update. Enter a full command.",
-    "englishSource": "(untranslated)"
+    "message": "Não há nada ativo para atualizar. Digite um comando completo.",
+    "englishSource": "Nothing active to update. Enter a full command."
   },
   "commandAiUnconfigured": {
-    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
-    "englishSource": "(untranslated)"
+    "message": "O proxy de IA não está configurado. Defina um endpoint ou use a barra de ações abaixo.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI service is temporarily unavailable. Try again or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "O serviço de IA está temporariamente indisponível. Tente novamente ou use um dos formulários abaixo.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {
-    "message": "AI service rate limit reached. Try again shortly.",
-    "englishSource": "(untranslated)"
+    "message": "Limite de taxa do serviço de IA atingido. Tente novamente em breve.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
   },
   "commandAiQueryBalanceTitle": {
-    "message": "Wallet balance",
-    "englishSource": "(untranslated)"
+    "message": "Saldo da carteira",
+    "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Matching total",
-    "englishSource": "(untranslated)"
+    "message": "Total de correspondências",
+    "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
-    "message": "Matching activity",
-    "englishSource": "(untranslated)"
+    "message": "Atividade de correspondência",
+    "englishSource": "Matching activity"
   },
   "commandAiQueryEmpty": {
-    "message": "No matching entries found.",
-    "englishSource": "(untranslated)"
+    "message": "Nenhuma entrada correspondente encontrada.",
+    "englishSource": "No matching entries found."
   },
   "commandAiLocalOnlyNote": {
-    "message": "Computed privately on this device",
-    "englishSource": "(untranslated)"
+    "message": "Calculado de forma privada neste dispositivo",
+    "englishSource": "Computed privately on this device"
   },
   "commandAiRecentTurns": {
-    "message": "Conversation",
-    "englishSource": "(untranslated)"
+    "message": "Conversa",
+    "englishSource": "Conversation"
   },
   "commandAiAssistantName": {
-    "message": "Bread Assistant",
-    "englishSource": "(untranslated)"
+    "message": "Assistente de Pão",
+    "englishSource": "Bread Assistant"
   },
   "commandAiPlanTitle": {
-    "message": "Action plan",
-    "englishSource": "(untranslated)"
+    "message": "Plano de ação",
+    "englishSource": "Action plan"
   },
   "commandAiPlanProgress": {
-    "message": "Step $current$ of $total$",
-    "englishSource": "(untranslated)",
+    "message": "Etapa $current$ de $total$",
+    "englishSource": "Step $current$ of $total$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -10410,8 +10410,8 @@
     }
   },
   "commandAiPlanStepLabel": {
-    "message": "Step $num$",
-    "englishSource": "(untranslated)",
+    "message": "Etapa $num$",
+    "englishSource": "Step $num$",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -10419,75 +10419,75 @@
     }
   },
   "commandAiPlanStatusActive": {
-    "message": "Active",
-    "englishSource": "(untranslated)"
+    "message": "Ativo",
+    "englishSource": "Active"
   },
   "commandAiPlanStatusPending": {
-    "message": "Up next",
-    "englishSource": "(untranslated)"
+    "message": "A seguir",
+    "englishSource": "Up next"
   },
   "commandAiPlanStatusDone": {
-    "message": "Done",
-    "englishSource": "(untranslated)"
+    "message": "Concluído",
+    "englishSource": "Done"
   },
   "commandAiPlanConfirmStep": {
-    "message": "Confirm this step in the dialog below, then advance.",
-    "englishSource": "(untranslated)"
+    "message": "Confirme esta etapa na caixa de diálogo abaixo e, em seguida, prossiga.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
   },
   "commandAiPlanStepSubmitted": {
-    "message": "Step submitted! Ready for the next step.",
-    "englishSource": "(untranslated)"
+    "message": "Etapa enviada! Pronto para a próxima etapa.",
+    "englishSource": "Step submitted! Ready for the next step."
   },
   "commandAiPlanCompletedTitle": {
-    "message": "All steps completed",
-    "englishSource": "(untranslated)"
+    "message": "Todas as etapas concluídas",
+    "englishSource": "All steps completed"
   },
   "commandAiPlanNextStep": {
-    "message": "Next step",
-    "englishSource": "(untranslated)"
+    "message": "Próxima etapa",
+    "englishSource": "Next step"
   },
   "commandAiPlanContinue": {
-    "message": "Continue",
-    "englishSource": "(untranslated)"
+    "message": "Continuar",
+    "englishSource": "Continue"
   },
   "commandAiPlanFinish": {
-    "message": "Finish plan",
-    "englishSource": "(untranslated)"
+    "message": "Concluir o plano",
+    "englishSource": "Finish plan"
   },
   "commandAiPlanStop": {
-    "message": "Stop",
-    "englishSource": "(untranslated)"
+    "message": "Pare",
+    "englishSource": "Stop"
   },
   "commandAiPlanMaxAmount": {
     "message": "Max",
-    "englishSource": "(untranslated)"
+    "englishSource": "Max"
   },
   "commandAiPlanPreviousOutput": {
-    "message": "Previous output",
-    "englishSource": "(untranslated)"
+    "message": "Saída anterior",
+    "englishSource": "Previous output"
   },
   "commandAiSamplePrompt1": {
-    "message": "Send 10 USDCx to John",
-    "englishSource": "(untranslated)"
+    "message": "Envie 10 USDCx para John",
+    "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Bridge in 1 ETH and swap it to USDCx",
-    "englishSource": "(untranslated)"
+    "message": "Transfira 1 ETH e troque-o por USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {
-    "message": "Summarize my last week activity",
-    "englishSource": "(untranslated)"
+    "message": "Resuma minhas atividades da última semana",
+    "englishSource": "Summarize my last week activity"
   },
   "commandAiSamplePrompt4": {
-    "message": "Make 10 USDCx earn in the most efficient way",
-    "englishSource": "(untranslated)"
+    "message": "Faça 10 USDCx renderem da maneira mais eficiente",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
-    "englishSource": "(untranslated)"
+    "message": "Transfira 1 ETH, troque por USDCx e coloque no cofre de maior rendimento",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {
-    "message": "How much USDCx did I send this month?",
-    "englishSource": "(untranslated)"
+    "message": "Quanto USDCx eu enviei este mês?",
+    "englishSource": "How much USDCx did I send this month?"
   }
 }
