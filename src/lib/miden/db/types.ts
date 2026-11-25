@@ -234,8 +234,15 @@ export interface ISendExtraInputs {
   recallBlocks?: number;
   /** Exact ISO date approved by Command Send; authoritative for the first request build. */
   calendarRecallTarget?: string;
+  /** Written only by older builds: a NEAR Intents send is now a `bridged-send` row with `provider: 'near-intents'`. */
   oneClick?: IOneClickTrackingData;
 }
+
+/**
+ * `destinationNetwork` of a near-intents `bridged-send` whose chain has no EVM chain id that the wallet knows (Solana,
+ * Bitcoin, NEAR). A negative number is never a chain id or an agglayer network id, so no reader takes it for one.
+ */
+export const NEAR_INTENTS_NO_EVM_CHAIN_ID = -1;
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -385,6 +392,8 @@ export interface IUsdcxCctpLeg {
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
+  /** The backup receipt records the attestation step without its proof. */
+  receiptBurnAttested?: boolean;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
   /** Unix seconds the current `executeTxHash` was saved, from either side. */
@@ -592,10 +601,25 @@ export interface IBridgedSendExtraInputs {
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
-  /** 0x EVM recipient. */
+  /**
+   * The recipient on the destination chain. A 0x EVM address on the agglayer, epoch and usdcx routes. On the
+   * near-intents route it is the address that the user typed on any configured chain (EVM, Solana, Bitcoin or NEAR),
+   * never the 1Click deposit address, which is the Miden note recipient in `secondaryAccountId`.
+   */
   destinationAddress: string;
-  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
+  /**
+   * EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch, usdcx). On the
+   * near-intents route, the EVM chain id when the wallet knows the chain, else `NEAR_INTENTS_NO_EVM_CHAIN_ID`, which is
+   * no chain: read `destinationChain` for the name.
+   */
   destinationNetwork: number;
+  /** near-intents: the 1Click chain of the recipient (`eth`, `sol`, `btc`, `near`) and its display name. */
+  destinationChain?: { id: string; name: string };
+  /**
+   * near-intents: the signed 1Click quote and its tracking state. `reconcileOneClickSwaps` submits the Miden
+   * transaction id to 1Click and follows the swap until it is delivered, refunded, failed or expired.
+   */
+  oneClick?: IOneClickTrackingData;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
@@ -987,6 +1011,8 @@ export interface ITransaction {
    * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
+  /** The original device's outcome for a read-only backup receipt. */
+  restoredOutcomeUnconfirmed?: boolean;
   recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
@@ -1168,6 +1194,16 @@ export interface ITransaction {
    * `Failed`; this flag is what keeps them there.
    */
   restoredFromBackup?: boolean;
+  /** Bridge details from a peer for a claim this device already recorded. */
+  backupBridgeReceipt?: { bridgeIn: IBridgeInInfo; displayMessage?: string };
+  /**
+   * The account commitment after this transaction: the final account header of its result, as the device that made
+   * it read it. Only for a Completed row with no notes (a rotation, a Guardian switch, a threshold update): the
+   * encrypted backup reads it from `resultBytes` before the reaper releases them (`recordFinalAccountCommitments`)
+   * and carries it in the receipt (`fc`). The Guardian history pass ties its record of the transaction to such a
+   * receipt by it, since nothing else that both carry names the transaction. A record only, never an input.
+   */
+  finalAccountCommitment?: string;
   resultBytes?: Uint8Array;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
@@ -1229,6 +1265,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * Whole seconds until which a claim whose note the chain shows consumed stays in the queue for the Guardian's
+   * history to name that note (multi-device). The claim of another device lands on the chain some seconds before
+   * the Guardian makes its delta canonical, and only the canonical delta shows that this account holds the note.
+   * Past this time the claim fails with its own error. An absolute time for the reason `unauthorizedRetryUntil`
+   * gives. Absent: the claim did not wait for this.
+   */
+  claimedElsewhereCheckUntil?: number;
   /**
    * The backing-off arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
    * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian or node that fails every
@@ -1897,6 +1941,27 @@ export class BridgedSendTransaction implements ITransaction {
 }
 
 /**
+ * The 1Click tracking of a NEAR Intents send from Miden: a `bridged-send` row with `provider: 'near-intents'`, or a
+ * `send` row that an older build wrote. Undefined for every other row, a NEAR Intents receive included.
+ */
+export const nearIntentsSendTrackingOf = (
+  tx: Pick<ITransaction, 'type' | 'extraInputs'>
+): IOneClickTrackingData | undefined => {
+  switch (tx.type) {
+    case 'send': {
+      const inputs: ISendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.oneClick;
+    }
+    case 'bridged-send': {
+      const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.provider === 'near-intents' ? inputs.oneClick : undefined;
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator
  * account, built once at initiate into `requestBytes` with its mandate-binding
  * attachment. On non-Guardian accounts those bytes run through `newTransaction`. On
@@ -2122,13 +2187,30 @@ export class SwitchGuardianTransaction implements ITransaction {
 }
 
 /**
- * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
- * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * How a hot-key activation changes the on-chain signer set.
+ * - `replace`: the target set is `[newHot, cold]`. The old hot key and every
+ *   other device key stop working.
+ * - `add`: the target set is the current set plus `newHot`. The other device
+ *   keys continue to work.
+ */
+export type HotKeyActivationMode = 'add' | 'replace';
+
+/**
+ * Hot-key activation for a Guardian account. Cold-signed (recovery key), via
+ * `update_signers`. `extraInputs.mode` selects the target signer set (see
+ * `HotKeyActivationMode`). When it is absent, the mode is `replace`, so a row
+ * from before the field existed keeps its meaning. extraInputs.newHotPublicKey is stamped by
  * `generateGuardianTransaction` once the minted key is persisted (a later run of
  * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
  * the WalletAccount pointer.
  */
+export const isCurrentRotationRequest = (
+  rotationRequest: string | undefined,
+  account: { requiresHotKeyRotation?: boolean; hotKeyRotationRequest?: string }
+): boolean =>
+  rotationRequest === account.hotKeyRotationRequest &&
+  (rotationRequest === undefined || account.requiresHotKeyRotation === true);
+
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;
   type: ITransactionType;
@@ -2151,7 +2233,12 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
   // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
   // discards the write.
+  // `mode`: the activation mode the row was queued with. Absent means `replace`.
   extraInputs: {
+    mode?: HotKeyActivationMode;
+    rotationRequest?: string;
+    /** Remove only this commitment. No new device key is created or installed. */
+    revokedSignerCommitment?: string;
     newHotPublicKey?: string;
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;

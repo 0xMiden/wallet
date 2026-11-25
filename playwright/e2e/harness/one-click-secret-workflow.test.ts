@@ -164,19 +164,21 @@ function oneClickStepGates(context: Context): boolean[] {
 }
 
 describe('Guardian Bridge-Out OneClick secret workflow', () => {
-  it('keeps ordinary Guardian coverage enabled for main pull requests and manual dispatch', () => {
+  it('runs the Guardian job on manual dispatch only and skips it on pull requests', () => {
     expect(workflow).toMatch(/^  pull_request:$/m);
     expect(workflow).toMatch(/^  workflow_dispatch: \{\}$/m);
     const guardian = stepBlocks().get('Run guardian bridge-out spec');
     expect(guardian).toBeDefined();
     expect(guardian).not.toMatch(/^        if:/m);
-    for (const context of Object.values(contexts)) expect(evaluate(guardianJobCondition(), context)).toBe(true);
+    for (const context of Object.values(contexts)) {
+      expect(evaluate(guardianJobCondition(), context)).toBe(context['github.event_name'] === 'workflow_dispatch');
+    }
     expect(
       evaluate(guardianJobCondition(), {
         ...contexts['trusted same-repository pull request'],
         'github.event.pull_request.base.ref': 'next'
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it.each(Object.entries(contexts))('%s context has the expected OneClick event eligibility', (_label, context) => {

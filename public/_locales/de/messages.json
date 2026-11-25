@@ -1,4 +1,77 @@
 {
+  "refresh": {
+    "message": "Aktualisieren",
+    "englishSource": "Refresh"
+  },
+  "deviceRevokedBody": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr unterzeichnen. Verwenden Sie die Wiederherstellungsphrase, um es wieder zum Hauptgerät zu machen, oder entfernen Sie die Wallet von diesem Gerät.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Dieses Gerät wurde aus den Unterzeichnern des Kontos entfernt und kann keine Transaktionen mehr signieren. Entfernen Sie die Wallet von diesem Gerät. Sie können den Zugriff mit der Wiederherstellungsphrase wiederherstellen.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authentifizieren Sie sich, um dieses Gerät zu widerrufen.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Widerruf der Verpflichtung des Unterzeichners",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Geräte",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Dieses Gerät",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Gerät widerrufen",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Dieses Gerät kann keine Transaktionen mehr signieren. Der Zugriff kann wiederhergestellt werden, wenn die Wiederherstellungsphrase vorliegt.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Geräte, die für die Signatur dieses Kontos registriert sind. Der Wiederherstellungsschlüssel wird nicht angezeigt.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Die auf diesem Gerät gespeicherte Wiederherstellungsphrase genehmigt die Widerrufung.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Geben Sie die Wiederherstellungsphrase ein, um den Widerruf zu bestätigen. Sie wird nicht auf diesem Gerät gespeichert.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Die Geräteliste kann nicht gelesen werden. Versuchen Sie es erneut, nachdem die Wallet synchronisiert wurde.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Gerät $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Gerät gesperrt",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Dieses Gerät wurde gesperrt",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Widerrufstransaktion",
+    "englishSource": "Revocation transaction"
+  },
   "passkeyUnlock": {
     "message": "Entsperren mit Passkey",
     "englishSource": "Passkey unlock"
@@ -119,6 +192,159 @@
   "bridgeRouteAgglayer": {
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR-Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ Sek.",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ Minuten",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Sie erhalten $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents bietet diesen Token in diesem Netzwerk nicht an.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Dieser Betrag ist für NEAR Intents zu gering. Geben Sie einen höheren Betrag ein.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents können nicht an diese Adresse gesendet werden. Überprüfen Sie die Adresse und das Netzwerk.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Das Angebot hat sich geändert und bietet nun weniger als das, was Sie geprüft haben. Prüfen Sie das neue Angebot und bestätigen Sie es anschließend erneut.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Das Angebot ist abgelaufen, bevor die Zahlung eingeleitet wurde. Überprüfen Sie das neue Angebot und bestätigen Sie es anschließend erneut.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Wenn der Swap fehlschlägt, erstattet NEAR Intents den Betrag auf dieses Miden-Konto zurück.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Einzahlungsadresse generiert",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Senden an die Einzahlungsadresse",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Eine neue Überweisung starten",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Die Zahlung an die Einzahlungsadresse ist fehlgeschlagen, daher wurden keine Gelder überwiesen. Starten Sie eine neue Überweisung, um eine neue Einzahlungsadresse zu erhalten.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Einzahlungsadresse generieren",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Die Gelder werden an NEAR Intents gesendet. Die Überweisung an $network$ wird fortgesetzt. Verfolgen Sie den Status unter „Activity“.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents hat die Zahlung über $network$ abgewickelt.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Empfänger erhält (Schätzung)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Lieferstatus",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Senden an NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "An den Empfänger zugestellt",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Abgelaufen",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Zahlung zurückerstattet",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents konnte den Swap nicht abschließen und hat den Betrag auf Ihr Miden-Konto zurückerstattet.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Lieferung fehlgeschlagen",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents konnte diese Zahlung nicht ausführen. Öffnen Sie die Aktivität, um die Details anzuzeigen.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Lieferfrist abgelaufen",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents hat diese Zahlung nicht rechtzeitig verarbeitet. Öffnen Sie die Aktivität, um die Details anzuzeigen.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Empfänger erhielt",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Im $network$-Explorer anzeigen",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "Dieser Weg ist für diese Überweisung nicht verfügbar. Sie können mit einem anderen verfügbaren Weg fortfahren. Von diesem Bildschirm aus wurde keine Transaktion übermittelt.",
@@ -295,6 +521,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Geräteschlüssel rotiert",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Gerät hinzugefügt",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Konto gesichert",
@@ -2337,8 +2567,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden- oder Ethereum-Adresse eingeben",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Geben Sie die Adresse ein",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Diese Wallet kann keine Transaktionen an diese Adresse senden",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Betrag auswählen",
@@ -4079,6 +4325,14 @@
     "message": "Dein Alltagsschlüssel wird gerade rotiert. Dies ist erforderlich, wenn du ein wiederhergestelltes Konto einrichtest, damit es synchronisiert werden und Transaktionen durchführen kann.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Hinzufügen dieses Geräts",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Dieses Gerät erhält einen eigenen Alltagsschlüssel, damit es sich synchronisieren und Transaktionen durchführen kann.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Die tägliche Schlüsselrotation ist fehlgeschlagen",
     "englishSource": "Everyday key rotation failed"
@@ -4126,6 +4380,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Entfernen Sie die Wallet von diesem Gerät",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Wie sollte dieses Gerät in Ihre Wallet integriert werden?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Dieses Gerät erhält einen eigenen Tages-Schlüssel. Eine geringe Netzwerkgebühr wird vom Konto abgebucht.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Sie besitzen bereits $count$ Geräte mit dieser Wallet",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Sie besitzen bereits 1 Gerät mit dieser Wallet",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Dieses Gerät hinzufügen",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Machen Sie dieses Gerät zum Hauptgerät",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Jedes andere Gerät wird aus dieser Wallet entfernt",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Die Wiederherstellungsphrase auf diesem Gerät behalten?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Tägliche Transaktionen funktionieren auf diesem Gerät ohne die Wiederherstellungsphrase. Bei Guardian-Änderungen und beim täglichen Schlüsselwechsel werden Sie aufgefordert, diese einzugeben. Notieren Sie sie sich, bevor Sie sie entfernen.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Wiederherstellungsphrase entfernen",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bewahren Sie es auf diesem Gerät auf",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Tägliche Schlüsselrotation nicht bestätigt",
@@ -9334,8 +9637,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "Kaufen Sie eine beliebige Menge an GC mit USDCx, zuzüglich Netzwerkgebühren.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "Kaufen Sie 1.000 GC für 1 USDCx zuzüglich Netzwerkgebühren.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC zum Kauf",
@@ -9380,9 +9683,9 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
+    "message": "This purchase fills a public GC sale note on chain.",
     "englishSource": "(untranslated)",
-    "rejectedSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "rejectedSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "Sie zahlen",

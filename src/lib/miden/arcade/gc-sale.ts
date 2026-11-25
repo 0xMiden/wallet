@@ -12,6 +12,7 @@ import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { selectGcSale } from 'lib/remote-config/values';
+import { USDCX_DECIMALS } from 'lib/usdcx/protocol';
 
 import type { GcPurchaseQuote } from '../transaction/initiate';
 
@@ -46,8 +47,11 @@ export const GC_DECIMALS = 6;
 /** Maximum USDCx base units per GC. */
 export const GC_MAX_PRICE = 1_000n;
 
-/** What the purchase sheet starts at: 1 GC, in base units. */
+/** The default amount for callers that do not specify a GC amount, in base units. */
 export const DEFAULT_GC_PURCHASE_AMOUNT = 10n ** BigInt(GC_DECIMALS);
+
+const GC_PACKAGE_AMOUNT = 1_000n * 10n ** BigInt(GC_DECIMALS);
+const GC_PACKAGE_PRINCIPAL = 10n ** BigInt(USDCX_DECIMALS);
 
 /** Maximum new note bodies read per discovery check. Cached sales are also checked. */
 const MAX_SALE_NOTE_READS = 8;
@@ -159,6 +163,23 @@ export function pickGcSale(sales: GcSale[], gcAmount: bigint, buyer?: string): G
     return a.saleNoteId.localeCompare(b.saleNoteId);
   });
   return eligible[0] ?? null;
+}
+
+export function quoteGcPurchasePackage(sale: GcSale): GcPurchaseQuote | null {
+  const result = quoteGcPurchase(sale, GC_PACKAGE_AMOUNT);
+  return 'quote' in result &&
+    result.quote.fillAmount === GC_PACKAGE_PRINCIPAL &&
+    result.quote.expectedAmount === GC_PACKAGE_AMOUNT
+    ? result.quote
+    : null;
+}
+
+export function pickGcPurchasePackageSale(sales: GcSale[], buyer?: string): GcSale | null {
+  return pickGcSale(
+    sales.filter(sale => quoteGcPurchasePackage(sale) !== null),
+    GC_PACKAGE_AMOUNT,
+    buyer
+  );
 }
 
 interface SaleCandidate {

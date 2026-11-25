@@ -63,32 +63,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "prepareMorph", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
-        // Miden patch: retained native navbar overlay API. A caller can render a
-        // UIVisualEffectView+UIButtons in a UIWindow at .normal+200 so
-        // it can paint over (and capture taps from) the dApp WKWebView
-        // at .normal+100. The wallet frontend currently uses React
-        // BottomNav and does not call these methods.
-        CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
-        // setNavbarSecondaryRow grows / shrinks the navbar pill to add
-        // a second row of quick-action buttons above the main nav row.
-        // Pass an empty items array to collapse the row back into a
-        // single-row pill.
-        CAPPluginMethod(name: "setNavbarSecondaryRow", returnType: CAPPluginReturnPromise),
-        // Miden patch: navbar compact mode with primary action button.
-        // setNavbarAction switches the navbar to compact mode where
-        // the 3 nav buttons take 50% of the pill width and the action
-        // button fills the remaining 50%. Spring-animated morph.
-        // clearNavbarAction reverses the morph back to default mode.
-        CAPPluginMethod(name: "setNavbarAction", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearNavbarAction", returnType: CAPPluginReturnPromise),
-        // morphNavbarOut slides the pill down off-screen on a spring;
-        // morphNavbarIn reverses it, for a caller presenting a
-        // bottom-sheet drawer that would otherwise fight the pill for
-        // the bottom of the viewport.
-        CAPPluginMethod(name: "morphNavbarOut", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "morphNavbarIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     var navigationWebViewController: UINavigationController?
@@ -862,16 +836,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let h = CGFloat(height ?? 0)
                 let x = CGFloat(xPos ?? 0)
                 let y = CGFloat(yPos ?? 0)
-                // The dApp lives in its own UIWindow at .normal+100,
-                // a plain UIWindow. A caller using the retained navbar
-                // overlay API gets a *separate* window at .normal+200
-                // (see MidenNavbarOverlayWindow + the showNativeNavbar
-                // plugin method), so this WKWebView can fill its own
-                // window's full height without any mask / passthrough
-                // trickery — the overlay window is higher in the stack,
-                // so iOS handles both visual compositing and
-                // hit-testing natively. The wallet frontend does not
-                // currently call it; its navigation is React BottomNav.
+                // The dApp lives in its own UIWindow at .normal+100 so this
+                // WKWebView can fill its slot window without modal passthrough
+                // trickery; wallet navigation stays in the host React BottomNav.
                 let window = Self.makeContainerWindow(scene: scene, rect: CGRect(x: x, y: y, width: w, height: h), instance: instance)
                 instance.installContainerWindow(window, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
@@ -1449,116 +1416,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // Also clear the legacy single-instance fields if they were set.
             self.webViewController = nil
             self.navigationWebViewController = nil
-            // Tear down the navbar overlay too — it's pointless without
-            // any dApps to overlay. Route through the shared helper so
-            // the windowScene detach runs (otherwise S7 re-leaks here).
-            Self.releaseNavbarOverlay()
             call.resolve()
         }
-    }
-
-    // MARK: - Native navbar overlay
-    //
-    // The retained navbar overlay is a singleton MidenNavbarOverlayWindow
-    // stored here as a static so it survives across plugin instances.
-    // A caller shows and hides it through the plugin API, and updates the
-    // active item via setNativeNavbarActive without rebuilding the window.
-    // The wallet frontend does not currently call these methods.
-    private static var navbarOverlay: MidenNavbarOverlayWindow?
-
-    @objc func setNavbarAction(_ call: CAPPluginCall) {
-        guard let label = call.getString("label") else {
-            call.reject("label is required")
-            return
-        }
-        let enabled = call.getBool("enabled") ?? true
-        DispatchQueue.main.async {
-            // Wire the tap handler the first time we're called so the
-            // overlay can fire `nativeNavbarActionTap` back to JS.
-            // Re-set on every call to be safe (cheap to assign).
-            Self.navbarOverlay?.onActionTap = { [weak self] in
-                self?.notifyListeners("nativeNavbarActionTap", data: [:])
-            }
-            Self.navbarOverlay?.setAction(label: label, enabled: enabled)
-            call.resolve()
-        }
-    }
-
-    @objc func clearNavbarAction(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            Self.navbarOverlay?.clearAction()
-            call.resolve()
-        }
-    }
-
-    @objc func morphNavbarOut(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            Self.navbarOverlay?.morphOut()
-            call.resolve()
-        }
-    }
-
-    @objc func morphNavbarIn(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            Self.navbarOverlay?.morphIn()
-            call.resolve()
-        }
-    }
-
-    @objc func showNativeNavbar(_ call: CAPPluginCall) {
-        guard let itemsRaw = call.getArray("items") else {
-            call.reject("items array is required")
-            return
-        }
-        let activeId = call.getString("activeId")
-        // Decode the items array. Each item is { id, title, sfSymbol }.
-        var items: [MidenNavbarOverlayWindow.Item] = []
-        for raw in itemsRaw {
-            guard let dict = raw as? [String: Any],
-                  let id = dict["id"] as? String,
-                  let title = dict["title"] as? String,
-                  let symbol = dict["sfSymbol"] as? String else {
-                continue
-            }
-            items.append(MidenNavbarOverlayWindow.Item(id: id, title: title, sfSymbol: symbol))
-        }
-        if items.isEmpty {
-            call.reject("at least one item is required")
-            return
-        }
-        DispatchQueue.main.async {
-            // If there's already an overlay, tear it down before
-            // creating a new one. UIWindow retains itself via the
-            // scene's internal window list on iOS 15-17 if you only
-            // set isHidden; resignKey + detaching windowScene is the
-            // documented way to actually release it.
-            Self.releaseNavbarOverlay()
-            guard let scene = self.bridge?.viewController?.view?.window?.windowScene else {
-                call.reject("no window scene")
-                return
-            }
-            let overlay = MidenNavbarOverlayWindow(scene: scene, items: items, activeId: activeId)
-            overlay.onItemTap = { [weak self] itemId in
-                self?.notifyListeners("nativeNavbarTap", data: ["id": itemId])
-            }
-            Self.navbarOverlay = overlay
-            call.resolve()
-        }
-    }
-
-    /// Explicitly release the navbar overlay window. Hiding + niling
-    /// the static ref is not enough on iOS 15-17 — the scene keeps
-    /// the window alive through its internal window list. Resigning
-    /// key, detaching the scene, and then niling ensures the
-    /// containing `UIWindow` is actually deallocated.
-    private static func releaseNavbarOverlay() {
-        guard let overlay = navbarOverlay else { return }
-        overlay.isHidden = true
-        overlay.resignKey()
-        if #available(iOS 13.0, *) {
-            overlay.windowScene = nil
-        }
-        navbarOverlay = nil
     }
 
     static func makeContainerWindow(scene: UIWindowScene, rect: CGRect, instance: WKWebViewInstance) -> UIWindow {
@@ -1573,10 +1432,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Shared teardown for Architecture A dApp container windows.
-    /// Same pathology as the navbar overlay: on iOS 15-17 a UIWindow
-    /// is kept alive by the scene's internal window list if you only
-    /// set `isHidden = true` + `rootViewController = nil`. Every dApp
-    /// close would leak a full UIWindow + UINavigationController +
+    /// On iOS 15-17 a UIWindow is kept alive by the scene's internal
+    /// window list if you only set `isHidden = true` + `rootViewController = nil`.
+    /// Every dApp close would leak a full UIWindow + UINavigationController +
     /// WKWebView (tens of MB per close). This helper is called from
     /// `close(_:)`, `closeAll(_:)`, and `WKWebViewController.closeView`
     /// so the fix lands on every teardown path.
@@ -1588,55 +1446,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             window.windowScene = nil
         }
         window.rootViewController = nil
-    }
-
-    @objc func hideNativeNavbar(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            Self.releaseNavbarOverlay()
-            call.resolve()
-        }
-    }
-
-    @objc func setNativeNavbarActive(_ call: CAPPluginCall) {
-        let activeId = call.getString("id")
-        DispatchQueue.main.async {
-            Self.navbarOverlay?.setActive(activeId)
-            call.resolve()
-        }
-    }
-
-    /// Add or update a secondary row of quick-action buttons above the
-    /// main nav row. Pass an empty items array to collapse the row back
-    /// to a single-row pill. The navbar overlay animates the growth /
-    /// collapse on a spring curve so the user sees the pill morph into
-    /// a two-row container, not two separate pills.
-    ///
-    /// Payload:
-    ///   items: [{ id, title, sfSymbol }]
-    ///   activeId: optional id of the currently-active secondary item
-    @objc func setNavbarSecondaryRow(_ call: CAPPluginCall) {
-        let itemsRaw = call.getArray("items") ?? []
-        let activeId = call.getString("activeId")
-        var items: [MidenNavbarOverlayWindow.Item] = []
-        for raw in itemsRaw {
-            guard let dict = raw as? [String: Any],
-                  let id = dict["id"] as? String,
-                  let title = dict["title"] as? String,
-                  let symbol = dict["sfSymbol"] as? String else {
-                continue
-            }
-            items.append(MidenNavbarOverlayWindow.Item(id: id, title: title, sfSymbol: symbol))
-        }
-        DispatchQueue.main.async {
-            // Wire the secondary-tap handler so the overlay can fire
-            // `nativeNavbarSecondaryTap` back to JS. Re-set on every
-            // call to be safe (cheap to assign).
-            Self.navbarOverlay?.onSecondaryTap = { [weak self] itemId in
-                self?.notifyListeners("nativeNavbarSecondaryTap", data: ["id": itemId])
-            }
-            Self.navbarOverlay?.setSecondaryItems(items, activeId: activeId)
-            call.resolve()
-        }
     }
 
 }

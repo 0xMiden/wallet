@@ -112,7 +112,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(initiateGcPurchaseTransaction).mockReset();
   mockChallengeAuthorization = mockAuthorization;
-  mockReadLimit.mockResolvedValue({ accountId: 'account-a', revision: 'gc-policy-1', limit: 50_000_000n });
+  mockReadLimit.mockResolvedValue({ accountId: 'account-a', revision: 'gc-policy-1', limit: 500_000n });
   mockPurchase = { sale: null, state: 'unavailable', refresh: async () => null };
   mockNetwork = 'testnet';
   mockAccount = 'account-a';
@@ -187,17 +187,17 @@ const mockQuote = {
   saleNoteId: 'public-sale',
   sellerAccountId: 'seller',
   payFaucetId: 'native-faucet',
-  fillAmount: 60_000_000n,
+  fillAmount: 1_000_000n,
   gcFaucetId: gc,
-  expectedAmount: 60_000_000_000n
+  expectedAmount: 1_000_000_000n
 };
 const mockAuthorization: SpendingLimitAuthorization = {
   kind: 'usd',
   id: 'authorized-purchase',
   accountId: 'account-a',
   revision: 'gc-policy-1',
-  usdAmount: 60_000_000n,
-  spendsDigest: 'native-faucet:60000000',
+  usdAmount: 1_000_000n,
+  spendsDigest: 'native-faucet:1000000',
   issuedAt: 1,
   expiresAt: 61
 };
@@ -230,10 +230,10 @@ it('redeems an exact pay-leg authorization after a purchase exceeds the cap', as
     .mockRejectedValueOnce(
       new SpendingLimitAuthorizationRequiredError({
         accountId: 'account-a',
-        usdAmount: 60_000_000n,
+        usdAmount: 1_000_000n,
         revision: 'gc-policy-1',
         assessedAt: 1,
-        breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+        breach: { spent: 0n, proposedTotal: 1_000_000n, limit: 500_000n, overBy: 500_000n, resetAt: null }
       })
     )
     .mockResolvedValueOnce('authorized-transaction');
@@ -241,7 +241,7 @@ it('redeems an exact pay-leg authorization after a purchase exceeds the cap', as
   await screen.findByRole('button', { name: 'authorize purchase' });
   expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
   expect(jest.mocked(SpendingLimitChallenge).mock.calls.at(-1)?.[0]).toMatchObject({
-    spends: [{ faucetId: 'native-faucet', amount: 60_000_000n }]
+    spends: [{ faucetId: 'native-faucet', amount: 1_000_000n }]
   });
   expect(screen.queryByRole('alert')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'authorize purchase' }));
@@ -259,7 +259,7 @@ it('offers an unpriced challenge bound to the purchase pay leg and current polic
   expect(jest.mocked(SpendingLimitChallenge).mock.calls.at(-1)?.[0]).toMatchObject({
     unpriced: {
       accountId: 'account-a',
-      spends: [{ faucetId: 'native-faucet', amount: 60_000_000n }],
+      spends: [{ faucetId: 'native-faucet', amount: 1_000_000n }],
       revision: 'gc-policy-1'
     }
   });
@@ -270,10 +270,10 @@ it('closes a stale purchase authorization challenge when the account changes', a
   jest.mocked(initiateGcPurchaseTransaction).mockRejectedValueOnce(
     new SpendingLimitAuthorizationRequiredError({
       accountId: 'account-a',
-      usdAmount: 60_000_000n,
+      usdAmount: 1_000_000n,
       revision: 'gc-policy-1',
       assessedAt: 1,
-      breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+      breach: { spent: 0n, proposedTotal: 1_000_000n, limit: 500_000n, overBy: 500_000n, resetAt: null }
     })
   );
   const view = enablePurchase();
@@ -301,7 +301,7 @@ it('retries the same quote with an unpriced authorization', async () => {
     kind: 'unpriced',
     id: 'unpriced-purchase',
     accountId: 'account-a',
-    spendsDigest: 'native-faucet:60000000',
+    spendsDigest: 'native-faucet:1000000',
     revision: 'gc-policy-1',
     issuedAt: 1,
     expiresAt: 61
@@ -329,10 +329,10 @@ it('authorizes an equivalent routed account identity without dropping the challe
     .mockRejectedValueOnce(
       new SpendingLimitAuthorizationRequiredError({
         accountId: 'account-a',
-        usdAmount: 60_000_000n,
+        usdAmount: 1_000_000n,
         revision: 'gc-policy-1',
         assessedAt: 1,
-        breach: { spent: 0n, proposedTotal: 60_000_000n, limit: 50_000_000n, overBy: 10_000_000n, resetAt: null }
+        breach: { spent: 0n, proposedTotal: 1_000_000n, limit: 500_000n, overBy: 500_000n, resetAt: null }
       })
     )
     .mockResolvedValueOnce('routed-transaction');

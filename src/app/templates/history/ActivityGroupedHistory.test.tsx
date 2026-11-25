@@ -1,13 +1,22 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { getUncompletedTransactions, supersededFailedConsumeIds, suppressedLinkedConsumeIds } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
+import { markActivityRead } from 'lib/settings/activity-read';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
+import {
+  ACTIVITY_COUNTERPARTY_BECH32,
+  ACTIVITY_COUNTERPARTY_HEX,
+  ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
+  mockActivityCounterpartyDecode
+} from './activityGroupTestFixtures';
+import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 
@@ -62,6 +71,7 @@ jest.mock('./ActivityGroupList', () => ({
     nameOf: (address: string) => string | undefined;
     hasMore: boolean;
     searchQuery?: string;
+    accountAddress?: string;
   }) => {
     if (mockRealGroupList) {
       const Real = jest.requireActual('./ActivityGroupList').ActivityGroupList;
@@ -76,6 +86,7 @@ const MockGroupList = (props: {
   nameOf: (address: string) => string | undefined;
   hasMore: boolean;
   searchQuery?: string;
+  accountAddress?: string;
 }) => (
   <div
     data-testid="group-list"
@@ -83,6 +94,7 @@ const MockGroupList = (props: {
     data-has-more={String(props.hasMore)}
     data-keys={props.entries.map(e => e.key).join(',')}
     data-search={props.searchQuery ?? ''}
+    data-account-address={props.accountAddress}
     data-alice={props.nameOf('MTST1ALICE') ?? ''}
     data-stranger={props.nameOf('mtst1stranger') ?? ''}
     data-blank={String(props.nameOf('mtst1blank'))}
@@ -95,8 +107,29 @@ const contacts = {
     { address: 'mtst1blank', name: '   ' }
   ] as Array<{ address: string; name: string }>
 };
+const mockUpdateSettings = jest.fn();
+let mockRealContacts = false;
+const mockOwnAccount = { publicKey: 'mtst1own', name: 'My account', isPublic: false };
+const mockOtherOwnAccount = { publicKey: 'mtst1otherown', name: 'Other owned account', isPublic: false };
+
+jest.mock('lib/miden/front/client', () => ({
+  ...jest.requireActual('lib/miden/front/client'),
+  useMidenContext: () => ({ updateSettings: mockUpdateSettings })
+}));
+jest.mock('lib/miden/front/ready', () => ({
+  ...jest.requireActual('lib/miden/front/ready'),
+  useSettings: () => ({ contacts: contacts.value }),
+  useAllAccounts: () => [mockOwnAccount, mockOtherOwnAccount]
+}));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
-  useFilteredContacts: () => ({ allContacts: contacts.value, contacts: contacts.value })
+  useFilteredContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useFilteredContacts()
+      : { allContacts: contacts.value, contacts: contacts.value },
+  useActivityContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useActivityContacts()
+      : contacts.value
 }));
 
 jest.mock('lib/swr', () => ({
@@ -203,16 +236,20 @@ const claim = (id: string, status: PendingActivityItem['status']): PendingActivi
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { count?: number }) =>
-      key === 'activityGroupPartialCount' && options?.count !== undefined ? `${options.count}+` : key
+    t: (key: string, options?: { count?: number }) => {
+      if (key === 'activityGroupPartialCount' && options?.count !== undefined) return `${options.count}+`;
+      if (key === 'activityPendingWaiting' && options?.count !== undefined) return `${options.count} waiting`;
+      return key;
+    }
   })
 }));
+let mockAccountAddress = '0xme';
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockClaims.items,
     accept: mockAccept,
     acceptMany: jest.fn(),
-    account: { publicKey: '0xme' },
+    account: { publicKey: mockAccountAddress },
     isLoadingNotes: mockClaims.isLoadingNotes
   })
 }));
@@ -282,11 +319,14 @@ describe('ActivityGroupedHistory', () => {
     mockView.hasMore = false;
     mockRunFetcher = false;
     mockRealGroupList = false;
+    mockRealContacts = false;
     mockScroller.props = undefined;
     for (const key of Object.keys(mockReads)) delete mockReads[key];
     mockClaims.items = [];
     mockClaims.isLoadingNotes = false;
+    mockAccountAddress = '0xme';
     mockHidden.ids = new Set();
+    mockHidden.loaded = true;
     mockConfirm.mockResolvedValue(true);
   });
 
@@ -305,6 +345,245 @@ describe('ActivityGroupedHistory', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
     await waitFor(() => expect(mockHide).toHaveBeenCalledWith('note-1'));
     expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ title: 'activityRejectTransfer' }));
+  });
+
+  it('forwards the changed wallet account to the mounted Groups list', () => {
+    const props = { onReturnToList: jest.fn(), search: '' };
+    const { rerender } = render(<ActivityGroupedHistory {...props} />);
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-account-address', '0xme');
+
+    mockAccountAddress = '0xother';
+    rerender(<ActivityGroupedHistory {...props} />);
+    expect(screen.getByTestId('group-list')).toHaveAttribute('data-account-address', '0xother');
+  });
+
+  it('shows waiting transfers for their counterparty without counting a hidden or in-flight claim', () => {
+    mockRealGroupList = true;
+    loaded.push(
+      entry({ key: 'alice-history', secondaryAddress: 'mtst1alice' }),
+      entry({ key: 'bob-history', secondaryAddress: 'mtst1bob', type: HistoryEntryType.PendingTransaction })
+    );
+    const fromAlice = (id: string, status: PendingActivityItem['status']): PendingActivityItem => {
+      const item = claim(id, status);
+      return { ...item, note: { ...item.note, senderAddress: 'MTST1ALICE' } };
+    };
+    mockClaims.items = [
+      fromAlice('open', 'pending'),
+      fromAlice('retryable', 'failed'),
+      fromAlice('accepting', 'claiming'),
+      fromAlice('declined', 'pending')
+    ];
+    mockHidden.ids = new Set(['declined']);
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const alice = screen.getByRole('link', { name: /Alice/ });
+    const bob = screen.getByRole('link', { name: /mtst1bob/ });
+    expect(within(bob).getByTestId('activity-group-pending')).toBeInTheDocument();
+    expect(within(bob).queryByText(/waiting/)).toBeNull();
+    expect(within(alice).getByText('2 waiting')).toBeInTheDocument();
+  });
+
+  it('links to a counterparty group when its only activity is a transfer waiting to be accepted', () => {
+    mockRealGroupList = true;
+    mockClaims.items = [claim('first-transfer', 'pending')];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(sender).toHaveAttribute('href', '/activity/group/address/mtst1sender');
+    expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['claim-only', false],
+    ['mixed', true]
+  ])('keeps a %s group unread until its incoming transfer is read', async (kind, includesHistory) => {
+    mockRealGroupList = true;
+    const noteId = `${kind}-unread-note`;
+    mockClaims.items = [claim(noteId, 'pending')];
+    const historyEntry = entry({
+      key: `${kind}-unread-history`,
+      secondaryAddress: 'mtst1sender',
+      timestamp: Math.floor(Date.now() / 1000) + 60
+    });
+    if (includesHistory) loaded.push(historyEntry);
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(screen.getByTestId('pending-activity-unread')).toBeInTheDocument();
+    expect(within(sender).queryAllByTestId('list-row-unread').length).toBeGreaterThanOrEqual(Number(includesHistory));
+    if (includesHistory) act(() => markActivityRead(historyEntryUnreadKey(historyEntry), historyEntry.timestamp));
+    expect(within(sender).getByTestId('list-row-unread')).toBeInTheDocument();
+
+    mockHide.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: 'activityRejectTransfer' }));
+    await waitFor(() => {
+      expect(mockHide).toHaveBeenCalledWith(noteId);
+      expect(screen.queryByTestId('pending-activity-unread')).toBeNull();
+      expect(within(sender).queryByTestId('list-row-unread')).toBeNull();
+    });
+  });
+
+  it('keeps the sender group when search matches its waiting transfer token', () => {
+    mockRealGroupList = true;
+    mockClaims.items = [claim('first-transfer', 'pending')];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="tok" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it('groups equivalent hex and Bech32 counterparties under the saved contact name', () => {
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const savedContacts = contacts.value;
+    try {
+      mockRealGroupList = true;
+      contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];
+      loaded.push(
+        entry({ key: 'hex-transfer', secondaryAddress: ACTIVITY_COUNTERPARTY_HEX }),
+        entry({ key: 'bech32-transfer', secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 })
+      );
+      render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+      expect(screen.getAllByTestId('activity-group-row')).toHaveLength(1);
+      const group = screen.getByRole('link', { name: /Saved counterparty/ });
+      expect(group).toHaveAttribute('data-group-count', '2');
+      expect(group).toHaveAttribute('href', `/activity/group/address/${ACTIVITY_COUNTERPARTY_BECH32}`);
+    } finally {
+      contacts.value = savedContacts;
+      restoreDecoder();
+    }
+  });
+
+  it('opens Groups without writing saved contacts that overlap with own accounts', () => {
+    const savedContacts = contacts.value;
+    try {
+      mockRealContacts = true;
+      mockRealGroupList = true;
+      contacts.value = [{ address: mockOwnAccount.publicKey, name: 'Saved alias' }];
+      loaded.push(
+        entry({ key: 'aliased', secondaryAddress: mockOwnAccount.publicKey }),
+        entry({ key: 'owned', secondaryAddress: mockOtherOwnAccount.publicKey })
+      );
+
+      render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+      expect(screen.getByRole('link', { name: /Other owned account/ })).toBeInTheDocument();
+      expect({
+        savedAlias: Boolean(screen.queryByRole('link', { name: /Saved alias/ })),
+        settingsWrites: mockUpdateSettings.mock.calls.length
+      }).toEqual({ savedAlias: true, settingsWrites: 0 });
+    } finally {
+      contacts.value = savedContacts;
+    }
+  });
+
+  it('counts a transfer that can be declined even when the fee blocks acceptance', () => {
+    mockRealGroupList = true;
+    mockHidden.loaded = false;
+    mockClaims.items = [{ ...claim('no-fee', 'pending'), cannotPayFee: true }];
+
+    const view = render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const sender = () => screen.getByRole('link', { name: /mtst1sender/ });
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    expect(within(sender()).queryByText(/waiting/)).toBeNull();
+
+    mockHidden.loaded = true;
+    view.rerender(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+    expect(within(sender()).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it.each([false, true])(
+    'counts a failed Guardian-held transfer while Decline is available (fee blocked %s)',
+    cannotPayFee => {
+      mockRealGroupList = true;
+      mockHidden.loaded = false;
+      const holdUntil = Math.floor(Date.now() / 1000) + 600;
+      mockClaims.items = [{ ...claim('guardian-held', 'failed'), holdUntil, cannotPayFee }];
+      const props = { onReturnToList: jest.fn(), search: '' };
+      const { rerender } = render(<ActivityGroupedHistory {...props} />);
+
+      const sender = () => screen.getByRole('link', { name: /mtst1sender/ });
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+      expect(within(sender()).queryByText(/waiting/)).toBeNull();
+
+      mockHidden.loaded = true;
+      rerender(<ActivityGroupedHistory {...props} />);
+
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeEnabled();
+      expect(within(sender()).getByText('1 waiting')).toBeInTheDocument();
+    }
+  );
+
+  it('keeps cached and Guardian-held in-flight claims out of the waiting count after hidden notes load', () => {
+    mockRealGroupList = true;
+    const held = claim('guardian-held-retry', 'claiming');
+    const cached = claim('cached-transfer', 'pending');
+    mockClaims.items = [
+      { ...held, held: true, holdUntil: Math.floor(Date.now() / 1000) + 600 },
+      { ...cached, note: { ...cached.note, fromCache: true, senderAddress: 'mtst1cached' } }
+    ];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toBeDisabled();
+    for (const sender of ['mtst1sender', 'mtst1cached']) {
+      expect(within(screen.getByRole('link', { name: new RegExp(sender) })).queryByText(/waiting/)).toBeNull();
+    }
+  });
+
+  it('counts a held retry without a hold and omits cached, held-until, and other in-flight claims', () => {
+    mockRealGroupList = true;
+    mockHidden.loaded = false;
+    const sentBy = (id: string, status: PendingActivityItem['status'], senderAddress: string): PendingActivityItem => {
+      const item = claim(id, status);
+      return { ...item, note: { ...item.note, senderAddress } };
+    };
+    const cached = sentBy('cached', 'pending', 'mtst1cache');
+    cached.note = { ...cached.note, fromCache: true };
+    const until = sentBy('until', 'pending', 'mtst1hold');
+    until.holdUntil = 1_700_000_000;
+    mockClaims.items = [
+      { ...sentBy('held-retry', 'claiming', 'mtst1held'), held: true },
+      cached,
+      until,
+      sentBy('inflight', 'claiming', 'mtst1busy')
+    ];
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const claims = screen.getByTestId('activity-group-claims');
+    const heldCard = claims.querySelector('[data-pending-note-id="held-retry"]');
+    if (!(heldCard instanceof HTMLElement)) throw new Error('Missing held claim card');
+    expect(within(heldCard).queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    expect(within(screen.getByRole('link', { name: /mtst1held/ })).getByText('1 waiting')).toBeInTheDocument();
+    for (const sender of ['mtst1cache', 'mtst1hold', 'mtst1busy']) {
+      expect(within(screen.getByRole('link', { name: new RegExp(sender) })).queryByText(/waiting/)).toBeNull();
+    }
+  });
+
+  it('groups a tagged hex reference with the equivalent bare account ID', () => {
+    mockRealGroupList = true;
+    loaded.push(
+      entry({ key: 'tagged', secondaryAddress: `${ACTIVITY_COUNTERPARTY_HEX}_qr7qqq9wr6w` }),
+      entry({ key: 'bare', secondaryAddress: ACTIVITY_COUNTERPARTY_HEX })
+    );
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    expect(screen.getAllByTestId('activity-group-row')).toHaveLength(1);
   });
 
   it('offers Restore above the claim cards while a declined transfer can still be accepted', () => {

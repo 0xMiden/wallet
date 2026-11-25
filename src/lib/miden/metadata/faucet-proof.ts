@@ -1,5 +1,7 @@
 import type { AccountProof } from '@miden-sdk/miden-sdk/lazy';
 
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
+
 import type { AssetMetadata } from './types';
 
 const SLOT_PREFIX = 'miden::standards::faucets::';
@@ -10,7 +12,14 @@ const MAX_SYMBOL = 2481152873203736562n;
 function readWord(proof: AccountProof, slot: string): readonly [bigint, bigint, bigint, bigint] {
   const word = proof.getStorageSlotValue(`${SLOT_PREFIX}${slot}`);
   if (!word) throw new Error(`Missing faucet metadata slot: ${slot}`);
-  const limbs = word.toU64s();
+  let limbs: BigUint64Array;
+  try {
+    limbs = word.toU64s();
+  } catch (err) {
+    if (!isWasmTrap(err)) word.free?.();
+    throw err;
+  }
+  word.free?.();
   return [limbs[0]!, limbs[1]!, limbs[2]!, limbs[3]!];
 }
 

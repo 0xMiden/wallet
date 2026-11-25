@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -27,7 +28,8 @@ import {
   ITransactionStage,
   ITransactionStatus,
   SubmitEvidenceFields,
-  TransactionOutput
+  TransactionOutput,
+  isLiveTransaction
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { recordedSwapOrder } from '../sdk/apply-after-submit';
@@ -310,6 +312,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
     }
   }
+  if (!isLiveTransaction({ status }) && !tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**
@@ -875,6 +878,10 @@ export const applyVerifiedLanding = (
  */
 export const reportVerifiedLanding = (tx: ITransaction): void => {
   reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
+  // Every caller reports after its landing write committed, so this is the one place a row of this
+  // device that reached Completed on node evidence reaches the encrypted backup, as one that reached it
+  // through `updateTransactionStatus` does.
+  if (!tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { ClaimableNoteWithMetadata, ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
@@ -38,6 +39,20 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
   // down once the claim settles, so it appears in the feed as the ordinary transaction it now is.
   if (item.status === 'claimed') return false;
   return !hiddenIds.has(item.note.id) || item.status === 'claiming';
+}
+
+/** Whether a claim card answers a search; `query` is already lowercased. */
+export function activityClaimMatchesSearch(
+  item: PendingActivityItem,
+  query: string,
+  bridgeConfig: BridgeConfigSnapshot
+): boolean {
+  return [
+    item.note.metadata.symbol,
+    midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
+    item.note.metadata.name,
+    item.note.senderAddress
+  ].some(value => value?.toLowerCase().includes(query));
 }
 
 /**
@@ -77,16 +92,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter, sha
   // The cards drawn.
   const listItems = useMemo(
     () =>
-      query
-        ? representedItems.filter(item =>
-            [
-              item.note.metadata.symbol,
-              midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
-              item.note.metadata.name,
-              item.note.senderAddress
-            ].some(value => value?.toLowerCase().includes(query))
-          )
-        : representedItems,
+      query ? representedItems.filter(item => activityClaimMatchesSearch(item, query, bridgeConfig)) : representedItems,
     [representedItems, query, bridgeConfig]
   );
 

@@ -839,7 +839,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature
       };
     case WalletMessageType.SignWordRequest:
-      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId, req.rotationProposal);
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
@@ -898,6 +898,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.retireRotatedOutHotKey(req.accountPublicKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.RetireRotatedOutHotKeyResponse
+      };
+    case WalletMessageType.BackupRefreshRequest:
+      return {
+        type: WalletMessageType.BackupRefreshResponse,
+        outcome: await Actions.refreshBackup(req.reason)
+      };
+    case WalletMessageType.BackupDeleteProfileRequest:
+      return {
+        type: WalletMessageType.BackupDeleteProfileResponse,
+        outcome: await Actions.deleteBackup()
       };
     case WalletMessageType.CheckGuardianDriftRequest:
       const driftStatus = await Actions.checkGuardianDrift(req.accountPublicKey);

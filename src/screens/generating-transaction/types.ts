@@ -88,4 +88,6 @@ export interface TransactionStepRowProps {
   /** Right-aligned muted text, e.g. the step's duration ("2 sec"). */
   meta?: string;
   accent?: FlowAccent;
+  /** A sub-step of the step above it: drawn indented and in a smaller face. */
+  nested?: boolean;
 }

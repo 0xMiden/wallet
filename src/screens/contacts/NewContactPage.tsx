@@ -27,7 +27,7 @@ import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { useContactBridgeNetworks } from './contact-network';
+import { isContactAddressChain, useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
 
@@ -63,8 +63,10 @@ export const NewContactPage: React.FC = () => {
 
   const trimmedAddress = address.trim();
   const trimmedName = name.trim();
-  const isValid = isValidRecipientAddress(trimmedAddress);
-  const isEvm = detectAddressChain(trimmedAddress) === 'ethereum';
+  const addressChain = detectAddressChain(trimmedAddress);
+  // A Solana, Bitcoin or NEAR address is a send recipient, but not a contact.
+  const isValid = isValidRecipientAddress(trimmedAddress) && isContactAddressChain(addressChain);
+  const isEvm = addressChain === 'ethereum';
   const existing = isValid
     ? allContacts.find(c => c.address.trim().toLowerCase() === trimmedAddress.toLowerCase())
     : undefined;

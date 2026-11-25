@@ -1,4 +1,77 @@
 {
+  "refresh": {
+    "message": "Refresh",
+    "englishSource": "Refresh"
+  },
+  "deviceRevokedBody": {
+    "message": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Authenticate to revoke this device.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "Revoked signer commitment",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Devices",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "This device",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Revoke device",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Devices registered to sign for this account. The recovery key is not shown.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "The recovery phrase stored on this device will approve revocation.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "Enter the recovery phrase to approve revocation. It will not be saved on this device.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Cannot read the device list. Try again after the wallet syncs.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Device $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Device revoked",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "This device was revoked",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "Revocation transaction",
+    "englishSource": "Revocation transaction"
+  },
   "passkeyUnlock": {
     "message": "Passkey unlock",
     "englishSource": "Passkey unlock"
@@ -119,6 +192,159 @@
   "bridgeRouteAgglayer": {
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ sec",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ mins",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "You receive $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents does not offer this token on this network.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "This amount is too small for NEAR Intents. Enter a larger amount.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents cannot deliver to this address. Check the address and the network.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "The quote expired before the payment started. Review the new quote, then confirm again.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "If the swap fails, NEAR Intents refunds the amount to this Miden account.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Deposit address generated",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Sending to deposit address",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Start a new send",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Generating deposit address",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents delivered the payment on $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Recipient gets (estimate)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Delivery status",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Sending to NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Delivered to the recipient",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Expired",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Payment refunded",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents could not complete the swap and refunded the amount to your Miden account.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Delivery failed",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents could not deliver this payment. Open Activity for the details.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Delivery expired",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents did not process this payment in time. Open Activity for the details.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Recipient got",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "View on the $network$ explorer",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen.",
@@ -295,6 +521,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Device key rotated",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Device added",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Account secured",
@@ -2336,8 +2566,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Enter Miden or Ethereum Address",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Enter the address",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "This wallet cannot send to this address",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Select Amount",
@@ -4078,6 +4324,14 @@
     "message": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Adding this device",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "This device is getting its own everyday key so it can sync and make transactions.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Everyday key rotation failed",
     "englishSource": "Everyday key rotation failed"
@@ -4125,6 +4379,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Remove wallet from this device",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "How should this device join your wallet?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "This device gets its own everyday key. A small network fee is paid from the account.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "You already have $count$ devices with this wallet",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "You already have 1 device with this wallet",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Add this device",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Make this device the main one",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Every other device is removed from this wallet",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Keep the recovery phrase on this device?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Remove recovery phrase",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Keep it on this device",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Everyday key rotation not confirmed",
@@ -9325,8 +9628,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "Buy any amount of GC with USDCx, plus network fees.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "Buy 1,000 GC for 1 USDCx, plus network fees.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC to buy",
@@ -9371,8 +9674,8 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
-    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "message": "This purchase fills a public GC sale note on chain.",
+    "englishSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "You pay",

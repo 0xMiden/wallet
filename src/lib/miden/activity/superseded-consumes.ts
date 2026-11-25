@@ -6,23 +6,25 @@ import { isFailedClaim } from '../transaction/verdict-rules';
 
 const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx.noteId] : []);
 
-export type ClaimEvidenceLookup = (accountId: string, noteId: string) => Promise<boolean>;
+export type ClaimEvidenceLookup = (accountId: string, noteId: string, includeRestored?: boolean) => Promise<boolean>;
 
 export function createClaimEvidenceLookup(): ClaimEvidenceLookup {
   const accounts = new Map<string | null, Map<string, Promise<boolean>>>();
-  return (accountId, noteId) => {
+  const restoredAccounts = new Map<string | null, Map<string, Promise<boolean>>>();
+  return (accountId, noteId, includeRestored) => {
+    const cache = includeRestored ? restoredAccounts : accounts;
     const accountKey = accountId ? (accountId.split('_')[0] ?? accountId) : null;
-    let notes = accounts.get(accountKey);
+    let notes = cache.get(accountKey);
     if (!notes) {
       notes = new Map();
-      accounts.set(accountKey, notes);
+      cache.set(accountKey, notes);
     }
     let claimed = notes.get(noteId);
     if (!claimed) {
       const isClaim = (tx: ITransaction) =>
         tx.type === 'consume' &&
         tx.status === ITransactionStatus.Completed &&
-        !tx.restoredFromBackup &&
+        (includeRestored || !tx.restoredFromBackup) &&
         compareAccountIds(tx.accountId, accountId) &&
         noteIdsOf(tx).includes(noteId);
       claimed = (async () => {
@@ -40,8 +42,7 @@ export function createClaimEvidenceLookup(): ClaimEvidenceLookup {
  * The failed claims (`isFailedClaim`) in `transactions` whose every note this account has claimed (#771). Failed
  * rows are never deleted, because the auto-consume backoff counts them, so without this a note the wallet now holds
  * shows one "Transaction failed" per earlier attempt. The evidence is read from the database rather than the batch,
- * since the successful claim can sit on another page, and it follows the claim dedup's rule: a Completed consume row
- * of the same account that was not restored from a backup.
+ * since the successful claim can sit on another page. A recovered failure can use a recovered success as evidence.
  */
 export async function supersededFailedConsumeIds(
   transactions: ITransaction[],
@@ -57,7 +58,7 @@ export async function supersededFailedConsumeIds(
     if (noteIds.length === 0) continue;
     let claimed = true;
     for (const noteId of noteIds) {
-      if (!(await lookup(tx.accountId, noteId))) {
+      if (!(await lookup(tx.accountId, noteId, tx.restoredFromBackup))) {
         claimed = false;
         break;
       }

@@ -4,6 +4,7 @@ import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import * as Repo from 'lib/miden/repo';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
+import { normalizeNearIntentsAddress } from 'lib/one-click/address';
 import { WalletContact } from 'lib/shared/types';
 import { detectAddressChain } from 'utils/miden';
 
@@ -15,9 +16,20 @@ import { recipientOf } from './useRecentRecipients';
  * `canonicalWalletAccountId` would fall back to its raw, case-sensitive text.
  */
 export function recipientKey(address: string): string {
-  return detectAddressChain(address) === 'ethereum'
-    ? address.trim().toLowerCase()
-    : canonicalWalletAccountId(address.trim());
+  const trimmed = address.trim();
+  const chain = detectAddressChain(trimmed);
+  switch (chain) {
+    case 'ethereum':
+      return trimmed.toLowerCase();
+    case 'bitcoin':
+      return normalizeNearIntentsAddress('bitcoin', trimmed);
+    case 'solana':
+    case 'near':
+      // Leave NEAR/Solana trimmed verbatim so canonicalWalletAccountId's `_` suffix stripping never truncates named accounts.
+      return trimmed;
+    case 'miden':
+      return canonicalWalletAccountId(trimmed);
+  }
 }
 
 /**

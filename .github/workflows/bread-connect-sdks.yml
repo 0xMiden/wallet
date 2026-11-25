@@ -88,6 +88,9 @@ jobs:
 
   swift:
     name: Swift SDK
+    # macOS minutes are the costly ones, so this runs on workflow_dispatch (Release E2E's
+    # nightly on main), not on pull_request. The other jobs still run on a pull request.
+    if: github.event_name != 'pull_request'
     # Matches the iOS build in build-mobile.yml, which needs the iOS 26 SDK.
     runs-on: macos-26
     timeout-minutes: 30
