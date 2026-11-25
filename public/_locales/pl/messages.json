@@ -7442,8 +7442,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Informacje o tym, które ekrany otwierasz i jak długo każdy z nich jest widoczny, gdzie napotykasz trudności, ogólne kategorie błędów, wersja aplikacji oraz platforma, z której korzystasz – dzięki temu możemy naprawić to, co nie działa. Nigdy nie gromadzimy Twoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Brak śledzenia w innych aplikacjach lub witrynach, żadne dane nie są wykorzystywane do celów reklamowych, a także nie są sprzedawane ani udostępniane brokerom danych. Raporty o awariach są wysyłane w każdym przypadku: zawierają opis błędu i miejsce jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatora użytkownika ani urządzenia. Użytkownik może to zmienić w dowolnym momencie.",
-    "englishSource": "Shares which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Informacje o tym, które ekrany otwierasz i jak długo każdy z nich jest widoczny, w jaki sposób się tam dostałeś, z jakiego okna korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersja aplikacji oraz platforma, z której korzystasz – wszystko po to, abyśmy mogli naprawić to, co nie działa. Nigdy nie gromadzimy Twoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy danych do celów reklamowych ani nie sprzedajemy ani nie udostępniamy ich brokerom danych. Raporty o awariach są wysyłane w każdym przypadku: zawierają opis błędu i miejsce jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatorów użytkownika ani urządzenia. Ustawienia te można zmienić w dowolnym momencie.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Udostępnij dane dotyczące użytkowania",
@@ -7462,8 +7462,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Które ekrany otwierasz i jak długo każdy z nich jest widoczny, gdzie utkniesz, ogólne kategorie błędów, wersja aplikacji oraz platforma, z której korzystasz.",
-    "englishSource": "Which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Które ekrany otwierasz i jak długo każdy z nich jest widoczny, w jaki sposób się tam dostałeś, z jakiego okna korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersja aplikacji oraz platforma, z której korzystasz.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
