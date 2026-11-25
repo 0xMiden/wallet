@@ -413,7 +413,9 @@ const publishedCheckoutInstall = (file: string, step: Step): boolean =>
   file === 'e2e-upgrade.yml' && ['previous', 'candidate'].includes(keyOf(step, 'working-directory') ?? '');
 
 const linkedRuntimeExemptJobs = new Set([
+  'deploy-evm-relay.yml deploy',
   'deploy-wallet-api.yml deploy',
+  'evm-relay.yml check',
   'wallet-api.yml check'
 ]);
 
@@ -453,7 +455,12 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
   });
 
   it('keeps Worker service installs outside the linked wallet runtime injection rule', () => {
-    for (const name of ['deploy-wallet-api.yml deploy', 'wallet-api.yml check']) {
+    for (const name of [
+      'deploy-evm-relay.yml deploy',
+      'deploy-wallet-api.yml deploy',
+      'evm-relay.yml check',
+      'wallet-api.yml check'
+    ]) {
       const [file, id] = name.split(' ');
       expect(jobOf(file!, id!).steps.some(installs)).toBe(true);
       expect(guardedNames).not.toContain(name);
