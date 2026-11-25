@@ -237,3 +237,76 @@ test('formatTopologyProviderReads returns the frozen budget stats shape', () => 
   assert.equal(noCleanup.cleanupDeadlineAt, null);
   assert.equal(noCleanup.cleanupElapsedMs, null);
 });
+
+test('formatTopologyProviderReads and createTopologyApiBudget never report negative elapsed time under backward clock skew', async () => {
+  assert.deepEqual(
+    topology.formatTopologyProviderReads({
+      preflight: 2,
+      cleanup: 1,
+      preflightStartedAt: 1_000,
+      cleanupStartedAt: 1_000,
+      now: 500
+    }),
+    {
+      preflight: 2,
+      cleanup: 1,
+      total: 3,
+      elapsedMs: 0,
+      preflightStartedAt: 1_000,
+      preflightDeadlineAt: 121_000,
+      cleanupStartedAt: 1_000,
+      cleanupDeadlineAt: 121_000,
+      preflightElapsedMs: 0,
+      cleanupElapsedMs: 0
+    }
+  );
+
+  const skewedBudget = topology.createTopologyApiBudget(async () => ({ ok: true }), {
+    startedAt: 1_000,
+    now: () => 500
+  });
+  await skewedBudget.cleanup('/account');
+  const skewedStats = skewedBudget.stats();
+  assert.equal(skewedStats.cleanupStartedAt, 1_000);
+  assert.equal(skewedStats.elapsedMs, 0);
+  assert.equal(skewedStats.preflightElapsedMs, 0);
+  assert.equal(skewedStats.cleanupElapsedMs, 0);
+
+  let tick = 1_500;
+  const monotonicBudget = topology.createTopologyApiBudget(async () => ({ ok: true }), {
+    startedAt: 1_000,
+    now: () => tick
+  });
+  await monotonicBudget.preflight('/account');
+  tick = 900;
+  assert.equal(monotonicBudget.stats().elapsedMs, 500);
+  await monotonicBudget.cleanup('/account');
+  const monotonicStats = monotonicBudget.stats();
+  assert.equal(monotonicStats.cleanupStartedAt, 1_500);
+  assert.equal(monotonicStats.elapsedMs, 500);
+  assert.equal(monotonicStats.cleanupElapsedMs, 0);
+  tick = 121_500;
+  await assert.rejects(monotonicBudget.cleanup('/account'), /provider read deadline exhausted/);
+
+  const ticks = [120_900, 121_001, 100_000];
+  let idx = 0;
+  const rollbackBudget = topology.createTopologyApiBudget(async () => ({ ok: true }), {
+    startedAt: 1_000,
+    now: () => ticks[Math.min(idx++, ticks.length - 1)],
+    onRequest: async () => {}
+  });
+  await assert.rejects(rollbackBudget.preflight('/account'), /provider read deadline exhausted/);
+  assert.equal(rollbackBudget.stats().preflight, 0);
+
+  let anchoredTick = 2_000;
+  const anchoredBudget = topology.createTopologyApiBudget(async () => ({ ok: true }), {
+    startedAt: 1_000,
+    cleanupStartedAt: 5_000,
+    now: () => anchoredTick
+  });
+  await anchoredBudget.cleanup('/account');
+  assert.equal(anchoredBudget.stats().cleanupElapsedMs, 0);
+  assert.equal(anchoredBudget.stats().elapsedMs, 4_000);
+  anchoredTick = 125_000;
+  await assert.rejects(anchoredBudget.cleanup('/account'), /provider read deadline exhausted/);
+});

@@ -67,7 +67,8 @@ export function topologyScriptSettingsMismatch(script) {
   return null;
 }
 
-export function formatTopologyProviderReads({ preflight, cleanup, now, preflightStartedAt, cleanupStartedAt }) {
+export function formatTopologyProviderReads({ preflight, cleanup, now: rawNow, preflightStartedAt, cleanupStartedAt }) {
+  const now = Math.max(rawNow, preflightStartedAt, cleanupStartedAt ?? preflightStartedAt);
   return Object.freeze({
     preflight,
     cleanup,
@@ -116,22 +117,30 @@ export function createTopologyApiBudget(
   )
     throw new TypeError('invalid provider budget state');
   const calls = { preflight: preflight.value, cleanup: cleanup.value };
+  let lastNow = starts.preflight;
+  const readNow = floor => {
+    const value = now();
+    if (!Number.isFinite(value)) return value;
+    if (value > lastNow) lastNow = value;
+    return Math.max(lastNow, floor);
+  };
   const stats = () =>
     formatTopologyProviderReads({
       ...calls,
-      now: now(),
+      now: readNow(Math.max(starts.preflight, starts.cleanup ?? starts.preflight)),
       preflightStartedAt: starts.preflight,
       cleanupStartedAt: starts.cleanup
     });
   const request = phase => async path => {
     if (calls[phase] >= MAX_PHASE_READS || calls.preflight + calls.cleanup >= MAX_PROVIDER_READS)
       throw new Error('provider read budget exhausted');
-    if (starts[phase] === undefined) starts[phase] = now();
-    let remaining = starts[phase] + PROVIDER_DEADLINE_MS - now();
+    const floor = () => Math.max(starts.preflight, starts[phase] ?? starts.preflight);
+    if (starts[phase] === undefined) starts[phase] = readNow(floor());
+    let remaining = starts[phase] + PROVIDER_DEADLINE_MS - readNow(floor());
     if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('provider read deadline exhausted');
     calls[phase]++;
     if (onRequest) await onRequest(stats());
-    remaining = starts[phase] + PROVIDER_DEADLINE_MS - now();
+    remaining = starts[phase] + PROVIDER_DEADLINE_MS - readNow(floor());
     if (!Number.isFinite(remaining) || remaining <= 0) {
       calls[phase]--;
       if (onRequest) await onRequest(stats());

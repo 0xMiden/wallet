@@ -251,6 +251,15 @@ function validProviderReads(value, preflightStartedAt) {
   );
 }
 
+export function createMonotonicClock(floor, source = Date.now) {
+  let last = floor;
+  return () => {
+    const value = source();
+    if (Number.isFinite(value) && value > last) last = value;
+    return last;
+  };
+}
+
 export function topologyCleanupBudget({
   state,
   previousReads,
@@ -426,11 +435,9 @@ async function buildRecoveryFailureFallback(env) {
   } else {
     const hasCleanupWindow =
       Number.isSafeInteger(state?.cleanupStartedAt) && state.cleanupStartedAt >= loaded.value.startedAt;
-    const nowMs = Math.max(
-      Date.now(),
-      loaded.value.startedAt,
-      hasCleanupWindow ? state.cleanupStartedAt : loaded.value.startedAt
-    );
+    const nowMs = createMonotonicClock(
+      Math.max(loaded.value.startedAt, hasCleanupWindow ? state.cleanupStartedAt : loaded.value.startedAt)
+    )();
     providerReads = formatTopologyProviderReads({
       preflight: MAX_PHASE_READS,
       cleanup: state?.cleanupCalls ?? 0,
@@ -529,7 +536,7 @@ async function prepare(env) {
   const startedAt = Date.now();
   const expiresAt = startedAt + RUN_WINDOW_MS;
   const api = createTopologyReadApi({ accountId, token });
-  const budget = createTopologyApiBudget(api, { now: Date.now, startedAt });
+  const budget = createTopologyApiBudget(api, { now: createMonotonicClock(startedAt), startedAt });
   const prepared = await prepareTopologyInventory({
     api: budget.preflight,
     accountId,
@@ -594,7 +601,7 @@ export async function execute(env, { createReadApi = createTopologyReadApi, runC
   let syncResult = async () => {};
   const api = createReadApi({ accountId, token });
   const budget = createTopologyApiBudget(api, {
-    now: Date.now,
+    now: createMonotonicClock(value.startedAt),
     startedAt: value.startedAt,
     initialCalls: { preflight: value.preflightCalls, cleanup: 0 },
     onRequest: async stats => {
@@ -738,7 +745,7 @@ export async function cleanup(
     preflightStartedAt: loaded.value.startedAt,
     allowPreparedFallback: recovered && recovery.resultArtifactId === null,
     recovered,
-    now: Date.now
+    now: createMonotonicClock(loaded.value.startedAt)
   });
   const api = createReadApi({
     accountId: credentials.accountId,
@@ -748,7 +755,7 @@ export async function cleanup(
     buildRecoveryResult({ previous, identity, loaded, state, recovered, stats, extra });
   let writeCleanupResult = async () => {};
   const budget = createTopologyApiBudget(api, {
-    now: Date.now,
+    now: createMonotonicClock(Math.max(loaded.value.startedAt, cleanupStartedAt)),
     startedAt: loaded.value.startedAt,
     cleanupStartedAt,
     initialCalls,

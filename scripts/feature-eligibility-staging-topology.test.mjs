@@ -1169,6 +1169,94 @@ test('cleanup-recovered starts a fresh 120s deadline >120s after predecessor cle
   }
 });
 
+test('createMonotonicClock and topology phases clamp backward cross-runner clock skew', async t => {
+  assert.equal(typeof topologyRunner.createMonotonicClock, 'function');
+  let tick = 500;
+  const clock = topologyRunner.createMonotonicClock(1_000, () => tick);
+  assert.equal(clock(), 1_000);
+  tick = 1_500;
+  assert.equal(clock(), 1_500);
+  tick = 900;
+  assert.equal(clock(), 1_500);
+
+  const prepared = await preparedTestRun();
+  try {
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    const basePath = `/workers/scripts/${prepared.manifest.scriptName}`;
+    t.mock.method(Date, 'now', () => prepared.startedAt - 60_000);
+
+    await topologyRunner.execute(prepared.env, {
+      createReadApi: () => async requestPath => {
+        if (requestPath === `${basePath}/settings`) {
+          return { status: 404, body: { success: false, errors: [{ code: 10007 }] } };
+        }
+        return null;
+      },
+      runCommand: async () => ({ code: 1 })
+    });
+    const execResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.ok(execResult.providerReads.elapsedMs >= 0);
+    assert.ok(execResult.providerReads.preflightElapsedMs >= 0);
+
+    const sameCleanupExit = await topologyRunner.cleanup(
+      prepared.env,
+      false,
+      deletableWorkerFixture(prepared.manifest).options
+    );
+    assert.equal(sameCleanupExit, 0);
+    const sameCleanupResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.ok(sameCleanupResult.providerReads.elapsedMs >= 0);
+    assert.ok(sameCleanupResult.providerReads.cleanupElapsedMs >= 0);
+
+    const { recoveryFile, priorPath } = await writeRecoveryFixture({
+      runnerTemp: prepared.runnerTemp,
+      recovery: {
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      },
+      prior: execResult
+    });
+    const recFixture = deletableWorkerFixture(prepared.manifest);
+    const recExit = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt
+      },
+      true,
+      recFixture.options
+    );
+    assert.equal(recExit, 0);
+    const recResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.ok(recResult.providerReads.elapsedMs >= 0);
+    assert.ok(recResult.providerReads.cleanupElapsedMs >= 0);
+
+    await writeFile(priorPath, `${JSON.stringify(recResult)}\n`, { mode: 0o600 });
+    const chainedExit = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt
+      },
+      true,
+      deletableWorkerFixture(prepared.manifest).options
+    );
+    assert.equal(chainedExit, 0);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
 test('cli failure handler preserves existing valid result.json instead of clobbering lineage', async () => {
   const prepared = await preparedTestRun();
   try {
