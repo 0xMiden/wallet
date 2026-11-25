@@ -54,10 +54,7 @@ import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
 import {
   BRIDGE_NETWORKS,
-  getBridgeNetwork,
   BridgeNetworkId,
-  defaultBridgeNetwork,
-  defaultUsdcxBridgeNetwork,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
@@ -172,7 +169,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // step (mobile scans through its native plugin instead — see onScan below).
   const [showScanDrawer, setShowScanDrawer] = useState(false);
   // Retain a choice made before the address determines whether the send is Miden or EVM.
-  const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
   // so the step CTAs can sit at the actual bottom of the screen. SendManager
@@ -387,11 +383,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const isBridge = !!recipientAddress && chain === 'ethereum';
   const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
   const isMidenRecipient = !isBridge && isValidRecipient;
-  const displayedNetwork: SendNetworkId | undefined = isMidenRecipient
-    ? 'miden'
-    : (bridgeNetwork ?? (recipientNetwork === 'miden' ? undefined : recipientNetwork));
   const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
-  const destinationChainId = offeredNetworks.find(network => network.id === displayedNetwork)?.chainId;
+  const selectedDestination = offeredNetworks.find(network => network.id === bridgeNetwork);
+  const displayedNetwork: SendNetworkId | undefined = isMidenRecipient ? 'miden' : selectedDestination?.id;
+  const destinationChainId = isMidenRecipient ? undefined : selectedDestination?.chainId;
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
@@ -418,8 +413,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   useEffect(() => {
     if (!isMidenRecipient) return;
     if (bridgeNetwork) setValue('bridgeNetwork', undefined);
-    if (recipientNetwork !== 'miden') setRecipientNetwork('miden');
-  }, [isMidenRecipient, bridgeNetwork, recipientNetwork, setValue]);
+  }, [isMidenRecipient, bridgeNetwork, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -487,12 +481,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
   );
 
   const epochQuote = useEpochQuote({
-    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
+    destinationChainId,
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge && !usdcxAvailable
+    enabled: isBridge && isValidRecipient && destinationChainId !== undefined && !usdcxAvailable
   });
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
@@ -884,11 +878,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
           !!payoutFeeShortfall ||
           !validations.amount.isValidSync(amount) ||
           !token.scaleIsKnown ||
-          typedAmountExceedsBalance(amount, spendableBalance, token.decimals) ||
-          (isBridge && destinationChainId === undefined))) ||
+          typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) ||
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
       !canSendTokenToChain(bridgeConfig, token.id, destinationChainId) ||
-      (isBridge && routeEligibility.blocked)
+      (isBridge && (destinationChainId === undefined || routeEligibility.blocked))
     )
       return;
     if (isBridge && destinationChainId !== undefined) {
@@ -1094,8 +1087,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
           ? { recipientAddress: contact.id, bridgeNetwork: contact.network }
           : { recipientAddress: contact.id }
       });
-      // A `0x` contact carries its destination network, so the network chips come up chosen.
-      if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
       saveCommandDraft({ recipientAddress: contact.id, bridgeNetwork: contact.network, bridgeRoute: 'epoch' });
@@ -1113,7 +1104,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
         ? { recipientAddress: preselectedRecipient, bridgeNetwork: network }
         : { recipientAddress: preselectedRecipient }
     });
-    if (network) setRecipientNetwork(network);
     applyRecipientValidation(preselectedRecipient);
     saveCommandDraft({ recipientAddress: preselectedRecipient, bridgeNetwork: network });
     // Once per contact opened, not on every change of the callbacks.
@@ -1123,22 +1113,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A 0x recipient's destination network, picked from the chips on the recipient step.
   const onSelectNetwork = useCallback(
     (network: BridgeNetworkId) => {
-      setRecipientNetwork(network);
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
       saveCommandDraft({ bridgeNetwork: network });
     },
     [onAction, saveCommandDraft]
   );
-
-  // Keep an offered destination the user chose. Select the effective network's default when there is none, or when a
-  // contact, link or draft carries one this network does not offer (Ethereum on mainnet, Arc Testnet or Sepolia on
-  // the test networks), else the first destination the document offers.
-  useEffect(() => {
-    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
-    const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
-    if (next) onSelectNetwork(next.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(

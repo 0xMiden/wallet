@@ -743,6 +743,7 @@ describe('Command Send uses the real SendManager form', () => {
     mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
     const view = render(bridgeCommand());
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     fireEvent.click(screen.getByTestId('td-select'));
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
     return view;
@@ -915,6 +916,7 @@ describe('Command Send uses the real SendManager form', () => {
     );
     const view = render(command(false));
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     fireEvent.click(screen.getByTestId('td-select'));
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
@@ -1373,7 +1375,7 @@ describe('recipient address entry', () => {
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
   });
 
-  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+  it('requires an explicit network even for the only offered destination', () => {
     mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
     try {
       mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
@@ -1382,13 +1384,15 @@ describe('recipient address entry', () => {
         fireEvent.click(screen.getByTestId('ad-select'));
       });
 
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('sr-network-sepolia'));
       expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
     } finally {
       mockBridgeNetworks = [];
     }
   });
 
-  it('selects the first offered network once when Sepolia is not offered', () => {
+  it('requires an explicit network when more than one destination is offered', () => {
     mockOfferedNetworks = [
       { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
       { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
@@ -1401,7 +1405,9 @@ describe('recipient address entry', () => {
         fireEvent.click(screen.getByTestId('ad-select'));
       });
 
-      expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('arc-testnet');
     } finally {
       mockOfferedNetworks = undefined;
       mockBridgeNetworks = [];
@@ -2716,8 +2722,8 @@ const pickToken = (token: Pick<UIToken, 'id' | 'name' | 'decimals' | 'balance' |
   });
 };
 
-const pickEvmRecipient = () => {
-  mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
+const pickEvmRecipient = (network?: string) => {
+  mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network };
   act(() => {
     fireEvent.click(screen.getByTestId('ad-select'));
   });
@@ -2751,7 +2757,7 @@ describe('USDCx withdrawal wiring', () => {
   it('keeps Arc selected and clears another token picked after USDCx', () => {
     const { rerender } = renderFlow();
     pickToken(usdcxToken);
-    pickEvmRecipient();
+    pickEvmRecipient('arc-testnet');
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
 
     pickToken(otherToken);
@@ -2772,7 +2778,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
   });
 
-  it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
+  it('offers Sepolia and clears a saved destination that is no longer eligible', () => {
     mockUsdcxWithdrawalNetwork = false;
     const { rerender } = renderFlow();
     pickToken(otherToken);
@@ -2782,6 +2788,8 @@ describe('USDCx withdrawal wiring', () => {
     });
 
     expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
     expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('false');
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
@@ -2789,7 +2797,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
   });
 
-  it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
+  it('clears a selected destination when the effective network stops offering it', () => {
     const { rerender } = renderFlow();
     pickEvmRecipient();
     fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
@@ -2797,7 +2805,8 @@ describe('USDCx withdrawal wiring', () => {
 
     mockUsdcxWithdrawalNetwork = false;
     rerender(<SendFlow isLoading={false} />);
-    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
   });
 
   it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
@@ -3233,7 +3242,7 @@ it('keeps the asset and its amount when only the bridge config changes', () => {
 it('returns to Epoch once a failed Epoch read recovers', () => {
   mockCardStack = [{ name: SendFlowStep.Route }];
   const { rerender } = renderFlow();
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
   expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
   try {
@@ -3254,7 +3263,7 @@ it('returns to Epoch once a failed Epoch read recovers', () => {
 
 it('keeps a confirmed AggLayer route after the Epoch read recovers', () => {
   const { rerender } = renderFlow();
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
   mockCardStack = [{ name: SendFlowStep.SelectAmount }];
   rerender(<SendFlow isLoading={false} />);
@@ -3280,7 +3289,7 @@ it('keeps the asset and its amount when the destination drops out of the offered
   mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   try {
     const { rerender } = renderFlow();
-    pickEvmRecipient();
+    pickEvmRecipient('sepolia');
     const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
     pickToken(token);
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
@@ -3308,7 +3317,7 @@ it('clears an unsupported asset and its amount after the destination changes', (
   rerender(<SendFlow isLoading={false} />);
   fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
   mockUnsupportedSendTokens.add(unsupported.id);
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
 });
