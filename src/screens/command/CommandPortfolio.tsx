@@ -37,8 +37,14 @@ const ALLOCATION_COLORS = [
   'text-accent-earn-ink',
   'text-accent-tint-ink'
 ] as const;
-type PresetRange = keyof typeof PRESET_RANGES;
-type HistoryRange = 'CUSTOM' | PresetRange;
+type HistoryRange = keyof typeof PRESET_RANGES;
+const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
+  { id: '1D', label: '1D' },
+  { id: '1W', label: '1W' },
+  { id: '1M', label: '1M' },
+  { id: '3M', label: '3M' },
+  { id: '1Y', label: '1Y' }
+];
 
 export function CommandPortfolio({
   scope,
@@ -50,17 +56,6 @@ export function CommandPortfolio({
   recentActions?: React.ReactNode;
 }): React.ReactElement {
   const { t } = useTranslation();
-  const rangeItems = useMemo<{ id: HistoryRange; label: string }[]>(
-    () => [
-      { id: 'CUSTOM', label: t('commandHistoryRangeCustom') },
-      { id: '1D', label: '1D' },
-      { id: '1W', label: '1W' },
-      { id: '1M', label: '1M' },
-      { id: '3M', label: '3M' },
-      { id: '1Y', label: '1Y' }
-    ],
-    [t]
-  );
   const displayOptions = {
     minimumFractionDigits: 2,
     trimTrailingZeros: false,
@@ -168,37 +163,28 @@ export function CommandPortfolio({
     [activityHistory, history, key]
   );
   const now = Date.now();
-  const autoRange: HistoryRange = useMemo(() => {
-    if (actual.length < 2) return '1D';
-    const observedSpanMs = actual[actual.length - 1]!.capturedAt - actual[0]!.capturedAt;
-    const hasDayPoints = actual.filter(row => row.capturedAt >= now - DAY_MS).length >= 2;
-    return observedSpanMs >= DAY_MS && hasDayPoints ? '1D' : 'CUSTOM';
-  }, [actual, now]);
-  const range: HistoryRange = selectedRange ?? autoRange;
+  const range: HistoryRange = selectedRange ?? '1D';
   const { points, rangeStart, rangeMs } = useMemo(() => {
-    if (range === 'CUSTOM') {
-      if (actual.length >= 2) {
-        const firstAt = actual[0]!.capturedAt;
-        const lastAt = actual[actual.length - 1]!.capturedAt;
-        const rawSpan = Math.max(0, lastAt - firstAt);
-        const pad = rawSpan > 0 ? Math.max(rawSpan * 0.04, 1_000) : 60_000;
-        const start = firstAt - pad;
-        return {
-          points: actual,
-          rangeStart: start,
-          rangeMs: Math.max(1, lastAt + pad - start)
-        };
-      }
-      return {
-        points: actual,
-        rangeStart: now - DAY_MS,
-        rangeMs: DAY_MS
-      };
-    }
     const windowMs = PRESET_RANGES[range] * DAY_MS;
     const start = now - windowMs;
+    const windowPoints = actual.filter(row => row.capturedAt >= start);
+    if (range === '1D' && actual.length >= 2) {
+      const firstAt = actual[0]!.capturedAt;
+      const lastAt = actual[actual.length - 1]!.capturedAt;
+      const observedSpanMs = lastAt - firstAt;
+      if (observedSpanMs < DAY_MS || windowPoints.length < 2) {
+        const rawSpan = Math.max(0, observedSpanMs);
+        const pad = rawSpan > 0 ? Math.max(rawSpan * 0.04, 1_000) : 60_000;
+        const fitStart = firstAt - pad;
+        return {
+          points: actual,
+          rangeStart: fitStart,
+          rangeMs: Math.max(1, lastAt + pad - fitStart)
+        };
+      }
+    }
     return {
-      points: actual.filter(row => row.capturedAt >= start),
+      points: windowPoints,
       rangeStart: start,
       rangeMs: windowMs
     };
@@ -321,7 +307,7 @@ export function CommandPortfolio({
               layout="scroll"
               className="min-w-0 max-w-full px-1"
               value={range}
-              items={rangeItems}
+              items={RANGE_ITEMS}
               onChange={next => {
                 setSelectedRange(next);
                 setSelected(null);

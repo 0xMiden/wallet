@@ -10457,9 +10457,5 @@
   "commandAiPlanPreviousOutput": {
     "message": "Previous output",
     "englishSource": "Previous output"
-  },
-  "commandHistoryRangeCustom": {
-    "message": "Custom",
-    "englishSource": "Custom"
   }
 }

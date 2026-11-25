@@ -598,7 +598,7 @@ it('keeps balances usable when the optional history write fails, and refuses an 
   warn.mockRestore();
 });
 
-it('auto-selects Custom and spreads a 10-minute cluster of 3 observations cleanly across the chart', async () => {
+it('defaults to 1D and auto-fits a 10-minute cluster of 3 observations without a Custom button', async () => {
   store.hidden = false;
   const end = capturedAt;
   const start = end - 10 * 60_000;
@@ -611,7 +611,8 @@ it('auto-selects Custom and spreads a 10-minute cluster of 3 observations cleanl
   ]);
   render(<CommandPortfolio scope={scope} />);
   const chart = await screen.findByTestId('command-chart');
-  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.queryByRole('radio', { name: 'commandHistoryRangeCustom' })).not.toBeInTheDocument();
   const markers = Array.from(chart.querySelectorAll('[data-command-chart-point]'));
   expect(markers).toHaveLength(3);
   const xs = markers.map(marker => Number(marker.getAttribute('data-x')));
@@ -621,7 +622,7 @@ it('auto-selects Custom and spreads a 10-minute cluster of 3 observations cleanl
   expect(xs[2]).toBeGreaterThan(90);
 });
 
-it('defaults to 1D when observations span more than a day and lets Custom show all observations', async () => {
+it('defaults to 1D when observations span more than a day and lets 1W show all observations', async () => {
   store.hidden = false;
   const now = capturedAt + 60_000;
   jest.spyOn(Date, 'now').mockReturnValue(now);
@@ -656,12 +657,12 @@ it('defaults to 1D when observations span more than a day and lets Custom show a
   const chart = await screen.findByTestId('command-chart');
   expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
   expect(chart.querySelectorAll('[data-command-chart-point]')).toHaveLength(2);
-  fireEvent.click(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' }));
-  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(screen.getByRole('radio', { name: '1W' }));
+  expect(screen.getByRole('radio', { name: '1W' })).toHaveAttribute('aria-checked', 'true');
   expect(screen.getByTestId('command-chart').querySelectorAll('[data-command-chart-point]')).toHaveLength(3);
 });
 
-it('reconstructs a continuous line chart from completed +100, -10, -20 transactions when Custom is active', async () => {
+it('reconstructs a continuous line chart from completed +100, -10, -20 transactions under auto-fitted 1D', async () => {
   store.hidden = false;
   mockValue = '70';
   mockAssets = [
@@ -713,7 +714,7 @@ it('reconstructs a continuous line chart from completed +100, -10, -20 transacti
 
   render(<CommandPortfolio scope={scope} />);
   const chart = await screen.findByTestId('command-chart');
-  expect(screen.getByRole('radio', { name: 'commandHistoryRangeCustom' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByRole('radio', { name: '1D' })).toHaveAttribute('aria-checked', 'true');
   expect(chart).toHaveAttribute('data-history-kind', 'trace');
   expect(chart.querySelector('[data-command-chart-line]')).toBeInTheDocument();
   expect(chart.querySelector('[data-command-chart-area]')).not.toBeInTheDocument();
