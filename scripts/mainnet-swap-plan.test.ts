@@ -3,6 +3,7 @@ import {
   chooseMainnetSwapLoop,
   planMainnetSwapLoop,
   swapSearchAmounts,
+  SWAP_MIN_BASE_UNITS,
   realizedSwapLoss,
   type SwapHolding,
   type SwapLoopCandidate
@@ -120,6 +121,32 @@ describe('nightly swap cost gate', () => {
     const c = candidate();
     c.native.decimals = 12;
     expect(planMainnetSwapLoop(c).worstCaseLossUsdMicros).toBe(2_006n);
+  });
+  it('rejects the dust-sized WBTC loop that left the return leg unquotable', () => {
+    const usdc = { ...holding('usdc'), decimals: 6, usdMicros: 1_000_000n };
+    const wbtc = { ...holding('wbtc'), decimals: 8, usdMicros: 57_952_000_000n };
+    const c = candidate();
+    c.forward = { ...c.forward, offered: usdc, requested: wbtc, offer: 1_000_549n, minimumReceive: 1_728n };
+    c.reverse = { ...c.reverse, offered: wbtc, requested: usdc, offer: 1_728n, minimumReceive: 996_298n };
+    expect(() => planMainnetSwapLoop(c)).toThrow(/dust/);
+  });
+  it('still accepts a 6-decimal stablecoin pair near $1', () => {
+    expect(() => planMainnetSwapLoop(candidate())).not.toThrow();
+  });
+  it.each([
+    [6, 1_000_000n],
+    [8, 1_000_000n],
+    [8, 57_952_000_000n],
+    [18, 3_000_000_000n]
+  ])('never plans an intermediate amount under the floor (decimals %i, price %i)', (decimals, usdMicros) => {
+    const a = { ...holding('a'), decimals, usdMicros };
+    for (const amount of swapSearchAmounts(a)) {
+      const c = candidate();
+      const b = { ...holding('b'), decimals, usdMicros };
+      c.forward = { ...c.forward, offered: a, requested: b, offer: amount, minimumReceive: amount };
+      c.reverse = { ...c.reverse, offered: b, requested: a, offer: amount, minimumReceive: amount };
+      if (amount < SWAP_MIN_BASE_UNITS) expect(() => planMainnetSwapLoop(c)).toThrow(/dust/);
+    }
   });
   it('selects the lowest loss then the lowest principal, independent of registry order', () => {
     const costly = planMainnetSwapLoop(candidate());
