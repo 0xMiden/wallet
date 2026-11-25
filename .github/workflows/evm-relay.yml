@@ -3,14 +3,17 @@ name: EVM relay service
 # Pull-request checks of the deposit-address relay Worker (services/evm-relay).
 # The Jest suites under services/evm-relay/test run in the Unit tests job of
 # pr.yml with the rest of the repository. This workflow checks the parts that
-# job does not: the Worker's own type-check and a dry-run bundle against the
-# committed wrangler.jsonc. It deploys nothing.
+# job does not: the Worker's own type-check, the deploy probe, the release
+# check of the deploy workflow and a dry-run bundle against the committed
+# wrangler.jsonc. It deploys nothing.
 
 on:
   pull_request:
     paths:
       - 'services/evm-relay/**'
+      - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/evm-relay.yml'
+      - '.github/workflows/deploy-evm-relay.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,6 +38,8 @@ jobs:
         run: |
           npx tsc --noEmit -p services/evm-relay/tsconfig.json
           npx tsc --noEmit -p services/evm-relay/tsconfig.test.json
+      - name: Test the deploy probe and the release check
+        run: node --test services/evm-relay/check-deployment.test.mjs services/evm-relay/prepare-deployment.test.mjs
       - name: Validate Worker bundle and bindings
         env:
           WRANGLER_SEND_METRICS: 'false'

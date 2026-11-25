@@ -226,3 +226,93 @@ An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seco
 | `not_implemented` | 501 | The route is not implemented yet |
 
 Two more codes report a broken deployment, not a bad request: `service_unavailable` 503 (a variable does not parse or a binding is missing) and `internal_error` 500 (an unexpected failure).
+
+## Deployment
+
+Every deploy is `.github/workflows/deploy-evm-relay.yml`, started by hand from the Actions tab. The workflow has only a `workflow_dispatch` trigger. Run it with a published release tag (`deployment_source: published-release` and `release_tag`), or with `deployment_source: main` from `main`. A published release or a merge into `main` deploys nothing. The job runs in the GitHub environment `evm-relay-production`, and one deploy runs at a time.
+
+The job does these steps in this order:
+
+1. It checks out the chosen source and installs the dependencies.
+2. It type-checks the Worker.
+3. `prepare-deployment.mjs` checks the release values (below). Then it writes a release copy of `wrangler.jsonc` with the real variables and a secrets file, both to `RUNNER_TEMP` with mode 0600. The committed `wrangler.jsonc` does not change, and no file goes into the repository or an artifact.
+4. `wrangler deploy --config <release copy> --secrets-file <secrets file>` deploys the Worker. The Durable Object migration (`v1`, `new_sqlite_classes`) is in `wrangler.jsonc`, so the deploy applies it. There is no database step.
+5. `check-deployment.mjs` probes the deployment (below).
+6. The last step removes the two files, also when a step before it fails.
+
+### Secrets and variables
+
+The workflow reads these from the repository's Actions secrets and variables, or from the GitHub environment `evm-relay-production` when an admin creates one with required reviewers. The workflow names that environment, so GitHub creates it without rules on the first run.
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit and Account Settings: Read on the Cloudflare account of the Worker. The wallet-api deploy uses the same name |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | That account's id |
+| `EVM_RELAY_RELAYER_PRIVATE_KEY` | secret | The key of the relayer account, `0x` and 64 hex characters. It becomes the Worker secret `RELAYER_PRIVATE_KEY` |
+| `EVM_RELAY_RPC_URLS` | secret | One JSON object of decimal chain id to the `https:` JSON-RPC URL of that chain, for example `{"8453":"https://base.example/v2/<key>"}`. Each entry becomes the Worker secret `RPC_URL_<chainId>` |
+| `EVM_RELAY_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins, no wildcard: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost`. It becomes `ALLOWED_ORIGINS` |
+| `EVM_RELAY_GAS_MODE` | variable | `sponsor` or `deduct`. It becomes `GAS_MODE` |
+| `EVM_RELAY_CONFIG` | variable | The `RELAY_CONFIG` JSON (shape above) with at least one chain. It becomes `RELAY_CONFIG` |
+| `EVM_RELAY_URL` | variable | The base URL of the deployed Worker, `https:` and no trailing slash, for example `https://miden-evm-relay.<subdomain>.workers.dev` |
+
+The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are one secret, so a new chain needs no change to the workflow: add the chain to `EVM_RELAY_CONFIG` and its URL to `EVM_RELAY_RPC_URLS`. GitHub masks a secret only as a whole value, not each URL in it. The scripts never print a secret or a part of one, and Wrangler prints each secret as `(hidden)`.
+
+### Release check
+
+`prepare-deployment.mjs` stops the job before the deploy when a value is wrong. Its message names the setting, and never the value of a secret. It checks that:
+
+- every setting in the table is set;
+- `EVM_RELAY_GAS_MODE` is `sponsor` or `deduct`;
+- `EVM_RELAY_RELAYER_PRIVATE_KEY` is `0x` and 64 hex characters, and a valid secp256k1 key;
+- `EVM_RELAY_ALLOWED_ORIGINS` is a nonempty JSON array of strings with no wildcard;
+- `EVM_RELAY_URL` is `https:` with no credentials, query, fragment or trailing slash;
+- `EVM_RELAY_CONFIG` is JSON with at least one chain, and the Worker's own `parseConfig` (`src/config.ts`) accepts it with the gas mode and the origins. esbuild bundles that parse in memory, so the deploy refuses a config that the live Worker would refuse;
+- `EVM_RELAY_RPC_URLS` is a JSON object with an `https:` URL for every chain of the config, and with no URL for a chain that the config does not name;
+- `wrangler.jsonc` has the two rate limit bindings (60 and 10 per 60 seconds, two namespaces) and binds `RELAY_SENDER` to `RelaySenderObject` with its SQLite migration.
+
+The step log then prints `Relayer address (executor): 0x…`, the address that the key derives. The address is public.
+
+### Deploy probe
+
+After the deploy, `check-deployment.mjs` checks that:
+
+- `GET /healthz` answers `200` with `ok: true`, the deployed revision and `Cache-Control: no-store`. It tries 5 times, 2 seconds apart. `ok: true` means that the variables parse, the bindings exist, the key is valid and each chain has an RPC URL;
+- a CORS preflight of `POST /v1/relay` from the first configured origin answers `204` with that origin, `Vary: Origin`, the methods `GET` and `POST` and the header `content-type`;
+- `GET /healthz` from an unknown origin answers `403` with no `Access-Control-Allow-Origin`;
+- `GET /v1/account` with no query, from the first configured origin, answers `400 invalid_request`. The route parses the config before it checks the query, so this proves that the router and the config are live. It reads no chain.
+
+The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`, `EVM_RELAY_ALLOWED_ORIGINS` and `EVM_RELAY_REVISION` set: `yarn check-deployment` in this folder.
+
+### One-time setup
+
+1. Choose the Cloudflare account. The rate limit bindings need no resource: their `namespace_id` (189405 and 189406) is an integer that no other rate limit binding of the account may use. If the account uses those ids already, choose two free ids in `wrangler.jsonc`.
+2. Create a new relayer key for this service only. Do not reuse a key of another service.
+3. Set the secrets and the variables in the table.
+4. Run the workflow. The step log prints the relayer address.
+5. Fund the relayer address on each chain of the config with a small amount of the native coin. The relayer pays the gas of every relay in both gas modes. `/healthz` does not check the balance, so a deploy passes with no funds. After the deploy, `GET /v1/account?chainId=<id>&address=<any address>` also gives the address as `executor`.
+6. Set the `relay` section of the `0xMiden/wallet-config` document. The wallet reads the service URL, the executor address and the Calibur pin from that section. The executor there must be the address of the deployed key: the wallet signs batches that only that executor can run.
+
+### Change the gas mode or the config
+
+`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a `feeRecipient` on every chain and a `fee` above 0 on every token, and the release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
+
+`--secrets-file` adds and replaces secrets, and it does not delete one. When a chain leaves the config, its `RPC_URL_<chainId>` secret stays on the Worker, unused. Delete it with `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`.
+
+### Rotate the relayer key
+
+Each Sender keeps `next_nonce`, the nonce after its last stored transaction, per chain. It does not know the relayer address. For a new transaction it takes the larger of `next_nonce` and the relayer's pending count. When the pending count of a new account is lower than the old `next_nonce`, the Sender gives the new account a nonce above its pending count. That transaction cannot mine until the account has sent the nonces below it. The Sender has no reset yet. Thus rotate the key only when you must:
+
+1. Wait until no relay is `pending`.
+2. Make the pending count of the new account reach the old `next_nonce` on each chain, for example with self-transfers of 0, before the deploy.
+3. Set `EVM_RELAY_RELAYER_PRIVATE_KEY` to the new key, fund the new address, update the executor in the wallet-config `relay` section, and run the workflow.
+4. Move the remaining funds out of the old account.
+
+### Read the `relayer_unfunded` log
+
+`POST /v1/relay` answers `503 relayer_unfunded` when the relayer balance is below `gasLimit × maxFeePerGas` of the relay. Then the Worker writes one line to the Workers logs (Cloudflare dashboard, the Worker, Observability or Logs):
+
+```
+evm-relay: the relayer account cannot pay the gas on chain <chainId>.
+```
+
+The line names only the chain. Fund the relayer address on that chain. No deploy is necessary: the next relay reads the balance again.
