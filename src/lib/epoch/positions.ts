@@ -260,7 +260,21 @@ async function fetchPositions(
         };
       }
       stage = 'response_decode';
-      const body: PositionsApiResponse = await res.json();
+      let body: PositionsApiResponse;
+      try {
+        body = await res.json();
+      } catch (err) {
+        // The timeout helper aborts on cleanup, so inspect the signal before that cleanup runs.
+        const timedOut = signal.aborted;
+        const reason = timedOut && signal.reason instanceof Error ? signal.reason : err;
+        return {
+          owner,
+          items: [],
+          error: reason instanceof Error ? reason.message : 'positions request threw',
+          stage,
+          retryable: timedOut
+        };
+      }
       if (!body.success || !body.data || !Array.isArray(body.data.items)) {
         return { owner, items: [], error: body.error ?? 'positions request unsuccessful', stage };
       }

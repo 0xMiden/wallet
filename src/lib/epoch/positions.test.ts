@@ -744,6 +744,56 @@ describe('fetchEarnPositions', () => {
       expect(result.errors).toEqual([]);
     });
   });
+
+  describe('quoted body timeout', () => {
+    const positionArgs = { owners: [OWNER], markets: [DUMMY_UID] };
+    const abortMessage = 'The operation was aborted.';
+    const timedOutBody = (signal?: AbortSignal): Answer => ({
+      ...answer(null),
+      json: () =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException(abortMessage, 'AbortError')), { once: true });
+        })
+    });
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('retries a quoted balance read once when the response body aborts with AbortError', async () => {
+      const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
+      fetchMock.mockImplementationOnce((_url, init?: { signal?: AbortSignal }) => timedOutBody(init?.signal));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await read).toMatchObject({ positions: [expect.objectContaining({ withdrawable: '12.5' })], errors: [] });
+    });
+
+    it('reports the positions timeout when a quoted body AbortError retries and the second read also stalls', async () => {
+      const fetchMock = serve((_owner, init) => timedOutBody(init?.signal));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await read).errors).toEqual([
+        { owner: OWNER, error: 'Request timed out after 5000 ms', stage: 'response_decode' }
+      ]);
+    });
+
+    it.each([
+      ['does not retry a malformed quoted positions body', new SyntaxError('Unexpected token')],
+      [
+        'does not retry a quoted body AbortError unless the positions timer aborted',
+        new DOMException(abortMessage, 'AbortError')
+      ]
+    ])('%s', async (_description, error) => {
+      const fetchMock = serve(() => ({ ...answer(null), json: () => Promise.reject(error) }));
+      const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.errors).toEqual([{ owner: OWNER, error: error.message, stage: 'response_decode' }]);
+    });
+  });
 });
 
 describe('carryForward', () => {
