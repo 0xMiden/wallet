@@ -7446,8 +7446,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Compartilhe quais partes da Wallet você usa, onde você encontra dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Nunca compartilhe suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Relatórios de falhas são enviados de qualquer forma: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo. Você pode alterar isso a qualquer momento.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Compartilhe quais telas você abre e por quanto tempo cada uma fica visível, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Nunca suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Relatórios de falhas são enviados de qualquer maneira: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo. Você pode alterar isso a qualquer momento.",
+    "englishSource": "Shares which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Compartilhe dados de uso",
@@ -7466,8 +7466,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Quais partes do Wallet você usa, onde você tem dificuldades, categorias gerais de erros, a versão do aplicativo e sua plataforma.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Quais telas você abre e por quanto tempo cada uma fica visível, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma.",
+    "englishSource": "Which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",

@@ -7441,8 +7441,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Cüzdanın hangi bölümlerini kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve platformunuzu paylaşın ki, sorunları giderebilelim. Asla anahtarlarınızı, kurtarma ifadesini, şifrenizi, adreslerinizi, bakiyelerinizi, tutarlarınızı veya işlem içeriklerinizi paylaşmayın. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri aracılarına satılmaz veya paylaşılmaz. Çökme raporları her durumda gönderilir: hata ve kodda nerede meydana geldiği bilgisi, hassas verilerin kaldırılması için temizlenir ve sizin veya cihazınızın kimliğini belirleyen hiçbir bilgi içermez. Bunu istediğiniz zaman değiştirebilirsiniz.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Hangi ekranları açtığınızı ve her birinin ne kadar süreyle görünür kaldığını, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve kullandığınız platformu paylaşır; böylece sorunları giderebiliriz. Asla anahtarlarınızı, kurtarma ifadesini, şifrenizi, adreslerinizi, bakiyelerinizi, tutarları veya işlem içeriğinizi paylaşmaz. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri aracılarına satılmaz veya paylaşılmaz. Hata raporları her durumda gönderilir: hata ve kodda nerede meydana geldiği bilgisi, hassas verilerin kaldırılması için temizlenmiş olarak, sizin veya cihazınızın kimliğini ortaya çıkarmayacak şekilde. Bunu istediğiniz zaman değiştirebilirsiniz.",
+    "englishSource": "Shares which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Kullanım verilerini paylaşın",
@@ -7461,8 +7461,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Cüzdanın hangi kısımlarını kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve kullandığınız platformu belirtin.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Hangi ekranları açtığınız ve her birinin ne kadar süreyle görünür kaldığı, nerede takıldığınız, genel hata kategorileri, uygulama sürümü ve kullandığınız platform.",
+    "englishSource": "Which screens you open and how long each is visible, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
