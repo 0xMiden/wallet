@@ -3964,12 +3964,206 @@ describe('ReviewTransaction — NEAR Intents', () => {
     await clickSubmit();
     expect(startNearIntentsSend).toHaveBeenCalledTimes(2);
 
+    // Only submission 2 settles navigation.
     await act(async () => {
       second.resolve('tx-fresh');
     });
     await flush();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh', 'replacestate');
     settleSendFlow(flow => flow.cancel());
+  });
+
+  it('keeps an active A -> B -> A submission locked and immune when a superseded 1Click send settles', async () => {
+    setNearIntentsRoute();
+    const first = deferred<string>();
+    const second = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    // Start submission 1 on pubkey-1.
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+
+    // Flip A -> B -> A and immediately start submission 2 on pubkey-1.
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+    mockPublicKey = 'pubkey-1';
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(startNearIntentsSend).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+
+    // Settling superseded submission 1 must NOT navigate to tx-stale, clear deposit label, or unlock submittingRef.
+    await act(async () => {
+      first.resolve('tx-stale');
+    });
+    await flush();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+    await clickSubmit();
+    expect(startNearIntentsSend).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve('tx-fresh');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh', 'replacestate');
+  });
+
+  it('prevents stale pre-flight confirmSensitiveAction or non-1Click bridge rejections from clobbering submission 2', async () => {
+    setNearIntentsRoute();
+    const firstConfirm = deferred<boolean>();
+    const secondConfirm = deferred<boolean>();
+    confirmMock.mockReturnValueOnce(firstConfirm.promise).mockReturnValueOnce(secondConfirm.promise);
+    const { rerender, unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    // Flip A -> B -> A so publicKey matches again, then start submission 2.
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+    mockPublicKey = 'pubkey-1';
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    // If firstConfirm rejects or resolves false while submission 2 awaits confirm, submission 2 stays disabled with no error.
+    await act(async () => {
+      firstConfirm.reject(new Error('stale biometric fail'));
+    });
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    unmount();
+
+    // Now test non-1Click USDCx send rejection after A -> B -> A context switch.
+    confirmMock.mockResolvedValue(true);
+    mockDetectedChain = 'ethereum';
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    mockBalanceData = [
+      { ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, balance: 100, metadata: { symbol: 'USDCX', decimals: 6 } }
+    ];
+    mockSearch = `amount=10&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+    const burnFirst = deferred<string>();
+    const burnSecond = deferred<string>();
+    jest.mocked(initiateUsdcxBurn).mockReturnValueOnce(burnFirst.promise).mockReturnValueOnce(burnSecond.promise);
+    const burnView = render(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+    mockPublicKey = 'pubkey-2';
+    burnView.rerender(<ReviewTransaction />);
+    await flush();
+    mockPublicKey = 'pubkey-1';
+    burnView.rerender(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+    await act(async () => {
+      burnFirst.reject(new Error('stale burn fail'));
+    });
+    await flush();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    await act(async () => {
+      burnSecond.resolve('burn-fresh');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/burn-fresh', 'replacestate');
+  });
+
+  it('dismisses an open spending-limit challenge when effective network changes', async () => {
+    setNearIntentsRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+
+    mockReviewNetwork = 'testnet';
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+
+  it('isolates Command sendAdmission and finish/abort calls across A -> B -> A switches', async () => {
+    mockBalanceData = [VALID_TOKEN];
+    mockSearch = 'amount=7.123456&to=0xrecipient&tokenId=tok1';
+    const firstTx = deferred<string>();
+    const secondTx = deferred<string>();
+    initiateMock.mockReturnValueOnce(firstTx.promise).mockReturnValueOnce(secondTx.promise);
+
+    function CommandProbe({ account }: { account: string }) {
+      const drafts = useCommandDrafts();
+      return (
+        <>
+          <output data-testid="probe-admission">{JSON.stringify(drafts.readSendAdmission())}</output>
+          <ReviewTransaction key="stable-review" />
+          <span data-testid="probe-account">{account}</span>
+        </>
+      );
+    }
+
+    const view = render(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'https://rpc.review.example' }}>
+        <FlowPresentationProvider value="command">
+          <CommandProbe account="pubkey-1" />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    await flush();
+    await clickSubmit();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('probe-admission')).toHaveTextContent('"status":"pending"');
+
+    // Flip account inside the same CommandDraftProvider scope: A -> B -> A, then submit again.
+    mockPublicKey = 'pubkey-2';
+    view.rerender(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'https://rpc.review.example' }}>
+        <FlowPresentationProvider value="command">
+          <CommandProbe account="pubkey-2" />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    await flush();
+    mockPublicKey = 'pubkey-1';
+    view.rerender(
+      <CommandDraftProvider scope={{ accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'https://rpc.review.example' }}>
+        <FlowPresentationProvider value="command">
+          <CommandProbe account="pubkey-1" />
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    await flush();
+
+    await clickSubmit();
+    expect(initiateMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('probe-admission')).toHaveTextContent('"status":"pending"');
+
+    // Settling submission 1 (reject OR resolve) must NOT abort or finish submission 2's pending admission.
+    await act(async () => {
+      firstTx.reject(new Error('stale tx rejected'));
+    });
+    await flush();
+    expect(screen.getByTestId('probe-admission')).toHaveTextContent('"status":"pending"');
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      secondTx.resolve('tx-command-fresh');
+    });
+    await flush();
+    expect(screen.getByTestId('probe-admission')).toHaveTextContent('"txId":"tx-command-fresh"');
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-command-fresh', 'replacestate');
   });
 
   it('gives the button its label back when the deposit address request fails', async () => {
