@@ -5,6 +5,7 @@ import Fuse from 'fuse.js';
 import PQueue from 'p-queue';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { remapBalanceRows } from 'lib/miden/balance-snapshot';
 import {
   DEFAULT_TOKEN_METADATA,
   AssetMetadata,
@@ -204,7 +205,7 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
         balances: Object.fromEntries(
           Object.entries(state.balances).map(([account, rows]) => [
             account,
-            rows.map(row =>
+            remapBalanceRows(rows, row =>
               row.tokenId === id
                 ? {
                     ...row,
