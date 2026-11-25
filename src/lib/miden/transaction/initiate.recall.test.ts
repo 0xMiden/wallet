@@ -145,6 +145,25 @@ const send = (recallBlocks?: number) =>
 
 beforeEach(() => jest.clearAllMocks());
 
+it('persists the display name separately from the address used to send', async () => {
+  await initiateSendTransaction(
+    'mtst1sender',
+    'mtst1recipient',
+    'mtst1faucet',
+    NoteTypeEnum.Public,
+    1000n,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    'alice.miden'
+  );
+  expect(mockAdd).toHaveBeenCalledWith(
+    expect.objectContaining({ secondaryAccountId: 'mtst1recipient', recipientName: 'alice.miden' })
+  );
+});
+
 const nearIntentsSend = { senderAccountId: sender, depositAddress: recipient, faucetId, amount: 1000n };
 
 describe('initiateNearIntentsSendTransaction', () => {
@@ -280,7 +299,6 @@ describe('initiateNearIntentsSendTransaction', () => {
     ).rejects.toThrow();
     expect(mockAdd).not.toHaveBeenCalled();
   });
-
   it('rejects a quote whose signature or binding fails', async () => {
     mockAssertBinding.mockImplementationOnce(() => {
       throw new Error('1Click quote signature is invalid');

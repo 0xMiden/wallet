@@ -153,6 +153,12 @@ describe('Miden and Ethereum address utilities', () => {
     expect(isValidRecipientAddress(NEAR_ADDRESS)).toBe(true);
     expect(isValidRecipientAddress('alice')).toBe(false);
   });
+
+  it('reads a .miden name as Miden rather than NEAR and rejects it as a raw address', () => {
+    expect(detectAddressChain('alice.miden')).toBe('miden');
+    expect(detectAddressChain('Alice.MIDEN')).toBe('miden');
+    expect(isValidRecipientAddress('alice.miden')).toBe(false);
+  });
 });
 
 it.each([

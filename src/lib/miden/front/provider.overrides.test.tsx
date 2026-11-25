@@ -21,6 +21,13 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
+const mockSdkProvider = jest.fn();
+jest.mock('@miden-sdk/react/lazy', () => ({
+  MidenProvider: ({ children, config }: any) => {
+    mockSdkProvider(config);
+    return <>{children}</>;
+  }
+}));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
 jest.mock('lib/remote-config/runtime', () => ({
@@ -43,6 +50,7 @@ jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
+jest.mock('lib/miden/name/MidenNameWatcher', () => ({ MidenNameWatcher: () => null }));
 jest.mock('lib/badges/BadgeIssuanceManager', () => ({ BadgeIssuanceManager: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -54,6 +62,7 @@ let warn: jest.SpyInstance;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSdkProvider.mockClear();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   loadEndpointOverrides.mockResolvedValue(undefined);
   ensureSdkWasmReady.mockResolvedValue(undefined);
@@ -121,4 +130,14 @@ it('makes the bridge config follow the effective network only AFTER endpoint ove
   resolveLoad();
   await waitFor(() => expect(followEffectiveNetwork).toHaveBeenCalledTimes(1));
   expect(warn).not.toHaveBeenCalled();
+});
+
+it('keeps the wallet as the only client owner', async () => {
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+  await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
+  expect(mockSdkProvider).not.toHaveBeenCalled();
 });

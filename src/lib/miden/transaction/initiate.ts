@@ -12,6 +12,7 @@ import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount 
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
+import { registerNameRowAccounts, type RegisterNameRequest } from 'lib/miden/name/note';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { assertSwapQueueAvailable } from 'lib/miden/swap/admission';
@@ -53,10 +54,12 @@ import {
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  IConsumeMidenNameExtraInputs,
   IConsumeSwapSettleExtraInputs,
   isLiveTransaction,
   ITransaction,
   ITransactionStatus,
+  RegisterNameTransaction,
   IUsdcxBurn,
   NEAR_INTENTS_NO_EVM_CHAIN_ID,
   ReplaceHotKeyTransaction,
@@ -1074,7 +1077,8 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  calendarRecallTarget?: string
+  calendarRecallTarget?: string,
+  recipientName?: string
 ): Promise<string> => {
   // Every send funnels through here - the wallet's own review screen and the
   // dApp boundary both - so this is where the reclaim window has to be sound.
@@ -1105,6 +1109,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (recipientName !== undefined) dbTransaction.recipientName = recipientName;
   if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
@@ -1338,6 +1343,58 @@ export const initiateEarnDepositTransaction = async (
   dbTransaction.approvedOutputNoteIds = [ownNoteId];
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
+};
+
+export interface InitiateRegisterNameArgs {
+  accountId: string;
+  label: string;
+  priceBaseUnits: bigint;
+  networkFeeBaseUnits: bigint;
+  /** The request from `buildRegisterNameRequest`. The pipeline submits these bytes as they are. */
+  request: RegisterNameRequest;
+  delegateTransaction?: boolean;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
+}
+
+/**
+ * Queue a `register-name` row. The row spends the price of the name, so it goes
+ * through the spending-limit chokepoint like every other outgoing transaction.
+ */
+export const initiateRegisterNameTransaction = async (args: InitiateRegisterNameArgs): Promise<string> => {
+  const accounts = registerNameRowAccounts();
+  const dbTransaction = new RegisterNameTransaction({
+    accountId: args.accountId,
+    label: args.label,
+    network: accounts.network,
+    paymentFaucetId: accounts.paymentFaucetId,
+    registryAccountId: accounts.registryAccountId,
+    priceBaseUnits: args.priceBaseUnits,
+    networkFeeBaseUnits: args.networkFeeBaseUnits,
+    requestBytes: args.request.requestBytes,
+    registrationNoteId: args.request.registrationNoteId,
+    reclaimHeight: args.request.reclaimHeight,
+    builtAtBlock: args.request.builtAtBlock,
+    delegateTransaction: args.delegateTransaction
+  });
+  await queueOutgoingTransaction(
+    { ...dbTransaction, badgeNetwork: badgeNetwork() },
+    spendsOf(dbTransaction),
+    args.spendingLimitAuthorization
+  );
+  return dbTransaction.id;
+};
+
+/**
+ * Mark a consume row as the claim of a Miden Name delivery note. When the
+ * consume completes, `completeConsumeTransaction` labels it "Name received" and
+ * moves the `register-name` row to `owned`.
+ */
+export const tagConsumeAsMidenNameClaim = async (txId: string, label: string, registerTxId: string): Promise<void> => {
+  const claim: IConsumeMidenNameExtraInputs = { midenNameClaim: { label, registerTxId } };
+  await Repo.transactions.where({ id: txId }).modify(tx => {
+    if (tx.type !== 'consume') return;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), ...claim };
+  });
 };
 
 /**

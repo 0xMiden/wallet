@@ -74,7 +74,7 @@ import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, RegisterNameTransaction, ReplaceHotKeyTransaction } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -360,6 +360,11 @@ jest.mock('../sdk/miden-client', () => ({
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+const mockRegisterNameGuard = jest.fn(async (_tx: RegisterNameTransaction) => {});
+const mockCompleteRegisterName = jest.fn(async (_tx: RegisterNameTransaction, _result: object) => {});
+jest.mock('lib/miden/name/guard', () => ({
+  assertMidenNameRegistrationLive: (tx: RegisterNameTransaction) => mockRegisterNameGuard(tx)
+}));
 
 // The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
 // gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it. A test turns
@@ -425,6 +430,8 @@ const mockComplete = {
   updateThreshold: jest.fn(async (..._a: unknown[]) => {})
 };
 jest.mock('./complete', () => ({
+  completeRegisterNameTransaction: (tx: RegisterNameTransaction, result: object) =>
+    mockCompleteRegisterName(tx, result),
   completeSendTransaction: (...a: unknown[]) => mockComplete.send(...a),
   completeConsumeTransaction: (...a: unknown[]) => mockComplete.consume(...a),
   completeSwapTransaction: (...a: unknown[]) => mockComplete.swap(...a),
@@ -682,6 +689,84 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
   clearGuardianAccountLocks();
+});
+
+describe('Guardian name registration routing', () => {
+  const nameProvider = {
+    getAccounts: async () => [],
+    getPublicKeyForCommitment: async () => 'pk',
+    signWord: async () => 'sig'
+  };
+
+  function arrangeRegistration() {
+    const row = new RegisterNameTransaction({
+      accountId: 'guardian-acc',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'faucet',
+      registryAccountId: 'registry',
+      priceBaseUnits: 20_000_000n,
+      networkFeeBaseUnits: 210n,
+      requestBytes: new Uint8Array([4, 2]),
+      registrationNoteId: '0xnote',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000,
+      delegateTransaction: false
+    });
+    const fixture = arrange(row.id, { ...row });
+    return { ...fixture, row };
+  }
+
+  async function runRegistration(flag: string) {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+    const result = makeResult();
+    mockDispatchGuardianPipeline.mockResolvedValue(result);
+    const { row, service, inline } = arrangeRegistration();
+    const initialBytes = row.requestBytes;
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(mockRegisterNameGuard).toHaveBeenCalledWith(row);
+    expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(initialBytes, 'register_name', undefined);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array(REBASED_BYTES));
+    expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
+    return { row, inline, result };
+  }
+
+  it('uses the correct client when the offscreen flag is true', async () => {
+    const { row, inline, result } = await runRegistration('true');
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    const [acct, trBytes, delegate, cb, stamp] = mockDispatchGuardianPipeline.mock.calls[0];
+    expect(acct).toBe(row.accountId);
+    expect(Array.from(trBytes as Uint8Array)).toEqual(TR_BYTES);
+    expect(delegate).toBe(false);
+    expect(cb).toBe(signCallback);
+    expect(stamp).toEqual(expect.any(Function));
+    expect(mockCompleteRegisterName).toHaveBeenCalledWith(row, result);
+  });
+
+  it('uses the correct client when the offscreen flag is false', async () => {
+    const { inline } = await runRegistration('false');
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+  });
+
+  it('keeps a submitted registration completed when the offscreen apply fails', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const error: Error & { errorCode: string } = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(error);
+    const { row, inline } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(txStore.find(tx => tx.id === row.id)?.status).toBe(ITransactionStatus.Completed);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
 });
 
 describe('actual Guardian request authorization boundary', () => {
@@ -1035,7 +1120,15 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // other silently narrows the fix back to the two types that happen to have
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
-    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual(['consume', 'execute', 'send', 'swap']);
+    // `register-name` reuses its pre-built bytes (same note id), so a retry after
+    // an execution-time rejection cannot pay two times.
+    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual([
+      'consume',
+      'execute',
+      'register-name',
+      'send',
+      'swap'
+    ]);
   });
 
   it('an "unauthorized" that is NOT execution-scoped stays terminally Failed (no double-send)', async () => {

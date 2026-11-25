@@ -46,6 +46,7 @@ export function activityCategoryOf(entry: { txType: ITransactionType }): Activit
     case 'switch-guardian':
     case 'replace-hot-key':
     case 'update-procedure-threshold':
+    case 'register-name':
       return 'others';
   }
 }

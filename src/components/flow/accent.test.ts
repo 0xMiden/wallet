@@ -14,7 +14,8 @@ const EXPECTED: Record<ITransactionType, FlowAccent> = {
   execute: 'brand',
   'switch-guardian': 'brand',
   'replace-hot-key': 'brand',
-  'update-procedure-threshold': 'brand'
+  'update-procedure-threshold': 'brand',
+  'register-name': 'brand'
 };
 
 describe('accentForTransactionType', () => {
