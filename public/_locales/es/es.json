@@ -2035,7 +2035,7 @@
   "arcadeRankingsPrivate": "Solo se clasifican los saldos que decidas compartir.",
   "arcadeActivityEmptyTitle": "Aún no hay actividad en el juego",
   "arcadeActivityEmptyBody": "Las transacciones que realices en los juegos de Arcade aparecerán aquí.",
-  "arcadeGcPurchasePackage": "Compra cualquier cantidad de GC con USDCx, más las comisiones de red.",
+  "arcadeGcPurchasePackage": "Compra 1 000 GC por 1 USDCx, más las comisiones de red.",
   "arcadeGcPurchaseAmountLabel": "GC comprará",
   "arcadeGcPurchaseNoQuote": "—",
   "arcadeGcPurchasePrice": "$price$ USDCx por GC en la venta en directo.",
