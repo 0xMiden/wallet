@@ -147,8 +147,12 @@ beforeEach(() => {
     rpcEndpoints.push(endpoint.url);
     return rpc;
   });
-  rpc.getAccountProof.mockImplementation(async (_id, requirements) => fakeProof(requirements));
-  rpc.getBlockHeaderByNumber.mockResolvedValue({ blockNum: () => 1234 });
+  rpc.getAccountProof.mockReset().mockImplementation(async (_id, requirements) => fakeProof(requirements));
+  rpc.getBlockHeaderByNumber.mockReset().mockResolvedValue({ blockNum: () => 1234 });
+  rpc.getNetworkNoteStatus.mockReset();
+  rpc.syncNotes.mockReset();
+  rpc.getNotesById.mockReset();
+  rpc.free.mockReset();
   mapEntries = new Map();
   slotValues = new Map([[MIDEN_NAME_SLOTS.commitmentVersion, [1n, 0n, 0n, 0n]]]);
   tooManyEntries = new Set();
@@ -538,6 +542,58 @@ describe('findRegistryDeliveryNoteIds', () => {
     });
     expect(scan).toEqual({ noteIds: [], scannedTo: 165137 });
     expect(rpc.getNotesById).not.toHaveBeenCalled();
+  });
+
+  it('rejects without advancing scannedTo if getNotesById omits a requested candidate note ID', async () => {
+    const registry = new AccountId(REGISTRY_HEX, REGISTRY.prefix, REGISTRY.suffix);
+    const bobNfa = new NonFungibleAsset(registry, [
+      domainCommitment('bob', REGISTRY)[0],
+      domainCommitment('bob', REGISTRY)[1],
+      1n,
+      2n
+    ]);
+    const bobNfa2 = new NonFungibleAsset(registry, [
+      domainCommitment('bob', REGISTRY)[0],
+      domainCommitment('bob', REGISTRY)[1],
+      1n,
+      2n
+    ]);
+    const aliceNfa = new NonFungibleAsset(registry, [
+      domainCommitment('alice', REGISTRY)[0],
+      domainCommitment('alice', REGISTRY)[1],
+      3n,
+      4n
+    ]);
+    rpc.syncNotes
+      .mockResolvedValueOnce(
+        syncResult(165137, [
+          [
+            { sender: REGISTRY_HEX, id: '0xbob' },
+            { sender: REGISTRY_HEX, id: '0xalice' }
+          ]
+        ])
+      )
+      .mockResolvedValueOnce(
+        syncResult(165137, [
+          [
+            { sender: REGISTRY_HEX, id: '0xbob' },
+            { sender: REGISTRY_HEX, id: '0xalice' }
+          ]
+        ])
+      );
+    rpc.getNotesById
+      .mockResolvedValueOnce([fetchedNote('0xbob', [bobNfa])])
+      .mockResolvedValueOnce([fetchedNote('0xbob', [bobNfa2]), fetchedNote('0xalice', [aliceNfa])]);
+
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).rejects.toThrow(/omitted/i);
+    expect(bobNfa.freed).toBe(1);
+
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).resolves.toEqual({ noteIds: ['0xalice'], scannedTo: 165137 });
+    expect(aliceNfa.freed).toBe(1);
   });
 
   it('makes a new note tag for the retry', async () => {

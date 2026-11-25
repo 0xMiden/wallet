@@ -406,18 +406,27 @@ async function notesCarryingLabel(
     rpc => rpc.getNotesById(noteIds.map(id => NoteId.fromHex(id))),
     'midenNameDeliveryNotes'
   );
-  const matching: string[] = [];
+  const answered = new Set<string>();
+  const matching = new Set<string>();
   for (const entry of fetched) {
     const id = entry.noteId.toString();
+    const normalizedId = id.toLowerCase();
+    answered.add(normalizedId);
     const note = entry.note;
     if (!note) {
       console.warn('[miden-name] delivery note has no public body; it cannot be matched to a name', { noteId: id });
       continue;
     }
-    if (nfasCarryLabel(note.assets().nonFungibleAssets(), label, registryHex)) matching.push(id);
+    if (nfasCarryLabel(note.assets().nonFungibleAssets(), label, registryHex)) {
+      matching.add(normalizedId);
+    }
+  }
+  const missing = noteIds.filter(id => !answered.has(id.toLowerCase()));
+  if (missing.length > 0) {
+    throw new Error(`getNotesById omitted ${missing.length} requested note(s): ${missing.join(', ')}`);
   }
   // Keep the chain order of the scan.
-  return noteIds.filter(id => matching.includes(id));
+  return noteIds.filter(id => matching.has(id.toLowerCase()));
 }
 
 /**
