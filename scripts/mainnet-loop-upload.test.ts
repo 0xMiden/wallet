@@ -201,9 +201,9 @@ describe('sanitizedTail redaction', () => {
     ],
     ['a stack frame argument', '    at transfer (to=0xabc key=hunter2value)', 'hunter2value', {}]
   ])('removes %s', (_name, line, secret, env) => {
-    const report = logTailReport([writeLog(`Kept line\n${line}\n`)], env);
+    const report = logTailReport([writeLog(`KeptLine\n${line}\n`)], env);
     expect(report).not.toContain(secret);
-    expect(report).toContain('Kept line');
+    expect(report).toContain('KeptLine');
   });
   it('keeps ordinary error text and stack frames with a location', () => {
     const text = 'Error: Native NEAR return blocked\n    at send (/app/helper.ts:12:5)\n    at async <anonymous>';

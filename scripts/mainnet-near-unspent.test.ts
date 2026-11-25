@@ -430,7 +430,7 @@ describe('native NEAR stage failure cause', () => {
   });
   it('wraps the blocked return error around the rejected transfer so its cause is not lost', () => {
     const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
-    expect(source).toMatch(/never retry'\s*,\s*\{ cause: error \}\s*\)/);
+    expect(source).toMatch(/signed journal, never retry',\s*\{\s*cause: error\s*\}\s*\)/);
   });
 });
 

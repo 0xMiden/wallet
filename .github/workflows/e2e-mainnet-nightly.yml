@@ -899,10 +899,10 @@ jobs:
             { echo '### Mainnet spend'; echo '```json'; cat test-results/mainnet-spend.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Sanitize NEAR process log tails
-        if: always()
+        if: failure() || cancelled()
         run: |
           mkdir -p test-results
-          node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-forward.log" "$RUNNER_TEMP/near-recover.log" "$RUNNER_TEMP/near-reverse.log" > test-results/mainnet-near-diagnostics.md
+          node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-forward.log" "$RUNNER_TEMP/near-recover.log" "$RUNNER_TEMP/near-reverse.log" > test-results/mainnet-near-diagnostics.md || true
       - name: Upload public summaries
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
