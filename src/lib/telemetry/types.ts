@@ -281,7 +281,7 @@ export interface ScreenVisitEvent {
   surface: TelemetrySurface;
   order: number;
   visibleMs: number;
-  /** False when the page was torn down mid-visit, so the visible time may be short. */
+  /** False when the page was torn down while the screen was still visible; a visit ended by hiding is complete. */
   complete: boolean;
   runId: TelemetryRunId;
 }

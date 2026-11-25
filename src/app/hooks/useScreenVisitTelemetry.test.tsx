@@ -76,4 +76,23 @@ describe('useScreenVisitTelemetry', () => {
     ]);
     expect(JSON.stringify(reported)).not.toContain('deadbeef');
   });
+
+  it('keeps tracking after a page-cache suspension and restoration on the same route', () => {
+    renderHook(() => useScreenVisitTelemetry(true, '/send', null));
+    now = 1000;
+    const suspend = new Event('pagehide');
+    Object.defineProperty(suspend, 'persisted', { value: true });
+    window.dispatchEvent(suspend);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    now = 50000;
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    now = 52000;
+    window.dispatchEvent(new Event('pagehide'));
+    expect(visits().map(v => [v.screen, v.source, v.visibleMs, v.complete])).toEqual([
+      ['send', 'initial', 1000, true],
+      ['send', 'resume', 2000, false]
+    ]);
+  });
 });

@@ -42,7 +42,8 @@ export function useScreenVisitTelemetry(usable: boolean, pathname: string, trigg
     wasUsable.current = false;
     tracker.visible(document.visibilityState !== 'hidden');
     const onVisibility = () => tracker.visible(document.visibilityState !== 'hidden');
-    const onHide = () => tracker.teardown();
+    // A persisted pagehide is a page-cache suspension that can be restored, so it only hides; anything else is final.
+    const onHide = (e: PageTransitionEvent) => (e.persisted ? tracker.visible(false) : tracker.teardown());
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
     return () => {
