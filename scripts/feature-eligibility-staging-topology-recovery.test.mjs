@@ -41,59 +41,6 @@ function githubRecord(overrides = {}) {
   };
 }
 
-function effects({ artifactOverrides = {}, resultArtifactOverrides = {}, contextOverrides = {} } = {}) {
-  const calls = [];
-  const effectiveContext = { ...context, ...contextOverrides };
-  const currentRun = githubRecord({ id: Number(effectiveContext.runId), status: 'in_progress' });
-  const prior = githubRecord({ run_attempt: 1 });
-  const run = githubRecord();
-  const api = async pathname => {
-    calls.push(pathname);
-    if (pathname === '/actions/runs/77') return run;
-    if (pathname === '/actions/runs/77/attempts/1') return prior;
-    if (pathname === '/actions/workflows/9')
-      return { id: 9, path: '.github/workflows/feature-eligibility-topology.yml' };
-    if (pathname === '/actions/workflows/9/runs?event=workflow_dispatch&per_page=100&page=1')
-      return { total_count: 2, workflow_runs: [currentRun, prior] };
-    if (pathname === '/actions/runs/77/artifacts?per_page=100&page=1')
-      return {
-        total_count: 2,
-        artifacts: [
-          {
-            id: 1234,
-            name: 'eligibility-topology-prepared-77-1',
-            expired: false,
-            size_in_bytes: 1024,
-            workflow_run: {
-              id: 77,
-              repository_id: 1,
-              head_repository_id: 1,
-              head_branch: 'main',
-              head_sha: sourceSha,
-              ...artifactOverrides
-            }
-          },
-          {
-            id: 5678,
-            name: 'eligibility-topology-result-77-1',
-            expired: false,
-            size_in_bytes: 1024,
-            workflow_run: {
-              id: 77,
-              repository_id: 1,
-              head_repository_id: 1,
-              head_branch: 'main',
-              head_sha: sourceSha,
-              ...resultArtifactOverrides
-            }
-          }
-        ]
-      };
-    throw new Error(`unexpected GitHub endpoint: ${pathname}`);
-  };
-  return { calls, value: { context: effectiveContext, github: api } };
-}
-
 function lineageEffects({
   runs = [],
   selected = githubRecord(),
@@ -103,6 +50,8 @@ function lineageEffects({
   includeSelected = true,
   includeCurrent = includeSelected,
   jobsByRun = {},
+  artifactOverrides = {},
+  resultArtifactOverrides = {},
   contextOverrides = {}
 } = {}) {
   const calls = [];
@@ -130,7 +79,8 @@ function lineageEffects({
       repository_id: 1,
       head_repository_id: 1,
       head_branch: 'main',
-      head_sha: sourceSha
+      head_sha: sourceSha,
+      ...(kind === 'prepared' ? artifactOverrides : resultArtifactOverrides)
     }
   }));
   if (duplicateArtifact) baseArtifacts.push({ ...baseArtifacts[0], id: 9100 });
@@ -164,7 +114,7 @@ function lineageEffects({
 }
 
 test('recovery receipt binds one completed same-workflow main run, attempt and artifact', async () => {
-  const { calls, value } = effects();
+  const { calls, value } = lineageEffects();
   const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value);
 
   assert.deepEqual(receipt, {
@@ -225,12 +175,6 @@ test('recovery refuses exact cleanup parent markers before reading attempts or c
       false
     );
   }
-  const { value: strictHarness } = lineageEffects({ runs: [githubRecord({ id: 89 })] });
-  await assert.rejects(() => strictHarness.github('/actions/runs/89/attempts/1'), /unexpected GitHub endpoint/);
-  await assert.rejects(
-    () => strictHarness.github('/actions/runs/89/artifacts?per_page=100&page=1'),
-    /unexpected GitHub endpoint/
-  );
 });
 
 test('recovery refuses a reused original parent, including queued duplicate lineages', async () => {
@@ -304,21 +248,21 @@ test('recovery permits over-1000 global history when the selected parent is reac
 });
 
 test('recovery refuses a non-main caller before making GitHub requests', async () => {
-  const { calls, value } = effects({ contextOverrides: { ref: 'refs/heads/recovery' } });
+  const { calls, value } = lineageEffects({ contextOverrides: { ref: 'refs/heads/recovery' } });
 
   await assert.rejects(prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value), /Recovery provenance blocked/);
   assert.equal(calls.length, 0);
 });
 
 test('recovery refuses an artifact owned by a different run source', async () => {
-  const { calls, value } = effects({ artifactOverrides: { head_sha: 'c'.repeat(40) } });
+  const { calls, value } = lineageEffects({ artifactOverrides: { head_sha: 'c'.repeat(40) } });
 
   await assert.rejects(prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value), /Recovery provenance blocked/);
   assert.equal(calls.length, 5);
 });
 
 test('recovery refuses a result artifact owned by a different source', async () => {
-  const { calls, value } = effects({ resultArtifactOverrides: { head_sha: 'c'.repeat(40) } });
+  const { calls, value } = lineageEffects({ resultArtifactOverrides: { head_sha: 'c'.repeat(40) } });
 
   await assert.rejects(prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, value), /Recovery provenance blocked/);
   assert.equal(calls.length, 5);

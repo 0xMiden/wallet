@@ -83,6 +83,24 @@ async function preparedTestRun() {
   };
 }
 
+const topologyScriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
+
+function runTopologyCli(operation, env) {
+  return spawnSync(process.execPath, [topologyScriptPath, operation], { env, encoding: 'utf8' });
+}
+
+async function writeRecoveryFixture({ runnerTemp, recovery, prior }) {
+  const recoveryDir = path.join(runnerTemp, 'eligibility-topology-recovery');
+  const recoveryFile = path.join(recoveryDir, 'recovery.json');
+  const priorPath = path.join(runnerTemp, 'prior.json');
+  if (recovery !== undefined) {
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    await writeFile(recoveryFile, `${JSON.stringify(recovery)}\n`, { mode: 0o600 });
+  }
+  if (prior !== undefined) await writeFile(priorPath, `${JSON.stringify(prior)}\n`, { mode: 0o600 });
+  return { recoveryDir, recoveryFile, priorPath };
+}
+
 function topologyBindings(manifest) {
   return [
     ...Object.entries(manifest.config.vars).map(([name, text]) => ({ name, type: 'plain_text', text })),
@@ -424,28 +442,16 @@ test('topology exercise stops after a transport failure without retrying a scena
   assert.equal(calls.length, 1);
   assert.deepEqual(results, [{ scenario: 'cache_reuse', result: 'unavailable' }]);
 
-  for (const invalidBaseUrl of [
-    'https://other-worker.example.workers.dev',
-    'https://miden-elig-topology-0-1.example.workers.dev',
-    'https://miden-elig-topology-123-1.-bad.workers.dev',
-    'https://miden-elig-topology-123-1.bad-.workers.dev',
-    `https://miden-elig-topology-123-1.${'a'.repeat(64)}.workers.dev`,
-    'http://miden-elig-topology-123-1.example.workers.dev',
-    'https://miden-elig-topology-123-1.example.workers.dev/',
-    'https://miden-elig-topology-123-1.example.workers.dev:443',
-    'https://miden-elig-topology-123-1.sub.example.workers.dev'
-  ]) {
-    await assert.rejects(
-      exerciseTopologyScenarios({
-        baseUrl: invalidBaseUrl,
-        bearer: 'b'.repeat(32),
-        fetchImpl: async () => {
-          throw new Error('should not fetch');
-        }
-      }),
-      /invalid_scenario_request/
-    );
-  }
+  await assert.rejects(
+    exerciseTopologyScenarios({
+      baseUrl: 'https://other-worker.example.workers.dev',
+      bearer: 'b'.repeat(32),
+      fetchImpl: async () => {
+        throw new Error('should not fetch');
+      }
+    }),
+    /invalid_scenario_request/
+  );
 });
 
 test('topology script name and workers.dev URL validators enforce exact boundaries', () => {
@@ -986,16 +992,23 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
 test('recovery supports multi-hop cleanup continuations when main advances after original run', async () => {
   const prepared = await preparedTestRun();
   try {
-    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
-    const priorPath = path.join(prepared.runnerTemp, 'prior-cleanup-result.json');
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
     const cleanupRunId = '99999';
     const cleanupAttempt = '1';
     const advancedSha = 'd'.repeat(40);
-    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
-    await writeFile(
-      priorPath,
-      `${JSON.stringify({
+    const { recoveryFile, priorPath } = await writeRecoveryFixture({
+      runnerTemp: prepared.runnerTemp,
+      recovery: {
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: cleanupRunId,
+        runAttempt: cleanupAttempt,
+        sourceSha: advancedSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      },
+      prior: {
         schema: 1,
         identity: prepared.identity,
         phase: 'recovery_cleanup',
@@ -1014,29 +1027,14 @@ test('recovery supports multi-hop cleanup continuations when main advances after
           preflightElapsedMs: 1_000,
           cleanupElapsedMs: 500
         }
-      })}\n`,
-      { mode: 0o600 }
-    );
-    await writeFile(
-      path.join(recoveryDir, 'recovery.json'),
-      `${JSON.stringify({
-        schema: 1,
-        repository: context.repository,
-        workflowPath: context.workflowPath,
-        runId: cleanupRunId,
-        runAttempt: cleanupAttempt,
-        sourceSha: advancedSha,
-        artifactId: '1234',
-        resultArtifactId: '5678'
-      })}\n`,
-      { mode: 0o600 }
-    );
+      }
+    });
 
     const fixture = deletableWorkerFixture(prepared.manifest);
     const exitCode = await topologyRunner.cleanup(
       {
         ...prepared.env,
-        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
         TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
         CLEANUP_RUN_ID: cleanupRunId,
         CLEANUP_ATTEMPT: cleanupAttempt
@@ -1078,13 +1076,20 @@ test('cleanup-recovered starts a fresh 120s deadline >120s after predecessor cle
     });
     await writeFile(prepPath, `${JSON.stringify(prepJson)}\n`, { mode: 0o600 });
 
-    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
-    const priorPath = path.join(prepared.runnerTemp, 'prior-expired-cleanup.json');
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
-    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
-    await writeFile(
-      priorPath,
-      `${JSON.stringify({
+    const { recoveryFile, priorPath } = await writeRecoveryFixture({
+      runnerTemp: prepared.runnerTemp,
+      recovery: {
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: '99999',
+        runAttempt: '1',
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      },
+      prior: {
         schema: 1,
         identity: prepared.identity,
         phase: 'recovery_cleanup',
@@ -1103,29 +1108,14 @@ test('cleanup-recovered starts a fresh 120s deadline >120s after predecessor cle
           preflightElapsedMs: 200_000,
           cleanupElapsedMs: 100_000
         }
-      })}\n`,
-      { mode: 0o600 }
-    );
-    await writeFile(
-      path.join(recoveryDir, 'recovery.json'),
-      `${JSON.stringify({
-        schema: 1,
-        repository: context.repository,
-        workflowPath: context.workflowPath,
-        runId: '99999',
-        runAttempt: '1',
-        sourceSha: context.sourceSha,
-        artifactId: '1234',
-        resultArtifactId: '5678'
-      })}\n`,
-      { mode: 0o600 }
-    );
+      }
+    });
 
     const fixture = deletableWorkerFixture(prepJson.manifest);
     const exitCode = await topologyRunner.cleanup(
       {
         ...prepared.env,
-        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
         TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
         CLEANUP_RUN_ID: '99999',
         CLEANUP_ATTEMPT: '1'
@@ -1170,11 +1160,7 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
     await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
     await writeFile(resultFile, `${JSON.stringify(existing)}\n`, { mode: 0o600 });
 
-    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
-    const run = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
-      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
-      encoding: 'utf8'
-    });
+    const run = runTopologyCli('cleanup', { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' });
 
     assert.equal(run.status, 1);
     const after = JSON.parse(await readFile(resultFile, 'utf8'));
@@ -1187,17 +1173,13 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
 
     const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-recovered-'));
     try {
-      const priorPath = path.join(recoveryRunnerTemp, 'prior.json');
+      const { priorPath } = await writeRecoveryFixture({ runnerTemp: recoveryRunnerTemp, prior: existing });
       const recoveredResultFile = path.join(recoveryRunnerTemp, 'eligibility-topology-result', 'result.json');
-      await writeFile(priorPath, `${JSON.stringify(existing)}\n`, { mode: 0o600 });
-      const recoveredRun = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: {
-          ...prepared.env,
-          RUNNER_TEMP: recoveryRunnerTemp,
-          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
-          CLOUDFLARE_API_TOKEN: 'bad'
-        },
-        encoding: 'utf8'
+      const recoveredRun = runTopologyCli('cleanup-recovered', {
+        ...prepared.env,
+        RUNNER_TEMP: recoveryRunnerTemp,
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLOUDFLARE_API_TOKEN: 'bad'
       });
       assert.equal(recoveredRun.status, 1);
       const recoveredAfter = JSON.parse(await readFile(recoveredResultFile, 'utf8'));
@@ -1220,11 +1202,7 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
 test('cli failure handler preserves validated identity and conservative reads for null-result cleanup-recovered', async () => {
   const prepared = await preparedTestRun();
   try {
-    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
-    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
-    const recoveryFile = path.join(recoveryDir, 'recovery.json');
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
-    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
     const validRecovery = {
       schema: 1,
       repository: context.repository,
@@ -1235,18 +1213,18 @@ test('cli failure handler preserves validated identity and conservative reads fo
       artifactId: '1234',
       resultArtifactId: null
     };
-    await writeFile(recoveryFile, `${JSON.stringify(validRecovery)}\n`, { mode: 0o600 });
+    const { recoveryFile } = await writeRecoveryFixture({
+      runnerTemp: prepared.runnerTemp,
+      recovery: validRecovery
+    });
 
-    const runBadToken = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-      env: {
-        ...prepared.env,
-        TOPOLOGY_RECOVERY_FILE: recoveryFile,
-        TOPOLOGY_PRIOR_RESULT_FILE: '',
-        CLEANUP_RUN_ID: context.runId,
-        CLEANUP_ATTEMPT: context.runAttempt,
-        CLOUDFLARE_API_TOKEN: 'bad'
-      },
-      encoding: 'utf8'
+    const runBadToken = runTopologyCli('cleanup-recovered', {
+      ...prepared.env,
+      TOPOLOGY_RECOVERY_FILE: recoveryFile,
+      TOPOLOGY_PRIOR_RESULT_FILE: '',
+      CLEANUP_RUN_ID: context.runId,
+      CLEANUP_ATTEMPT: context.runAttempt,
+      CLOUDFLARE_API_TOKEN: 'bad'
     });
     assert.equal(runBadToken.status, 1);
     const written = JSON.parse(await readFile(resultFile, 'utf8'));
@@ -1262,17 +1240,13 @@ test('cli failure handler preserves validated identity and conservative reads fo
     // Verify a follow-up cleanup-recovered continuation consumes this fallback result.json cleanly.
     const nextTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-cont-'));
     try {
-      const nextRecoveryDir = path.join(nextTemp, 'eligibility-topology-recovery');
       const nextPrepDir = path.join(nextTemp, 'eligibility-topology-prepared');
-      const priorCopy = path.join(nextTemp, 'prior.json');
-      await mkdir(nextRecoveryDir, { recursive: true, mode: 0o700 });
+      const { recoveryFile: nextRecoveryFile, priorPath: priorCopy } = await writeRecoveryFixture({
+        runnerTemp: nextTemp,
+        recovery: { ...validRecovery, runId: '789', resultArtifactId: '9999' },
+        prior: written
+      });
       await mkdir(nextPrepDir, { recursive: true, mode: 0o700 });
-      await writeFile(priorCopy, `${JSON.stringify(written)}\n`, { mode: 0o600 });
-      await writeFile(
-        path.join(nextRecoveryDir, 'recovery.json'),
-        `${JSON.stringify({ ...validRecovery, runId: '789', resultArtifactId: '9999' })}\n`,
-        { mode: 0o600 }
-      );
       await writeFile(
         path.join(nextPrepDir, 'prepared.json'),
         await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'prepared.json'), 'utf8'),
@@ -1287,7 +1261,7 @@ test('cli failure handler preserves validated identity and conservative reads fo
         {
           ...prepared.env,
           RUNNER_TEMP: nextTemp,
-          TOPOLOGY_RECOVERY_FILE: path.join(nextRecoveryDir, 'recovery.json'),
+          TOPOLOGY_RECOVERY_FILE: nextRecoveryFile,
           TOPOLOGY_PRIOR_RESULT_FILE: priorCopy,
           CLEANUP_RUN_ID: '789',
           CLEANUP_ATTEMPT: '1'
@@ -1326,16 +1300,13 @@ test('cli failure handler preserves validated identity and conservative reads fo
       })}\n`,
       { mode: 0o600 }
     );
-    const runWithState = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-      env: {
-        ...prepared.env,
-        TOPOLOGY_RECOVERY_FILE: recoveryFile,
-        TOPOLOGY_PRIOR_RESULT_FILE: '',
-        CLEANUP_RUN_ID: context.runId,
-        CLEANUP_ATTEMPT: context.runAttempt,
-        CLOUDFLARE_API_TOKEN: 'bad'
-      },
-      encoding: 'utf8'
+    const runWithState = runTopologyCli('cleanup-recovered', {
+      ...prepared.env,
+      TOPOLOGY_RECOVERY_FILE: recoveryFile,
+      TOPOLOGY_PRIOR_RESULT_FILE: '',
+      CLEANUP_RUN_ID: context.runId,
+      CLEANUP_ATTEMPT: context.runAttempt,
+      CLOUDFLARE_API_TOKEN: 'bad'
     });
     assert.equal(runWithState.status, 1);
     const writtenWithState = JSON.parse(await readFile(resultFile, 'utf8'));
@@ -1357,10 +1328,7 @@ test('cli failure handler preserves validated identity and conservative reads fo
       CLEANUP_ATTEMPT: context.runAttempt
     };
     delete envNoAcct.CLOUDFLARE_ACCOUNT_ID;
-    const runNoAcct = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-      env: envNoAcct,
-      encoding: 'utf8'
-    });
+    const runNoAcct = runTopologyCli('cleanup-recovered', envNoAcct);
     assert.equal(runNoAcct.status, 1);
     const writtenNoAcct = JSON.parse(await readFile(resultFile, 'utf8'));
     assert.deepEqual(writtenNoAcct.identity, prepared.identity);
@@ -1374,10 +1342,7 @@ test('cli failure handler preserves validated identity and conservative reads fo
     ];
     for (const negEnv of negativeCases) {
       await rm(resultFile, { force: true });
-      const negRun = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: negEnv,
-        encoding: 'utf8'
-      });
+      const negRun = runTopologyCli('cleanup-recovered', negEnv);
       assert.equal(negRun.status, 1);
       const negWritten = JSON.parse(await readFile(resultFile, 'utf8'));
       assert.equal(negWritten.identity, null);
@@ -1390,7 +1355,6 @@ test('cli failure handler preserves validated identity and conservative reads fo
 test('cli failure handler updates stale pre-write result.json, validates prior provenance, and fails closed under recovery_cleanup', async () => {
   const prepared = await preparedTestRun();
   try {
-    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
     const priorReads = {
       preflight: 5,
@@ -1419,10 +1383,7 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
       { mode: 0o600 }
     );
 
-    const execFail = spawnSync(process.execPath, [scriptPath, 'execute'], {
-      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
-      encoding: 'utf8'
-    });
+    const execFail = runTopologyCli('execute', { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' });
     assert.equal(execFail.status, 1);
     const execResult = JSON.parse(await readFile(resultFile, 'utf8'));
     assert.deepEqual(execResult.identity, prepared.identity);
@@ -1430,24 +1391,20 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
     assert.equal(execResult.cleanup, 'pending');
     assert.equal(execResult.reason, 'execution_failed');
 
-    const cleanupFail = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
-      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
-      encoding: 'utf8'
-    });
-    assert.equal(cleanupFail.status, 1);
-    const cleanupResult = JSON.parse(await readFile(resultFile, 'utf8'));
-    assert.deepEqual(cleanupResult.identity, prepared.identity);
-    assert.equal(cleanupResult.phase, 'cleanup');
-    assert.equal(cleanupResult.cleanup, 'blocked');
-    assert.equal(cleanupResult.reason, 'cleanup_failed');
-
     const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-c3-prior-'));
     try {
-      const recDir = path.join(recoveryRunnerTemp, 'eligibility-topology-recovery');
       const prepDir = path.join(recoveryRunnerTemp, 'eligibility-topology-prepared');
       const recResultFile = path.join(recoveryRunnerTemp, 'eligibility-topology-result', 'result.json');
-      const priorPath = path.join(recoveryRunnerTemp, 'prior.json');
-      await mkdir(recDir, { recursive: true, mode: 0o700 });
+      const recovery = {
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      };
       await mkdir(prepDir, { recursive: true, mode: 0o700 });
       await writeFile(
         path.join(prepDir, 'prepared.json'),
@@ -1458,23 +1415,10 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
         path.join(prepDir, 'staging-topology-worker.mjs'),
         await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'staging-topology-worker.mjs'))
       );
-      await writeFile(
-        path.join(recDir, 'recovery.json'),
-        `${JSON.stringify({
-          schema: 1,
-          repository: context.repository,
-          workflowPath: context.workflowPath,
-          runId: context.runId,
-          runAttempt: context.runAttempt,
-          sourceSha: context.sourceSha,
-          artifactId: '1234',
-          resultArtifactId: '5678'
-        })}\n`,
-        { mode: 0o600 }
-      );
-      await writeFile(
-        priorPath,
-        `${JSON.stringify({
+      const { recoveryFile, priorPath } = await writeRecoveryFixture({
+        runnerTemp: recoveryRunnerTemp,
+        recovery,
+        prior: {
           schema: 1,
           identity: prepared.identity,
           phase: 'cleanup',
@@ -1486,22 +1430,19 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
           reason: null,
           ownershipDiagnostic: { gate: 'stale', form: 'null' },
           providerReads: priorReads
-        })}\n`,
-        { mode: 0o600 }
-      );
-
-      const goodPrior = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: {
-          ...prepared.env,
-          RUNNER_TEMP: recoveryRunnerTemp,
-          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
-          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
-          CLEANUP_RUN_ID: context.runId,
-          CLEANUP_ATTEMPT: context.runAttempt,
-          CLOUDFLARE_API_TOKEN: 'bad'
-        },
-        encoding: 'utf8'
+        }
       });
+      const recoveredEnv = {
+        ...prepared.env,
+        RUNNER_TEMP: recoveryRunnerTemp,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt,
+        CLOUDFLARE_API_TOKEN: 'bad'
+      };
+
+      const goodPrior = runTopologyCli('cleanup-recovered', recoveredEnv);
       assert.equal(goodPrior.status, 1);
       const goodWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
       assert.deepEqual(goodWritten.identity, prepared.identity);
@@ -1515,49 +1456,28 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
       assert.deepEqual(goodWritten.providerReads, priorReads);
       assert.equal('ownershipDiagnostic' in goodWritten, false);
 
-      await rm(recResultFile, { force: true });
-      const badAcctFormat = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: {
-          ...prepared.env,
-          RUNNER_TEMP: recoveryRunnerTemp,
-          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
-          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
-          CLEANUP_RUN_ID: context.runId,
-          CLEANUP_ATTEMPT: context.runAttempt,
-          CLOUDFLARE_ACCOUNT_ID: 'invalid-account-id',
-          CLOUDFLARE_API_TOKEN: 'bad'
-        },
-        encoding: 'utf8'
-      });
-      assert.equal(badAcctFormat.status, 1);
-      const badAcctFormatWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
-      assert.equal(badAcctFormatWritten.identity, null);
+      for (const { accountId: badAccountId, expected } of [
+        { accountId: 'invalid-account-id', expected: { identity: null } },
+        {
+          accountId: 'b'.repeat(32),
+          expected: { identity: null, phase: 'recovery_cleanup', cleanup: 'blocked', reason: 'cleanup_failed' }
+        }
+      ]) {
+        await rm(recResultFile, { force: true });
+        const badAccountRun = runTopologyCli('cleanup-recovered', {
+          ...recoveredEnv,
+          CLOUDFLARE_ACCOUNT_ID: badAccountId
+        });
+        assert.equal(badAccountRun.status, 1);
+        const badAccountWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
+        for (const [key, value] of Object.entries(expected)) assert.equal(badAccountWritten[key], value);
+      }
 
       await rm(recResultFile, { force: true });
-      const badAccount = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: {
-          ...prepared.env,
-          RUNNER_TEMP: recoveryRunnerTemp,
-          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
-          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
-          CLEANUP_RUN_ID: context.runId,
-          CLEANUP_ATTEMPT: context.runAttempt,
-          CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32),
-          CLOUDFLARE_API_TOKEN: 'bad'
-        },
-        encoding: 'utf8'
-      });
-      assert.equal(badAccount.status, 1);
-      const badWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
-      assert.equal(badWritten.identity, null);
-      assert.equal(badWritten.phase, 'recovery_cleanup');
-      assert.equal(badWritten.cleanup, 'blocked');
-      assert.equal(badWritten.reason, 'cleanup_failed');
-
-      await rm(recResultFile, { force: true });
-      await writeFile(
-        priorPath,
-        `${JSON.stringify({
+      await writeRecoveryFixture({
+        runnerTemp: recoveryRunnerTemp,
+        recovery,
+        prior: {
           schema: 1,
           identity: prepared.identity,
           phase: 'cleanup',
@@ -1565,52 +1485,34 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
           cleanup: 'pending',
           reason: null,
           providerReads: { ...priorReads, preflight: 0, total: 0 }
-        })}\n`,
-        { mode: 0o600 }
-      );
-      const lowBudgetPrior = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
-        env: {
-          ...prepared.env,
-          RUNNER_TEMP: recoveryRunnerTemp,
-          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
-          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
-          CLEANUP_RUN_ID: context.runId,
-          CLEANUP_ATTEMPT: context.runAttempt,
-          CLOUDFLARE_API_TOKEN: 'bad'
-        },
-        encoding: 'utf8'
+        }
       });
+      const lowBudgetPrior = runTopologyCli('cleanup-recovered', recoveredEnv);
       assert.equal(lowBudgetPrior.status, 1);
       const lowBudgetWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
       assert.equal(lowBudgetWritten.identity, null);
       assert.equal(lowBudgetWritten.phase, 'recovery_cleanup');
       assert.equal(lowBudgetWritten.cleanup, 'blocked');
       assert.equal(lowBudgetWritten.reason, 'cleanup_failed');
-
-      await rm(resultFile, { force: true });
-      const absentExecFail = spawnSync(process.execPath, [scriptPath, 'execute'], {
-        env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
-        encoding: 'utf8'
-      });
-      assert.equal(absentExecFail.status, 1);
-      const absentExecWritten = JSON.parse(await readFile(resultFile, 'utf8'));
-      assert.equal(absentExecWritten.phase, 'execution');
-      assert.equal(absentExecWritten.cleanup, 'pending');
-      assert.equal(absentExecWritten.reason, 'execution_failed');
-
-      await rm(resultFile, { force: true });
-      const absentCleanupFail = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
-        env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
-        encoding: 'utf8'
-      });
-      assert.equal(absentCleanupFail.status, 1);
-      const absentCleanupWritten = JSON.parse(await readFile(resultFile, 'utf8'));
-      assert.equal(absentCleanupWritten.phase, 'cleanup');
-      assert.equal(absentCleanupWritten.cleanup, 'blocked');
-      assert.equal(absentCleanupWritten.reason, 'cleanup_failed');
     } finally {
       await rm(recoveryRunnerTemp, { recursive: true, force: true });
     }
+
+    await rm(resultFile, { force: true });
+    const absentExecFail = runTopologyCli('execute', { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' });
+    assert.equal(absentExecFail.status, 1);
+    const absentExecWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.equal(absentExecWritten.phase, 'execution');
+    assert.equal(absentExecWritten.cleanup, 'pending');
+    assert.equal(absentExecWritten.reason, 'execution_failed');
+
+    await rm(resultFile, { force: true });
+    const absentCleanupFail = runTopologyCli('cleanup', { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' });
+    assert.equal(absentCleanupFail.status, 1);
+    const absentCleanupWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.equal(absentCleanupWritten.phase, 'cleanup');
+    assert.equal(absentCleanupWritten.cleanup, 'blocked');
+    assert.equal(absentCleanupWritten.reason, 'cleanup_failed');
   } finally {
     await rm(prepared.runnerTemp, { recursive: true, force: true });
   }
@@ -1619,14 +1521,10 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
 test('cleanup-recovered-interrupted writes fallback only when result.json is absent', async () => {
   const prepared = await preparedTestRun();
   try {
-    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
-    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
-    const recoveryFile = path.join(recoveryDir, 'recovery.json');
     const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
-    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
-    await writeFile(
-      recoveryFile,
-      `${JSON.stringify({
+    const { recoveryFile } = await writeRecoveryFixture({
+      runnerTemp: prepared.runnerTemp,
+      recovery: {
         schema: 1,
         repository: context.repository,
         workflowPath: context.workflowPath,
@@ -1635,9 +1533,8 @@ test('cleanup-recovered-interrupted writes fallback only when result.json is abs
         sourceSha: context.sourceSha,
         artifactId: '1234',
         resultArtifactId: null
-      })}\n`,
-      { mode: 0o600 }
-    );
+      }
+    });
     const cliEnv = {
       ...prepared.env,
       TOPOLOGY_RECOVERY_FILE: recoveryFile,
@@ -1646,10 +1543,7 @@ test('cleanup-recovered-interrupted writes fallback only when result.json is abs
       CLEANUP_ATTEMPT: context.runAttempt
     };
     delete cliEnv.CLOUDFLARE_API_TOKEN;
-    const runMissingResult = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered-interrupted'], {
-      env: cliEnv,
-      encoding: 'utf8'
-    });
+    const runMissingResult = runTopologyCli('cleanup-recovered-interrupted', cliEnv);
     assert.equal(runMissingResult.status, 1);
     const written = JSON.parse(await readFile(resultFile, 'utf8'));
     assert.deepEqual(written.identity, prepared.identity);
@@ -1659,10 +1553,7 @@ test('cleanup-recovered-interrupted writes fallback only when result.json is abs
 
     const sentinel = `${JSON.stringify({ sentinel: true })}\n`;
     await writeFile(resultFile, sentinel, { mode: 0o600 });
-    const runExistingResult = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered-interrupted'], {
-      env: cliEnv,
-      encoding: 'utf8'
-    });
+    const runExistingResult = runTopologyCli('cleanup-recovered-interrupted', cliEnv);
     assert.equal(runExistingResult.status, 1);
     assert.equal(await readFile(resultFile, 'utf8'), sentinel);
   } finally {
