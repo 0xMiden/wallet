@@ -55,12 +55,13 @@ jest.mock('lib/miden/transaction/complete', () => ({
     let written = false;
     await Repo.transactions.where({ id }).modify(tx => {
       const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
-      if (tx.type !== 'register-name' || tx.restoredFromBackup || !inputs) return;
-      if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return;
+      if (tx.type !== 'register-name' || tx.restoredFromBackup || !inputs) return false;
+      if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return false;
       const next = patch.phase ?? inputs.phase;
-      if (next !== inputs.phase && TERMINAL.includes(inputs.phase)) return;
+      if (next !== inputs.phase && TERMINAL.includes(inputs.phase)) return false;
       tx.extraInputs = { ...inputs, ...patch, phase: next };
       written = true;
+      return undefined;
     });
     return written;
   },

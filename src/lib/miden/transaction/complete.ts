@@ -1164,6 +1164,26 @@ export type RegisterNameExtraInputsPatch = Partial<
   >
 >;
 
+const nextRegisterNameExtraInputs = (
+  tx: ITransaction | undefined,
+  patch: RegisterNameExtraInputsPatch,
+  options: { expectPhase?: MidenNamePhase; defaultPhase?: (current: MidenNamePhase) => MidenNamePhase } = {}
+): IRegisterNameExtraInputs | undefined => {
+  if (!tx || tx.type !== 'register-name' || tx.restoredFromBackup === true) return undefined;
+  const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+  if (!inputs) return undefined;
+  if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return undefined;
+  const fallbackPhase = options.defaultPhase ? options.defaultPhase(inputs.phase) : inputs.phase;
+  const nextPhase = patch.phase ?? fallbackPhase;
+  if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return undefined;
+  return {
+    ...inputs,
+    ...patch,
+    phase: nextPhase,
+    phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+  };
+};
+
 /**
  * Patch the `extraInputs` of a `register-name` row. Returns true when the patch
  * was written.
@@ -1180,20 +1200,12 @@ export const patchRegisterNameExtraInputs = async (
 ): Promise<boolean> => {
   let written = false;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.type !== 'register-name' || tx.restoredFromBackup === true) return;
-    const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
-    if (!inputs) return;
-    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return;
-    const nextPhase = patch.phase ?? inputs.phase;
-    if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return;
-    const next: IRegisterNameExtraInputs = {
-      ...inputs,
-      ...patch,
-      phase: nextPhase,
-      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
-    };
+    const next = nextRegisterNameExtraInputs(tx, patch, options);
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+    if (!next) return false;
     tx.extraInputs = next;
     written = true;
+    return undefined;
   });
   return written;
 };
@@ -1212,20 +1224,12 @@ export const promoteLandedRegisterNameRow = async (
   let reconciled: ITransaction | undefined;
   let writtenInputs: IRegisterNameExtraInputs | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.type !== 'register-name' || tx.restoredFromBackup === true) return false;
     if (tx.status !== ITransactionStatus.Failed) return false;
-    const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
-    if (!inputs) return false;
-    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return false;
-    const defaultPhase: MidenNamePhase = inputs.phase === 'requested' ? 'submitted' : inputs.phase;
-    const nextPhase = patch.phase ?? defaultPhase;
-    if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return false;
-    const next: IRegisterNameExtraInputs = {
-      ...inputs,
-      ...patch,
-      phase: nextPhase,
-      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
-    };
+    const next = nextRegisterNameExtraInputs(tx, patch, {
+      ...options,
+      defaultPhase: current => (current === 'requested' ? 'submitted' : current)
+    });
+    if (!next) return false;
     applyVerifiedLanding(tx, {
       ...verifiedLandingRowFields(tx),
       completedAt: tx.completedAt ?? Math.floor(Date.now() / 1000),
@@ -1277,11 +1281,7 @@ export const completeRegisterNameTransaction = async (tx: ITransaction, result: 
   // a Completed row in phase `requested`. Read the row again: the in-memory copy
   // is from the time when the loop picked the row.
   const freshRow = await Repo.transactions.where({ id: tx.id }).first();
-  const freshInputs: IRegisterNameExtraInputs | undefined = freshRow?.extraInputs;
-  const submittedInputs: IRegisterNameExtraInputs | undefined =
-    freshInputs && freshRow?.restoredFromBackup !== true && canMoveMidenNamePhase(freshInputs.phase, 'submitted')
-      ? { ...freshInputs, phase: 'submitted', phaseUpdatedAt: Date.now() }
-      : undefined;
+  const submittedInputs = nextRegisterNameExtraInputs(freshRow, { phase: 'submitted' });
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...landedFee(readLandedResultFields(result, tx.id, tx)),

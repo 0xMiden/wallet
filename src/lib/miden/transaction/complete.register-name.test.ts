@@ -18,13 +18,19 @@ jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() 
 jest.mock('lib/backup/adopt-signal', () => ({ signalTransactionCompleted: jest.fn() }));
 
 const txStore: ITransaction[] = [];
+let modifyPutCount = 0;
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: ({ id }: { id: string }) => ({
       modify: async (fn: (row: ITransaction) => void | false) => {
-        const row = txStore.find(candidate => candidate.id === id);
-        if (row) fn(row);
+        const idx = txStore.findIndex(candidate => candidate.id === id);
+        if (idx < 0) return;
+        const clone = { ...txStore[idx]! };
+        if (fn(clone) !== false) {
+          modifyPutCount += 1;
+          txStore[idx] = clone;
+        }
       },
       first: async () => txStore.find(candidate => candidate.id === id)
     })
@@ -117,6 +123,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(canonicalFeeSponsorshipNoteId).mockReturnValue('0xsponsor');
   txStore.length = 0;
+  modifyPutCount = 0;
 });
 
 describe('canMoveMidenNamePhase', () => {
@@ -147,7 +154,7 @@ describe('patchRegisterNameExtraInputs', () => {
     const row = registerRow('submitted');
     await expect(patchRegisterNameExtraInputs(row.id, { phase: 'issued' })).resolves.toBe(true);
     expect(storedPhase(row.id)).toBe('issued');
-    expect(row.extraInputs.phaseUpdatedAt).toBeGreaterThan(1);
+    expect(txStore.find(candidate => candidate.id === row.id)?.extraInputs.phaseUpdatedAt).toBeGreaterThan(1);
   });
 
   it('refuses to move the phase back', async () => {
@@ -193,8 +200,33 @@ describe('patchRegisterNameExtraInputs', () => {
   it('adds fields with no phase change and keeps phaseUpdatedAt', async () => {
     const row = registerRow('issued');
     await expect(patchRegisterNameExtraInputs(row.id, { deliveryScanFrom: 1200 })).resolves.toBe(true);
-    expect(row.extraInputs.deliveryScanFrom).toBe(1200);
-    expect(row.extraInputs.phaseUpdatedAt).toBe(1);
+    const stored = txStore.find(candidate => candidate.id === row.id);
+    expect(stored?.extraInputs.deliveryScanFrom).toBe(1200);
+    expect(stored?.extraInputs.phaseUpdatedAt).toBe(1);
+  });
+
+  it('returns false from .modify() on declined branches so Dexie skips re-putting', async () => {
+    const issued = registerRow('issued');
+    await expect(patchRegisterNameExtraInputs(issued.id, { phase: 'submitted' })).resolves.toBe(false);
+    await expect(
+      patchRegisterNameExtraInputs(issued.id, { phase: 'claiming' }, { expectPhase: 'submitted' })
+    ).resolves.toBe(false);
+    const backup: ITransaction = registerRow('submitted');
+    backup.restoredFromBackup = true;
+    await expect(patchRegisterNameExtraInputs(backup.id, { phase: 'issued' })).resolves.toBe(false);
+    txStore.push({
+      id: 'other-type',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND'
+    });
+    await expect(patchRegisterNameExtraInputs('other-type', { phase: 'issued' })).resolves.toBe(false);
+    const noInputs = registerRow('submitted');
+    delete (noInputs as { extraInputs?: unknown }).extraInputs;
+    await expect(patchRegisterNameExtraInputs(noInputs.id, { phase: 'issued' })).resolves.toBe(false);
+    expect(modifyPutCount).toBe(0);
   });
 });
 
