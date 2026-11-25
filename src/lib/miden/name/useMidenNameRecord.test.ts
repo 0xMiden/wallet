@@ -402,6 +402,39 @@ describe('useMidenNameRecord', () => {
     unmount();
   });
 
+  it('hides the resolved state in every render once support drops, then checks again when it returns', async () => {
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    const frames: MidenNameRecordState[] = [];
+    const { result, unmount } = renderHook(() => {
+      const state = useMidenNameRecord(ACCOUNT_A, 'alice');
+      frames.push(state);
+      return state;
+    });
+    await flushMicrotasks();
+    expect(result.current).toBe('here');
+
+    mockSupported = false;
+    frames.length = 0;
+    act(() => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain('here');
+    expect(result.current).toBe('none');
+
+    mockSupported = true;
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_B);
+    frames.length = 0;
+    act(() => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames).not.toContain('none');
+    expect(result.current).toBe('checking');
+    await flushMicrotasks();
+    expect(result.current).toBe('elsewhere');
+    unmount();
+  });
+
   it('resets to checking in the same render and reads again when the network changes while support stays true', async () => {
     mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
     const frames: MidenNameRecordState[] = [];

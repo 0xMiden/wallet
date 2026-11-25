@@ -95,6 +95,37 @@ describe('useMidenNameResolvesHere', () => {
     unmount();
   });
 
+  it('returns false in every render once support drops while the result is true, then reads again when it returns', async () => {
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    const frames: boolean[] = [];
+    const { result, unmount } = renderHook(() => {
+      const value = useMidenNameResolvesHere(ACCOUNT_A, 'alice');
+      frames.push(value);
+      return value;
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBe(true);
+
+    mockSupported = false;
+    frames.length = 0;
+    act(() => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames).not.toContain(true);
+    expect(result.current).toBe(false);
+
+    mockSupported = true;
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(result.current).toBe(true);
+    unmount();
+  });
+
   it('returns false in the same render and reads again when the network changes while support stays true', async () => {
     mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
     const frames: boolean[] = [];
