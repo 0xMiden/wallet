@@ -212,9 +212,7 @@ jobs:
           cmd: test:oneclick-service
 
       - name: Run Unit Tests
-        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
-        with:
-          cmd: test
+        run: bash scripts/ci/run-unit-tests.sh
 
       # The catalog is served live to every client from main, so its shape is
       # checked before it can merge. It never gates a release build: a missing
@@ -532,14 +530,7 @@ jobs:
           fi
           yarn test:coverage "${worker_args[@]}" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
 
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const result = JSON.parse(readFileSync('coverage/jest-results.json', 'utf8'));
-          const finished = result.numPassedTestSuites + result.numFailedTestSuites + result.numPendingTestSuites;
-          if (result.wasInterrupted !== false || finished !== result.numTotalTestSuites || finished === 0) {
-            throw new Error(`Incomplete coverage shard: ${finished} of ${result.numTotalTestSuites} suites accounted for`);
-          }
-          NODE
+          node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
       # A missing count only makes the gate's record step skip the badge artifact.
