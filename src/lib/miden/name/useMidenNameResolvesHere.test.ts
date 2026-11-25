@@ -117,12 +117,16 @@ describe('useMidenNameResolvesHere', () => {
     expect(frames).not.toContain(true);
     expect(result.current).toBe(false);
 
+    // The read after support returns answers differently, so a stale pre-drop snapshot (true) cannot pass for it.
     mockSupported = true;
-    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
+    mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_B);
+    frames.length = 0;
     await act(async () => {
       for (const listener of endpointListeners) listener();
     });
-    expect(result.current).toBe(true);
+    expect(frames).not.toContain(true);
+    expect(result.current).toBe(false);
+    expect(mockFetchDomainRecordAccount).toHaveBeenCalledTimes(2);
     unmount();
   });
 
