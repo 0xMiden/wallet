@@ -7,6 +7,7 @@ on:
       - 'scripts/feature-eligibility-deploy-source.mjs'
       - 'scripts/feature-eligibility-staging-probe*'
       - 'scripts/feature-eligibility-staging-inspect*'
+      - 'scripts/feature-eligibility-staging-topology*'
       - '.github/workflows/**'
       - '.github/actions/start-eligibility-fixture/**'
       - 'scripts/feature-eligibility-fixture*'
@@ -38,7 +39,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
+      - run: node --test services/feature-eligibility/worker.test.mjs services/feature-eligibility/check-deployment.test.mjs services/feature-eligibility/staging-probe.test.mjs services/feature-eligibility/staging-topology-api.test.mjs services/feature-eligibility/staging-topology-api-integration.test.mjs services/feature-eligibility/staging-topology-ownership.test.mjs scripts/feature-eligibility-staging-probe.test.mjs scripts/feature-eligibility-staging-probe-recovery.test.mjs scripts/feature-eligibility-staging-inspect.test.mjs scripts/feature-eligibility-staging-topology.test.mjs scripts/feature-eligibility-staging-topology-recovery.test.mjs scripts/feature-eligibility-fixture.test.mjs scripts/start-e2e-eligibility.test.mjs
       - name: Verify staging topology in an isolated workerd runtime
         run: node services/feature-eligibility/run-staging-topology-workerd.mjs
       - name: Verify store publishing and production artifact guards
@@ -100,3 +101,4 @@ jobs:
           .github/workflows/ui-smoothness.yml
           .github/workflows/feature-eligibility.yml
           .github/workflows/probe-feature-eligibility.yml
+          .github/workflows/feature-eligibility-topology.yml

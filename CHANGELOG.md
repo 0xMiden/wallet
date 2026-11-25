@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
 - [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device; when two devices of one Guardian account claim the same transfer, the device that does not get it removes its claim with no failed row, and only the device that placed a swap claims that swap's payout unattended, while the other devices hold the payout back from their transfers to accept for 10 minutes and show the swap's fill when it paid more than the request.
 - [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
 - [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
