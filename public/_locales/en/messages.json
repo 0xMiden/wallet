@@ -10374,8 +10374,8 @@
     "englishSource": "No matching entries found."
   },
   "commandAiLocalOnlyNote": {
-    "message": "Computed locally on this device",
-    "englishSource": "Computed locally on this device"
+    "message": "Computed privately on this device",
+    "englishSource": "Computed privately on this device"
   },
   "commandAiRecentTurns": {
     "message": "Conversation",

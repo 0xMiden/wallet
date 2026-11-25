@@ -2260,7 +2260,7 @@
   "commandAiQueryTotalTitle": "Matching total",
   "commandAiQueryHistoryTitle": "Matching activity",
   "commandAiQueryEmpty": "No matching entries found.",
-  "commandAiLocalOnlyNote": "Computed locally on this device",
+  "commandAiLocalOnlyNote": "Computed privately on this device",
   "commandAiRecentTurns": "Conversation",
   "commandAiAssistantName": "Bread Assistant",
   "commandAiPlanTitle": "Action plan",
