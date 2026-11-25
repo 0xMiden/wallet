@@ -5,7 +5,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
-import { BRIDGE_NETWORKS, BridgeNetwork, defaultBridgeNetwork, SendNetwork } from 'screens/send-flow/bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetwork, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { type AddressChain, detectAddressChain } from 'utils/miden';
 
 /**
@@ -42,7 +42,7 @@ export function contactNetworkName(address: string, network: string | undefined,
 }
 
 /** Address-book choices follow the effective network, independently of bridge route availability. */
-export function useContactBridgeNetworks(savedNetwork?: string): readonly SendNetwork[] {
+export function useContactBridgeNetworks(savedNetwork?: string): readonly BridgeNetwork[] {
   const network = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
   const testnet = network !== MIDEN_NETWORK_NAME.MAINNET;
   return BRIDGE_NETWORKS.filter(option => {
@@ -50,5 +50,5 @@ export function useContactBridgeNetworks(savedNetwork?: string): readonly SendNe
     if (option.id === savedNetwork) return true;
     const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === option.chainId);
     return chain !== undefined && Boolean(chain.testnet) === testnet;
-  }).map(option => ({ ...option, kind: 'evm' as const, bridge: false }));
+  });
 }

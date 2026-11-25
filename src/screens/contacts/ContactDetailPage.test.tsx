@@ -85,7 +85,6 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },
-  EVM_SEND_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 11155111, bridge: false }],
   defaultBridgeNetwork: () =>
     mockNetworkName === 'mainnet'
       ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }

@@ -13,7 +13,7 @@ import {
 } from '../../../playwright/e2e/helpers/contact-network';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('./bridge-networks', () => ({ EVM_SEND_NETWORKS: [] }));
+jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [] }));
 const networks: SendNetwork[] = [
   { id: 'base', name: 'Base', kind: 'evm', chainId: 8453, bridge: true },
   { id: 'arbitrum', name: 'Arbitrum', kind: 'evm', chainId: 42161, bridge: true }
@@ -68,6 +68,12 @@ it('shows a single available destination as a fact', () => {
   );
   expect(screen.getByTestId('send-network-base')).toHaveTextContent('Base');
   expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+});
+
+it('treats plain BridgeNetwork entries without kind as evm options', () => {
+  const plainEvm = [{ id: 'base', name: 'Base', chainId: 8453 }];
+  render(<NetworkField chain="ethereum" networks={plainEvm} network="base" onSelect={jest.fn()} testIdPrefix="send" />);
+  expect(screen.getByTestId('send-network-base')).toHaveTextContent('Base');
 });
 
 it('closes a nested network picker while preserving its parent sheet', () => {

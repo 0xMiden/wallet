@@ -18,8 +18,8 @@ import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { BridgeNetworkId, EVM_SEND_NETWORKS, SendNetwork, SendNetworkId } from './bridge-networks';
-import { NetworkField } from './NetworkField';
+import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import { NetworkField, NetworkOption } from './NetworkField';
 import { sendNetworkKind } from './send-network-kind';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
@@ -46,7 +46,7 @@ const DURATION = 0.28;
 export interface SelectRecipientProps {
   embedded?: boolean;
   /** The destination networks the wallet can send to. The field shows the ones that match the address chain. */
-  networks?: readonly SendNetwork[];
+  networks?: readonly NetworkOption[];
   address: string;
   isValidAddress: boolean;
   error?: string;
@@ -130,10 +130,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const addressId = useId();
   // Undefined for a Miden address: a same-chain send needs no destination network.
   const networkKind = sendNetworkKind(chain);
+  const offeredNetworks: readonly NetworkOption[] = networks ?? BRIDGE_NETWORKS;
   const selectedNetwork =
     networkKind === undefined
       ? undefined
-      : (networks ?? EVM_SEND_NETWORKS).find(option => option.id === network && option.kind === networkKind);
+      : offeredNetworks.find(option => option.id === network && (option.kind ?? 'evm') === networkKind);
   const hasAddress = address.trim().length > 0;
   const canConfirm = isValidAddress && (networkKind === undefined || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;

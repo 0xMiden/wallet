@@ -58,10 +58,6 @@ jest.mock('./bridge-networks', () => ({
     { id: 'ethereum', name: 'Ethereum', chainId: 1 },
     { id: 'base', name: 'Base', chainId: 8453 }
   ],
-  EVM_SEND_NETWORKS: [
-    { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 11155111, bridge: false },
-    { id: 'base', name: 'Base', kind: 'evm', chainId: 8453, bridge: false }
-  ],
   defaultBridgeNetwork: () =>
     mockNetworkName === 'mainnet'
       ? { id: 'ethereum', name: 'Ethereum', chainId: 1 }

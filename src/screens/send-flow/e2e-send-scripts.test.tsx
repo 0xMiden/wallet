@@ -33,7 +33,7 @@ jest.mock('react-i18next', () => ({
     }
   })
 }));
-jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [], EVM_SEND_NETWORKS: [] }));
+jest.mock('./bridge-networks', () => ({ BRIDGE_NETWORKS: [] }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'mtst1usdcxnative' }));
 jest.mock('lib/store', () => ({

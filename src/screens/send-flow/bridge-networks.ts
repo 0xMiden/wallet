@@ -116,9 +116,6 @@ function evmSendNetwork(network: BridgeNetwork, bridge: boolean, nearIntentsChai
   };
 }
 
-/** Every EVM network the wallet knows, as send networks with no route data. A contact picks its network from these. */
-export const EVM_SEND_NETWORKS: readonly SendNetwork[] = BRIDGE_NETWORKS.map(network => evmSendNetwork(network, false));
-
 // Same rule as `sendNetworksCache`: the list is an effect dependency, so keep one array per snapshot.
 const unionNetworksCache = new Map<boolean, { snapshot: BridgeConfigSnapshot; networks: readonly SendNetwork[] }>();
 

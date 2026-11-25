@@ -5,7 +5,8 @@ import { MotionConfig } from 'framer-motion';
 
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
-import type { SendNetwork } from './bridge-networks';
+import type { BridgeNetwork } from './bridge-networks';
+import type { NetworkOption } from './NetworkField';
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
@@ -18,11 +19,9 @@ const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
 const SOLANA_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-const mockBridgeNetworks: SendNetwork[] = [
-  { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 11155111, bridge: true }
-];
+const mockBridgeNetworks: BridgeNetwork[] = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  get EVM_SEND_NETWORKS() {
+  get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   }
 }));
@@ -151,7 +150,7 @@ describe('SelectRecipient', () => {
   });
 
   it('offers bridge networks in a picker once there is more than one', () => {
-    mockBridgeNetworks.push({ id: 'base', name: 'Base', kind: 'evm', chainId: 8453, bridge: true });
+    mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
     try {
       const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
@@ -184,10 +183,7 @@ describe('SelectRecipient', () => {
   });
 
   it('shows a Solana recipient its one NEAR Intents network and enables Continue once it is selected', () => {
-    const networks: SendNetwork[] = [
-      ...mockBridgeNetworks,
-      { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false }
-    ];
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
     renderRecipient({ address: SOLANA_ADDRESS, isValidAddress: true, chain: 'solana', networks, network: 'solana' });
 
     expect(screen.getByTestId('send-network-solana')).toHaveTextContent('Solana');
