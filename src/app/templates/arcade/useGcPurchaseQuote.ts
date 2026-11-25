@@ -1,13 +1,7 @@
 import useSWR from 'swr';
 
 import { usePageActive } from 'app/layouts/page-active';
-import {
-  DEFAULT_GC_PURCHASE_AMOUNT,
-  findGcSales,
-  getGcSaleConfig,
-  pickGcSale,
-  type GcSale
-} from 'lib/miden/arcade/gc-sale';
+import { findGcSales, getGcSaleConfig, pickGcPurchasePackageSale, type GcSale } from 'lib/miden/arcade/gc-sale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -43,8 +37,11 @@ export function useGcPurchaseQuote(
     () => findGcSales(network),
     { refreshInterval: SALE_REFRESH_MS, dedupingInterval: 5_000, revalidateOnFocus: false }
   );
-  const sales = (data ?? []).filter(candidate => !sameWalletAccountId(candidate.sellerAccountId, buyer));
-  const sale = pickGcSale(sales, DEFAULT_GC_PURCHASE_AMOUNT, buyer) ?? sales[0] ?? null;
+  const sales =
+    configured && error === undefined
+      ? (data ?? []).filter(candidate => !sameWalletAccountId(candidate.sellerAccountId, buyer))
+      : [];
+  const sale = pickGcPurchasePackageSale(sales);
   const state: GcPurchaseEntryState = (() => {
     switch (true) {
       case !configured:
@@ -62,6 +59,6 @@ export function useGcPurchaseQuote(
     sale,
     sales,
     state,
-    refresh: async () => pickGcSale((await mutate()) ?? [], DEFAULT_GC_PURCHASE_AMOUNT, buyer)
+    refresh: async () => pickGcPurchasePackageSale((await mutate()) ?? [], buyer)
   };
 }

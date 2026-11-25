@@ -2,7 +2,7 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { isPreviewRefundAddress } from 'screens/near-intents-flow/preview-refund';
 
-import { isValidNearIntentsAddress } from './address';
+import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from './address';
 import { nearIntentsEvmChainId } from './chains';
 import { requestOneClickQuote } from './client';
 import { initiateOneClickMidenDeposit } from './tracking';
@@ -108,7 +108,7 @@ export interface NearIntentsSendQuoteInput {
   refundTo: string;
 }
 
-function assertSendInput(input: NearIntentsSendQuoteInput): void {
+function assertSendInput(input: NearIntentsSendQuoteInput): NearIntentsSendQuoteInput {
   const { pair } = input;
   if (pair.origin.blockchain !== 'miden' || !pair.origin.faucetId || pair.destination.blockchain === 'miden') {
     throw new Error('A NEAR Intents send requires a pair from Miden to another chain.');
@@ -117,12 +117,14 @@ function assertSendInput(input: NearIntentsSendQuoteInput): void {
     throw new Error('The NEAR Intents send pair names another chain.');
   }
   if (input.amount <= 0n) throw new Error('The NEAR Intents send amount must be more than zero.');
-  if (!isValidNearIntentsAddress(pair.chain.addressKind, input.recipient)) {
+  const recipient = normalizeNearIntentsAddress(pair.chain.addressKind, input.recipient);
+  if (!isValidNearIntentsAddress(pair.chain.addressKind, recipient)) {
     throw new Error('The NEAR Intents recipient is not a valid address on the destination chain.');
   }
   if (!input.refundTo || input.refundTo.startsWith('0x') || input.refundTo.startsWith('0X')) {
     throw new Error('The NEAR Intents refund address must be the bech32 Miden address of the wallet.');
   }
+  return { ...input, recipient };
 }
 
 /**
@@ -130,12 +132,13 @@ function assertSendInput(input: NearIntentsSendQuoteInput): void {
  * Receive form does.
  */
 export function buildNearIntentsSendRequest(input: NearIntentsSendQuoteInput, now = Date.now()): OneClickQuoteRequest {
+  const recipient = normalizeNearIntentsAddress(input.pair.chain.addressKind, input.recipient);
   return {
     amount: input.amount.toString(),
     originAsset: input.pair.origin,
     destinationAsset: input.pair.destination,
     refundTo: input.refundTo,
-    recipient: input.recipient,
+    recipient,
     deadline: new Date(now + NEAR_INTENTS_SEND_QUOTE_LIFETIME_MS).toISOString(),
     slippageTolerance: NEAR_INTENTS_SEND_SLIPPAGE_BPS
   };
@@ -146,8 +149,8 @@ export async function requestNearIntentsSendPreview(
   config: NearIntentsConfig,
   input: NearIntentsSendQuoteInput
 ): Promise<{ request: OneClickQuoteRequest; quote: OneClickQuoteResponse }> {
-  assertSendInput(input);
-  const request = buildNearIntentsSendRequest(input);
+  const normalized = assertSendInput(input);
+  const request = buildNearIntentsSendRequest(normalized);
   const quote = await requestOneClickQuote(config, request, true);
   return { request, quote };
 }
@@ -171,9 +174,9 @@ export interface StartNearIntentsSendInput extends NearIntentsSendQuoteInput {
  * `reviewedMinAmountOut`, a preview placeholder address, and a pair that is not a Miden origin.
  */
 export async function startNearIntentsSend(input: StartNearIntentsSendInput): Promise<string> {
-  assertSendInput(input);
+  const normalized = assertSendInput(input);
   // A preview placeholder must never go into a deposit quote.
-  if (isPreviewRefundAddress(input.recipient) || isPreviewRefundAddress(input.refundTo)) {
+  if (isPreviewRefundAddress(normalized.recipient) || isPreviewRefundAddress(normalized.refundTo)) {
     throw new Error('A NEAR Intents send cannot use a preview placeholder address.');
   }
   // The send pipeline and the tracking row compare the faucet id with the config as written, so use that form.
@@ -182,7 +185,7 @@ export async function startNearIntentsSend(input: StartNearIntentsSendInput): Pr
     throw new Error('The NEAR Intents Miden asset is not in the configuration.');
   }
 
-  const request = buildNearIntentsSendRequest(input);
+  const request = buildNearIntentsSendRequest(normalized);
   // `requestOneClickQuote` checks the signature, the binding to the request, the deposit address, the deadline
   // and the configured pair.
   const quote = await requestOneClickQuote(input.config, request, false);

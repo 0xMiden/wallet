@@ -27,15 +27,16 @@ export const recipientOf = (row: ITransaction): { address: string; networkName?:
   const oneClick = nearIntentsSendTrackingOf(row);
   if (oneClick) {
     if (oneClick.direction !== 'miden-to-evm') return undefined;
-    const address = oneClick.request.recipient.trim();
+    const address = oneClick.request.recipient?.trim();
     if (!address) return undefined;
-    if (row.type === 'bridged-send') {
-      const extraInputs: IBridgedSendExtraInputs | undefined = row.extraInputs;
-      if (extraInputs?.destinationAddress?.trim() !== address) return undefined;
-    }
+    const extraInputs: IBridgedSendExtraInputs | undefined = row.type === 'bridged-send' ? row.extraInputs : undefined;
+    if (row.type === 'bridged-send' && extraInputs?.destinationAddress?.trim() !== address) return undefined;
     const chainId = oneClick.destinationAsset.blockchain;
-    const chains = Array.isArray(oneClick.config.chains) ? oneClick.config.chains : [];
-    return { address, networkName: chains.find(chain => chain.id === chainId)?.name };
+    const chains = Array.isArray(oneClick.config?.chains) ? oneClick.config.chains : [];
+    return {
+      address,
+      networkName: chains.find(chain => chain.id === chainId)?.name ?? extraInputs?.destinationChain?.name
+    };
   }
   if (row.type === 'send') {
     const address = row.secondaryAccountId?.trim();
@@ -46,9 +47,9 @@ export const recipientOf = (row: ITransaction): { address: string; networkName?:
     const extraInputs: IBridgedSendExtraInputs | undefined = row.extraInputs;
     const address = extraInputs?.destinationAddress?.trim();
     if (!address) return undefined;
-    // Only a numeric chain id is stored, so resolve it back to a display name.
+    // Only a numeric chain id is stored on EVM bridge rows; 1Click non-EVM or unmapped chains keep `destinationChain`.
     const network = BRIDGE_NETWORKS.find(n => n.chainId === extraInputs?.destinationNetwork);
-    return { address, networkName: network?.name };
+    return { address, networkName: network?.name ?? extraInputs?.destinationChain?.name };
   }
 
   return undefined;
@@ -91,13 +92,17 @@ export const selectRecentRecipients = (rows: ITransaction[], accountId: string):
     const recipient = recipientOf(row);
     if (!recipient) continue;
 
+    const chain = detectAddressChain(recipient.address);
+    const isCrossChain = row.type === 'bridged-send' || nearIntentsSendTrackingOf(row) !== undefined;
+    // A cross-chain recipient must never be mislabelled as Miden if its address fails external-chain detection.
+    if (isCrossChain && chain === 'miden') continue;
+
     const key = recipient.address.toLowerCase();
     // Sending to yourself is blocked at entry, but a legacy row shouldn't
     // resurface the account's own address as a suggestion.
     if (seen.has(key) || compareAccountIds(recipient.address, accountId) || key === accountId.toLowerCase()) continue;
 
     seen.add(key);
-    const chain = detectAddressChain(recipient.address);
     recents.push({
       address: recipient.address,
       chain,

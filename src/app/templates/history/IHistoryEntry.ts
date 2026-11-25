@@ -1,7 +1,6 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
-  IOneClickPhase,
   IOneClickTrackingData,
   IBridgedReceivePhase,
   IEpochLockedDeposit,
@@ -170,10 +169,7 @@ export interface IHistoryEntry {
   bridgeSettledAt?: number;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
-  /** near-intents: the display name of the destination chain (Solana, Bitcoin and NEAR have no EVM chain id). */
-  bridgeDestinationChainName?: string;
-  /** near-intents: the 1Click phase of the send, which drives its status pill. */
-  bridgeOneClickPhase?: IOneClickPhase;
+  bridgeDestinationChain?: { id: string; name: string };
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;
   bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;

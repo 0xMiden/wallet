@@ -339,4 +339,29 @@ describe('initiateSendTransaction - reclaim window bounds', () => {
     await expect(send(blocks)).resolves.toEqual(expect.any(String));
     expect(mockAdd).toHaveBeenCalledTimes(1);
   });
+
+  it('stores calendarRecallTarget from the 10th positional argument without oneClick tracking', async () => {
+    const target = '2030-01-03T14:00:00.000Z';
+    await initiateSendTransaction(
+      'mtst1sender',
+      'mtst1recipient',
+      'mtst1faucet',
+      NoteTypeEnum.Private,
+      1000n,
+      20,
+      false,
+      undefined,
+      undefined,
+      target
+    );
+
+    expect(mockAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extraInputs: expect.objectContaining({
+          calendarRecallTarget: target
+        })
+      })
+    );
+    expect(mockAdd.mock.calls.at(-1)?.[0]?.extraInputs?.oneClick).toBeUndefined();
+  });
 });

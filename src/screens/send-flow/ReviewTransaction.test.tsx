@@ -1348,7 +1348,6 @@ describe('Command Send review controller', () => {
         false,
         undefined,
         undefined,
-        undefined,
         new Date(2030, 0, 3, 14).toISOString()
       );
       expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));

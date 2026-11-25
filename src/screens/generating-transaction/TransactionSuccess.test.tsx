@@ -578,6 +578,32 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('renders a Fast Via 1Click route row with destinationAddress for a near-intents bridged send', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'bridged-send',
+          amount: 100n,
+          secondaryAccountId: 'mtst1depositaddr',
+          extraInputs: {
+            destinationAddress: 'So1anaRecipient11111111111111111111111111111',
+            destinationNetwork: -1,
+            destinationChain: { id: 'sol', name: 'Solana' },
+            provider: 'near-intents'
+          }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+    expect(container.textContent).toContain('Route');
+    expect(container.textContent).toContain('Fast');
+    expect(container.textContent).toContain('Via 1Click');
+    expect(container.textContent).toContain('So1anaRecipient11111111111111111111111111111');
+    expect(container.textContent).not.toContain('mtst1depositaddr');
+    expect(container.textContent).not.toContain('Via Agglayer');
+    act(() => root.unmount());
+  });
+
   it('renders the Guardian rotation view (not the generic fallback) for a switch-guardian tx', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess

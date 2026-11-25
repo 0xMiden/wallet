@@ -1,6 +1,6 @@
-import type { ITransaction } from 'lib/miden/db/types';
+import { NEAR_INTENTS_NO_EVM_CHAIN_ID, type ITransaction } from 'lib/miden/db/types';
 
-import { selectRecentRecipients } from './useRecentRecipients';
+import { recipientOf, selectRecentRecipients } from './useRecentRecipients';
 
 // The NEAR Intents config offers Solana; the other lookups stay real.
 jest.mock('./bridge-networks', () => ({
@@ -229,6 +229,93 @@ describe('selectRecentRecipients', () => {
       const row = nearIntentsRow(EVM_RECIPIENT, 'eth', 1_000, '0x4444444444444444444444444444444444444444');
 
       expect(selectRecentRecipients([row], ACCOUNT)).toEqual([]);
+    });
+
+    it('includes non-EVM near-intents bridged-send rows with their detected chain and keeps destinationChain.name for unmapped EVM chains', () => {
+      const solanaRow = bridgedRow({
+        completedAt: 30,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+          destinationNetwork: NEAR_INTENTS_NO_EVM_CHAIN_ID,
+          destinationChain: { id: 'sol', name: 'Solana' }
+        }
+      });
+      const mysteryEvmRow = bridgedRow({
+        completedAt: 20,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: '0x3333333333333333333333333333333333333333',
+          destinationNetwork: NEAR_INTENTS_NO_EVM_CHAIN_ID,
+          destinationChain: { id: 'mystery', name: 'Mystery EVM' }
+        }
+      });
+      const invalidCrossChainRow = bridgedRow({
+        completedAt: 10,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: 'not-a-valid-address',
+          destinationNetwork: NEAR_INTENTS_NO_EVM_CHAIN_ID,
+          destinationChain: { id: 'unknown', name: 'Unknown' }
+        }
+      });
+
+      expect(selectRecentRecipients([solanaRow, mysteryEvmRow, invalidCrossChainRow], ACCOUNT)).toEqual([
+        {
+          address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+          chain: 'solana',
+          networkName: 'Solana'
+        },
+        {
+          address: '0x3333333333333333333333333333333333333333',
+          chain: 'ethereum',
+          networkName: 'Mystery EVM'
+        }
+      ]);
+      expect(recipientOf(solanaRow)).toEqual({
+        address: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM',
+        networkName: 'Solana'
+      });
+    });
+
+    it('uses request.recipient on legacy send rows carrying oneClick instead of the deposit address', () => {
+      const legacyNonEvm = sendRow({
+        secondaryAccountId: 'mm1apdeposit111111111111111111111111111',
+        completedAt: 40,
+        extraInputs: {
+          oneClick: {
+            direction: 'miden-to-evm',
+            request: { recipient: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq' },
+            destinationAsset: { blockchain: 'btc' },
+            config: { chains: [{ id: 'btc', name: 'Bitcoin' }] }
+          }
+        }
+      });
+      const legacyEvm = sendRow({
+        secondaryAccountId: 'mm1apdeposit222222222222222222222222222',
+        completedAt: 30,
+        extraInputs: {
+          oneClick: {
+            direction: 'miden-to-evm',
+            request: { recipient: '0x4444444444444444444444444444444444444444' },
+            destinationAsset: { blockchain: 'pol' },
+            config: { chains: [{ id: 'pol', name: 'Polygon' }] }
+          }
+        }
+      });
+
+      expect(selectRecentRecipients([legacyNonEvm, legacyEvm], ACCOUNT)).toEqual([
+        {
+          address: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq',
+          chain: 'bitcoin',
+          networkName: undefined
+        },
+        {
+          address: '0x4444444444444444444444444444444444444444',
+          chain: 'ethereum',
+          networkName: 'Polygon'
+        }
+      ]);
     });
   });
 });

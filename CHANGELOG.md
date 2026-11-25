@@ -3,6 +3,18 @@
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] Send through NEAR Intents (1Click) from Miden to Ethereum, Solana, Bitcoin or NEAR: the wallet checks the destination address for its chain (EIP-55 checksum, a Solana key on the ed25519 curve, a NEAR account with a dot), sends a public note to the 1Click deposit address, and follows the send to delivery or refund.
+- [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
+- [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
+- [FIX][all] Arcade sells a fixed package of 1,000 GC for 1 USDCx plus network fees when a sale can fill the package (#1452).
+- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
+- [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
+- [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
+- [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
+- [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
+- [CHORE][ci] Run the Bread Connect Swift SDK tests on macOS through Release E2E instead of on every pull request.
+- [FIX][mobile] Keep the Android fullscreen dApp dialog window transparent and draw its backdrop on the animated container so repeated minimize and restore transitions no longer leave duplicate or nested previews (#2046).
+- [CHORE][all] Share the native-Reown versus wagmi contract transaction helper across USDCx deposits and CCTP execution (#1398).
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
 - [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.

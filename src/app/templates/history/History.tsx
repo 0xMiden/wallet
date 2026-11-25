@@ -22,9 +22,11 @@ import {
   IBridgeInInfo,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISendExtraInputs,
   ITransaction,
   ITransactionStatus,
-  ISwitchGuardianExtraInputs
+  ISwitchGuardianExtraInputs,
+  nearIntentsSendTrackingOf
 } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -55,7 +57,6 @@ import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
   earnWithdrawAmountFields,
   labelHistoryEntry,
-  nearIntentsSendHistoryFields,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -781,6 +782,7 @@ const loadedMutableActivityTxIds = (entries: readonly IHistoryEntry[]): string[]
       entry.txType === 'bridged-receive' ||
       entry.txType === 'earn-deposit' ||
       entry.txType === 'earn-withdraw' ||
+      entry.oneClickTracking !== undefined ||
       (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
     if (!mutable || entry.txId === undefined || seen.has(entry.txId)) continue;
     seen.add(entry.txId);
@@ -798,6 +800,18 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
     return null;
   }
 }
+
+const loadedActivityOneClickTracking = (tx: ITransaction): IBridgedReceiveExtraInputs['oneClick'] => {
+  if (tx.type === 'bridged-receive') return (tx.extraInputs as IBridgedReceiveExtraInputs | undefined)?.oneClick;
+  if (tx.type === 'bridged-send') {
+    const extra = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+    return extra?.provider === 'near-intents' ? extra.oneClick : undefined;
+  }
+  if (tx.type === 'send') {
+    return (tx.extraInputs as ISendExtraInputs | undefined)?.oneClick;
+  }
+  return undefined;
+};
 
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
@@ -821,6 +835,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     isCancelled,
     isUnconfirmed,
     bridgeClaimStatus: bridge?.claimStatus,
+    bridgeDestinationChain: bridge?.destinationChain,
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
@@ -828,7 +843,6 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
     bridgeReclaimHeight: bridge?.reclaimHeight,
     bridgeReclaimNoteId: bridge?.reclaimNoteId,
     bridgeSubmitClaimed: bridge?.submitClaimed,
-    bridgeOneClickPhase: nearIntentsSendHistoryFields(tx).bridgeOneClickPhase,
     bridgeInPhase: bridgedReceive?.phase,
     bridgeInStoppedBeforeSource:
       !tx.restoredFromBackup &&
@@ -839,7 +853,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-    oneClickTracking: bridgedReceive?.oneClick,
+    oneClickTracking: loadedActivityOneClickTracking(tx),
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -868,6 +882,14 @@ export const patchLoadedActivityStatus = (
     // shown object and the row does not render again.
     if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
       fields.oneClickTracking = entry.oneClickTracking;
+    }
+    if (
+      entry.bridgeDestinationChain &&
+      fields.bridgeDestinationChain &&
+      entry.bridgeDestinationChain.id === fields.bridgeDestinationChain.id &&
+      entry.bridgeDestinationChain.name === fields.bridgeDestinationChain.name
+    ) {
+      fields.bridgeDestinationChain = entry.bridgeDestinationChain;
     }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
@@ -1003,6 +1025,8 @@ async function fetchTransactionsAsHistoryEntries(
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const nearIntents = nearIntentsSendTrackingOf(tx);
+    const nearIntentsOrigin = nearIntents?.direction === 'miden-to-evm' ? nearIntents.originAsset : undefined;
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     const entry = {
       address: address,
@@ -1034,14 +1058,16 @@ async function fetchTransactionsAsHistoryEntries(
             // rather than promoting a secondary over it.
             tx.amount !== undefined && hasKnownScale(tokenMetadata)
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
-            : undefined,
+            : tx.amount !== undefined && nearIntentsOrigin?.decimals !== undefined
+              ? formatAmount(tx.amount, nearIntentsOrigin.decimals)
+              : undefined,
       token: earnWithdrawFields
         ? earnWithdrawFields.token
         : swapFields
           ? swapFields.token
-          : tokenMetadata
-            ? tokenMetadata.symbol
-            : undefined,
+          : hasKnownScale(tokenMetadata)
+            ? tokenMetadata?.symbol
+            : (nearIntentsOrigin?.symbol ?? tokenMetadata?.symbol),
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
       // The Miden collateral note landing is only half a deposit — the chip
@@ -1054,7 +1080,10 @@ async function fetchTransactionsAsHistoryEntries(
       ...(swapProgress.get(tx.id) ?? {}),
       paybackClaimStuck: stuckPaybackClaim(paybackStates.get(tx.id)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      secondaryAddress:
+        bridge?.destinationAddress ??
+        (nearIntents?.direction === 'miden-to-evm' ? nearIntents.request?.recipient : undefined) ??
+        tx.secondaryAccountId,
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -1069,6 +1098,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1086,7 +1116,7 @@ async function fetchTransactionsAsHistoryEntries(
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
-      oneClickTracking: bridgedReceive?.oneClick,
+      oneClickTracking: loadedActivityOneClickTracking(tx),
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1105,9 +1135,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
-      // Last: a NEAR Intents send takes its amount and symbol from its own tracking.
-      ...nearIntentsSendHistoryFields(tx)
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
@@ -1198,6 +1226,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const nearIntents = nearIntentsSendTrackingOf(tx);
+    const nearIntentsOrigin = nearIntents?.direction === 'miden-to-evm' ? nearIntents.originAsset : undefined;
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
@@ -1214,14 +1244,23 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
           // trustworthy scale to convert by.
           tx.amount !== undefined && hasKnownScale(tokenMetadata)
           ? formatAmount(tx.amount, tokenMetadata?.decimals)
-          : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+          : tx.amount !== undefined && nearIntentsOrigin?.decimals !== undefined
+            ? formatAmount(tx.amount, nearIntentsOrigin.decimals)
+            : undefined,
+      token: swapFields
+        ? swapFields.token
+        : hasKnownScale(tokenMetadata)
+          ? tokenMetadata?.symbol
+          : (nearIntentsOrigin?.symbol ?? tokenMetadata?.symbol),
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      secondaryAddress:
+        bridge?.destinationAddress ??
+        (nearIntents?.direction === 'miden-to-evm' ? nearIntents.request?.recipient : undefined) ??
+        tx.secondaryAccountId,
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
@@ -1234,6 +1273,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1250,8 +1290,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus,
-      // Last: a NEAR Intents send takes its amount and symbol from its own tracking.
-      ...nearIntentsSendHistoryFields(tx)
+      oneClickTracking: loadedActivityOneClickTracking(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

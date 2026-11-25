@@ -125,7 +125,11 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
   __esModule: true,
   default: () => {
     homeSwipeRenders.count += 1;
-    return <div data-testid="home-swipe" data-home-pager="" />;
+    return (
+      <div data-testid="home-swipe" data-home-pager="">
+        <div data-testid="home-scroll-region" />
+      </div>
+    );
   }
 }));
 
@@ -650,89 +654,172 @@ describe('TabLayout — bottom nav footer padding', () => {
 // A hidden pill moves down by its own height, the safe-area floor below it and the reach of its shadow.
 const HIDDEN_BAR_CLASS = 'translate-y-[calc(100%+2rem+var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom))))]';
 
-describe('TabLayout — the bar hides while scrolling down on mobile', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
-
-  // Any element inside the layout stands in for a pane's scroll region: the
-  // container listens in the capture phase, so the target's depth is irrelevant.
-  const scrollRegion = () => screen.getByTestId('bottom-nav');
+describe('TabLayout mobile navbar presentation', () => {
+  const scrollRegion = () => screen.getByTestId('child-content');
   const bar = () => screen.getByTestId('bottom-nav').parentElement!;
-  const scrollTo = (top: number) => {
-    Object.defineProperty(scrollRegion(), 'scrollTop', { value: top, configurable: true });
-    fireEvent.scroll(scrollRegion());
+  const scrollTo = (region: HTMLElement, ...positions: number[]) => {
+    Object.defineProperties(region, {
+      clientHeight: { value: 400, configurable: true },
+      scrollHeight: { value: 800, configurable: true }
+    });
+    for (const top of positions) {
+      region.scrollTop = top;
+      fireEvent.scroll(region);
+    }
   };
 
-  it('slides the bar away on a downward scroll and brings it back once scrolling stops', () => {
+  it('condenses the mobile bar on sustained downward scroll with all four destinations available', () => {
     mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
     renderLayout();
-    scrollTo(0);
-    scrollTo(40);
-    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
+    scrollTo(scrollRegion(), 0, 20, 40, 60, 80);
 
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
     expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    expect(bar()).not.toHaveClass('min-h-[calc(3.5rem+2px)]');
+    expect(bar()).not.toHaveClass('box-content');
+    expect(bar()).toHaveClass('items-end');
+    const navbar = within(screen.getByTestId('bottom-nav'));
+    for (const name of ['home', 'explore', 'activity', 'profile']) {
+      const button = navbar.getByRole('button', { name });
+      expect(button).toBeVisible();
+      expect(button).toBeEnabled();
+    }
   });
 
-  it('brings the bar back as soon as the scroll reverses upward', () => {
+  it('stays condensed when downward scrolling stops', () => {
+    jest.useFakeTimers();
     mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
     renderLayout();
-    scrollTo(0);
-    scrollTo(80);
-    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
-    scrollTo(60);
-    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
+    try {
+      scrollTo(scrollRegion(), 0, 40);
+      expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  // The bar's own state lives in the bar. While it sat in TabLayout, every hide, show and idle
-  // reset re-rendered the home carousel and made Framer re-measure the action bar's layout nodes,
-  // in the middle of the scroll that caused it.
-  it('does not re-render the home carousel while the bar hides and returns', () => {
+  it('ignores small reversals and expands after sustained upward travel', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    renderLayout();
+    const region = scrollRegion();
+    scrollTo(region, 0, 12, 10, 24, 22);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+    scrollTo(region, 40, 80, 72, 78, 66);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    scrollTo(region, 52);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+  });
+
+  it('ignores elastic overscroll at both ends of the pane', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    renderLayout();
+    const region = scrollRegion();
+    scrollTo(region, -45, 0, 18);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+    scrollTo(region, 400, 444, 398);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+  });
+
+  it('expands when the tracked scroll region shrinks to fit', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/browser';
+    renderLayout();
+    const region = scrollRegion();
+    scrollTo(region, 0, 80);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+
+    Object.defineProperty(region, 'scrollHeight', { value: region.clientHeight });
+    region.scrollTop = 0;
+    fireEvent.scroll(region);
+
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+  });
+
+  it('starts a new baseline when a different region scrolls', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    renderLayout(
+      <>
+        <div data-testid="list" />
+        <div data-testid="details" />
+      </>
+    );
+    scrollTo(screen.getByTestId('list'), 0, 80);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    scrollTo(screen.getByTestId('details'), 250, 262);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+  });
+
+  it('ignores scroll while a drawer holds the navbar hidden', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    renderLayout();
+    document.body.setAttribute('data-hide-navbar', '');
+    try {
+      scrollTo(scrollRegion(), 0, 80);
+      expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+    } finally {
+      document.body.removeAttribute('data-hide-navbar');
+    }
+  });
+
+  it('does not re-render the home carousel while the bar condenses and expands', () => {
     mockPlatform.isMobile = true;
     mockLocation.pathname = '/';
     renderLayout();
-    scrollTo(0);
+    const region = screen.getByTestId('home-scroll-region');
     const before = homeSwipeRenders.count;
-
-    scrollTo(40);
-    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
-    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
-
+    scrollTo(region, 0, 40);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    scrollTo(region, 0);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
     expect(homeSwipeRenders.count).toBe(before);
   });
 
-  // The Home pager scrolls sideways every frame of a swipe; its events are no vertical scroll and
-  // must not cost the bar any work, so they neither keep it hidden nor re-arm its idle timer.
   it("ignores the Home pager's horizontal scroll events", () => {
     mockPlatform.isMobile = true;
-    mockLocation.pathname = '/';
     renderLayout();
-    scrollTo(0);
-    scrollTo(40);
-    expect(bar()).toHaveClass(HIDDEN_BAR_CLASS);
-
-    act(() => {
-      jest.advanceTimersByTime(200);
-    });
-    fireEvent.scroll(screen.getByTestId('home-swipe'));
-    act(() => {
-      jest.advanceTimersByTime(100);
-    });
-
-    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
+    scrollTo(screen.getByTestId('home-scroll-region'), 0, 40);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    scrollTo(screen.getByTestId('home-swipe'), 0, 80);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
   });
 
-  it('never hides the floating pill off-mobile', () => {
-    mockPlatform.isMobile = false;
+  it('expands on a tab tap and resets its baseline when the route changes', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/history';
+    const { rerender } = renderLayout(<div data-testid="activity-content" />);
+    const activity = screen.getByTestId('activity-content');
+    scrollTo(activity, 0, 80);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    fireEvent.click(screen.getByTestId('nav-activity'));
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    scrollTo(activity, 80, 120);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    mockLocation.pathname = '/browser';
+    rerender(<TabLayout>{<div data-testid="browser-content" />}</TabLayout>);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+    scrollTo(activity, 0, 120);
+    expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
+  });
+
+  it('does not enter the mobile presentation off-mobile', () => {
+    mockLocation.pathname = '/history';
     renderLayout();
-    scrollTo(0);
-    scrollTo(80);
-    expect(bar()).not.toHaveClass(HIDDEN_BAR_CLASS);
+    scrollTo(scrollRegion(), 0, 80);
+    expect(bar()).not.toHaveAttribute('data-navbar-presentation');
+    expect(bar()).not.toHaveClass('min-h-[calc(3.5rem+2px)]');
+    expect(bar()).not.toHaveClass('items-end');
   });
 });
 
