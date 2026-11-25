@@ -407,6 +407,7 @@ export const PendingActivityCard = ({
             <Button
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
+              data-testid="pending-activity-accept"
               title={actionLabel}
               disabled={
                 waitingForRetry || (!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian
