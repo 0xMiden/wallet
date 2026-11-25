@@ -4,7 +4,7 @@ export const SWAP_LOSS_CAP = 2_000_000n;
 // Same worst-case bound as the wallet's FEE_RESERVE_MULTIPLE, not the usual observed fee.
 export const SWAP_TX_FEE_MULTIPLE = 30n;
 
-// Dust-sized legs (e.g. 1728 sats of WBTC for $1) get no solver quote on the way back, stranding the proceeds.
+// Guard against illiquid dust sizes: a 1728-sat WBTC leg (about $1) timed out its return quote at execution once.
 export const SWAP_MIN_BASE_UNITS = 100_000n;
 
 export interface SwapHolding {
@@ -148,5 +148,5 @@ export function swapSearchAmounts(holding: SwapHolding): bigint[] {
         cents => (cents * 10_000n * scale + holding.usdMicros - 1n) / holding.usdMicros
       )
     )
-  ].filter(amount => amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
+  ].filter(amount => amount >= SWAP_MIN_BASE_UNITS && amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
 }
