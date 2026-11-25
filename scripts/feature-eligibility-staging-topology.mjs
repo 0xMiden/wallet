@@ -247,6 +247,7 @@ export function topologyCleanupBudget({
   previousReads,
   preflightStartedAt,
   allowPreparedFallback = false,
+  recovered = false,
   now = Date.now
 } = {}) {
   const prior = validProviderReads(previousReads, preflightStartedAt) ? previousReads : null;
@@ -263,8 +264,9 @@ export function topologyCleanupBudget({
   const stateCleanupStart = Number.isSafeInteger(state?.cleanupStartedAt) ? state.cleanupStartedAt : null;
   const priorCleanupStart = Number.isSafeInteger(prior?.cleanupStartedAt) ? prior.cleanupStartedAt : null;
   const cleanupStarts = [stateCleanupStart, priorCleanupStart].filter(Number.isSafeInteger);
+  const freshCleanupStart = Number.isSafeInteger(preflightStartedAt) ? Math.max(preflightStartedAt, now()) : now();
   return {
-    cleanupStartedAt: cleanupStarts.length ? Math.min(...cleanupStarts) : now(),
+    cleanupStartedAt: !recovered && cleanupStarts.length ? Math.min(...cleanupStarts) : freshCleanupStart,
     initialCalls: {
       preflight: Math.max(state?.preflightCalls ?? 0, prior?.preflight ?? 0),
       cleanup: Math.max(state?.cleanupCalls ?? 0, prior?.cleanup ?? 0)
@@ -739,6 +741,7 @@ export async function cleanup(
     previousReads: previous.providerReads,
     preflightStartedAt: loaded.value.startedAt,
     allowPreparedFallback: recovered && recovery.resultArtifactId === null,
+    recovered,
     now: Date.now
   });
   const api = createReadApi({

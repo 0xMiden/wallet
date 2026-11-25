@@ -203,7 +203,7 @@ test('recovery identity preserves the validated original run identity', () => {
   );
 });
 
-test('cleanup recovery carries the original cleanup deadline and consumed request counts', () => {
+test('same-run cleanup inherits cleanup deadline while recovered cleanup gets a fresh deadline with cumulative counts', () => {
   const previousReads = {
     preflight: 240,
     cleanup: 12,
@@ -216,11 +216,44 @@ test('cleanup recovery carries the original cleanup deadline and consumed reques
     preflightElapsedMs: 155_000,
     cleanupElapsedMs: 35_000
   };
+  const state = { preflightCalls: 245, cleanupCalls: 15, cleanupStartedAt: 110_000 };
 
   assert.deepEqual(
-    topologyCleanupBudget({ previousReads, preflightStartedAt: 1_000, now: () => 300_000 }),
+    topologyCleanupBudget({ state, previousReads, preflightStartedAt: 1_000, recovered: false, now: () => 300_000 }),
+    {
+      cleanupStartedAt: 110_000,
+      initialCalls: { preflight: 245, cleanup: 15 }
+    }
+  );
+  assert.deepEqual(
+    topologyCleanupBudget({ previousReads, preflightStartedAt: 1_000, recovered: false, now: () => 300_000 }),
     {
       cleanupStartedAt: 120_000,
+      initialCalls: { preflight: 240, cleanup: 12 }
+    }
+  );
+  assert.deepEqual(
+    topologyCleanupBudget({ state, previousReads, preflightStartedAt: 1_000, recovered: true, now: () => 300_000 }),
+    {
+      cleanupStartedAt: 300_000,
+      initialCalls: { preflight: 245, cleanup: 15 }
+    }
+  );
+  assert.deepEqual(
+    topologyCleanupBudget({
+      previousReads: {
+        ...previousReads,
+        preflightStartedAt: 500_000,
+        preflightDeadlineAt: 620_000,
+        cleanupStartedAt: 500_000,
+        cleanupDeadlineAt: 620_000
+      },
+      preflightStartedAt: 500_000,
+      recovered: true,
+      now: () => 300_000
+    }),
+    {
+      cleanupStartedAt: 500_000,
       initialCalls: { preflight: 240, cleanup: 12 }
     }
   );
@@ -244,11 +277,12 @@ test('cleanup refuses to spend provider reads without a valid predecessor budget
 
 test('a second cleanup continuation cannot regain reads spent by its predecessor', async () => {
   let calls = 0;
-  const makeBudget = previousReads => {
+  const makeBudget = (previousReads, { recovered = false, nowMs = 130_000 } = {}) => {
     const { cleanupStartedAt, initialCalls } = topologyCleanupBudget({
       previousReads,
       preflightStartedAt: 1_000,
-      now: () => 130_000
+      recovered,
+      now: () => nowMs
     });
     return createTopologyApiBudget(
       async () => {
@@ -256,7 +290,7 @@ test('a second cleanup continuation cannot regain reads spent by its predecessor
         return {};
       },
       {
-        now: () => 130_000,
+        now: () => nowMs,
         startedAt: 1_000,
         cleanupStartedAt,
         initialCalls
@@ -275,18 +309,25 @@ test('a second cleanup continuation cannot regain reads spent by its predecessor
     preflightElapsedMs: 129_000,
     cleanupElapsedMs: 10_000
   };
-  const first = makeBudget(predecessor);
+  const first = makeBudget(predecessor, { recovered: false, nowMs: 130_000 });
   await first.cleanup('/account');
   const predecessorStats = first.stats();
-  const second = makeBudget(predecessorStats);
+  const second = makeBudget(predecessorStats, { recovered: false, nowMs: 130_000 });
+  const recoveredContinuation = makeBudget(predecessorStats, { recovered: true, nowMs: 300_000 });
 
   await assert.rejects(second.cleanup('/account'), /budget/);
+  await assert.rejects(recoveredContinuation.cleanup('/account'), /budget/);
   assert.equal(calls, 1);
   const continuedStats = second.stats();
   assert.equal(continuedStats.preflight, predecessorStats.preflight);
   assert.equal(continuedStats.cleanup, predecessorStats.cleanup);
   assert.equal(continuedStats.cleanupStartedAt, predecessorStats.cleanupStartedAt);
   assert.equal(continuedStats.cleanupDeadlineAt, predecessorStats.cleanupDeadlineAt);
+  const recoveredStats = recoveredContinuation.stats();
+  assert.equal(recoveredStats.preflight, predecessorStats.preflight);
+  assert.equal(recoveredStats.cleanup, predecessorStats.cleanup);
+  assert.equal(recoveredStats.cleanupStartedAt, 300_000);
+  assert.equal(recoveredStats.cleanupDeadlineAt, 420_000);
 });
 
 test('topology bundle selects the exact worker entrypoint inside the dry-run output directory', () => {
@@ -776,13 +817,13 @@ test('cleanup and recovery cleanup flush live read counts and deadline to result
       assert.equal(midRecoveredSnapshot.phase, 'recovery_cleanup');
       assert.equal(midRecoveredSnapshot.deploymentAttempted, true);
       assert.equal(midRecoveredSnapshot.providerReads.cleanup, 4);
-      assert.equal(
-        midRecoveredSnapshot.providerReads.cleanupStartedAt,
-        midCleanupSnapshot.providerReads.cleanupStartedAt
+      assert.ok(
+        midRecoveredSnapshot.providerReads.cleanupStartedAt >=
+          midCleanupSnapshot.providerReads.cleanupStartedAt
       );
       assert.equal(
         midRecoveredSnapshot.providerReads.cleanupDeadlineAt,
-        midCleanupSnapshot.providerReads.cleanupDeadlineAt
+        midRecoveredSnapshot.providerReads.cleanupStartedAt + 120_000
       );
     } finally {
       await rm(recoveryRunnerTemp, { recursive: true, force: true });
@@ -972,6 +1013,95 @@ test('recovery supports multi-hop cleanup continuations when main advances after
     assert.equal(result.phase, 'recovery_cleanup');
     assert.equal(result.cleanup, 'removed');
     assert.deepEqual(result.identity, prepared.identity);
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('cleanup-recovered starts a fresh 120s deadline >120s after predecessor cleanupStartedAt while keeping counts', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const preflightStart = Date.now() - 300_000;
+    const oldCleanupStart = Date.now() - 200_000;
+    const prepPath = path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'prepared.json');
+    const prepJson = JSON.parse(await readFile(prepPath, 'utf8'));
+    const bundle = await readFile(
+      path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'staging-topology-worker.mjs')
+    );
+    prepJson.startedAt = preflightStart;
+    prepJson.expiresAt = preflightStart + 8 * 60_000;
+    prepJson.manifest = buildTopologyManifest({
+      identity: prepared.identity,
+      bundle,
+      now: preflightStart,
+      expiresAt: prepJson.expiresAt,
+      maxRuns: prepJson.maxRuns,
+      inventory: []
+    });
+    await writeFile(prepPath, `${JSON.stringify(prepJson)}\n`, { mode: 0o600 });
+
+    const recoveryDir = path.join(prepared.runnerTemp, 'eligibility-topology-recovery');
+    const priorPath = path.join(prepared.runnerTemp, 'prior-expired-cleanup.json');
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    await mkdir(recoveryDir, { recursive: true, mode: 0o700 });
+    await writeFile(
+      priorPath,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        phase: 'recovery_cleanup',
+        deploymentAttempted: true,
+        cleanup: 'pending',
+        reason: null,
+        providerReads: {
+          preflight: 30,
+          cleanup: 5,
+          total: 35,
+          elapsedMs: 200_000,
+          preflightStartedAt: preflightStart,
+          preflightDeadlineAt: preflightStart + 120_000,
+          cleanupStartedAt: oldCleanupStart,
+          cleanupDeadlineAt: oldCleanupStart + 120_000,
+          preflightElapsedMs: 200_000,
+          cleanupElapsedMs: 100_000
+        }
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: '99999',
+        runAttempt: '1',
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: '5678'
+      })}\n`,
+      { mode: 0o600 }
+    );
+
+    const fixture = deletableWorkerFixture(prepJson.manifest);
+    const exitCode = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+        CLEANUP_RUN_ID: '99999',
+        CLEANUP_ATTEMPT: '1'
+      },
+      true,
+      fixture.options
+    );
+    const result = JSON.parse(await readFile(resultFile, 'utf8'));
+
+    assert.equal(exitCode, 0);
+    assert.equal(fixture.isDeleted(), true);
+    assert.ok(result.providerReads.cleanupStartedAt > oldCleanupStart + 120_000);
+    assert.equal(result.providerReads.preflight, 30);
+    assert.ok(result.providerReads.cleanup > 5);
   } finally {
     await rm(prepared.runnerTemp, { recursive: true, force: true });
   }
