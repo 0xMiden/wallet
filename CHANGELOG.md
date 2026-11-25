@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
 - [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
 - [FEATURE][all] Send through NEAR Intents (1Click) from Miden to Ethereum, Solana, Bitcoin or NEAR: the wallet checks the destination address for its chain (EIP-55 checksum, a Solana key on the ed25519 curve, a NEAR account with a dot), sends a public note to the 1Click deposit address, and follows the send to delivery or refund.
 - [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
