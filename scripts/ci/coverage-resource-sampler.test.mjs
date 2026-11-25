@@ -259,7 +259,9 @@ test('the coverage step launches and stops the sampler before running coverage',
     'trap stop_sampler EXIT',
     "trap 'exit 130' INT",
     "trap 'exit 143' TERM",
-    'yarn test:coverage --runInBand --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json',
+    'workers=--runInBand',
+    'if [[ "$SHARD" == 3 ]]; then workers=--maxWorkers=2; fi',
+    'yarn test:coverage "$workers" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json',
     'node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json'
   ].join('\n'));
 });
