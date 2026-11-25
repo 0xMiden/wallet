@@ -467,9 +467,8 @@ jobs:
             echo "native-toolbar ${{ needs.native-toolbar.result }}"; exit 1; fi
           echo "unit, mock-e2e and native-toolbar ok"
 
-  # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
-  # one ubuntu-latest). Three shards keep billed minutes about the same and cut
-  # wall clock under 25m. The required-check name stays on the merge gate.
+  # Run the unit suite under coverage in three shards and merge their maps.
+  # The required-check name stays on the merge gate.
   # The shard count is the matrix length: steps and the name read it as
   # strategy.job-total, and coverage-gate's COVERAGE_SHARDS must match it
   # (Actions cannot feed an env value into a matrix).
@@ -525,7 +524,22 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          worker_args=(--maxWorkers=2)
+          if [[ "$SHARD" == 2 ]]; then
+            # This shard has stalled repeatedly in Jest's parallel worker pool.
+            worker_args=(--runInBand)
+            export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=8192"
+          fi
+          yarn test:coverage "${worker_args[@]}" --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('coverage/jest-results.json', 'utf8'));
+          const finished = result.numPassedTestSuites + result.numFailedTestSuites + result.numPendingTestSuites;
+          if (result.wasInterrupted !== false || finished !== result.numTotalTestSuites || finished === 0) {
+            throw new Error(`Incomplete coverage shard: ${finished} of ${result.numTotalTestSuites} suites accounted for`);
+          }
+          NODE
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
       # A missing count only makes the gate's record step skip the badge artifact.
