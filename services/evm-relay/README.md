@@ -6,7 +6,7 @@ This Worker is separate from `services/wallet-api`. The wallet-api Worker stores
 
 ## State of this service
 
-The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay routes and the Sender Durable Object with its timer. It has no deploy workflow.
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay routes and the Sender Durable Object with its timer. The deploy workflow is `.github/workflows/deploy-evm-relay.yml` (see Deployment).
 
 | Route | State |
 | --- | --- |
@@ -344,12 +344,13 @@ The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`
 
 ### Rotate the relayer key
 
-Each Sender keeps `next_nonce`, the nonce after its last stored transaction, per chain. It does not know the relayer address. For a new transaction it takes the larger of `next_nonce` and the relayer's pending count. When the pending count of a new account is lower than the old `next_nonce`, the Sender gives the new account a nonce above its pending count. That transaction cannot mine until the account has sent the nonces below it. The Sender has no reset yet. Thus rotate the key only when you must:
+Each Sender stores the address of the relayer key with `next_nonce`. When a submit finds another address, the Sender drops `next_nonce`, so the next nonce is the pending count of the new account on the chain. Each row records the relayer that signed it. The timer follows a pending row of the old key to its receipt and sends its stored bytes again, but it cannot replace its fee, because it cannot sign for the old key. Thus:
 
-1. Wait until no relay is `pending`.
-2. Make the pending count of the new account reach the old `next_nonce` on each chain, for example with self-transfers of 0, before the deploy.
-3. Set `EVM_RELAY_RELAYER_PRIVATE_KEY` to the new key, fund the new address, update the executor in the wallet-config `relay` section, and run the workflow.
-4. Move the remaining funds out of the old account.
+1. Wait until no relay is `pending`, so no row of the old key waits for a fee replacement.
+2. Set `EVM_RELAY_RELAYER_PRIVATE_KEY` to the new key, fund the new address, update the executor in the wallet-config `relay` section, and run the workflow.
+3. Move the remaining funds out of the old account.
+
+A batch that a wallet signed for the old executor is refused after the change, because the batch names its executor. The wallet reads the account again and signs for the new executor.
 
 ### Read the `relayer_unfunded` log
 

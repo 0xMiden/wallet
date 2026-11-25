@@ -13,7 +13,7 @@
     "logs": { "enabled": true, "invocation_logs": false },
     "traces": { "enabled": false }
   },
-  // Placeholders. The deploy workflow of a later PR renders a release copy with the real values.
+  // Placeholders. The deploy workflow (deploy-evm-relay.yml) renders a release copy with the real values.
   // GAS_MODE is "sponsor" (the relayer pays the gas) or "deduct" (each token pays a fixed fee to feeRecipient).
   // RELAY_CONFIG is the JSON of the chains, Calibur, Agglayer and tokens. The README gives its shape.
   "vars": {
