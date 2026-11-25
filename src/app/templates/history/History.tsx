@@ -97,12 +97,10 @@ type HistoryProps = {
   externalLoading?: boolean;
   /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
   hideLoadingSpinner?: boolean;
-  /**
-   * Narrows the list further, after the search and the filter. The Groups view's own page hands
-   * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
-   * row rendering all come with it - rather than a second list that would drift from it.
-   */
+  /** Narrows the list further after the search and the filter. */
   predicate?: (entry: IHistoryEntry) => boolean;
+  /** Narrows a complete batch after the predicate, including when it is empty. */
+  filterEntries?: (entries: readonly IHistoryEntry[]) => IHistoryEntry[];
   /**
    * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
    * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
@@ -262,6 +260,7 @@ const History = memo<HistoryProps>(
     filter,
     onInitialLoad,
     predicate,
+    filterEntries,
     renderEntries,
     pendingItems,
     drawnPendingItems,
@@ -667,10 +666,11 @@ const History = memo<HistoryProps>(
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
       entries = filter === 'arcade' && !predicate ? [] : entries.filter(e => matchesActivityFilter(filter, e));
     }
-    // Last, so a group's page narrows what the search and the filter already left.
+    // A caller narrows what the search and the filter already left.
     if (predicate) {
       entries = entries.filter(predicate);
     }
+    if (filterEntries) entries = filterEntries(entries);
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);

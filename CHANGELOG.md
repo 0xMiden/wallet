@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
 - [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
 - [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
 - [FIX][all] Arcade sells a fixed package of 1,000 GC for 1 USDCx plus network fees when a sale can fill the package (#1452).

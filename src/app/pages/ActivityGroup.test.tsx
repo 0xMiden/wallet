@@ -1,9 +1,18 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { ActivityGroupList } from 'app/templates/history/ActivityGroupList';
+import {
+  ACTIVITY_COUNTERPARTY_BECH32,
+  ACTIVITY_COUNTERPARTY_HEX,
+  ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
+  mockActivityCounterpartyDecode
+} from 'app/templates/history/activityGroupTestFixtures';
 import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
+import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 
 import { ActivityGroupPage } from './ActivityGroup';
 
@@ -68,11 +77,31 @@ const contacts = {
     { address: 'mtst1blankaddress0000', name: '   ' }
   ]
 };
+const mockOwnContactAccount = { publicKey: 'mtst1own', name: 'My account', isPublic: false };
+const mockUpdateSettings = jest.fn();
+let mockRealContacts = false;
+jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ updateSettings: mockUpdateSettings }) }));
+jest.mock('lib/miden/front/ready', () => ({
+  useSettings: () => ({ contacts: contacts.value }),
+  useAllAccounts: () => [mockOwnContactAccount]
+}));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
-  useFilteredContacts: () => ({ allContacts: contacts.value, contacts: contacts.value })
+  useFilteredContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useFilteredContacts()
+      : { allContacts: contacts.value, contacts: contacts.value },
+  useActivityContacts: () =>
+    mockRealContacts
+      ? jest.requireActual('lib/miden/front/use-filtered-contacts.hook').useActivityContacts()
+      : contacts.value
 }));
 
 jest.mock('lib/woozie', () => ({
+  Link: ({ to, children, ...rest }: { to: string; children: React.ReactNode }) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
 }));
 
@@ -88,7 +117,7 @@ jest.mock('app/templates/history/activityGroups', () => {
   };
 });
 
-// The page's whole job is to hand `History` a predicate; the list itself has its own suite.
+// The page hands History the group's batch filter; History has its own suite.
 let historyProps: Record<string, unknown> = {};
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
@@ -108,7 +137,11 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   ...over
 });
 
-const predicate = () => historyProps.predicate as (entry: IHistoryEntry) => boolean;
+const filterGroupEntries = (entries: IHistoryEntry[]) => {
+  const filterEntries = historyProps.filterEntries as (loaded: readonly IHistoryEntry[]) => IHistoryEntry[];
+  return filterEntries(entries);
+};
+const predicate = () => (historyEntry: IHistoryEntry) => filterGroupEntries([historyEntry]).length === 1;
 
 describe('ActivityGroupPage', () => {
   beforeEach(() => {
@@ -116,6 +149,7 @@ describe('ActivityGroupPage', () => {
     mockLabels.value = undefined;
     mockClaims.items = [];
     mockHidden.ids = new Set();
+    mockRealContacts = false;
     jest.clearAllMocks();
   });
 
@@ -124,6 +158,105 @@ describe('ActivityGroupPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Alice' })).toBeTruthy();
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
+  });
+
+  it('opens a group detail using a saved alias without writing settings', () => {
+    const savedContacts = contacts.value;
+    try {
+      mockRealContacts = true;
+      contacts.value = [{ address: mockOwnContactAccount.publicKey, name: 'Saved alias' }];
+
+      render(<ActivityGroupPage kind="address" id={mockOwnContactAccount.publicKey} />);
+
+      expect({
+        savedAlias: Boolean(screen.queryByRole('heading', { name: 'Saved alias' })),
+        settingsWrites: mockUpdateSettings.mock.calls.length
+      }).toEqual({ savedAlias: true, settingsWrites: 0 });
+    } finally {
+      contacts.value = savedContacts;
+    }
+  });
+
+  it('uses an independent decoded-address cache for a group page', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const clearDecodes = () => {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+    };
+    const counterpartyDecodes = () => decode.mock.calls.filter(([address]) => address === ACTIVITY_COUNTERPARTY_BECH32);
+
+    try {
+      clearDecodes();
+      const list = render(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(list.getByTestId('activity-group-row')).toBeInTheDocument();
+      expect(counterpartyDecodes()).toHaveLength(1);
+
+      clearDecodes();
+      mockClaims.items = [{ note: claimNote('first-note', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      const page = render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+      expect(predicate()(firstEntry)).toBe(true);
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
+      expect(counterpartyDecodes()).toHaveLength(1);
+
+      clearDecodes();
+      list.rerender(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      mockClaims.items = [{ note: claimNote('second-note', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      page.rerender(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+      expect(predicate()(firstEntry)).toBe(true);
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
+      expect(counterpartyDecodes()).toHaveLength(0);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it('drops a decoded history spelling after an empty detail pass', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const counterpartyEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const counterpartyDecodes = () => decode.mock.calls.filter(([address]) => address === ACTIVITY_COUNTERPARTY_BECH32);
+
+    try {
+      _resetCanonicalWalletAccountIdsForTest();
+      render(<ActivityGroupPage kind="address" id={ACTIVITY_COUNTERPARTY_HEX} />);
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+      expect(counterpartyDecodes()).toHaveLength(0);
+
+      expect(filterGroupEntries([])).toEqual([]);
+      expect(filterGroupEntries([counterpartyEntry])).toEqual([counterpartyEntry]);
+      expect(counterpartyDecodes()).toHaveLength(1);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it.each([
+    ['bare', ACTIVITY_COUNTERPARTY_HEX],
+    ['tagged', `${ACTIVITY_COUNTERPARTY_HEX}_qr7qqq9wr6w`]
+  ])('opens the same named group for a %s hex route and Bech32 counterparties', (_kind, routeId) => {
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const savedContacts = contacts.value;
+    try {
+      contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];
+      mockClaims.items = [{ note: claimNote('incoming-bech32', ACTIVITY_COUNTERPARTY_BECH32), status: 'pending' }];
+      render(<ActivityGroupPage kind="address" id={routeId} />);
+
+      expect(predicate()(entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 }))).toBe(true);
+      expect(screen.getByRole('heading', { name: 'Saved counterparty' })).toBeInTheDocument();
+      expect(historyProps.drawnPendingItems).toEqual(mockClaims.items);
+    } finally {
+      contacts.value = savedContacts;
+      restoreDecoder();
+    }
   });
 
   it('falls back to the ellipsised address for a counterparty nobody has named', () => {
