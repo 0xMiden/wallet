@@ -42,8 +42,11 @@ const MAX_RESPONSE_BYTES = 1_000_000;
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
 const BLOCKCHAIN = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** A reason that the proxy names for a refused request. The proxy hides every other provider reason. */
-export type OneClickErrorCode = 'no_liquidity';
+/**
+ * A reason that the proxy names for a refused request. The proxy hides every other provider reason.
+ * `invalid_recipient`: 1Click refused the destination address of a send from Miden.
+ */
+export type OneClickErrorCode = 'no_liquidity' | 'invalid_recipient';
 
 export class OneClickHttpError extends Error {
   constructor(
@@ -59,7 +62,15 @@ export class OneClickHttpError extends Error {
 function errorCodeOf(body: string): OneClickErrorCode | undefined {
   try {
     const parsed: unknown = JSON.parse(body);
-    return isRecord(parsed) && parsed.error === 'no_liquidity' ? 'no_liquidity' : undefined;
+    if (!isRecord(parsed)) return undefined;
+    switch (parsed.error) {
+      case 'no_liquidity':
+        return 'no_liquidity';
+      case 'invalid_recipient':
+        return 'invalid_recipient';
+      default:
+        return undefined;
+    }
   } catch {
     return undefined;
   }

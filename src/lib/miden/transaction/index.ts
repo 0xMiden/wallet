@@ -211,6 +211,7 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
+  nearIntentsSendTrackingOf,
   ReplaceHotKeyTransaction,
   SendTransaction,
   StageDetail,
@@ -2497,7 +2498,9 @@ const generateTransactionWithProvider = async (
   try {
     // Validate before fee discovery; keep the pre-write read because the intent can change during that await.
     if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
-    if (transaction.type === 'bridged-send') requireBridgedSendRecordedRequest(transaction);
+    if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) !== 'near-intents') {
+      requireBridgedSendRecordedRequest(transaction);
+    }
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2552,6 +2555,13 @@ const generateTransactionWithProvider = async (
         }
         case 'bridged-send':
         case 'earn-deposit': {
+          if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) === 'near-intents') {
+            // NEAR Intents send: a public P2ID to the 1Click deposit address whose quote deadline `sendTransaction`
+            // checks before its submit. It awaits a verdict and stamps stages like a plain send.
+            return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+              midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stamp, submitGate)
+            );
+          }
           // Both carry the request built at initiate. A bridged send without its own bytes, or without the one note
           // those bytes recorded, was refused before this signer. So was an Earn deposit without its bytes or without
           // that one note, since nothing can rebuild its mandate binding.
@@ -4481,18 +4491,29 @@ const generateGuardianTransaction = async (
     case 'bridged-send': {
       await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
+      const bridgeProvider = bridgeTx.extraInputs?.provider;
       // The recorded request and its one note, before the service load, which can reach the guardian. The note id
       // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
-      const requestBytes = requireBridgedSendRecordedRequest(transaction);
+      const requestBytes =
+        bridgeProvider === 'near-intents' ? undefined : requireBridgedSendRecordedRequest(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
-      if (bridgeTx.extraInputs?.provider === 'epoch') {
+      if (bridgeProvider === 'near-intents') {
+        // NEAR Intents: a public P2ID note to the 1Click deposit address, with no recall window, as the
+        // ordinary send's non-recallable branch builds it. A bridged-send is not requeueable, so a transient
+        // 409 is waited out in process, as on the other bridge routes.
+        const depositAddress = bridgeTx.secondaryAccountId;
+        if (!depositAddress) throw new Error('The NEAR Intents send has no 1Click deposit address.');
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          service.createSendProposal(depositAddress, bridgeTx.faucetId, BigInt(bridgeTx.amount), NoteType.Public)
+        );
+      } else if (bridgeProvider === 'epoch') {
+        proposalResult = await withGuardianConflictRetry(() =>
+          proposeRebased(service, transaction, requestBytes!, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, requestBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          proposeRebased(service, transaction, requestBytes!, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -5022,7 +5043,8 @@ const generateGuardianTransaction = async (
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
-    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    // A NEAR Intents send (a `bridged-send` row, or a `send` row of an older build) must not submit past its deadline.
+    const oneClick = nearIntentsSendTrackingOf(transaction);
     const oneClickDeadline = oneClick
       ? assertOneClickFundingDeadlineMatches(
           oneClick.fundingDeadline,

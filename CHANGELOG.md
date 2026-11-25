@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
 - [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
 - [FIX][all] Arcade sells a fixed package of 1,000 GC for 1 USDCx plus network fees when a sale can fill the package (#1452).
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).

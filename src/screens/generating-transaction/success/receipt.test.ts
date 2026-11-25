@@ -1,4 +1,4 @@
-import { buildReceiptRows } from './receipt';
+import { bridgeRouteValue, bridgeSpeedLabel, buildReceiptRows } from './receipt';
 
 const t = (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key;
 
@@ -27,5 +27,16 @@ describe('buildReceiptRows', () => {
     const labels = rows.map(row => row.label);
     expect(labels.indexOf('networkFee')).toBeGreaterThan(labels.indexOf('Total Paid'));
     expect(labels.indexOf('networkFee')).toBeLessThan(labels.indexOf('Transaction ID'));
+  });
+});
+
+describe('bridge route helpers', () => {
+  it('labels each bridge provider route and speed cleanly', () => {
+    expect(bridgeSpeedLabel(t, 'epoch')).toBe('Fast');
+    expect(bridgeRouteValue(t, 'epoch')).toBe('Via Epoch');
+    expect(bridgeSpeedLabel(t, 'agglayer')).toBe('Slow');
+    expect(bridgeRouteValue(t, 'agglayer')).toBe('Via Agglayer');
+    expect(bridgeSpeedLabel(t, 'near-intents')).toBe('Fast');
+    expect(bridgeRouteValue(t, 'near-intents')).toBe('Via 1Click');
   });
 });

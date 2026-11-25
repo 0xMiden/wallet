@@ -12,7 +12,10 @@ import {
   SubmitEvidenceSource
 } from '../db/types';
 
-/** Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer and USDCx routes. */
+/**
+ * Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer, USDCx and NEAR Intents
+ * routes.
+ */
 const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
@@ -45,8 +48,18 @@ export const canAwaitVerdict = (
   if (tx.restoredFromBackup === true || tx.rotationFunding === true) return false;
   if (tx.type !== 'bridged-send') return true;
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
-  // Nothing awaits an Agglayer or USDCx burn's row, and its note lands on its own once submitted.
-  return extra?.provider === 'agglayer' || extra?.provider === 'usdcx';
+  switch (extra?.provider) {
+    // Nothing awaits an Agglayer or USDCx burn's row, and its note lands on its own once submitted. A NEAR Intents
+    // send is a plain P2ID to the 1Click deposit address: its tracking waits for the row to complete, as it did when
+    // the row was a `send`.
+    case 'agglayer':
+    case 'usdcx':
+    case 'near-intents':
+      return true;
+    case 'epoch':
+    case undefined:
+      return false;
+  }
 };
 
 export type ProvableEvidence = ISubmitEvidence &

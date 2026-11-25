@@ -115,6 +115,22 @@ describe('Miden and Ethereum address utilities', () => {
     expect(detectAddressChain('')).toBe('miden');
     expect(detectAddressChain('mtst1abc')).toBe('miden');
   });
+
+  it('reads a partial or Miden-prefixed input as Miden', () => {
+    for (const value of ['m', 'mt', 'mtst', 'mm', 'mdev', 'mlcl', 'abc', 'alice', TESTNET_ADDRESS_WITH_ROUTING]) {
+      expect(detectAddressChain(value)).toBe('miden');
+    }
+    // A partial `0x` stays Ethereum, as before.
+    expect(detectAddressChain('0x')).toBe('ethereum');
+  });
+
+  it.each(['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq', 'alice.near'])(
+    'keeps external-chain input %s on the Miden path until routing is wired',
+    address => {
+      expect(detectAddressChain(address)).toBe('miden');
+      expect(isValidRecipientAddress(address)).toBe(false);
+    }
+  );
 });
 
 it.each([
