@@ -41,6 +41,14 @@ const NOTE_TRANSPORT_ENV_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
 // null = no override active → getters fall back to build defaults keyed by DEFAULT_NETWORK.
 let overrideCache: EndpointOverride | null = null;
 
+// The stylesheet recolors the accent for testnet off this attribute (main.css). A realm with no document, such as the
+// background worker, has nothing to mark.
+function setOverrideCache(next: EndpointOverride | null): void {
+  overrideCache = next;
+  if (typeof document !== 'undefined') document.documentElement.dataset.network = getEffectiveNetworkName();
+}
+setOverrideCache(null);
+
 export function getActiveOverride(): EndpointOverride | null {
   return overrideCache;
 }
@@ -191,7 +199,7 @@ export function getEndpointState(): EndpointState {
 
 // Only a realm that cannot read extension storage calls this; every other realm loads its own.
 export function adoptEndpointState(state: EndpointState): void {
-  overrideCache = state.override;
+  setOverrideCache(state.override);
   feeFaucetCache = state.feeFaucetId;
 }
 
@@ -303,14 +311,14 @@ export async function loadEndpointOverrides(): Promise<void> {
   try {
     await loadFeeFaucetId();
     if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
-      overrideCache = null;
+      setOverrideCache(null);
       return;
     }
     try {
       const storage = getStorageProvider();
       const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
       const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-      overrideCache = isEndpointOverride(raw) ? raw : null;
+      setOverrideCache(isEndpointOverride(raw) ? raw : null);
     } catch {
       // Deliberate: see the comment above applyEndpointOverride.
     }
@@ -324,7 +332,7 @@ export async function loadEndpointOverrides(): Promise<void> {
 // a rejected read in loadEndpointOverrides keeps what the realm had loaded (null on its first load).
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
-  overrideCache = override;
+  setOverrideCache(override);
 }
 
 /**
@@ -337,7 +345,7 @@ export async function forgetDeveloperNetworkChoice(): Promise<void> {
   if (!isEndpointOverride(raw) || !raw.developerChoice) return;
   const { developerChoice: _marker, ...rest } = raw;
   await storage.set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: rest });
-  overrideCache = rest;
+  setOverrideCache(rest);
 }
 
 /**
@@ -347,7 +355,7 @@ export async function forgetDeveloperNetworkChoice(): Promise<void> {
  */
 export async function clearEndpointOverride(): Promise<void> {
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-  overrideCache = null;
+  setOverrideCache(null);
 }
 
 const OVERRIDE_ENDPOINT_FIELDS = [

@@ -785,6 +785,18 @@ body[data-home-band]::before {
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
+    /* The brand ramp behind Tailwind's `primary-*` classes; testnet recolors it below. */
+    --primary-50: #fff3ec;
+    --primary-500: #e77537;
+    --primary-600: #c95a21;
+    --primary-disabled: #f3c5ad;
+    --primary-disabled-dark: #6b3e25;
+    --primary-orange: #e77537;
+    --primary-orange-disabled: #dcd4c8;
+    --primary-orange-light: #f7c8b1;
+    --primary-orange-dark: #9f4518;
+    --primary-orange-lighter: #fff3ec;
+    --primary-orange-darker: #652d15;
     /* Action colours: each of Home's five actions takes one account card colour, and that one
      * brand colour is both the tab's icon and its flow's accent (glyphs, borders, selected states),
      * so the two can never drift. It is never darkened for contrast: text in an action's colour
@@ -1059,6 +1071,36 @@ body[data-home-band]::before {
     --ds-negative-tint-ink: #e7a193;
     /* Lifted on #191919, where the light red sits at 2.9:1. */
     --ds-notification: #ff453a;
+  }
+
+  /* Testnet turns the primary accent from the brand orange to blue, and the strip above every page
+   * (MainnetCountdownBanner) follows through the accent tint. `data-network` is set on the root by
+   * effective-endpoints, so a switch to mainnet brings the orange back. Devnet keeps its own palette.
+   * The dark block comes second: both match the root element at the same specificity. */
+  :root[data-network='testnet'] {
+    --accent-primary: #2f6feb;
+    --accent-primary-hover: #2558c0;
+    --ds-launcher-fill: #2f6feb;
+    --ds-accent-tint: #e9f0fd;
+    --ds-accent-tint-ink: #1e4db7;
+    --primary-50: #e9f0fd;
+    --primary-500: #2f6feb;
+    --primary-600: #2558c0;
+    --primary-disabled: #b7cdf8;
+    --primary-orange: #2f6feb;
+    --primary-orange-light: #b8cff8;
+    --primary-orange-dark: #1e4db7;
+    --primary-orange-lighter: #e9f0fd;
+    --primary-orange-darker: #16336e;
+  }
+
+  .dark[data-network='testnet'] {
+    --accent-primary: #4c86f0;
+    --accent-primary-hover: #3a72db;
+    --ds-launcher-fill: #4c86f0;
+    --ds-accent-tint: #18243d;
+    --ds-accent-tint-ink: #9dbdf8;
+    --primary-disabled-dark: #2b3f66;
   }
 }
 
