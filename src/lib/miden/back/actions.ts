@@ -9,6 +9,10 @@ import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-auth
 import { installBackupSignalHandler } from 'lib/backup/adopt-signal';
 import { deleteBackupProfile, onBackupLock, runBackupRefresh } from 'lib/backup/refresh';
 import type { AgglayerDepositConfig } from 'lib/evm-relay/batch';
+import { fetchRelayAccount, fetchRelayJob, submitRelay } from 'lib/evm-relay/client';
+import { createRelayDepositEngine, type RelayDepositStatus, type RelayDepositTarget } from 'lib/evm-relay/deposit';
+import { relayDepositRoute } from 'lib/evm-relay/deposit-route';
+import { createRelayRow, readOpenRelayRows } from 'lib/evm-relay/deposit-rows';
 import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
@@ -60,6 +64,7 @@ import {
   toPersistedSpendingLimit,
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
+import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
@@ -96,6 +101,7 @@ import { resolveTelemetryContext } from 'lib/telemetry/context';
 import { sendEvent } from 'lib/telemetry/sink';
 import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
 import { burnFeeFailureOf } from 'lib/usdcx/burn-fee-failure';
+import { getChain } from 'lib/walletconnect/config';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -948,6 +954,50 @@ export async function signRelay(accountPublicKey: string, request: RelaySignRequ
     if (error instanceof RelaySignRuleError) throw new PublicError(error.message);
     throw error;
   }
+}
+
+// One engine per realm: its in-memory guard runs one tick at a time per account and chain.
+const relayDepositEngine = createRelayDepositEngine({
+  initConfig: async () => {
+    await initBridgeConfig();
+  },
+  relayChain: getRelayChain,
+  route: (chainId, token) => relayDepositRoute(getBridgeConfigSnapshot(), chainId, token),
+  account: async accountPublicKey => {
+    await ensureSdkWasmReady();
+    return withUnlocked(async ({ vault }) => {
+      const accounts = await vault.fetchAccounts();
+      return accounts.find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey)) ?? null;
+    });
+  },
+  midenAccountHex: async publicKey => {
+    await ensureSdkWasmReady();
+    return accountRefToSdk(publicKey).toString();
+  },
+  fetchAccount: (chainId, address) => fetchRelayAccount(chainId, address),
+  submit: request => submitRelay(request),
+  fetchJob: id => fetchRelayJob(id),
+  sign: signRelay,
+  storage: {
+    get: async key => (await getStorageProvider().get([key]))[key],
+    set: (key, value) => getStorageProvider().set({ [key]: value }),
+    remove: key => getStorageProvider().remove([key])
+  },
+  rows: {
+    open: readOpenRelayRows,
+    create: createRelayRow,
+    write: (id, phase, fields) => updateBridgedReceivePhase(id, phase, fields)
+  },
+  chainName: chainId => getChain(chainId)?.name ?? `chain ${chainId}`,
+  nowMs: () => Date.now()
+});
+
+/**
+ * One step of the deposit-address bridge-in of an account (`lib/evm-relay/deposit.ts`): it relays what the relay
+ * address holds of the target token to the account through Agglayer, or follows the relay job that does.
+ */
+export function relayDepositTick(accountPublicKey: string, target: RelayDepositTarget): Promise<RelayDepositStatus> {
+  return relayDepositEngine(accountPublicKey, target);
 }
 
 export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {

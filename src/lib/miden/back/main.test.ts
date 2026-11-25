@@ -221,6 +221,7 @@ jest.mock('lib/miden/back/actions', () => ({
   signTransaction: jest.fn(),
   signEvm: jest.fn(),
   signRelay: jest.fn(),
+  relayDepositTick: jest.fn(),
   getAuthSecretKey: jest.fn(),
   getAllDAppSessions: jest.fn(),
   removeDAppSession: jest.fn(),
@@ -1086,6 +1087,15 @@ describe('processRequest', () => {
     const res = await dispatch({ type: WalletMessageType.SignRelayRequest, accountPublicKey: 'pk', request });
     expect(res).toEqual({ type: WalletMessageType.SignRelayResponse, result });
     expect(Actions.signRelay).toHaveBeenCalledWith('pk', request);
+  });
+
+  it('RelayDepositTickRequest runs one deposit tick and returns its status', async () => {
+    const status = { kind: 'relay-pending', rowId: 'row-1' };
+    Actions.relayDepositTick.mockResolvedValueOnce(status);
+    const target = { provider: 'agglayer', chainId: 8453, token: '0x0000000000000000000000000000000000000000' };
+    const res = await dispatch({ type: WalletMessageType.RelayDepositTickRequest, accountPublicKey: 'pk', target });
+    expect(res).toEqual({ type: WalletMessageType.RelayDepositTickResponse, status });
+    expect(Actions.relayDepositTick).toHaveBeenCalledWith('pk', target);
   });
 
   it('SignEvmRequest drops a key role, so the relay key cannot sign a generic payload', async () => {

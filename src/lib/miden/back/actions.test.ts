@@ -14,6 +14,7 @@ import {
   TEST_FEE_RECIPIENT,
   TEST_MIDEN_ACCOUNT_HEX
 } from 'lib/evm-relay/batch/testing';
+import type { RelayDepositTarget } from 'lib/evm-relay/deposit';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -55,6 +56,7 @@ import {
   updateSettings,
   signTransaction,
   signRelay,
+  relayDepositTick,
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
@@ -2030,6 +2032,40 @@ describe('actions', () => {
       const hostile = Object.assign({}, base, { chainId: 0 });
       await expect(signRelay('pk1_suffix', hostile)).rejects.toThrow('Relay signature refused: chain-id');
       expect(mockInitBridgeConfig).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('relayDepositTick', () => {
+    const target = { provider: 'agglayer', chainId: 11155111, token: TEST_ERC20 } satisfies RelayDepositTarget;
+    const CHAIN: RelayChainConfig = {
+      key: 'sepolia',
+      chainId: 11155111,
+      executor: TEST_EXECUTOR,
+      calibur: SEPOLIA_CALIBUR_PIN,
+      maxFee: {}
+    };
+
+    beforeEach(() => {
+      mockInitBridgeConfig.mockClear();
+      mockGetRelayChain.mockReset().mockReturnValue(null);
+      mockVault.fetchAccounts.mockReset();
+    });
+
+    it('hydrates the config and reports a relay that does not serve the chain', async () => {
+      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'off' });
+      expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+      expect(mockGetRelayChain).toHaveBeenCalledWith(11155111);
+      expect(mockVault.fetchAccounts).not.toHaveBeenCalled();
+    });
+
+    it("reads the account's relay address from the vault", async () => {
+      mockGetRelayChain.mockReturnValue(CHAIN);
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1' }]);
+      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'no-relay-address' });
+
+      // The bridge config of this realm lists no Agglayer route.
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1', relayEvmAddress: TEST_FEE_RECIPIENT }]);
+      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'no-route' });
     });
   });
 

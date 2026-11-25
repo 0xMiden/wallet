@@ -58,3 +58,22 @@ The service is not trusted for anything that decides where funds go or what they
   the fee is negative, or the result is not positive.
 - `assertRelayJobMatches(job, expectedId)`: the job id is the EIP-712 digest that the wallet computed. Else it
   throws `RelayMismatchError`.
+
+## Deposit engine (`deposit.ts`)
+
+`relayDepositTick(accountPublicKey, { provider: 'agglayer', chainId, token })` (a backend action) does one step and
+returns a JSON-safe `RelayDepositStatus`. The caller decides when to tick. One tick runs at a time per account and
+chain in a realm. A tick:
+
+1. Finishes a stored submission first (`relay_pending_v1:<account>:<chainId>`, `deposit-store.ts`). Before its
+   deadline it sends the same body again. After the deadline, or on `sign-again`, it reads the job by its id (the
+   digest): a known job gets its row, an unknown one drops the record.
+2. Follows an open job (`fetchRelayJob`) and writes its state on the row. The service keeps a job for 24 hours, so a
+   job it does not know is asked for again until the row is 24 hours old; then the row follows its hash alone.
+3. Else reads the relay address, checks it with the guards, signs (authorization when needed, then the batch),
+   checks the digest against its own `batchDigest`, stores the submission, sends it, and writes the row once per job.
+
+The row (`deposit-rows.ts`) has the shape of a WalletConnect Agglayer deposit row with its hash (`provider:
+'agglayer'`, phase `submitting`, `evmTxHash`, the amount in source base units, `faucetId: ''`), plus
+`extraInputs.relay`. A succeeded job moves it to `delivering`, a reverted one to `failed`. The existing Agglayer
+reconciler and claim matching then take it over. A row restored from a backup is never driven.
