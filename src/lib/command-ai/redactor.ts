@@ -182,8 +182,21 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
     timeWindowProtected.add(numStart);
   }
 
-  // Priority 4: Exact numeric amounts (excluding explicit percentages like `50%` and time-window digits).
-  const numRx = /(?<![A-Za-z0-9_.$])(?:(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?|\.(\d+))(?![A-Za-z0-9_%])/g;
+  // Priority 4: Exact numeric amounts (standalone or glued to a known ticker like `1eth`, excluding percentages/time windows).
+  const nicheTokens = [...(ctx.heldNicheTickers ?? [])]
+    .filter(tok => tok.symbol.trim().length >= 2 && !liquid.has(tok.symbol.trim().toUpperCase()))
+    .sort((a, b) => b.symbol.trim().length - a.symbol.trim().length);
+  const tickerList = [...new Set([...liquid, ...nicheTokens.map(t => t.symbol.trim())])].sort(
+    (a, b) => b.length - a.length
+  );
+  const tickerGuard =
+    tickerList.length > 0
+      ? `(?:(?![A-Za-z0-9_%])|(?=(?:${tickerList.map(escapeRegExp).join('|')})(?![A-Za-z0-9_])))`
+      : '(?![A-Za-z0-9_%])';
+  const numRx = new RegExp(
+    `(?<![A-Za-z0-9_.$])(?:(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d+))?|\\.(\\d+))${tickerGuard}`,
+    'gi'
+  );
   for (const match of input.matchAll(numRx)) {
     const start = match.index ?? 0;
     if (timeWindowProtected.has(start)) continue;
@@ -192,11 +205,8 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
   }
 
   // Priority 5: Held niche tokens outside the liquid ticker allowlist.
-  const nicheTokens = [...(ctx.heldNicheTickers ?? [])]
-    .filter(tok => tok.symbol.trim().length >= 2 && !liquid.has(tok.symbol.trim().toUpperCase()))
-    .sort((a, b) => b.symbol.trim().length - a.symbol.trim().length);
   for (const token of nicheTokens) {
-    const rx = new RegExp(`\\b${escapeRegExp(token.symbol.trim())}\\b`, 'gi');
+    const rx = new RegExp(`(?<![A-Za-z_])${escapeRegExp(token.symbol.trim())}\\b`, 'gi');
     for (const match of input.matchAll(rx)) {
       const start = match.index ?? 0;
       spans.push({ start, end: start + match[0].length, priority: 5, kind: 'TOKEN', raw: match[0], token });

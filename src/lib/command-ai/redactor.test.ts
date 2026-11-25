@@ -78,4 +78,19 @@ describe('command-ai privacy redactor', () => {
     expect(res.redactedText).not.toContain('.5');
     expect(res.redactedText).not.toContain('0X02323');
   });
+
+  it('redacts numeric amounts glued to known tickers like 1eth or 10ZORK', () => {
+    const res = redactPrompt('send 1eth to 0x00032', { contacts });
+    expect(res.redactedText).toBe('send <AMT_1>eth to <ADDR_1>');
+    expect(res.map.amounts.AMT_1).toBe('1');
+    expect(res.map.addrs.ADDR_1).toBe('0x00032');
+
+    const niche = redactPrompt('send 10ZORK to Alice', {
+      contacts,
+      heldNicheTickers: [{ symbol: 'ZORK', tokenId: 'faucet-zork' }]
+    });
+    expect(niche.redactedText).toBe('send <AMT_1><TOKEN_1> to <CONTACT_1>');
+    expect(niche.map.amounts.AMT_1).toBe('10');
+    expect(niche.map.tokens.TOKEN_1?.tokenId).toBe('faucet-zork');
+  });
 });

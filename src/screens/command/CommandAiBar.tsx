@@ -386,21 +386,21 @@ export function CommandAiBar({
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col gap-2 rounded-2xl border border-hairline bg-fill/75 px-3.5 py-2 shadow-sm transition-colors focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/20"
+        className="flex flex-col gap-2.5 rounded-3xl border border-hairline bg-fill/75 px-5 py-3 shadow-sm transition-colors focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/20"
       >
         {expanded && turns.length > 0 && (
           <div
             data-testid="command-ai-thread"
             aria-label={t('commandAiRecentTurns')}
-            className="flex max-h-36 flex-col gap-1.5 overflow-y-auto border-b border-hairline pb-2 pt-1 text-body-sm"
+            className="flex max-h-48 flex-col gap-2 overflow-y-auto border-b border-hairline pb-3 pt-1 text-body"
           >
             {turns.map(turn => (
               <div
                 key={turn.id}
                 className={
                   turn.role === 'user'
-                    ? 'self-end rounded-xl bg-accent-tint px-3 py-1.5 text-ink'
-                    : 'self-start rounded-xl border border-hairline bg-page px-3 py-1.5 text-muted'
+                    ? 'self-end rounded-xl bg-accent-tint px-3.5 py-2 text-ink'
+                    : 'self-start rounded-xl border border-hairline bg-page px-3.5 py-2 text-muted'
                 }
               >
                 {turn.text}
@@ -409,8 +409,8 @@ export function CommandAiBar({
           </div>
         )}
 
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Icon name={IconName.Bolt} size="sm" className="shrink-0 text-accent-tint-ink" aria-hidden="true" />
+        <div className="flex min-w-0 items-center gap-3.5">
+          <Icon name={IconName.Bolt} size="md" className="shrink-0 text-accent-tint-ink" aria-hidden="true" />
 
           {expanded ? (
             <textarea
@@ -426,7 +426,7 @@ export function CommandAiBar({
                 }
               }}
               placeholder={t('commandAiPlaceholder')}
-              className="min-h-16 min-w-0 flex-1 resize-y bg-transparent py-1 text-body text-ink outline-none placeholder:text-muted"
+              className="min-h-28 min-w-0 flex-1 resize-y bg-transparent py-2 text-xl leading-relaxed text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           ) : (
             <input
@@ -436,14 +436,14 @@ export function CommandAiBar({
               value={input}
               onChange={event => setInput(event.target.value)}
               placeholder={t('commandAiPlaceholder')}
-              className="h-9 min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-muted"
+              className="h-18 min-w-0 flex-1 bg-transparent text-xl text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           )}
 
           {activeRedactedKinds.length > 0 && (
             <span
               data-testid="command-ai-privacy-badge"
-              className="hidden shrink-0 items-center gap-1 rounded-lg border border-hairline bg-page px-2 py-1 text-caption text-muted sm:inline-flex"
+              className="hidden shrink-0 items-center gap-1 rounded-lg border border-hairline bg-page px-2.5 py-1.5 text-caption text-muted sm:inline-flex"
             >
               <Icon name={IconName.ShieldCheck} size="xs" className="text-accent-receive-ink" aria-hidden="true" />
               {t('commandAiRedactedBadge', { kinds: activeRedactedKinds.join(', ') })}
@@ -457,23 +457,23 @@ export function CommandAiBar({
             aria-label={t(expanded ? 'commandAiCollapse' : 'commandAiExpand')}
             title={t(expanded ? 'commandAiCollapse' : 'commandAiExpand')}
             onClick={() => setExpanded(prev => !prev)}
-            className="grid size-8 shrink-0 place-items-center rounded-xl text-muted hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
+            className="grid size-10 shrink-0 place-items-center rounded-xl text-muted hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
           >
-            <Icon name={expanded ? IconName.ChevronUp : IconName.ChevronDown} size="xs" aria-hidden="true" />
+            <Icon name={expanded ? IconName.ChevronUp : IconName.ChevronDown} size="sm" aria-hidden="true" />
           </button>
 
           <button
             type="submit"
             data-testid="command-ai-submit"
             disabled={busy || input.trim().length === 0}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-accent-primary px-3 text-body-sm font-medium text-page transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent-primary px-4 text-body font-medium text-page transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
           >
             {busy ? (
               <WaveDots label={t('commandAiWorking')} />
             ) : (
               <>
                 <span>{t('commandAiSendButton')}</span>
-                <Icon name={IconName.ArrowRight} size="xs" aria-hidden="true" />
+                <Icon name={IconName.ArrowRight} size="sm" aria-hidden="true" />
               </>
             )}
           </button>
