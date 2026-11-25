@@ -68,9 +68,9 @@ function claimActionState(item: PendingActivityItem) {
 
 export function isActivityClaimWaiting(item: PendingActivityItem, hiddenLoaded: boolean): boolean {
   const { canAccept, feeBlocked, held } = claimActionState(item);
-  // Decline is on the card only after hidden notes load. A fee-blocked note counts while that
-  // Decline is enabled; a held retry counts without it.
-  return item.holdUntil === undefined && ((canAccept && !feeBlocked) || held || (feeBlocked && hiddenLoaded));
+  const canAcceptOrRetry = item.holdUntil === undefined && ((canAccept && !feeBlocked) || held);
+  // A failed transfer can still offer Decline during its Guardian hold once hidden notes load.
+  return canAcceptOrRetry || (canAccept && hiddenLoaded);
 }
 
 function formatDateTime(unixSeconds: number): string {
