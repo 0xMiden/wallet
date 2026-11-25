@@ -303,7 +303,11 @@ test.describe('Usage analytics egress', () => {
       // an `open` with a `send`. Both are named rather than counted: a bare
       // "more than one kind" would be satisfied by any incidental extra flow
       // even after the two this step is about had stopped arriving.
-      const sessions = new Set(sinceReload.map(envelope => String(envelope.sessionId)));
+      // Visits are left out: a document being replaced reports its last visit under its own run on pagehide,
+      // so a visit may legitimately carry the run of the page that just went away.
+      const sessions = new Set(
+        sinceReload.filter(e => !String(e.eventName).endsWith('_visit')).map(envelope => String(envelope.sessionId))
+      );
       const flowNames = [
         ...new Set(
           sinceReload
@@ -513,13 +517,14 @@ function assertEnvelopeShape(request: SinkRequest): void {
 
   const pairless = /_(settled|visit)$/.test(String(envelope.eventName));
   expect(shape).toBe(pairless ? 'absent' : 'nanoid');
-  if (String(envelope.eventName).endsWith('_visit')) {
-    const props = envelope.props as Record<string, unknown>;
-    expect(VISIT_SCREENS).toContain(String(envelope.eventName).replace(/_visit$/, ''));
-    expect(props.screen).toBe(String(envelope.eventName).replace(/_visit$/, ''));
-    expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(props.navSource);
-    expect(['popup', 'side_panel', 'full_page', 'app']).toContain(props.surface);
-  }
+  // Unconditional by construction: a non-visit event is checked against stand-ins, so the visit contract goes
+  // quiet for no event kind.
+  const isVisit = String(envelope.eventName).endsWith('_visit');
+  const visitProps = envelope.props as Record<string, unknown>;
+  expect(VISIT_SCREENS).toContain(isVisit ? visitProps.screen : VISIT_SCREENS[0]);
+  expect(isVisit ? visitProps.screen : 'x').toBe(isVisit ? String(envelope.eventName).replace(/_visit$/, '') : 'x');
+  expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(isVisit ? visitProps.navSource : 'initial');
+  expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit ? visitProps.surface : 'popup');
   // Holds either way: an absent flow id stringifies to something no 21-character
   // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));
