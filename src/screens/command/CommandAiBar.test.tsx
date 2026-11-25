@@ -528,6 +528,17 @@ describe('CommandAiBar', () => {
       step(48, 22);
       expect(input().placeholder).toBe('commandAiSamplePrompt2|');
 
+      // Focusing hides the placeholder and pauses timer progression; blurring resumes it.
+      fireEvent.focus(input());
+      expect(input().placeholder).toBe('');
+      step(24, 10);
+      expect(input().placeholder).toBe('');
+      fireEvent.blur(input());
+      expect(input().placeholder).toBe('commandAiSamplePrompt2|');
+      step(2200);
+      step(24);
+      expect(input().placeholder).toBe('commandAiSamplePrompt|');
+
       fireEvent.change(input(), { target: { value: 'hello' } });
       expect(input().placeholder).toBe('commandAiPlaceholder');
       rerender(<CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />);

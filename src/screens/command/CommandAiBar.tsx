@@ -222,16 +222,15 @@ export function CommandAiBar({
   tokenPrices: TokenPrices;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const samplePrompt1 = t('commandAiSamplePrompt1');
+  const samplePrompt2 = t('commandAiSamplePrompt2');
+  const samplePrompt3 = t('commandAiSamplePrompt3');
+  const samplePrompt4 = t('commandAiSamplePrompt4');
+  const samplePrompt5 = t('commandAiSamplePrompt5');
+  const samplePrompt6 = t('commandAiSamplePrompt6');
   const samplePrompts = useMemo(
-    () => [
-      t('commandAiSamplePrompt1'),
-      t('commandAiSamplePrompt2'),
-      t('commandAiSamplePrompt3'),
-      t('commandAiSamplePrompt4'),
-      t('commandAiSamplePrompt5'),
-      t('commandAiSamplePrompt6')
-    ],
-    [t]
+    () => [samplePrompt1, samplePrompt2, samplePrompt3, samplePrompt4, samplePrompt5, samplePrompt6],
+    [samplePrompt1, samplePrompt2, samplePrompt3, samplePrompt4, samplePrompt5, samplePrompt6]
   );
   const drafts = useOptionalCommandDrafts();
   const planCtx = useOptionalCommandAiPlan();
@@ -243,6 +242,7 @@ export function CommandAiBar({
 
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [state, setState] = useState<AiBarState>({ kind: 'idle' });
   const [turns, setTurns] = useState<BarTurn[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
@@ -462,9 +462,10 @@ export function CommandAiBar({
   const activePlan = state.kind === 'idle' ? planCtx?.plan : null;
   const animatedPlaceholder = useTypingPlaceholder(
     samplePrompts,
-    input.length === 0 && !busy,
+    input.length === 0 && !busy && !focused,
     t('commandAiPlaceholder')
   );
+  const effectivePlaceholder = focused ? '' : animatedPlaceholder;
 
   return (
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
@@ -509,7 +510,9 @@ export function CommandAiBar({
                   void handleSubmit();
                 }
               }}
-              placeholder={animatedPlaceholder}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={effectivePlaceholder}
               className="min-h-28 min-w-0 flex-1 resize-y bg-transparent py-2 text-xl leading-relaxed text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           ) : (
@@ -519,7 +522,9 @@ export function CommandAiBar({
               aria-label={t('commandAiBarLabel')}
               value={input}
               onChange={event => setInput(event.target.value)}
-              placeholder={animatedPlaceholder}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={effectivePlaceholder}
               className="h-18 min-w-0 flex-1 bg-transparent text-xl text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           )}

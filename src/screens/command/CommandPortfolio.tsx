@@ -402,6 +402,7 @@ export function CommandPortfolio({
                     );
                   }
                 }}
+                onMouseLeave={() => setSelected(null)}
               >
                 <CommandHistoryTrace key={range} points={chartPoints} reveal={selectedRange !== null} />
                 {yTicks.map(tick => (
@@ -414,7 +415,7 @@ export function CommandPortfolio({
                     ${formatAmountDisplay(tick.value, displayOptions)}
                   </span>
                 ))}
-                {activePoint && sample && (
+                {selected !== null && activePoint && sample && (
                   <>
                     <div
                       data-testid="command-chart-tooltip"

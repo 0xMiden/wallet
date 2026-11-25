@@ -1,6 +1,7 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { PortfolioObservation } from 'lib/miden/portfolio-observations';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
@@ -86,11 +87,10 @@ export function buildActivityHistoryObservations({
         item =>
           compareAccountIds(item.tokenId, move.faucetId) || item.tokenId.toLowerCase() === move.faucetId.toLowerCase()
       );
-      if (!asset) continue;
+      if (!asset || !hasKnownScale(asset.metadata)) continue;
       const price = priceForAsset(asset, tokenPrices);
       if (price <= 0) continue;
-      const decimals = asset.metadata.decimals ?? 6;
-      const units = Number(move.amount) / 10 ** decimals;
+      const units = Number(move.amount) / 10 ** asset.metadata.decimals;
       if (Number.isFinite(units) && units > 0) {
         moveUsd += units * price;
       }

@@ -729,3 +729,42 @@ it('reconstructs a continuous line chart from completed +100, -10, -20 transacti
   fireEvent.change(slider, { target: { value: '3' } });
   expect(screen.getByRole('status').textContent).toContain('70.00 USD');
 });
+
+it('clears chart crosshair and callout when mouse leaves the chart', async () => {
+  store.hidden = false;
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - 2 * bucketMs,
+    capturedAt: capturedAt - 2 * bucketMs,
+    currency: 'USD',
+    value: '4',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  await realRecord({
+    ...scope,
+    bucket: capturedAt - bucketMs,
+    capturedAt: capturedAt - bucketMs,
+    currency: 'USD',
+    value: '6',
+    coverage: 'complete',
+    coverageKey: 'priced:priced'
+  });
+  render(<CommandPortfolio scope={scope} />);
+  const chart = await screen.findByTestId('command-chart');
+  expect(screen.queryByTestId('command-chart-tooltip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-chart-marker')).not.toBeInTheDocument();
+
+  const rect = chart.getBoundingClientRect();
+  Object.defineProperty(rect, 'width', { value: 100 });
+  jest.spyOn(chart, 'getBoundingClientRect').mockReturnValue(rect);
+  fireEvent.mouseMove(chart, { clientX: 0 });
+  expect(screen.getByTestId('command-chart-tooltip')).toHaveTextContent('$4.00');
+  expect(screen.getByTestId('command-chart-marker')).toBeInTheDocument();
+  expect(screen.getByRole('status').textContent).toContain('4.00 USD');
+
+  fireEvent.mouseLeave(chart);
+  expect(screen.queryByTestId('command-chart-tooltip')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('command-chart-marker')).not.toBeInTheDocument();
+  expect(screen.getByRole('status').textContent).toContain('6.00 USD');
+});
