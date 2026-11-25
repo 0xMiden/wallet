@@ -72,7 +72,7 @@ import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, setSendDraft } from './send-draft';
 import { sendNetworkKind } from './send-network-kind';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
-import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
+import { canSendTokenToNetwork, sendTokenRoutes } from './send-token-routes';
 import { SendAmount, type SendAmountProps } from './SendAmount';
 import { SendRoute, type SendRouteProps } from './SendRoute';
 import {
@@ -679,8 +679,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     bridgeConfig
   ]);
   const defaultCandidates = useMemo(
-    () => sendableHoldings.filter(row => canSendTokenToChain(bridgeConfig, row.tokenId, destinationChainId)),
-    [sendableHoldings, bridgeConfig, destinationChainId]
+    () => sendableHoldings.filter(row => canSendTokenToNetwork(bridgeConfig, row.tokenId, selectedNetwork)),
+    [sendableHoldings, bridgeConfig, selectedNetwork]
   );
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
@@ -702,7 +702,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       const held = draft
         ? isRetiredTransferToken(bridgeConfig, preselectedTokenId, nativeFaucetId)
         : isNewTransferTokenHeld(bridgeConfig, preselectedTokenId, nativeFaucetId);
-      if (match && !held && canSendTokenToChain(bridgeConfig, preselectedTokenId, destinationChainId)) {
+      if (match && !held && canSendTokenToNetwork(bridgeConfig, preselectedTokenId, selectedNetwork)) {
         appliedPreselectionRef.current = preselectedTokenId;
         automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
@@ -779,7 +779,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setValue,
     getValues,
     bridgeConfig,
-    destinationChainId
+    selectedNetwork
   ]);
 
   // Only the token Continue would send: the chosen one, else a link not yet applied. The picker explains the rows it
@@ -791,19 +791,25 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Clear a token that the selected destination cannot receive. Only a new destination or a new token clears it: a
   // config refresh whose read failed for a moment keeps the user's token and amount, and Continue stays blocked.
-  const checkedSelectionRef = useRef<{ chainId?: number; tokenId?: string }>({});
+  const checkedSelectionRef = useRef<{ chainId?: number; nearIntentsChainId?: string; tokenId?: string }>({});
+  const selectedNearIntentsChainId = selectedNetwork?.nearIntentsChainId;
   useEffect(() => {
     const checked = checkedSelectionRef.current;
     // A destination the config stops offering for a moment reads as no destination; it is not a new one, so its return
     // is not a change either.
     const chainId = destinationChainId ?? checked.chainId;
-    if (checked.chainId === chainId && checked.tokenId === token?.id) return;
-    checkedSelectionRef.current = { chainId, tokenId: token?.id };
-    if (token && !canSendTokenToChain(bridgeConfig, token.id, destinationChainId)) {
+    if (
+      checked.chainId === chainId &&
+      checked.nearIntentsChainId === selectedNearIntentsChainId &&
+      checked.tokenId === token?.id
+    )
+      return;
+    checkedSelectionRef.current = { chainId, nearIntentsChainId: selectedNearIntentsChainId, tokenId: token?.id };
+    if (token && !canSendTokenToNetwork(bridgeConfig, token.id, selectedNetwork)) {
       setValue('token', undefined);
       setValue('amount', '');
     }
-  }, [bridgeConfig, destinationChainId, token, setValue]);
+  }, [bridgeConfig, destinationChainId, selectedNearIntentsChainId, selectedNetwork, token, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -984,7 +990,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           (isBridge &&
             (bridgeRoute === 'near-intents' ? nearIntents === undefined : destinationChainId === undefined)))) ||
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
-      (!canSendTokenToChain(bridgeConfig, token.id, destinationChainId) && bridgeRoute !== 'near-intents') ||
+      !canSendTokenToNetwork(bridgeConfig, token.id, selectedNetwork) ||
       (isBridge && routeEligibility.blocked)
     )
       return;
@@ -1041,6 +1047,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     bridgeConfig,
     nativeFaucetId,
     destinationChainId,
+    selectedNetwork,
     isValidRecipient,
     errors.amount,
     payoutFeeShortfall,
@@ -1418,7 +1425,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         anchorRef={command ? tokenAnchorRef : undefined}
         onSelect={onSelectToken}
         usdcxOnly={usdcxOnly}
-        destinationChainId={destinationChainId}
+        destinationNetwork={selectedNetwork}
       />
 
       <AccountsListDrawer

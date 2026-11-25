@@ -311,7 +311,7 @@ jest.mock('./SelectToken', () => ({
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
       <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
-      <span data-testid="td-chain">{props.destinationChainId}</span>
+      <span data-testid="td-chain">{props.destinationNetwork?.chainId}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -412,7 +412,13 @@ const mockUnsupportedSendTokens = new Set<string>();
 // Set by a test that needs both bridge routes; unset, the token routes follow the rules below.
 let mockTokenRoutes: { epoch: boolean; agglayer: boolean } | undefined;
 jest.mock('./send-token-routes', () => ({
-  canSendTokenToChain: (_snapshot: object, faucetId: string, chainId?: number) => {
+  canSendTokenToNetwork: (
+    _snapshot: object,
+    faucetId: string,
+    network?: { bridge?: boolean; chainId?: number; nearIntentsChainId?: string }
+  ) => {
+    if (network?.nearIntentsChainId !== undefined) return true;
+    const chainId = network?.bridge ? network.chainId : undefined;
     if (chainId === undefined) return true;
     if (mockTokenRoutes) return mockTokenRoutes.epoch || mockTokenRoutes.agglayer;
     if (mockUnsupportedSendTokens.has(faucetId)) return false;
@@ -3523,6 +3529,47 @@ describe('NEAR Intents send wiring', () => {
       });
       expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
       expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^true$/);
+    } finally {
+      mockOfferedNetworks = undefined;
+    }
+  });
+
+  it('keeps non-bridge tokens eligible, preselectable and non-cleared on dual-route NEAR EVM networks while rejecting bridge-only bypasses', () => {
+    mockUnsupportedSendTokens.add('T1');
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 1 }]
+    });
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, nearIntentsChainId: 'eth' }];
+    try {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      const { rerender } = renderFlow();
+      pickContact('0xrecip');
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+      expect(screen.getByTestId('td-chain')).toHaveTextContent('11155111');
+
+      act(() => {
+        fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+      });
+      mockCardStack = [{ name: SendFlowStep.Route }];
+      rerender(<SendFlow isLoading={false} />);
+      act(() => {
+        fireEvent.click(screen.getByTestId('route-pick-near-intents'));
+      });
+      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
+
+      const callsBefore = navigateMock.mock.calls.length;
+      // Dropping nearIntentsChainId while bridgeRoute is still 'near-intents' clears token on rerender and blocks review.
+      mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+      rerender(<SendFlow isLoading={false} />);
+      act(() => {
+        fireEvent.click(screen.getByTestId('route-confirm'));
+      });
+      expect(navigateMock.mock.calls.length).toBe(callsBefore);
+
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
     } finally {
       mockOfferedNetworks = undefined;
     }
