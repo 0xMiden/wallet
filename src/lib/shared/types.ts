@@ -596,7 +596,16 @@ export interface WalletAccount {
    * signing operation.
    */
   evmAddress?: string;
+  /**
+   * Address of the account's relay key, the deposit address the user sends bridge funds to. Public data. The vault
+   * derives the relay key from the stored EVM key (`lib/miden/relay-key/derive.ts`) when it signs and stores no
+   * second secret. Absent when the account has no stored EVM key.
+   */
+  relayEvmAddress?: string;
 }
+
+/** Which of an account's EVM keys signs: its EVM key (`evmAddress`) or its relay key (`relayEvmAddress`). */
+export type EvmKeyRole = 'account' | 'relay';
 
 export interface ImportedAccountBackup {
   accountId: string;
@@ -1019,6 +1028,8 @@ export interface SignEvmRequest extends WalletMessageBase {
   /** Miden bech32 WalletAccount.publicKey selecting whose EVM key signs. */
   accountPublicKey: string;
   operation: SignEvmOperation;
+  /** The EVM key that signs. Absent means `'account'`. */
+  key?: EvmKeyRole;
 }
 
 export interface SignEvmResponse extends WalletMessageBase {

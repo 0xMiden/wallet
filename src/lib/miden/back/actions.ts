@@ -76,6 +76,7 @@ import {
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
+  EvmKeyRole,
   SerializedSpend,
   SignEvmOperation,
   WalletAccount,
@@ -567,6 +568,10 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
             })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
+        // Best-effort, like the resume above: a record with no relay address only waits for the next unlock.
+        await vault
+          .backfillRelayEvmAddresses()
+          .catch(e => console.warn('[unlock] relay address backfill failed (non-fatal):', e));
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -861,9 +866,9 @@ export function signWord(publicKey: string, wordHex: string, transactionId?: str
   });
 }
 
-export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
+export function signEvm(accountPublicKey: string, operation: SignEvmOperation, key: EvmKeyRole = 'account') {
   return withUnlocked(async ({ vault }) => {
-    return await vault.signEvm(accountPublicKey, operation);
+    return await vault.signEvm(accountPublicKey, operation, key);
   });
 }
 

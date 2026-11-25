@@ -10,6 +10,7 @@
  * m/44'/60'/0'/0/0 → 0xf39F…2266, m/44'/60'/0'/0/1 → 0x7099…79C8.
  */
 
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import {
   keccak256,
   parseTransaction,
@@ -23,6 +24,7 @@ import type { TransactionSerializedEIP1559 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import * as Passworder from 'lib/miden/passworder';
+import { deriveRelayKeyScalar } from 'lib/miden/relay-key/derive';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -137,6 +139,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 const EVM_ADDR_0 = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const EVM_ADDR_1 = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+// Hardhat keys #0 and #1: the EVM keys of the two addresses above.
+const EVM_KEY_0 = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const EVM_KEY_1 = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+// The relay address of EVM_KEY_0, pinned in lib/miden/relay-key/derive.test.ts.
+const RELAY_ADDR_0 = '0x69ee74A6F96658C72fb4Db3bDE950972cc865bfA';
+
+const relayAddressOf = (evmPrivateKeyHex: string): string =>
+  privateKeyToAccount(`0x${bytesToHex(deriveRelayKeyScalar(hexToBytes(evmPrivateKeyHex.slice(2))))}`).address;
 
 const VAULT_PREFIX = 'vault';
 const ck = (id: string) => `${VAULT_PREFIX}_${id}`;
@@ -150,7 +160,11 @@ const keys = {
   vaultKeyPassword: 'vault_key_password'
 };
 
-async function seedVault(accounts: WalletAccount[], mnemonic: string = TEST_MNEMONIC): Promise<Vault> {
+async function seedVault(
+  accounts: WalletAccount[],
+  mnemonic: string = TEST_MNEMONIC,
+  evmKeys: [address: string, privateKeyHex: string][] = []
+): Promise<Vault> {
   const vaultKeyBytes = Passworder.generateVaultKey();
   const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
   const encryptedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, 'pw');
@@ -160,7 +174,8 @@ async function seedVault(accounts: WalletAccount[], mnemonic: string = TEST_MNEM
     [
       [keys.check, TEST_MNEMONIC],
       [keys.mnemonic, mnemonic],
-      [keys.accounts, accounts]
+      [keys.accounts, accounts],
+      ...evmKeys.map(([address, privateKeyHex]): [string, string] => [keys.accEvmSecretKey(address), privateKeyHex])
     ],
     vaultKey
   );
@@ -196,6 +211,16 @@ describe('Vault.spawn: EVM identity stamping', () => {
     const privateKeyHex = await fetchAndDecryptOne<`0x${string}`>(keys.accEvmSecretKey(EVM_ADDR_0), vaultKey);
     expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
   }, 60_000);
+
+  it('stamps the relay address of the stored EVM key and stores no relay secret', async () => {
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
+    const accounts = await vault.fetchAccounts();
+
+    expect(accounts[0]!.relayEvmAddress).toBe(RELAY_ADDR_0);
+    expect(relayAddressOf(EVM_KEY_0)).toBe(RELAY_ADDR_0);
+    expect(accounts[0]!.relayEvmAddress).not.toBe(accounts[0]!.evmAddress);
+    expect(Object.keys(memoryStore).some(key => key.toLowerCase().includes(RELAY_ADDR_0.toLowerCase()))).toBe(false);
+  }, 60_000);
 });
 
 describe('Vault.createHDAccount: EVM identity stamping', () => {
@@ -207,6 +232,87 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
     const created = accounts.find(acc => acc.publicKey === 'acc-pub-key-2');
     expect(created?.hdIndex).toBe(1);
     expect(created?.evmAddress).toBe(EVM_ADDR_1);
+    expect(created?.relayEvmAddress).toBe(relayAddressOf(EVM_KEY_1));
+  }, 60_000);
+});
+
+describe('Vault.signEvm with the relay key', () => {
+  let vault: Vault;
+
+  beforeEach(async () => {
+    vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
+  }, 60_000);
+
+  it('message: recovers the relay address', async () => {
+    const signature = await vault.signEvm(
+      'acc-pub-key-1',
+      { op: 'message', messageHex: stringToHex('hello relay') },
+      'relay'
+    );
+    expect(await recoverMessageAddress({ message: 'hello relay', signature })).toBe(RELAY_ADDR_0);
+  });
+
+  it('typed-data digest: recovers the relay address', async () => {
+    const digest = keccak256(stringToHex('relay-typed-data'));
+    const signature = await vault.signEvm('acc-pub-key-1', { op: 'typed-data', digest }, 'relay');
+    expect(await recoverAddress({ hash: digest, signature })).toBe(RELAY_ADDR_0);
+  });
+
+  it('transaction: recovers the relay address', async () => {
+    const serializedTransaction = serializeTransaction({
+      chainId: 11155111,
+      type: 'eip1559',
+      nonce: 0,
+      gas: 21000n,
+      maxFeePerGas: 1000000000n,
+      maxPriorityFeePerGas: 1000000000n,
+      to: EVM_ADDR_1,
+      value: 1n
+    });
+    const signed = await vault.signEvm('acc-pub-key-1', { op: 'transaction', serializedTransaction }, 'relay');
+    const isEip1559 = (value: string): value is TransactionSerializedEIP1559 => value.startsWith('0x02');
+    if (!isEip1559(signed)) throw new Error('the signed transaction is not EIP-1559');
+    expect(await recoverTransactionAddress({ serializedTransaction: signed })).toBe(RELAY_ADDR_0);
+  });
+
+  it('the default key still recovers the account EVM address', async () => {
+    const signature = await vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: stringToHex('default') });
+    expect(await recoverMessageAddress({ message: 'default', signature })).toBe(EVM_ADDR_0);
+  });
+
+  it('refuses when the record has no relay address', async () => {
+    const seeded = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)], TEST_MNEMONIC, [
+      [EVM_ADDR_0, EVM_KEY_0]
+    ]);
+    await expect(seeded.signEvm('acc-pub-key-1', { op: 'message', messageHex: '0x01' }, 'relay')).rejects.toThrow(
+      'Account has no relay key'
+    );
+  }, 60_000);
+});
+
+describe('Vault.backfillRelayEvmAddresses', () => {
+  it('stamps an older record from its stored EVM key, skips the rest, and is idempotent', async () => {
+    const vault = await seedVault(
+      [
+        hdAccount('acc-pub-key-1', 0, EVM_ADDR_0),
+        // An address with no stored key blob: skipped, not fatal.
+        hdAccount('acc-pub-key-2', 1, EVM_ADDR_1),
+        // An imported account has no EVM key at all.
+        { ...hdAccount('acc-imported', -1), hdIndex: -1 }
+      ],
+      TEST_MNEMONIC,
+      [[EVM_ADDR_0, EVM_KEY_0]]
+    );
+
+    await vault.backfillRelayEvmAddresses();
+    const accounts = await vault.fetchAccounts();
+    expect(accounts.map(account => account.relayEvmAddress)).toEqual([RELAY_ADDR_0, undefined, undefined]);
+    expect(accounts[0]!.evmAddress).toBe(EVM_ADDR_0);
+
+    const storedAfterFirstRun = memoryStore[keys.accounts];
+    await vault.backfillRelayEvmAddresses();
+    expect(memoryStore[keys.accounts]).toBe(storedAfterFirstRun);
+    expect(await vault.fetchAccounts()).toEqual(accounts);
   }, 60_000);
 });
 
