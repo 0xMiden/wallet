@@ -764,7 +764,42 @@ describe('Guardian name registration routing', () => {
 
     expect(inline.__executeRequest).not.toHaveBeenCalled();
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(txStore.find(tx => tx.id === row.id)?.status).toBe(ITransactionStatus.Completed);
+    expect(txStore.find(tx => tx.id === row.id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Name requested'
+    });
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('retains submitEvidence and keeps Guardian candidate without abandoning when offscreen aborts', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-reg-kill', 'deadline'));
+    const { row, service } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(tx => tx.id === row.id) as Record<string, unknown>;
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('enters Unconfirmed and keeps Guardian candidate on an indefinite submit outcome', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${INDEFINITE}`)
+    );
+    const { row, service } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(tx => tx.id === row.id) as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
     expect(mockCompleteRegisterName).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import { generateTransactionsLoop } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, RegisterNameTransaction } from '../db/types';
 
 const txStore: ITransaction[] = [];
@@ -62,7 +63,7 @@ jest.mock('lib/miden/name/guard', () => ({
   assertMidenNameRegistrationLive: (tx: object) => mockGuard(tx)
 }));
 
-const mockNewTransaction = jest.fn(async (..._args: object[]) => {
+const mockNewTransaction = jest.fn(async (..._args: unknown[]) => {
   callOrder.push('newTransaction');
   return makeResult();
 });
@@ -72,7 +73,7 @@ jest.mock('../back/miden-client-proxy', () => ({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    newTransaction: (...args: object[]) => mockNewTransaction(...args)
+    newTransaction: (...args: unknown[]) => mockNewTransaction(...args)
   }
 }));
 
@@ -171,8 +172,70 @@ describe('non-guardian register-name leaf', () => {
 
     expect(callOrder).toEqual(['guard', 'newTransaction']);
     expect(mockGuard).toHaveBeenCalledWith(expect.objectContaining({ id: row.id, type: 'register-name' }));
-    expect(mockNewTransaction).toHaveBeenCalledWith('acc-1', REQUEST_BYTES, true, signCallback, undefined, undefined);
+    expect(mockNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      REQUEST_BYTES,
+      true,
+      signCallback,
+      expect.any(Function),
+      expect.any(Function)
+    );
     expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
+  });
+
+  it('stamps submit evidence and enters Unconfirmed on an indefinite submit outcome', async () => {
+    const row = queueRegisterName();
+    const txHex = `0x${'ab'.repeat(32)}`;
+    mockNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const stamp = args[4] as (stage: string, detail?: { evidence?: Record<string, unknown> }) => Promise<void>;
+      await stamp('submitting', { evidence: { transactionId: txHex, refBlock: 100 } });
+      throw new Error(
+        `submission of transaction ${txHex} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`
+      );
+    });
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored?.attemptId).toEqual(expect.any(String));
+    expect(stored?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: stored?.attemptId,
+        source: 'stage',
+        transactionId: txHex,
+        refBlock: 100
+      })
+    ]);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('records kill evidence on submitEvidence when aborted after crossing submit', async () => {
+    const row = queueRegisterName();
+    const txHex = `0x${'cd'.repeat(32)}`;
+    mockNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const stamp = args[4] as (stage: string, detail?: { evidence?: Record<string, unknown> }) => Promise<void>;
+      await stamp('submitting', { evidence: { transactionId: txHex, refBlock: 101 } });
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.nextEligibleAt).toBeUndefined();
+    expect(stored?.attemptId).toEqual(expect.any(String));
+    expect(stored?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: stored?.attemptId,
+        source: 'stage',
+        transactionId: txHex,
+        refBlock: 101,
+        endedAt: expect.any(Number),
+        endedBy: 'kill'
+      })
+    ]);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
   });
 
   it('marks the row Failed with no write when the guard throws', async () => {

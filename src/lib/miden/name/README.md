@@ -146,9 +146,9 @@ row and are reused for every attempt. Non-guardian accounts write through
 `createRebasedCustomProposal(bytes, 'register_name')`. This keeps the registration note,
 adds the v17 auth advice at the proposal sync height, and stores the returned bytes.
 `signAndCreateTransactionRequest` uses those stored bytes. The guard runs before the write in both branches. The type is in
-`REQUEUEABLE_ON_PENDING_CONFLICT` and `OUTGOING_TYPES` (spending limits) and is left out of
-`REQUEUEABLE_TYPES`, `NODE_VERIFIED_RETRY_TYPES`, `REBUILT_REQUEST_TYPES` and the offscreen
-guardian route.
+`REQUEUEABLE_ON_PENDING_CONFLICT`, `OUTGOING_TYPES` (spending limits),
+`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`, and `VERDICT_TYPES`, and is left out of
+`REQUEUEABLE_TYPES`, `NODE_VERIFIED_RETRY_TYPES`, and `REBUILT_REQUEST_TYPES`.
 
 ## Remaining work
 

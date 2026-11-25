@@ -74,6 +74,8 @@ describe('canAwaitVerdict', () => {
     ['Epoch bridged-send', { type: 'bridged-send', extraInputs: { provider: 'epoch' } }, false],
     ['bridged-send with no provider', { type: 'bridged-send' }, false],
     ['earn-deposit', { type: 'earn-deposit' }, false],
+    ['register-name', { type: 'register-name' }, true],
+    ['a restored register-name', { type: 'register-name', restoredFromBackup: true }, false],
     ['switch-guardian', { type: 'switch-guardian' }, false],
     ['a restored send', { type: 'send', restoredFromBackup: true }, false],
     ['a rotation-funding claim', { type: 'consume', rotationFunding: true }, false]

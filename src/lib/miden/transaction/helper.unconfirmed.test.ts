@@ -51,6 +51,10 @@ describe('Unconfirmed rows are past the pipeline (#1081)', () => {
 describe('a row proven landed takes its type`s icon (#1081)', () => {
   it('verifiedLandingRowFields carries it', () => {
     expect(verifiedLandingRowFields({ type: 'swap', accountId: 'acct' })).toMatchObject({ displayIcon: 'SWAP' });
+    expect(verifiedLandingRowFields({ type: 'register-name', accountId: 'acct' })).toMatchObject({
+      displayIcon: 'SEND',
+      displayMessage: 'Name requested'
+    });
   });
 
   // A relay that ran before the row was failed recorded which notes the transport took; re-deriving the label must

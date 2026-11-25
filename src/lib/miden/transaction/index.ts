@@ -2709,7 +2709,7 @@ const generateTransactionWithProvider = async (
           if (!registerBytes) {
             throw new Error('Register-name row has no request bytes');
           }
-          return runStampedWriteLeaf(transaction.id, undefined, (stamp, submitGate) =>
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               registerBytes,

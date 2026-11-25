@@ -13,15 +13,16 @@ import {
 } from '../db/types';
 
 /**
- * Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer, USDCx and NEAR Intents
- * routes.
+ * Retry's types (`REQUEUEABLE_TYPES` in retry.ts) plus `register-name`; a bridged-send only on the Agglayer, USDCx
+ * and NEAR Intents routes.
  */
 const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
   'swap',
   'execute',
-  'bridged-send'
+  'bridged-send',
+  'register-name'
 ]);
 
 /** How long the production Guardian holds a pending candidate: its 600 s grace plus 48 checks 10 s apart (#1644). */
