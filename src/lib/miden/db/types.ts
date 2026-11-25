@@ -2145,6 +2145,8 @@ export class RegisterNameTransaction implements ITransaction {
   transactionId?: string;
   outputNoteIds?: string[];
   requestBytes: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds: string[];
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -2165,6 +2167,7 @@ export class RegisterNameTransaction implements ITransaction {
     this.secondaryAccountId = args.registryAccountId;
     this.noteType = NoteTypeEnum.Public;
     this.requestBytes = args.requestBytes;
+    this.approvedOutputNoteIds = [args.registrationNoteId];
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

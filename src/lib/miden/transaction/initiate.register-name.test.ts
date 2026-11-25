@@ -81,6 +81,7 @@ describe('initiateRegisterNameTransaction', () => {
         faucetId: 'mtst1miden',
         secondaryAccountId: 'mtst1registry',
         requestBytes: REQUEST.requestBytes,
+        approvedOutputNoteIds: [REQUEST.registrationNoteId],
         status: ITransactionStatus.Queued,
         displayMessage: 'Registering name',
         displayIcon: 'SEND',

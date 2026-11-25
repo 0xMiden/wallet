@@ -4,7 +4,7 @@ import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { nftKey, toNft, type NftAsset } from 'lib/miden/sdk/nft-asset';
 import { b64ToU8 } from 'lib/shared/helpers';
-import { partitionApprovedUsdcxSponsorship, type UsdcxSponsorshipApproval } from 'lib/usdcx/sponsorship';
+import { partitionApprovedSponsorship, type SponsorshipApproval } from 'lib/usdcx/sponsorship';
 
 export type { NftAsset };
 
@@ -159,14 +159,14 @@ function reconcileFee(
 }
 
 /** Ground-truth view from an executed TransactionSummary (authoritative). */
-export function summaryToView(ts: TransactionSummary, approval?: UsdcxSponsorshipApproval): TxAssetView {
+export function summaryToView(ts: TransactionSummary, approval?: SponsorshipApproval): TxAssetView {
   const delta = ts.accountDelta();
   const vault = delta.vault();
   // `fee::pay_fee` runs INSIDE the auth procedure, before the summary is built, so the
   // kernel's fee note is among the summary's output notes exactly as it is among an
   // executed transaction's. Counting it claimed a note the user did not create.
   const { feeNote, userNotes } = splitExecutedOutputNotes(ts);
-  const { fee, createdNotes } = partitionApprovedUsdcxSponsorship(
+  const { fee, createdNotes } = partitionApprovedSponsorship(
     userNotes.map(created => viewNoteOf(idOf(created), created)),
     (feeNote ? noteAssets(feeNote) : [])[0],
     approval
@@ -318,7 +318,7 @@ export function toHoldingsView(view: TxAssetView, introducedNoteIds: readonly st
   };
 }
 
-export function summaryBytesToView(summaryB64: string, approval?: UsdcxSponsorshipApproval): TxAssetView {
+export function summaryBytesToView(summaryB64: string, approval?: SponsorshipApproval): TxAssetView {
   return summaryToView(TransactionSummary.deserialize(b64ToU8(summaryB64)), approval);
 }
 
@@ -336,14 +336,14 @@ export function summaryBytesToView(summaryB64: string, approval?: UsdcxSponsorsh
  * are the same quantities the summary view reports for the transactions this
  * screen previews.
  */
-export function executedBytesToView(executedB64: string, approval?: UsdcxSponsorshipApproval): TxAssetView {
+export function executedBytesToView(executedB64: string, approval?: SponsorshipApproval): TxAssetView {
   const executed = TransactionResult.deserialize(b64ToU8(executedB64)).executedTransaction();
   const inputNotes = executed.inputNotes();
   // The kernel's fee note is an output note. Totalling it into `outgoing` showed the user
   // an asset they never chose to send, and counting it in `outputNotesCreated` claimed a
   // note they did not create -- both invisible on a zero-fee chain, where no fee note exists.
   const { feeNote, userNotes } = splitExecutedOutputNotes(executed);
-  const { fee, createdNotes } = partitionApprovedUsdcxSponsorship(
+  const { fee, createdNotes } = partitionApprovedSponsorship(
     userNotes.map(created => viewNoteOf(idOf(created), created)),
     (feeNote ? noteAssets(feeNote) : [])[0],
     approval

@@ -56,6 +56,15 @@ jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(async () => {}) 
 
 jest.mock('lib/miden/sync-lock', () => ({ syncUnderBoundedLock: jest.fn(async () => {}) }));
 
+const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
+  getNativeAssetIdSync: jest.fn(() => 'mtst1miden'),
+  getVerificationBaseFeeSync: jest.fn(() => 2),
+  isVerificationBaseFeeKnownAbsent: jest.fn(() => false),
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee()
+}));
+
 const mockGuard = jest.fn(async (_tx: object): Promise<void> => {
   callOrder.push('guard');
 });
@@ -176,7 +185,7 @@ describe('non-guardian register-name leaf', () => {
       'acc-1',
       REQUEST_BYTES,
       true,
-      signCallback,
+      expect.any(Function),
       expect.any(Function),
       expect.any(Function)
     );
@@ -251,5 +260,25 @@ describe('non-guardian register-name leaf', () => {
     // Terminal: no requeue cooldown and the bytes stay on the row.
     expect(stored?.nextEligibleAt).toBeUndefined();
     expect(stored?.requestBytes).toBe(REQUEST_BYTES);
+  });
+
+  it.each([
+    ['empty requestBytes', (row: RegisterNameTransaction) => ({ ...row, requestBytes: new Uint8Array() })],
+    ['missing approvedOutputNoteIds', (row: RegisterNameTransaction) => ({ ...row, approvedOutputNoteIds: [] })]
+  ])('refuses %s before chain-fee read, guard, or newTransaction', async (_label, mutate) => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    const row = mutate(queueRegisterName());
+    txStore[0] = row;
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockGuard).not.toHaveBeenCalled();
+    expect(mockNewTransaction).not.toHaveBeenCalled();
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.proposalEffectRefused).toBe(true);
+    expect(stored?.nextEligibleAt).toBeUndefined();
   });
 });

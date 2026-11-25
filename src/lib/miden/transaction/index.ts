@@ -1841,11 +1841,11 @@ const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promis
 };
 
 /**
- * A bridged send's precondition for both leaves: the non-empty request stored on the row, and the one note recorded
- * when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing both names
- * the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * A prebuilt-request outgoing row's precondition for both leaves: the non-empty request stored on the row, and the one
+ * note recorded when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing
+ * both names the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
  */
-const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Array => {
+const requireRecordedRequest = (transaction: ITransaction): Uint8Array => {
   if (!transaction.requestBytes?.length) {
     throw new ProposalEffectRefusedError(
       transaction.type,
@@ -1862,6 +1862,9 @@ const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Arra
   }
   return transaction.requestBytes;
 };
+
+const requireBridgedSendRecordedRequest = requireRecordedRequest;
+const requireRegisterNameRecordedRequest = requireRecordedRequest;
 
 export const EPOCH_BRIDGE_ABANDONED_ERROR =
   'This bridge was already abandoned, so its collateral note was not submitted.';
@@ -2535,6 +2538,9 @@ const generateTransactionWithProvider = async (
     if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) !== 'near-intents') {
       requireBridgedSendRecordedRequest(transaction);
     }
+    if (transaction.type === 'register-name') {
+      requireRegisterNameRecordedRequest(transaction);
+    }
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2704,11 +2710,8 @@ const generateTransactionWithProvider = async (
           // free, the price and script allowlist unchanged, and the reclaim height
           // not near. A throw goes to the loop catch, which marks the row Failed
           // (no classifier there requeues these errors).
+          const registerBytes = requireRegisterNameRecordedRequest(transaction);
           await assertMidenNameRegistrationLive(transaction);
-          const registerBytes = transaction.requestBytes;
-          if (!registerBytes) {
-            throw new Error('Register-name row has no request bytes');
-          }
           return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
@@ -4718,11 +4721,8 @@ const generateGuardianTransaction = async (
       // Keep the registration note and add the v17 Guardian auth advice.
       // Build the auth args at the proposal's sync height, then store those
       // request bytes so signing and execution use the same request.
+      const registerBytes = requireRegisterNameRecordedRequest(transaction);
       await assertMidenNameRegistrationLive(transaction);
-      const registerBytes = transaction.requestBytes;
-      if (!registerBytes) {
-        throw new Error('Register-name row has no request bytes');
-      }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);

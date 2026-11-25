@@ -4311,6 +4311,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'miden',
       noteType: 'public',
       requestBytes,
+      approvedOutputNoteIds: ['0xnote'],
       extraInputs: {
         label: 'alice',
         network: 'testnet',
@@ -21847,6 +21848,101 @@ describe('Guardian proposal effect check', () => {
         nativeAsset.refreshVerificationBaseFee.mockReset();
         nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
       }
+    });
+  });
+
+  describe('register-name', () => {
+    const rebasedBytes = new Uint8Array([181, 182, 183]);
+    const registerService = (nonce: number) => {
+      const proposal = { id: `prop-register-${nonce}`, nonce, metadata: {}, txSummary: 'cmVn' };
+      const service = {
+        ...serviceWith(proposal),
+        createRebasedCustomProposal: jest.fn(async () => ({ proposal, requestBytes: rebasedBytes }))
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      return { service, client };
+    };
+    const registerRow = (id: string) => ({
+      id,
+      type: 'register-name',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'registry',
+      noteType: 'public',
+      requestBytes: new Uint8Array([91, 92, 93]),
+      approvedOutputNoteIds: ['note:faucet-1000'],
+      extraInputs: {
+        label: 'alice',
+        network: 'testnet',
+        registrationNoteId: 'note:faucet-1000',
+        reclaimHeight: 1300,
+        builtAtBlock: 1000,
+        priceBaseUnits: '1000',
+        networkFeeBaseUnits: '210',
+        phase: 'requested',
+        phaseUpdatedAt: 1
+      }
+    });
+
+    it('refuses a register-name row missing requestBytes or approvedOutputNoteIds before guard and guardian RPC', async () => {
+      const { service } = registerService(22);
+      mockGetOrCreateMultisigService.mockClear();
+      mockAssertMidenNameRegistrationLive.mockClear();
+
+      const missingNotes = registerRow('reg-no-note');
+      const row = await run({ ...missingNotes, approvedOutputNoteIds: [] });
+
+      expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+
+      const emptyBytes = await run({ ...registerRow('reg-no-bytes'), requestBytes: new Uint8Array() });
+      expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(emptyBytes.status).toBe(ITransactionStatus.Failed);
+      expect(emptyBytes.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the transaction has no request bytes of its own'
+      );
+    });
+
+    it('refuses a register-name proposal whose summary moves more than approved, abandons, and never signs', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1001n)] }));
+      const { service, client } = registerService(23);
+
+      const row = await run(registerRow('reg-over'));
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(23, 'prop-register-23');
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the proposal summary could not be read <- caused by Error: The approved registration note is missing from the fee-bearing transaction'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+    });
+
+    it('signs and runs a register-name proposal within its approved note and outflow', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = registerService(24);
+
+      const row = await run(registerRow('reg-ok'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-register-24', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
     });
   });
 });
