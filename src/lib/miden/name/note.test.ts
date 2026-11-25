@@ -1,10 +1,15 @@
-import { getCurrentMidenBlock } from 'lib/epoch/chain';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { encodeDomainFelts, registerNoteInputs, validateMidenLabel } from './encoding';
-import { MidenNameInvalidLabelError, MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import {
+  MidenNameAbortedError,
+  MidenNameInvalidLabelError,
+  MidenNameRegistryMismatchError,
+  MidenNameUnsupportedNetworkError
+} from './errors';
 import { buildRegisterNameRequest, registerNameRowAccounts } from './note';
+import { getChainTip } from './reads';
 import {
   AccountId,
   KNOWN_ACCOUNTS,
@@ -24,8 +29,19 @@ jest.mock('./encoding', () => {
   };
 });
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));
-jest.mock('lib/epoch/chain', () => ({ getCurrentMidenBlock: jest.fn() }));
+jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(async () => undefined) }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: jest.fn(),
+  getEffectiveRpcUrl: jest.fn(() => 'https://rpc-a.example')
+}));
+jest.mock('./reads', () => {
+  const actual = jest.requireActual<typeof import('./reads')>('./reads');
+  return {
+    captureEffectiveScope: actual.captureEffectiveScope,
+    assertScopeCurrent: actual.assertScopeCurrent,
+    getChainTip: jest.fn()
+  };
+});
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: { getAccount: jest.fn() } }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: jest.fn(),
@@ -54,7 +70,8 @@ const SALT = new Word(BigUint64Array.from([5n, 6n, 7n, 8n]));
 type LockOperation = (hold: object) => Promise<object>;
 
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
-const mockTip = jest.mocked(getCurrentMidenBlock);
+const mockRpcUrl = jest.mocked(getEffectiveRpcUrl);
+const mockTip = jest.mocked(getChainTip);
 const mockGetAccount = jest.requireMock<{ midenClientProxy: { getAccount: jest.Mock<Promise<object>, [string]> } }>(
   'lib/miden/back/miden-client-proxy'
 ).midenClientProxy.getAccount;
@@ -81,6 +98,7 @@ beforeEach(() => {
   KNOWN_ACCOUNTS.set(TOKEN_HEX, { prefix: 0xccn, suffix: 0xddn });
   KNOWN_ACCOUNTS.set(SENDER_HEX, { prefix: 0x11n, suffix: 0x22n });
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  mockRpcUrl.mockReturnValue('https://rpc-a.example');
   mockTip.mockResolvedValue(1000);
   mockGetAccount.mockResolvedValue(SENDER_ACCOUNT);
   mockSalt.mockReturnValue(SALT);
@@ -217,6 +235,47 @@ describe('buildRegisterNameRequest', () => {
     await expect(
       buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
     ).rejects.toBeInstanceOf(MidenNameUnsupportedNetworkError);
+  });
+
+  it('aborts and frees owned script if network or RPC changes across async steps', async () => {
+    const mockLoadScript = jest.requireMock<{
+      loadRegisterDomainScript: jest.Mock<Promise<{ script: string; free: jest.Mock }>, []>;
+    }>('./script').loadRegisterDomainScript;
+
+    mockTip.mockImplementationOnce(async scope => {
+      expect(scope).toEqual({ network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://rpc-a.example' });
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return 1000;
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockLoadScript).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const script1 = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockImplementationOnce(async () => {
+      mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      return script1;
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(script1.free).toHaveBeenCalledTimes(1);
+    expect(mockLock).not.toHaveBeenCalled();
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const script2 = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(script2);
+    mockLock.mockImplementationOnce(async operation => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return operation(HOLD);
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(mockGetAccount).not.toHaveBeenCalled();
+    expect(script2.free).toHaveBeenCalledTimes(1);
   });
 });
 

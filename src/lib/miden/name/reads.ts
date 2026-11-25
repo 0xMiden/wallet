@@ -15,6 +15,7 @@
 import {
   AccountId,
   AccountStorageRequirements,
+  Endpoint,
   NoteId,
   NoteTag,
   RpcClient,
@@ -22,12 +23,11 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { getCurrentMidenBlock } from 'lib/epoch/chain';
 import { walletAccountIdToSdk } from 'lib/miden/sdk/helpers';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
-import { readWithOwnRpcClient } from 'lib/usdcx/rpc-client';
 
 import {
   MIDEN_NAME_COMMITMENT_VERSION,
@@ -39,7 +39,7 @@ import {
   getMidenNameConfig
 } from './config';
 import { type Felts4, encodeDomainFelts, priceKeyFelts } from './encoding';
-import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import { MidenNameAbortedError, MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import { feltsFromWord, idPartsFromHex, nfasCarryLabel, statusKeyFeltsForLabel, wordFromFelts } from './sdk-words';
 
 const ZERO_FELTS: Felts4 = [0n, 0n, 0n, 0n];
@@ -91,6 +91,40 @@ export interface RegistryStorageRead {
   slotValue(slot: string): string | undefined;
 }
 
+export interface EffectiveScope {
+  network: MIDEN_NETWORK_NAME;
+  rpcUrl: string;
+}
+
+/** Snapshot the effective network and RPC URL at operation entry. */
+export function captureEffectiveScope(network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()): EffectiveScope {
+  return { network, rpcUrl: getEffectiveRpcUrl() };
+}
+
+/** Reject stale results or retries after the active network or RPC URL changed. */
+export function assertScopeCurrent(scope: EffectiveScope): void {
+  if (getEffectiveNetworkName() !== scope.network || getEffectiveRpcUrl() !== scope.rpcUrl) {
+    throw new MidenNameAbortedError();
+  }
+}
+
+function readWithRpcUrl<T>(scope: EffectiveScope, read: (rpc: RpcClient) => Promise<T>): Promise<T> {
+  assertScopeCurrent(scope);
+  const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
+  let pending: Promise<T>;
+  try {
+    pending = read(rpc);
+  } catch (error) {
+    rpc.free();
+    throw error;
+  }
+  void pending.then(
+    () => rpc.free(),
+    () => rpc.free()
+  );
+  return pending;
+}
+
 function requireConfig(): MidenNameConfig {
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
@@ -99,12 +133,14 @@ function requireConfig(): MidenNameConfig {
 
 type OwnedRpcRunner = <R>(op: (rpc: RpcClient) => Promise<R>, callLabel: string) => Promise<R>;
 
-async function withOwnedRpcClient<T>(run: (runRpc: OwnedRpcRunner) => Promise<T>): Promise<T> {
+async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedRpcRunner) => Promise<T>): Promise<T> {
   await ensureSdkWasmReady();
-  const rpc = new RpcClient(getRpcEndpoint());
+  assertScopeCurrent(scope);
+  const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
   const pending: Promise<void>[] = [];
   const runRpc: OwnedRpcRunner = (op, callLabel) =>
     withRpcTimeout(() => {
+      assertScopeCurrent(scope);
       const attempt = op(rpc);
       pending.push(
         attempt.then(
@@ -123,6 +159,7 @@ async function withOwnedRpcClient<T>(run: (runRpc: OwnedRpcRunner) => Promise<T>
 
 export interface ReadRegistryStorageOptions {
   slotNames?: readonly string[];
+  scope?: EffectiveScope;
 }
 
 /**
@@ -136,12 +173,14 @@ export async function readRegistryStorage(
   label: string,
   options?: ReadRegistryStorageOptions
 ): Promise<RegistryStorageRead> {
+  const scope = options?.scope ?? captureEffectiveScope(config.network);
   await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
   const registryHex = config.registryAccountIdHex.toLowerCase();
 
   const proof = await withRpcTimeout(
     () =>
-      readWithOwnRpcClient(rpc =>
+      readWithRpcUrl(scope, rpc =>
         rpc.getAccountProof(
           AccountId.fromHex(config.registryAccountIdHex),
           AccountStorageRequirements.fromSlotAndKeysArray(
@@ -157,6 +196,7 @@ export async function readRegistryStorage(
   const entriesBySlot = new Map<string, Map<string, Felts4>>();
 
   try {
+    assertScopeCurrent(scope);
     const provenId = proof.accountId().toString().toLowerCase();
     if (provenId !== registryHex) {
       throw new MidenNameRegistryMismatchError(`proof is for ${provenId}, expected ${registryHex}`);
@@ -216,7 +256,8 @@ export function clearMidenNameQuoteCache(): void {
 export async function fetchMidenNameQuote(label: string, { fresh = false } = {}): Promise<MidenNameQuote> {
   const config = requireConfig();
   const domainWord = encodeDomainFelts(label);
-  const cacheKey = `${config.network}|${label}`;
+  const scope = captureEffectiveScope(config.network);
+  const cacheKey = `${scope.network}|${scope.rpcUrl}|${label}`;
   const cached = quoteCache.get(cacheKey);
   if (!fresh && cached && Date.now() - cached.at < QUOTE_CACHE_TTL_MS) {
     return cached.quote;
@@ -236,7 +277,7 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
       { slot: MIDEN_NAME_SLOTS.feeSchedule, keys: [scriptRoot] }
     ],
     'midenNameQuote',
-    { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot] }
+    { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot], scope }
   );
 
   const status = storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey);
@@ -267,12 +308,14 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
 /** True when the registry has issued the name (`asset_status` felt 0 is 1). */
 export async function fetchMidenNameIssued(label: string): Promise<boolean> {
   const config = requireConfig();
+  const scope = captureEffectiveScope(config.network);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const statusKey = statusKeyFeltsForLabel(label, registry);
   const storage = await readRegistryStorage(
     config,
     [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] }],
-    'midenNameIssued'
+    'midenNameIssued',
+    { scope }
   );
   return storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey)[0] === MIDEN_NAME_ISSUED_MARKER;
 }
@@ -316,19 +359,23 @@ function isNoteNotFoundError(error: unknown): boolean {
  * the tracker continues to wait. It throws all other errors.
  */
 export async function fetchRegistrationNoteState(noteIdHex: string): Promise<RegistrationNoteState> {
+  const scope = captureEffectiveScope();
   await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
   let info;
   try {
     // No retry: a retry of a "not found" gives the same result.
     info = await withRpcTimeout(
-      () => readWithOwnRpcClient(rpc => rpc.getNetworkNoteStatus(NoteId.fromHex(noteIdHex))),
+      () => readWithRpcUrl(scope, rpc => rpc.getNetworkNoteStatus(NoteId.fromHex(noteIdHex))),
       'midenNameRegistrationNoteStatus',
       { retries: 0 }
     );
   } catch (error) {
+    assertScopeCurrent(scope);
     if (isNoteNotFoundError(error)) return { status: 'unknown', attemptCount: 0 };
     throw error;
   }
+  assertScopeCurrent(scope);
   const lastError = info.lastError;
   return {
     status: toRegistrationNoteStatus(info.status),
@@ -388,12 +435,13 @@ export async function findRegistryDeliveryNoteIds({
   label?: string;
 }): Promise<RegistryDeliveryScan> {
   const config = requireConfig();
+  const scope = captureEffectiveScope(config.network);
   const registryHex = config.registryAccountIdHex.toLowerCase();
   fromBlock = Math.max(fromBlock, config.registryCreationBlock);
-  const end = toBlock ?? (await getChainTip());
+  const end = toBlock ?? (await getChainTip(scope));
   if (fromBlock > end) return { noteIds: [], scannedTo: end };
 
-  return withOwnedRpcClient(async runRpc => {
+  return withOwnedRpcClient(scope, async runRpc => {
     const noteIds: string[] = [];
     const seen = new Set<string>();
     let cursor = fromBlock;
@@ -405,6 +453,7 @@ export async function findRegistryDeliveryNoteIds({
         rpc => rpc.syncNotes(from, end, [NoteTag.withAccountTarget(walletAccountIdToSdk(accountId))]),
         'midenNameDeliveryScan'
       );
+      assertScopeCurrent(scope);
       for (const block of info.blocks()) {
         for (const note of block.notes()) {
           if (note.sender().toString().toLowerCase() !== registryHex) continue;
@@ -423,11 +472,20 @@ export async function findRegistryDeliveryNoteIds({
     }
 
     if (label === undefined) return { noteIds, scannedTo };
-    return { noteIds: await notesCarryingLabel(runRpc, noteIds, label, registryHex), scannedTo };
+    const matching = await notesCarryingLabel(runRpc, noteIds, label, registryHex);
+    assertScopeCurrent(scope);
+    return { noteIds: matching, scannedTo };
   });
 }
 
-/** The chain tip block number. */
-export function getChainTip(): Promise<number> {
-  return getCurrentMidenBlock();
+/** The chain tip block number for the captured or effective RPC endpoint. */
+export async function getChainTip(scope: EffectiveScope = captureEffectiveScope()): Promise<number> {
+  await ensureSdkWasmReady();
+  assertScopeCurrent(scope);
+  const header = await withRpcTimeout(
+    () => readWithRpcUrl(scope, rpc => rpc.getBlockHeaderByNumber(undefined)),
+    'midenNameChainTip'
+  );
+  assertScopeCurrent(scope);
+  return Number(header.blockNum());
 }

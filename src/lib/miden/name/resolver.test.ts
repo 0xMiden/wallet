@@ -1,17 +1,28 @@
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { MIDEN_NAME_SLOTS, type MidenNameConfig } from './config';
 import { type Felts4, encodeDomainFelts } from './encoding';
 import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
 import { type RegistryMapRequest, type RegistryStorageRead, readRegistryStorage } from './reads';
-import { clearMidenNameResolverCache, fetchDomainRecord, resolveMidenName } from './resolver';
+import { clearMidenNameResolverCache, fetchDomainRecord, fetchDomainRecordAccount, resolveMidenName } from './resolver';
 import { statusKeyFeltsForLabel } from './sdk-words';
 import { AccountId, KNOWN_ACCOUNTS } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));
-jest.mock('./reads', () => ({ readRegistryStorage: jest.fn() }));
+jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(async () => undefined) }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: jest.fn(),
+  getEffectiveRpcUrl: jest.fn(() => 'https://rpc-a.example')
+}));
+jest.mock('./reads', () => {
+  const actual = jest.requireActual<typeof import('./reads')>('./reads');
+  return {
+    captureEffectiveScope: actual.captureEffectiveScope,
+    assertScopeCurrent: actual.assertScopeCurrent,
+    readRegistryStorage: jest.fn()
+  };
+});
 jest.mock('lib/miden/sdk/helpers', () => ({
   walletAccountIdToSdk: jest.fn(),
   getBech32AddressFromAccountId: jest.fn()
@@ -23,6 +34,7 @@ const ALICE = { prefix: 0x1234n, suffix: 0x5600n };
 const ZERO: Felts4 = [0n, 0n, 0n, 0n];
 
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
+const mockRpcUrl = jest.mocked(getEffectiveRpcUrl);
 const mockRead = jest.mocked(readRegistryStorage);
 const helpers = jest.requireMock<{
   walletAccountIdToSdk: jest.Mock<AccountId, [string]>;
@@ -60,6 +72,7 @@ beforeEach(() => {
   state = new Map();
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  mockRpcUrl.mockReturnValue('https://rpc-a.example');
   mockRead.mockImplementation(fakeRead);
   helpers.getBech32AddressFromAccountId.mockImplementation(id => `mtst1${id.prefixValue.toString(16)}`);
   helpers.walletAccountIdToSdk.mockImplementation(() => new AccountId('0xalice', ALICE.prefix, ALICE.suffix));
@@ -76,6 +89,9 @@ describe('resolveMidenName', () => {
         keys: [statusKeyFeltsForLabel('alice', REGISTRY), encodeDomainFelts('alice')]
       }
     ]);
+    expect(mockRead.mock.calls[0]?.[3]).toEqual({
+      scope: { network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://rpc-a.example' }
+    });
   });
 
   it('falls back to the raw domain word as the forward key', async () => {
@@ -141,6 +157,27 @@ describe('resolveMidenName', () => {
     await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
     now.mockRestore();
   });
+
+  it('isolates resolver cache by RPC URL and aborts without caching when scope changes in flight', async () => {
+    registerAlice();
+    await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
+    expect(mockRead).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-b.example');
+    state.clear();
+    await expect(resolveMidenName('alice')).resolves.toBeNull();
+    expect(mockRead).toHaveBeenCalledTimes(2);
+
+    registerAlice();
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      return fakeRead(config, requests);
+    });
+    await expect(resolveMidenName('bob')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    await expect(resolveMidenName('bob')).resolves.toBeNull();
+    expect(mockRead).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe('fetchDomainRecord', () => {
@@ -154,6 +191,9 @@ describe('fetchDomainRecord', () => {
         keys: [statusKeyFeltsForLabel('alice', REGISTRY), encodeDomainFelts('alice')]
       }
     ]);
+    expect(mockRead.mock.calls[0]?.[3]).toEqual({
+      scope: { network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://rpc-a.example' }
+    });
   });
 
   it('falls back to the raw domain word as the forward key', async () => {
@@ -181,5 +221,20 @@ describe('fetchDomainRecord', () => {
   it('throws an RPC failure', async () => {
     mockRead.mockRejectedValue(new Error('rpc down'));
     await expect(fetchDomainRecord('alice')).rejects.toThrow('rpc down');
+  });
+});
+
+describe('fetchDomainRecordAccount', () => {
+  it('formats the resolved account id and aborts without formatting if scope switches in flight', async () => {
+    registerAlice();
+    await expect(fetchDomainRecordAccount('alice')).resolves.toBe('mtst11234');
+
+    helpers.getBech32AddressFromAccountId.mockClear();
+    mockRead.mockImplementationOnce(async (config, requests) => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return fakeRead(config, requests);
+    });
+    await expect(fetchDomainRecordAccount('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(helpers.getBech32AddressFromAccountId).not.toHaveBeenCalled();
   });
 });

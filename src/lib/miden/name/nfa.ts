@@ -22,7 +22,7 @@ import { getMidenNameConfig, MIDEN_NAME_SLOTS, type MidenNameConfig } from './co
 import { type AccountIdParts, type Felts4, decodeDomainFelts } from './encoding';
 import { MidenNameUnsupportedNetworkError } from './errors';
 import { toAccountId } from './note';
-import { readRegistryStorage } from './reads';
+import { assertScopeCurrent, captureEffectiveScope, readRegistryStorage } from './reads';
 import { domainCommitment, feltsFromWord, idPartsFromHex, isRegistryNfa, keyMatchesCommitment } from './sdk-words';
 
 export type DomainNfaHolding = 'held' | 'not-held';
@@ -76,11 +76,14 @@ function registryNfaKeys(account: Account, registryHex: string): Felts4[] {
  */
 export async function accountHoldsDomainNfa(accountId: string, label: string): Promise<DomainNfaHolding> {
   const config = requireConfig();
+  const scope = captureEffectiveScope(config.network);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   return withWasmClientLock(
     async hold => {
+      assertScopeCurrent(scope);
       const account = await midenClientProxy.getAccount(toAccountId(accountId).toString());
       assertWasmHoldCurrent(hold, 'miden-name-nfa-read: after the account read');
+      assertScopeCurrent(scope);
       if (!account) return 'not-held';
       const nfa = findDomainNfa(account, label, registry, config.registryAccountIdHex);
       if (!nfa) return 'not-held';
@@ -99,11 +102,14 @@ export async function accountHoldsDomainNfa(accountId: string, label: string): P
  */
 export async function listOwnedDomainLabels(accountId: string): Promise<string[]> {
   const config = requireConfig();
+  const scope = captureEffectiveScope(config.network);
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const nfaKeys = await withWasmClientLock(
     async hold => {
+      assertScopeCurrent(scope);
       const account = await midenClientProxy.getAccount(toAccountId(accountId).toString());
       assertWasmHoldCurrent(hold, 'miden-name-nfa-list: after the account read');
+      assertScopeCurrent(scope);
       return account ? registryNfaKeys(account, config.registryAccountIdHex) : [];
     },
     { label: 'miden-name-nfa-list' }
@@ -114,8 +120,10 @@ export async function listOwnedDomainLabels(accountId: string): Promise<string[]
   const storage = await readRegistryStorage(
     config,
     [{ slot: MIDEN_NAME_SLOTS.tokenToDomain, keys: mapKeys }],
-    'midenNameOwnedNames'
+    'midenNameOwnedNames',
+    { scope }
   );
+  assertScopeCurrent(scope);
   const labels: string[] = [];
   for (const key of mapKeys) {
     const label = decodeDomainFelts(storage.mapValue(MIDEN_NAME_SLOTS.tokenToDomain, key));

@@ -21,7 +21,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NAME_SLOTS, type MidenNameConfig, getMidenNameConfig } from './config';
 import { type AccountIdParts, encodeDomainFelts, validateMidenLabel } from './encoding';
 import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
-import { readRegistryStorage } from './reads';
+import { assertScopeCurrent, captureEffectiveScope, type EffectiveScope, readRegistryStorage } from './reads';
 import { accountIdFromParts, decodeAccountWord, idPartsFromHex, statusKeyFeltsForLabel } from './sdk-words';
 
 const RESOLVE_CACHE_TTL_MS = 60_000;
@@ -59,7 +59,8 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 async function forwardLookup(
   config: MidenNameConfig,
   label: string,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  scope: EffectiveScope
 ): Promise<AccountIdParts | null> {
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const commitmentKey = statusKeyFeltsForLabel(label, registry);
@@ -67,9 +68,11 @@ async function forwardLookup(
   const storage = await readRegistryStorage(
     config,
     [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
-    'midenNameResolveForward'
+    'midenNameResolveForward',
+    { scope }
   );
   throwIfAborted(signal);
+  assertScopeCurrent(scope);
   return (
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, commitmentKey)) ??
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, domainWord))
@@ -84,7 +87,8 @@ async function forwardLookup(
 export async function fetchDomainRecord(label: string): Promise<AccountIdParts | null> {
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
-  return forwardLookup(config, label, undefined);
+  const scope = captureEffectiveScope(config.network);
+  return forwardLookup(config, label, undefined, scope);
 }
 
 /**
@@ -93,7 +97,10 @@ export async function fetchDomainRecord(label: string): Promise<AccountIdParts |
  * callers that compare against a wallet account id.
  */
 export async function fetchDomainRecordAccount(label: string): Promise<string | null> {
-  const record = await fetchDomainRecord(label);
+  const config = getMidenNameConfig();
+  if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
+  const scope = captureEffectiveScope(config.network);
+  const record = await forwardLookup(config, label, undefined, scope);
   return record === null ? null : getBech32AddressFromAccountId(accountIdFromParts(record));
 }
 
@@ -109,11 +116,12 @@ export async function resolveMidenName(label: string, { signal }: ResolveOptions
   if (!config || validateMidenLabel(label) !== null) return null;
   throwIfAborted(signal);
 
-  const cacheKey = `${config.network}|forward|${label}`;
+  const scope = captureEffectiveScope(config.network);
+  const cacheKey = `${scope.network}|${scope.rpcUrl}|forward|${label}`;
   const cached = readCache(cacheKey);
   if (cached) return cached.value;
 
-  const account = await forwardLookup(config, label, signal);
+  const account = await forwardLookup(config, label, signal, scope);
   if (!account) {
     writeCache(cacheKey, null);
     return null;

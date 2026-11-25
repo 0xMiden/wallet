@@ -19,7 +19,6 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { getCurrentMidenBlock } from 'lib/epoch/chain';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   accountIdStringToSdk,
@@ -33,6 +32,7 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getMidenNameConfig, MIDEN_NAME_RECLAIM_BLOCKS } from './config';
 import { encodeDomainFelts, registerNoteInputs } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import { assertScopeCurrent, captureEffectiveScope, getChainTip } from './reads';
 import { loadRegisterDomainScript } from './script';
 import { idParts } from './sdk-words';
 
@@ -121,10 +121,12 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
   }
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
+  const scope = captureEffectiveScope(config.network);
 
   // A fresh RPC head, not the local sync height. This call also loads the SDK
   // WASM before the code below makes SDK objects.
-  const builtAtBlock = await getCurrentMidenBlock();
+  const builtAtBlock = await getChainTip(scope);
+  assertScopeCurrent(scope);
   const reclaimHeight = builtAtBlock + MIDEN_NAME_RECLAIM_BLOCKS;
   if (!Number.isSafeInteger(reclaimHeight) || reclaimHeight > U32_MAX) {
     throw new RangeError(`Reclaim height ${reclaimHeight} does not fit in a u32`);
@@ -137,13 +139,16 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
   let scriptOwned = true;
 
   try {
+    assertScopeCurrent(scope);
     return await withWasmClientLock(
       async hold => {
+        assertScopeCurrent(scope);
         const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
         // An eviction during the read gives the mutex to a successor. The account
         // object is a borrow of that client, so stop before a read of its vault.
         // This hold only builds the request; nothing is submitted, so a stop is safe.
         assertWasmHoldCurrent(hold, 'miden-name-register-build: after the sender account read');
+        assertScopeCurrent(scope);
 
         const registry = AccountId.fromHex(config.registryAccountIdHex);
         if (!registry.isPublic()) {
