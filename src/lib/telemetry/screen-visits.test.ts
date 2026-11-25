@@ -26,6 +26,8 @@ describe('screenForPath', () => {
     ['/browser', 'explore'],
     ['/history', 'activity'],
     ['/history/some-program', 'activity'],
+    ['/activity/group/swap', 'activity'],
+    ['/activity/group/counterparty/0xdeadbeef', 'activity'],
     ['/bridge/deposit', 'funding'],
     ['/generating-transaction/0xabc', 'tx_status'],
     ['/settings/general', 'other'],
@@ -37,6 +39,35 @@ describe('screenForPath', () => {
 });
 
 describe('createVisitTracker', () => {
+  it('numbers visits from 1 again when the run id rotates', () => {
+    let run = 'run-1';
+    let t = 0;
+    const events: ScreenVisitEvent[] = [];
+    const tracker = createVisitTracker({ now: () => t, surface: 'popup', runId: () => run, emit: e => events.push(e) });
+    tracker.route('overview', 'initial');
+    t += 1000;
+    tracker.route('send', 'push');
+    t += 1000;
+    run = 'run-2';
+    tracker.route('swap', 'push');
+    t += 1000;
+    tracker.teardown();
+    expect(events.map(e => [e.runId, e.order])).toEqual([
+      ['run-1', 1],
+      ['run-2', 1],
+      ['run-2', 2]
+    ]);
+  });
+
+  it('reports a visit ended by hiding as complete even when the page is torn down afterwards', () => {
+    const { tracker, events, advance } = setup();
+    tracker.route('send', 'initial');
+    advance(900);
+    tracker.visible(false);
+    tracker.teardown();
+    expect(events.map(e => [e.visibleMs, e.complete])).toEqual([[900, true]]);
+  });
+
   it('reports a visit with its visible time when the screen changes', () => {
     const { tracker, events, advance } = setup();
     tracker.route('overview', 'initial');

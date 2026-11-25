@@ -22,6 +22,7 @@ export function screenForPath(pathname: string): TelemetryScreen {
     case 'browser':
       return 'explore';
     case 'history':
+    case 'activity':
       return 'activity';
     case 'generating-transaction':
     case 'generating-transaction-full':
@@ -60,6 +61,7 @@ export function createVisitTracker({ now, surface, runId, emit }: Deps): VisitTr
   let isVisible = true;
   let since: number | null = null;
   let order = 0;
+  let orderRun: string | null = null;
 
   const open = () => {
     if (screen !== null && isVisible && since === null) since = now();
@@ -70,8 +72,11 @@ export function createVisitTracker({ now, surface, runId, emit }: Deps): VisitTr
     const visibleMs = now() - since;
     since = null;
     if (visibleMs < ROUTE_DWELL_MS) return;
-    order += 1;
-    emit({ phase: 'visit', screen, source, surface, order, visibleMs, complete, runId: runId() });
+    const run = runId();
+    // `order` is per run: a rotated run starts again at 1 rather than carrying the old run's count.
+    order = run === orderRun ? order + 1 : 1;
+    orderRun = run;
+    emit({ phase: 'visit', screen, source, surface, order, visibleMs, complete, runId: run });
   };
 
   return {
