@@ -681,6 +681,23 @@ describe('readRegistryStorage scope pinning', () => {
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
     ready.resolve(undefined);
     await expect(pending).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const controller = new AbortController();
+    const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+    rpc.getAccountProof.mockClear().mockReturnValueOnce(attempt1.promise);
+    const pendingAbort = readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }],
+      'direct-signal-abort',
+      { signal: controller.signal }
+    );
+    await flushMicrotasks();
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+    controller.abort();
+    attempt1.reject(new Error('transient transport'));
+    await expect(pendingAbort).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
   });
 });
 

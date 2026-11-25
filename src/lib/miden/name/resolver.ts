@@ -82,7 +82,7 @@ async function forwardLookup(
         config,
         [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
         'midenNameResolveForward',
-        { scope }
+        { scope, signal }
       ),
     signal
   );

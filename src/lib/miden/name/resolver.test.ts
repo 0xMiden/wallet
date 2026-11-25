@@ -395,5 +395,14 @@ describe('fetchDomainRecordAccount', () => {
 
     await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
     expect(mockRead).toHaveBeenCalledTimes(6);
+
+    clearMidenNameResolverCache();
+    const signalController = new AbortController();
+    await expect(resolveMidenName('alice', { signal: signalController.signal })).resolves.toBe('mtst11234');
+    expect(mockRead.mock.calls[6]?.[3]?.scope).toEqual({
+      network: MIDEN_NETWORK_NAME.TESTNET,
+      rpcUrl: 'https://rpc-a.example'
+    });
+    expect(mockRead.mock.calls[6]?.[3]?.signal).toBe(signalController.signal);
   });
 });

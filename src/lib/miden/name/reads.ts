@@ -117,8 +117,12 @@ export async function awaitScoped<T>(scope: EffectiveScope, op: () => Promise<T>
   }
 }
 
-function readWithRpcUrl<T>(scope: EffectiveScope, read: (rpc: RpcClient) => Promise<T>): Promise<T> {
-  assertScopeCurrent(scope);
+function readWithRpcUrl<T>(
+  scope: EffectiveScope,
+  read: (rpc: RpcClient) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  assertScopeCurrent(scope, signal);
   const rpc = new RpcClient(new Endpoint(scope.rpcUrl));
   let pending: Promise<T>;
   try {
@@ -171,6 +175,7 @@ async function withOwnedRpcClient<T>(scope: EffectiveScope, run: (runRpc: OwnedR
 export interface ReadRegistryStorageOptions {
   slotNames?: readonly string[];
   scope?: EffectiveScope;
+  signal?: AbortSignal;
 }
 
 type RawProofSnapshot =
@@ -195,59 +200,68 @@ export async function readRegistryStorage(
   options?: ReadRegistryStorageOptions
 ): Promise<RegistryStorageRead> {
   const scope = options?.scope ?? captureEffectiveScope(config.network);
-  await awaitScoped(scope, ensureSdkWasmReady);
-  assertScopeCurrent(scope);
+  const signal = options?.signal;
+  assertScopeCurrent(scope, signal);
+  await awaitScoped(scope, ensureSdkWasmReady, signal);
+  assertScopeCurrent(scope, signal);
   const registryHex = config.registryAccountIdHex.toLowerCase();
 
-  const snapshot = await awaitScoped(scope, () =>
-    withRpcTimeout(
-      () =>
-        readWithRpcUrl<RawProofSnapshot>(scope, async rpc => {
-          const proof = await rpc.getAccountProof(
-            AccountId.fromHex(config.registryAccountIdHex),
-            AccountStorageRequirements.fromSlotAndKeysArray(
-              requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
-            )
-          );
-          try {
-            const provenId = proof.accountId().toString().toLowerCase();
-            if (provenId !== registryHex) {
-              return { kind: 'mismatch', message: `proof is for ${provenId}, expected ${registryHex}` };
-            }
+  const snapshot = await awaitScoped(
+    scope,
+    () =>
+      withRpcTimeout(
+        () =>
+          readWithRpcUrl<RawProofSnapshot>(
+            scope,
+            async rpc => {
+              const proof = await rpc.getAccountProof(
+                AccountId.fromHex(config.registryAccountIdHex),
+                AccountStorageRequirements.fromSlotAndKeysArray(
+                  requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+                )
+              );
+              try {
+                const provenId = proof.accountId().toString().toLowerCase();
+                if (provenId !== registryHex) {
+                  return { kind: 'mismatch', message: `proof is for ${provenId}, expected ${registryHex}` };
+                }
 
-            const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
-            const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
-            if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
-              return { kind: 'mismatch', message: `unsupported commitment_version ${String(version)}` };
-            }
+                const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
+                const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
+                if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
+                  return { kind: 'mismatch', message: `unsupported commitment_version ${String(version)}` };
+                }
 
-            const blockNum = proof.blockNum();
-            const slotValuesByName = new Map<string, string | undefined>();
-            for (const slot of options?.slotNames ?? []) {
-              slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
-            }
+                const blockNum = proof.blockNum();
+                const slotValuesByName = new Map<string, string | undefined>();
+                for (const slot of options?.slotNames ?? []) {
+                  slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
+                }
 
-            const entriesBySlot = new Map<string, Map<string, Felts4>>();
-            for (const { slot } of requests) {
-              if (proof.hasStorageMapTooManyEntries(slot) === true) {
-                return { kind: 'mismatch', message: `node did not return the entries of ${slot}` };
+                const entriesBySlot = new Map<string, Map<string, Felts4>>();
+                for (const { slot } of requests) {
+                  if (proof.hasStorageMapTooManyEntries(slot) === true) {
+                    return { kind: 'mismatch', message: `node did not return the entries of ${slot}` };
+                  }
+                  const entries = new Map<string, Felts4>();
+                  for (const entry of proof.getStorageMapEntries(slot) ?? []) {
+                    entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
+                  }
+                  entriesBySlot.set(slot, entries);
+                }
+
+                return { kind: 'ok', blockNum, slotValuesByName, entriesBySlot };
+              } finally {
+                proof.free();
               }
-              const entries = new Map<string, Felts4>();
-              for (const entry of proof.getStorageMapEntries(slot) ?? []) {
-                entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
-              }
-              entriesBySlot.set(slot, entries);
-            }
-
-            return { kind: 'ok', blockNum, slotValuesByName, entriesBySlot };
-          } finally {
-            proof.free();
-          }
-        }),
-      label
-    )
+            },
+            signal
+          ),
+        label
+      ),
+    signal
   );
-  assertScopeCurrent(scope);
+  assertScopeCurrent(scope, signal);
 
   if (snapshot.kind === 'mismatch') {
     throw new MidenNameRegistryMismatchError(snapshot.message);
