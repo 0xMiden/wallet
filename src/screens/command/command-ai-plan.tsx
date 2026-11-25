@@ -339,16 +339,16 @@ function ActivePlanBanner({
       data-testid="command-ai-plan-banner"
       role="region"
       aria-label={t('commandAiPlanTitle')}
-      className="relative z-20 mx-auto w-full max-w-[66rem] px-3 pt-2 sm:px-7"
+      className="relative z-20 mx-auto w-full max-w-[66rem] px-3 pt-3 pb-1 sm:px-7"
     >
-      <div className="flex flex-col gap-2.5 rounded-2xl border border-accent-tint-ink/30 bg-linear-to-r from-fill/95 via-fill/90 to-page/95 px-4 py-2.5 shadow-md backdrop-blur-md">
+      <div className="flex min-h-[140px] flex-col justify-center gap-4 rounded-2xl border border-accent-tint-ink/30 bg-linear-to-r from-fill/95 via-fill/90 to-page/95 px-5 py-5 shadow-md backdrop-blur-md">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center gap-3.5">
             <BreadMascot
-              size="sm"
+              size="md"
               mood={plan.status === 'error' ? 'oops' : plan.status === 'clarifying' ? 'clarifying' : 'working'}
             />
-            <div className="min-w-0">
+            <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-caption font-semibold uppercase tracking-wide text-accent-tint-ink">
                   {t('commandAiPlanTitle')}
@@ -360,7 +360,7 @@ function ActivePlanBanner({
                   })}
                 </span>
               </div>
-              <p className="truncate text-body-sm font-medium text-ink">
+              <p className="truncate text-body font-medium text-ink">
                 {plan.status === 'clarifying' && plan.clarifying
                   ? t(plan.clarifying.questionKey, plan.clarifying.questionParams)
                   : plan.status === 'error' && plan.error
@@ -372,13 +372,13 @@ function ActivePlanBanner({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2.5">
             {plan.status !== 'clarifying' && (
               <button
                 type="button"
                 data-testid="command-ai-plan-banner-next"
                 onClick={() => void runWithCtx(ctx => advanceToNextStep(ctx))}
-                className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-accent-primary px-3 text-body-sm font-medium text-page transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent-primary"
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent-primary px-4 text-body-sm font-medium text-page transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
                 <span>{t(isLastStep ? 'commandAiPlanFinish' : 'commandAiPlanNextStep')}</span>
                 <Icon name={IconName.ArrowRight} size="xs" aria-hidden="true" />
@@ -388,14 +388,14 @@ function ActivePlanBanner({
               type="button"
               data-testid="command-ai-plan-banner-stop"
               onClick={stopPlan}
-              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-negative-tint-ink/35 bg-page/70 px-3 text-body-sm font-medium text-negative-tint-ink transition-colors hover:bg-negative-tint/15 focus-visible:outline-2 focus-visible:outline-accent-primary"
+              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-negative-tint-ink/35 bg-page/70 px-4 text-body-sm font-medium text-negative-tint-ink transition-colors hover:bg-negative-tint/15 focus-visible:outline-2 focus-visible:outline-accent-primary"
             >
               <span>{t('commandAiPlanStop')}</span>
             </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           {plan.steps.map(step => {
             const labels = stepDisplayLabels(step.draft, t);
             return (
@@ -403,10 +403,10 @@ function ActivePlanBanner({
                 key={step.index}
                 className={
                   step.status === 'active'
-                    ? 'inline-flex items-center gap-1.5 rounded-xl border border-accent-primary/60 bg-accent-tint px-2.5 py-1 text-caption font-medium text-ink'
+                    ? 'inline-flex items-center gap-1.5 rounded-xl border border-accent-primary/60 bg-accent-tint px-3 py-1.5 text-body-sm font-medium text-ink'
                     : step.status === 'done'
-                      ? 'inline-flex items-center gap-1.5 rounded-xl border border-accent-receive-ink/35 bg-page/70 px-2.5 py-1 text-caption text-accent-receive-ink'
-                      : 'inline-flex items-center gap-1.5 rounded-xl border border-hairline bg-page/60 px-2.5 py-1 text-caption text-muted'
+                      ? 'inline-flex items-center gap-1.5 rounded-xl border border-accent-receive-ink/35 bg-page/70 px-3 py-1.5 text-body-sm text-accent-receive-ink'
+                      : 'inline-flex items-center gap-1.5 rounded-xl border border-hairline bg-page/60 px-3 py-1.5 text-body-sm text-muted'
                 }
               >
                 <span className="font-semibold">{step.index + 1}.</span>
@@ -417,14 +417,14 @@ function ActivePlanBanner({
         </div>
 
         {plan.status === 'clarifying' && plan.clarifying && (
-          <div className="flex flex-wrap gap-2 pt-0.5">
+          <div className="flex flex-wrap gap-2.5 pt-1">
             {plan.clarifying.chips.map(chip => (
               <button
                 key={chip.id}
                 type="button"
                 data-testid={`command-ai-plan-chip-${chip.id}`}
                 onClick={() => selectPlanChip(chip, getWalletContext())}
-                className="inline-flex items-center gap-2 rounded-xl border border-hairline bg-page px-3 py-1.5 text-body-sm text-ink transition-colors hover:border-accent-primary/60 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
+                className="inline-flex items-center gap-2 rounded-xl border border-hairline bg-page px-3.5 py-2 text-body-sm text-ink transition-colors hover:border-accent-primary/60 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
                 <span className="font-medium">{chip.label}</span>
                 {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
