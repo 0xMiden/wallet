@@ -10199,5 +10199,186 @@
   "loginSignatureTitle": {
     "message": "This only signs you in",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "Command assistant",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "Send, swap, bridge, earn, or ask about your wallet...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "Run",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "Thinking...",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "Expand to multi-line",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "Collapse to single line",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "Protected: $kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "Open form",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "Which bridge route do you want to use?",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "Who do you want to send to?",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "Multiple contacts match that name. Which one?",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "That address belongs to a different Miden network.",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "Enter a valid Miden or destination address.",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "Specify a recipient address or contact name.",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "Could not match asset $asset$ in your wallet.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "Which asset do you want to use?",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "How much do you want to send?",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "Which token do you want to receive?",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "Which Earn vault do you want to deposit into?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "Which Earn position do you want to withdraw from?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "No matching bridge route is available right now.",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiSwapUnavailable": {
+    "message": "Swap is unavailable for that pair right now.",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "No Earn vaults or positions are available right now.",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "Live USD price is unavailable for that token. Enter a token amount.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "Nothing active to update. Enter a full command.",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AI service is temporarily unavailable. Try again or use a form below.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "AI service rate limit reached. Try again shortly.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "Wallet balance",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "Matching total",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "Matching activity",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "No matching entries found.",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "Computed locally on this device",
+    "englishSource": "Computed locally on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "Conversation",
+    "englishSource": "Conversation"
   }
 }

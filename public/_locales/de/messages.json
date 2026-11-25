@@ -10209,5 +10209,186 @@
   "loginSignatureTitle": {
     "message": "Damit melden Sie sich lediglich an",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "Command assistant",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlaceholder": {
+    "message": "Send, swap, bridge, earn, or ask about your wallet...",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSendButton": {
+    "message": "Run",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiWorking": {
+    "message": "Thinking...",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiExpand": {
+    "message": "Expand to multi-line",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiCollapse": {
+    "message": "Collapse to single line",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRedactedBadge": {
+    "message": "Protected: $kinds$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "Open form",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseBridge": {
+    "message": "Which bridge route do you want to use?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseRecipient": {
+    "message": "Who do you want to send to?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "Multiple contacts match that name. Which one?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "That address belongs to a different Miden network.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiInvalidAddress": {
+    "message": "Enter a valid Miden or destination address.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiMissingRecipient": {
+    "message": "Specify a recipient address or contact name.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiAssetNotFound": {
+    "message": "Could not match asset $asset$ in your wallet.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "Which asset do you want to use?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseAmount": {
+    "message": "How much do you want to send?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "Which token do you want to receive?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "Which Earn vault do you want to deposit into?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "Which Earn position do you want to withdraw from?",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "No matching bridge route is available right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSwapUnavailable": {
+    "message": "Swap is unavailable for that pair right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiEarnUnavailable": {
+    "message": "No Earn vaults or positions are available right now.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "Live USD price is unavailable for that token. Enter a token amount.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiUnsupported": {
+    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiNoActiveDraft": {
+    "message": "Nothing active to update. Enter a full command.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiUnconfigured": {
+    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AI service is temporarily unavailable. Try again or use a form below.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRateLimited": {
+    "message": "AI service rate limit reached. Try again shortly.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "Wallet balance",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "Matching total",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "Matching activity",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiQueryEmpty": {
+    "message": "No matching entries found.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "Computed locally on this device",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiRecentTurns": {
+    "message": "Conversation",
+    "englishSource": "(untranslated)"
   }
 }
