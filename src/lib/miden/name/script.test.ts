@@ -1,0 +1,278 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+
+import { MidenNameScriptAssetError, MidenNameScriptMismatchError } from './errors';
+import {
+  MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH,
+  REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
+  REGISTER_DOMAIN_SCRIPT_ROOT_HEX
+} from './note-script-roots';
+import * as scriptModule from './script';
+import { loadRegisterDomainScript, resetMidenNameNoteScriptsCacheForTests } from './script';
+import { NoteScript } from './test-support/fake-sdk';
+
+jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
+jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn(async () => undefined) }));
+
+interface AssetEntry {
+  root: string;
+  byteLength: number;
+  serializedBase64: string;
+}
+
+interface Asset {
+  contractVersion: string;
+  registerDomain: AssetEntry;
+}
+
+const ASSET_URL = `/${MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH}`;
+const ASSET_FILE = join(__dirname, '..', '..', '..', '..', 'public', MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH);
+
+/** "MAST" magic of a serialized MAST forest. */
+const MAST_MAGIC = [0x4d, 0x41, 0x53, 0x54];
+
+function readRealAsset(): Asset {
+  return JSON.parse(readFileSync(ASSET_FILE, 'utf8'));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+/** A fake asset built from the pinned constants: the payload is the MAST magic padded to the pinned size. */
+function fakeAsset(): Asset {
+  const bytes = new Uint8Array(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+  bytes.set(MAST_MAGIC);
+  return {
+    contractVersion: '0.17',
+    registerDomain: {
+      root: REGISTER_DOMAIN_SCRIPT_ROOT_HEX,
+      byteLength: REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
+      serializedBase64: bytesToBase64(bytes)
+    }
+  };
+}
+
+function fakeScript(rootHex: string) {
+  return { root: () => ({ toHex: () => rootHex }), free: jest.fn() };
+}
+
+const mockFetch = jest.fn<Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>, [string]>();
+
+function serveAsset(body: unknown, status = 200) {
+  mockFetch.mockResolvedValue({ ok: status >= 200 && status < 300, status, json: async () => body });
+}
+
+const mockWasmReady = jest.mocked(ensureSdkWasmReady);
+
+beforeEach(() => {
+  resetMidenNameNoteScriptsCacheForTests();
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
+  NoteScript.deserialize.mockReset().mockImplementation(() => fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX));
+  mockFetch.mockReset();
+  Object.defineProperty(globalThis, 'fetch', { value: mockFetch, writable: true, configurable: true });
+  serveAsset(fakeAsset());
+});
+
+describe('the note-scripts asset', () => {
+  it('the vendored asset carries the register-domain script at the pinned root and size', async () => {
+    const asset = readRealAsset();
+    expect(asset.contractVersion).toBe('0.17');
+    expect(asset.registerDomain.root).toBe(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    expect(asset.registerDomain.byteLength).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+    expect(atob(asset.registerDomain.serializedBase64).length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+
+    serveAsset(asset);
+    await loadRegisterDomainScript();
+    const bytes = NoteScript.deserialize.mock.calls[0]?.[0];
+    expect(Array.from(bytes?.slice(0, 4) ?? [])).toEqual(MAST_MAGIC);
+  });
+
+  it('decodes the register-domain payload to the served bytes', async () => {
+    await loadRegisterDomainScript();
+    const bytes = NoteScript.deserialize.mock.calls[0]?.[0];
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes?.length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+    expect(Array.from(bytes?.slice(0, 4) ?? [])).toEqual(MAST_MAGIC);
+  });
+});
+
+describe('loadRegisterDomainScript', () => {
+  it('fetches the asset once, deserializes the bytes and returns the script when the root matches', async () => {
+    const script = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX.toUpperCase().replace('0X', '0x'));
+    NoteScript.deserialize.mockReturnValue(script);
+
+    await expect(loadRegisterDomainScript()).resolves.toBe(script);
+    await expect(loadRegisterDomainScript()).resolves.toBe(script);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(ASSET_URL);
+    const bytes = NoteScript.deserialize.mock.calls[0]?.[0];
+    expect(bytes?.length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
+    expect(script.free).not.toHaveBeenCalled();
+  });
+
+  it('exposes only loadRegisterDomainScript and the test reset helper', () => {
+    expect(Object.keys(scriptModule).sort()).toEqual([
+      'loadRegisterDomainScript',
+      'resetMidenNameNoteScriptsCacheForTests'
+    ]);
+  });
+
+  it('throws and frees the script when the deserialized root does not match', async () => {
+    const script = fakeScript('0x' + '00'.repeat(32));
+    NoteScript.deserialize.mockReturnValue(script);
+
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
+    expect(script.free).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('asset validation', () => {
+  it('reports an HTTP failure and does not cache it', async () => {
+    serveAsset(null, 404);
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptAssetError);
+
+    const script = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    NoteScript.deserialize.mockReturnValueOnce(script);
+    serveAsset(fakeAsset());
+    await expect(loadRegisterDomainScript()).resolves.toBe(script);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a body that is not an object', async () => {
+    serveAsset('nope');
+    await expect(loadRegisterDomainScript()).rejects.toThrow('not a JSON object');
+  });
+
+  it('refuses a missing or malformed entry', async () => {
+    const asset = fakeAsset();
+    serveAsset({ ...asset, registerDomain: { root: asset.registerDomain.root } });
+    await expect(loadRegisterDomainScript()).rejects.toThrow('"registerDomain" entry is missing or malformed');
+  });
+
+  it('refuses an entry whose declared root is not the pinned root', async () => {
+    const asset = fakeAsset();
+    serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, root: '0x' + 'ab'.repeat(32) } });
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
+  });
+
+  it('refuses an entry whose declared size is not the pinned size', async () => {
+    const asset = fakeAsset();
+    serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, byteLength: 1 } });
+    await expect(loadRegisterDomainScript()).rejects.toThrow('declares 1 bytes');
+  });
+
+  it('refuses a payload that decodes to another size', async () => {
+    const asset = fakeAsset();
+    serveAsset({ ...asset, registerDomain: { ...asset.registerDomain, serializedBase64: 'TUFTVA==' } });
+    await expect(loadRegisterDomainScript()).rejects.toThrow('decodes to 4 bytes');
+    expect(mockWasmReady).not.toHaveBeenCalled();
+  });
+
+  it('awaits ensureSdkWasmReady before NoteScript.deserialize on cold start', async () => {
+    let wasmReady = false;
+    let resolveReady!: () => void;
+    mockWasmReady.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveReady = () => {
+            wasmReady = true;
+            resolve();
+          };
+        })
+    );
+    const script = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    NoteScript.deserialize.mockImplementationOnce(() => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return script;
+    });
+
+    const pending = loadRegisterDomainScript();
+    for (let i = 0; i < 6; i++) {
+      await Promise.resolve();
+    }
+    expect(NoteScript.deserialize).not.toHaveBeenCalled();
+    resolveReady();
+    await expect(pending).resolves.toBe(script);
+  });
+
+  it('does not poison the cache when decode, deserialize, or root verification fails', async () => {
+    const goodScript = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    const badRootScript = fakeScript('0x' + '00'.repeat(32));
+
+    // 1. Decoded byte-length failure clears cache so retry succeeds.
+    const badLengthAsset = fakeAsset();
+    badLengthAsset.registerDomain.serializedBase64 = 'TUFTVA==';
+    serveAsset(badLengthAsset);
+    await expect(loadRegisterDomainScript()).rejects.toThrow('decodes to 4 bytes');
+
+    serveAsset(fakeAsset());
+    NoteScript.deserialize.mockReturnValueOnce(goodScript);
+    await expect(loadRegisterDomainScript()).resolves.toBe(goodScript);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(goodScript.free).not.toHaveBeenCalled();
+
+    // 2. Deserialization throw clears cache so retry succeeds.
+    resetMidenNameNoteScriptsCacheForTests();
+    mockFetch.mockClear();
+    serveAsset(fakeAsset());
+    NoteScript.deserialize.mockImplementationOnce(() => {
+      throw new Error('corrupt MAST bytes');
+    });
+    await expect(loadRegisterDomainScript()).rejects.toThrow('corrupt MAST bytes');
+
+    const goodScript2 = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    serveAsset(fakeAsset());
+    NoteScript.deserialize.mockReturnValueOnce(goodScript2);
+    await expect(loadRegisterDomainScript()).resolves.toBe(goodScript2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(goodScript2.free).not.toHaveBeenCalled();
+
+    // 3. MAST root mismatch frees bad script and clears cache so retry succeeds.
+    resetMidenNameNoteScriptsCacheForTests();
+    mockFetch.mockClear();
+    serveAsset(fakeAsset());
+    NoteScript.deserialize.mockReturnValueOnce(badRootScript);
+    await expect(loadRegisterDomainScript()).rejects.toBeInstanceOf(MidenNameScriptMismatchError);
+    expect(badRootScript.free).toHaveBeenCalledTimes(1);
+
+    const goodScript3 = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    serveAsset(fakeAsset());
+    NoteScript.deserialize.mockReturnValueOnce(goodScript3);
+    await expect(loadRegisterDomainScript()).resolves.toBe(goodScript3);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(goodScript3.free).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates concurrent cold fetches while returning distinct unfreed NoteScript handles', async () => {
+    let resolveJson!: (value: Asset) => void;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise<Asset>(resolve => {
+          resolveJson = resolve;
+        })
+    });
+    const script1 = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    const script2 = fakeScript(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
+    NoteScript.deserialize.mockReturnValueOnce(script1).mockReturnValueOnce(script2);
+
+    const p1 = loadRegisterDomainScript();
+    const p2 = loadRegisterDomainScript();
+    await Promise.resolve();
+    resolveJson(fakeAsset());
+
+    await expect(Promise.all([p1, p2])).resolves.toEqual([script1, script2]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(script1.free).not.toHaveBeenCalled();
+    expect(script2.free).not.toHaveBeenCalled();
+  });
+});
