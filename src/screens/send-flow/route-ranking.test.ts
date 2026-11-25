@@ -48,3 +48,12 @@ it('preserves provider order for equal metrics, including a free route', () => {
   ];
   expect(rankBridgeRoutes(tied, 'cheapest')).toEqual(tied);
 });
+
+it('compares exact decimal payouts beyond JavaScript number precision', () => {
+  const quotes = [
+    { id: 'lower', receivedValue: '1000000.000000000000000001' },
+    { id: 'higher', receivedValue: '1000000.000000000000000002' }
+  ];
+
+  expect(rankBridgeRoutes(quotes, 'best-value').map(route => route.id)).toEqual(['higher', 'lower']);
+});

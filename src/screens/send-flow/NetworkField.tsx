@@ -15,6 +15,7 @@ export interface NetworkFieldProps {
   networks?: readonly BridgeNetwork[];
   chain: AddressChain;
   network?: BridgeNetworkId;
+  requireSelection?: boolean;
   onSelect: (network: BridgeNetworkId) => void;
   testIdPrefix: string;
 }
@@ -23,6 +24,7 @@ export interface NetworkFieldProps {
 export const NetworkField: React.FC<NetworkFieldProps> = ({
   chain,
   network,
+  requireSelection = false,
   onSelect,
   testIdPrefix,
   networks = BRIDGE_NETWORKS
@@ -30,9 +32,10 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
   const { t } = useTranslation();
   const nested = useIsInDrawer();
   const [open, setOpen] = useState(false);
-  const choosable = chain !== 'miden' && networks.length > 1;
   const selected = networks.find(option => option.id === network);
-  const single = networks.length === 1 ? networks[0] : undefined;
+  const needsSelection = requireSelection && selected === undefined;
+  const choosable = chain !== 'miden' && (networks.length > 1 || (networks.length === 1 && needsSelection));
+  const single = networks.length === 1 && !needsSelection ? networks[0] : undefined;
   const destination = selected ?? single;
 
   return (

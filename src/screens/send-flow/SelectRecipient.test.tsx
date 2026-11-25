@@ -92,12 +92,6 @@ describe('SelectRecipient', () => {
     expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);
   });
 
-  it('hides the network selector before an address is entered', () => {
-    renderRecipient();
-
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
-  });
-
   it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
     renderRecipient({ onScan: jest.fn() });
     const field = screen.getByTestId('send-recipient-input');
@@ -163,10 +157,15 @@ describe('SelectRecipient', () => {
     }
   });
 
-  it('hides the network selector for an incomplete EVM address', () => {
-    renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
+  it.each(['', '0x1234'])('offers networks before the recipient address is valid (%s)', address => {
+    const props = renderRecipient({ address, isValidAddress: false, chain: address ? 'ethereum' : 'miden' });
 
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+    const picker = screen.getByRole('button', { name: 'selectNetwork' });
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByTestId('send-network-sepolia'));
+
+    expect(props.onSelectNetwork).toHaveBeenCalledWith('sepolia');
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
   });
 
   it('enables EVM confirmation once the network is set', () => {

@@ -114,11 +114,42 @@ describe('Route', () => {
 
 describe('RouteOptions', () => {
   it('offers Best Price and Fastest when both provider routes are available', () => {
-    render(<RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />);
+    render(
+      <RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />
+    );
 
     const sort = screen.getByRole('radiogroup', { name: 'bridgeRouteSort' });
     expect(within(sort).getByRole('radio', { name: 'bridgeRankBestValue' })).toBeChecked();
     expect(within(sort).getByRole('radio', { name: 'bridgeRankFastest' })).toBeEnabled();
+  });
+
+  it.each([
+    ['sepolia:usdc', 'bridge-route-slow'],
+    ['sepolia:other-usdc', 'bridge-route-fast']
+  ])('compares payouts only for the same destination asset (%s)', (slowAsset, firstRoute) => {
+    const onRouteChange = jest.fn();
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={onRouteChange}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        payouts={{
+          epoch: { assetId: 'sepolia:usdc', amount: '1.000000000000000001', symbol: 'USDC' },
+          agglayer: { assetId: slowAsset, amount: '1.000000000000000002', symbol: 'USDC' }
+        }}
+        {...UP}
+      />
+    );
+    const renderedRoutes = () => screen.getAllByTestId(/^bridge-route-(fast|slow)$/);
+    expect(renderedRoutes()[0]).toHaveAttribute('data-testid', firstRoute);
+    expect(screen.getByTestId('bridge-route-fast')).toHaveTextContent('1.000000000000000001 USDC');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'bridgeRankFastest' }));
+
+    expect(renderedRoutes()[0]).toHaveAttribute('data-testid', 'bridge-route-fast');
+    expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+    expect(onRouteChange).not.toHaveBeenCalled();
   });
 
   it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(

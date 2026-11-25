@@ -1408,6 +1408,26 @@ describe('recipient address entry', () => {
     }
   });
 
+  it('keeps the destination picked before the recipient types an EVM address', () => {
+    mockOfferedNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
+    ];
+    mockBridgeNetworks = mockOfferedNetworks;
+    try {
+      renderFlow();
+
+      fireEvent.click(screen.getByTestId('sr-network-base-sepolia'));
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0' } });
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
   it('selects no network when none is offered', () => {
     mockOfferedNetworks = [];
     mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];

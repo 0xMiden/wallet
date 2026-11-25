@@ -632,17 +632,20 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 jest.mock('screens/send-flow/Route', () => ({
   Route: ({
     notice,
+    payouts,
     confirmDisabled,
     onRouteChange,
     onConfirm
   }: {
     notice?: React.ReactNode;
+    payouts?: unknown;
     confirmDisabled?: boolean;
     onRouteChange: (route: string) => void;
     onConfirm: () => void;
   }) => (
     <div>
       <span data-testid="route-notice">{notice}</span>
+      <span data-testid="receive-route-payouts">{JSON.stringify(payouts ?? {})}</span>
       <button data-testid="pick-slow" onClick={() => onRouteChange('agglayer')}>
         slow
       </button>
@@ -816,14 +819,15 @@ const reachReview = async (amountButton = 'set-amount', expectReview = true) => 
  */
 const quoteFast = (
   resourceLockRequired = true,
-  transactions: Array<{ target: string; value: string; callData: string; chainId: number }> = []
+  transactions: Array<{ target: string; value: string; callData: string; chainId: number }> = [],
+  params: Record<string, unknown> = {}
 ) =>
   Object.assign(epochState, {
     quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
     status: 'quoted',
     flow: 'evm-to-miden',
     quote: {
-      params: { minTokenOut: '1505000' },
+      params: { minTokenOut: '1505000', ...params },
       quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000', resourceLockRequired, transactions }
     }
   });
@@ -1215,6 +1219,35 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         ]
       })
     );
+  });
+
+  it('shows a Receive payout only for a quote matching the current wallet and amount', async () => {
+    const params = {
+      sourceChainId: 11155111,
+      destinationChainId: 1,
+      evmTokenAddress: '0x00000000000000000000000000000000000000c0',
+      evmSourceAddress: EVM_ADDRESS,
+      midenRecipientId: midenAccount.publicKey,
+      midenFaucetId: '0x00000000000000000000000000e2e0'
+    };
+    quoteFast(true, [], params);
+    const view = renderScreen();
+
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+
+    const payout = () => JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
+    expect(payout().epoch).toMatchObject({ amount: '10', symbol: 'USDC' });
+
+    quoteFast(true, [], { ...params, minTokenOut: '1500000' });
+    view.rerender(depositScreen());
+    expect(payout().epoch).toBeUndefined();
+
+    quoteFast(true, [], params);
+    view.rerender(depositScreen(undefined, '0x00000000000000000000000000000000000000f1'));
+    expect(screen.queryByText(/"amount":"10"/)).not.toBeInTheDocument();
   });
 
   it('quotes the Fast route for the USDC pair the config names', async () => {

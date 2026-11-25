@@ -235,21 +235,16 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         )}
       </AnimatePresence>
 
-      <AnimatePresence initial={false}>
-        {isValidAddress && (
-          <motion.div key="networks" className="overflow-hidden" {...reveal}>
-            <div className="pt-4">
-              <NetworkField
-                networks={networks}
-                chain={isEthereum ? 'ethereum' : 'miden'}
-                network={network === 'miden' ? undefined : network}
-                onSelect={onSelectNetwork}
-                testIdPrefix="send"
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className="pt-4">
+        <NetworkField
+          networks={networks}
+          chain={isValidAddress && !isEthereum ? 'miden' : 'ethereum'}
+          network={network === 'miden' ? undefined : network}
+          requireSelection
+          onSelect={onSelectNetwork}
+          testIdPrefix="send"
+        />
+      </div>
 
       <div className={clsx('mt-4', recentRecipients.length > 0 ? 'pb-7' : 'pb-4')}>
         {/* The pills swap as one set, never one by one: the current set fades

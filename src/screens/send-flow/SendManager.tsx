@@ -13,6 +13,7 @@ import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { isQuoteReviewable } from 'lib/bridge/core/quote';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -28,6 +29,7 @@ import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectAgglayerRegistryToken } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import {
   snapshotRecipientValidation,
@@ -383,11 +385,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A 0x recipient routes through the bridge instead of a same-chain Miden send.
   const chain = detectAddressChain(recipientAddress ?? '');
   const isBridge = !!recipientAddress && chain === 'ethereum';
-  const displayedNetwork: SendNetworkId | undefined = recipientAddress?.trim()
-    ? isBridge
-      ? bridgeNetwork
-      : 'miden'
-    : recipientNetwork;
+  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
+  const isMidenRecipient = !isBridge && isValidRecipient;
+  const displayedNetwork: SendNetworkId | undefined = isMidenRecipient
+    ? 'miden'
+    : (bridgeNetwork ?? (recipientNetwork === 'miden' ? undefined : recipientNetwork));
   const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
   const destinationChainId = offeredNetworks.find(network => network.id === displayedNetwork)?.chainId;
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
@@ -397,7 +399,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
     return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
   }, [allContactsList, recipientAddress]);
 
-  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
   // A valid address that isn't in the wallet or the address book can be saved
   // straight from the recipient step — the pill offers "Add to contacts?".
   const canAddContact = isValidRecipient && !selectedContact;
@@ -413,17 +414,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [recentSendRecipients, allContactsList]
   );
 
-  // A destination selected before typing can carry into an EVM address. Once a
-  // non-empty Miden address is entered, the EVM destination is no longer meaningful.
+  // Keep the chosen network while typing. Only a validated Miden recipient replaces it.
   useEffect(() => {
-    const hasRecipientAddress = !!recipientAddress?.trim();
-    if (hasRecipientAddress && !isBridge && bridgeNetwork) {
-      setValue('bridgeNetwork', undefined);
-    }
-    if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
-      setRecipientNetwork('miden');
-    }
-  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue]);
+    if (!isMidenRecipient) return;
+    if (bridgeNetwork) setValue('bridgeNetwork', undefined);
+    if (recipientNetwork !== 'miden') setRecipientNetwork('miden');
+  }, [isMidenRecipient, bridgeNetwork, recipientNetwork, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -1017,6 +1013,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       } else {
         clearErrors('recipientAddress');
       }
+      return result;
     },
     [recipientErrorKey, setError, clearErrors]
   );
@@ -1027,10 +1024,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      applyRecipientValidation(address);
-      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
+      const error = applyRecipientValidation(address);
+      const native = address.trim() !== '' && detectAddressChain(address.trim()) === 'miden' && !error;
+      saveCommandDraft({
+        recipientAddress: address,
+        bridgeNetwork: native ? undefined : bridgeNetwork,
+        bridgeRoute: 'epoch'
+      });
     },
-    [onAction, applyRecipientValidation, saveCommandDraft]
+    [onAction, applyRecipientValidation, bridgeNetwork, saveCommandDraft]
   );
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => setRecipientAddress(event.target.value),
@@ -1253,6 +1255,33 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onBack: onStepBack,
     onConfirm: onConfirmAmount
   };
+  const epochExpiry = epochQuote.validity?.kind === 'time' ? epochQuote.validity.expiresAt : undefined;
+  useQuoteClock(epochExpiry);
+  const fastPayout =
+    destinationChainId !== undefined &&
+    epochQuote.address &&
+    epochQuote.amount &&
+    epochQuote.validity &&
+    isQuoteReviewable({ kind: 'epoch', received: epochQuote.amount, validity: epochQuote.validity }, Date.now())
+      ? {
+          assetId: `${destinationChainId}:${epochQuote.address.toLowerCase()}`,
+          amount: epochQuote.amount,
+          symbol: epochQuote.symbol
+        }
+      : undefined;
+  const sameAgglayerAsset =
+    fastPayout && destinationChainId !== undefined && epochQuote.address && token
+      ? selectAgglayerRegistryToken(bridgeConfig, epochQuote.address.toLowerCase(), destinationChainId)?.midenFaucetId
+      : undefined;
+  const slowPayout =
+    fastPayout &&
+    sameAgglayerAsset &&
+    token &&
+    amount &&
+    amountBaseUnits &&
+    sameWalletAccountId(sameAgglayerAsset, token.id)
+      ? { ...fastPayout, amount }
+      : undefined;
   const routeProps: SendRouteProps = {
     eligibility: routeEligibility,
     usdcxAvailable,
@@ -1260,6 +1289,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     route: bridgeRoute ?? 'epoch',
     onRouteChange,
     fastFeeUsd,
+    payouts: { epoch: fastPayout, agglayer: slowPayout },
     fastQuoteLoading: epochQuote.loading,
     onBack: onStepBack,
     onConfirm: goToReview

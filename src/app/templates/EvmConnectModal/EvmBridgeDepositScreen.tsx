@@ -2173,6 +2173,34 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     fastInputPrice,
     fastOutputPrice
   ]);
+  const fastPayout = useMemo(() => {
+    const params = epochQuote?.params;
+    const minTokenOut = midenUsdc && evmToMidenMinTokenOut(amount, midenUsdc.decimals);
+    const raw = String(epochQuote?.quoteResult.tokenOut ?? '');
+    if (
+      epochFlow !== 'evm-to-miden' ||
+      epochStatus !== 'quoted' ||
+      !params ||
+      !('sourceChainId' in params) ||
+      !evmUsdc ||
+      !midenUsdc ||
+      !minTokenOut ||
+      params.sourceChainId !== evmUsdc.chainId ||
+      params.destinationChainId !== MIDEN_DESTINATION_CHAIN_ID ||
+      params.evmSourceAddress.toLowerCase() !== evmAddress.toLowerCase() ||
+      params.evmTokenAddress.toLowerCase() !== evmUsdc.address.toLowerCase() ||
+      params.midenRecipientId !== midenAccount.publicKey ||
+      params.midenFaucetId !== midenUsdc.faucetId ||
+      params.minTokenOut !== minTokenOut ||
+      !/^[1-9]\d*$/.test(raw)
+    )
+      return undefined;
+    return {
+      assetId: midenUsdc.faucetId,
+      amount: formatUnits(BigInt(raw), midenUsdc.decimals),
+      symbol: midenUsdc.symbol
+    };
+  }, [amount, epochFlow, epochQuote, epochStatus, evmAddress, evmUsdc, midenAccount.publicKey, midenUsdc]);
   const displayedError: DepositError | null =
     route === 'epoch' && epochFlow === 'evm-to-miden'
       ? epochError == null
@@ -2518,6 +2546,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               route={route}
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
+              payouts={{ epoch: fastPayout }}
               fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
@@ -2599,6 +2628,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       sharedFastToken,
       configuredFastAvailability,
       fastFeeUsd,
+      fastPayout,
       handleAmountChange,
       handleConfirm,
       handleContinue,
