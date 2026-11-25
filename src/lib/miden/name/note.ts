@@ -15,18 +15,18 @@ import {
   NoteStorage,
   NoteTag,
   NoteType,
-  TransactionRequestBuilder,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
   accountIdStringToSdk,
+  feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   randomFeeSalt,
   resolveHeldFungibleAsset
 } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { getMidenNameConfig, MIDEN_NAME_RECLAIM_BLOCKS } from './config';
@@ -143,7 +143,9 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
     return await withWasmClientLock(
       async hold => {
         assertScopeCurrent(scope);
-        const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
+        const sender = toAccountId(args.senderAccountId);
+        const senderId = sender.toString();
+        const senderAccount = await midenClientProxy.getAccount(senderId);
         // An eviction during the read gives the mutex to a successor. The account
         // object is a borrow of that client, so stop before a read of its vault.
         // This hold only builds the request; nothing is submitted, so a stop is safe.
@@ -154,7 +156,6 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
         if (!registry.isPublic()) {
           throw new MidenNameRegistryMismatchError('the registry account is not public');
         }
-        const sender = toAccountId(args.senderAccountId);
         const asset = resolveHeldFungibleAsset(
           senderAccount ?? undefined,
           config.paymentFaucetIdHex,
@@ -162,6 +163,10 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
         );
         const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
         const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
+        // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
+        const builder = await feeAwareRequestBuilder((await getMidenClient()).client, senderId, feeSalt);
+        assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
+        assertScopeCurrent(scope);
         // The recipient takes the script: from here the note owns it.
         scriptOwned = false;
         const note = Note.withAttachments(
@@ -173,10 +178,8 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
         // Read the id BEFORE the note goes into the NoteArray: that call moves
         // the note into Rust.
         const registrationNoteId = note.id().toString();
-        // The salt goes on the builder: a finished `TransactionRequest` has no setter.
-        const requestBytes = new TransactionRequestBuilder()
+        const requestBytes = builder
           .withOwnOutputNotes(new NoteArray([note]))
-          .withFeeConversionSalt(feeSalt)
           .build()
           .serialize();
         return { requestBytes, registrationNoteId, reclaimHeight, builtAtBlock };

@@ -45,11 +45,13 @@ jest.mock('./reads', () => {
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: { getAccount: jest.fn() } }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: jest.fn(),
+  feeAwareRequestBuilder: jest.fn(),
   getBech32AddressFromAccountId: jest.fn((id: { toString(): string }) => `bech32:${id.toString()}`),
   randomFeeSalt: jest.fn(),
   resolveHeldFungibleAsset: jest.fn()
 }));
 jest.mock('lib/miden/sdk/miden-client', () => ({
+  getMidenClient: jest.fn(),
   withWasmClientLock: jest.fn(),
   assertWasmHoldCurrent: jest.fn()
 }));
@@ -63,6 +65,7 @@ const SENDER_HEX = '0xsender';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 
 const HOLD = { hold: 'current' };
+const FAKE_CLIENT = { client: 'miden-sdk-client' };
 const SENDER_ACCOUNT = { account: 'sender' };
 const HELD_ASSET = { asset: 'miden' };
 const SALT = new Word(BigUint64Array.from([5n, 6n, 7n, 8n]));
@@ -76,20 +79,29 @@ const mockGetAccount = jest.requireMock<{ midenClientProxy: { getAccount: jest.M
   'lib/miden/back/miden-client-proxy'
 ).midenClientProxy.getAccount;
 const helpers = jest.requireMock<{
+  feeAwareRequestBuilder: jest.Mock<Promise<TransactionRequestBuilder>, [object, string, Word]>;
   randomFeeSalt: jest.Mock<Word, []>;
   resolveHeldFungibleAsset: jest.Mock<object, [object, string, bigint]>;
 }>('lib/miden/sdk/helpers');
+const mockFeeAwareRequestBuilder = helpers.feeAwareRequestBuilder;
 const mockSalt = helpers.randomFeeSalt;
 const mockResolveAsset = helpers.resolveHeldFungibleAsset;
 const lock = jest.requireMock<{
+  getMidenClient: jest.Mock<Promise<{ client: object }>, []>;
   withWasmClientLock: jest.Mock<Promise<object>, [LockOperation, object]>;
   assertWasmHoldCurrent: jest.Mock<void, [object, string]>;
 }>('lib/miden/sdk/miden-client');
+const mockGetMidenClient = lock.getMidenClient;
 const mockLock = lock.withWasmClientLock;
 const mockAssertHold = lock.assertWasmHoldCurrent;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetMidenClient.mockReset().mockResolvedValue({ client: FAKE_CLIENT });
+  mockFeeAwareRequestBuilder
+    .mockReset()
+    .mockImplementation(async (_client, _account, salt) => new TransactionRequestBuilder().withFeeConversionSalt(salt));
+  mockAssertHold.mockReset();
   NOTE_BUILD_LOG.length = 0;
   TransactionRequestBuilder.lastBuilt = undefined;
   NON_PUBLIC_ACCOUNTS.clear();
@@ -276,6 +288,42 @@ describe('buildRegisterNameRequest', () => {
     ).rejects.toBeInstanceOf(MidenNameAbortedError);
     expect(mockGetAccount).not.toHaveBeenCalled();
     expect(script2.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds with feeAwareRequestBuilder inside the lock, rechecks hold and scope, and frees script on failure', async () => {
+    const mockLoadScript = jest.requireMock<{
+      loadRegisterDomainScript: jest.Mock<Promise<{ script: string; free: jest.Mock }>, []>;
+    }>('./script').loadRegisterDomainScript;
+    const customBuilder = new TransactionRequestBuilder().withFeeConversionSalt(SALT);
+    mockFeeAwareRequestBuilder.mockResolvedValueOnce(customBuilder);
+
+    await buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n });
+    expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(FAKE_CLIENT, SENDER_HEX, SALT);
+    expect(mockAssertHold).toHaveBeenCalledTimes(2);
+    expect(builtNote().builder).toBe(customBuilder);
+
+    const evictedScript = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(evictedScript);
+    mockAssertHold
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('hold evicted during feeAwareRequestBuilder');
+      });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toThrow('hold evicted during feeAwareRequestBuilder');
+    expect(evictedScript.free).toHaveBeenCalledTimes(1);
+
+    const switchedScript = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(switchedScript);
+    mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return new TransactionRequestBuilder().withFeeConversionSalt(SALT);
+    });
+    await expect(
+      buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(switchedScript.free).toHaveBeenCalledTimes(1);
   });
 });
 
