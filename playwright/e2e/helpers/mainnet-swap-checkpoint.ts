@@ -96,6 +96,13 @@ export interface MainnetSwapCheckpoint {
   recoveryClaimNativeBefore?: string;
   returnAmount?: string;
   returnBaseline?: { offer: string; request: string; native: string };
+  /** Closed as held: the first recovery return was granted but could not be filled, and nothing was submitted. */
+  heldDust?: {
+    token: string;
+    amount: string;
+    reason: 'no_return_liquidity';
+    after: { offer: string; request: string; native: string };
+  };
 }
 export interface SwapOrderEvidence {
   id: string;
