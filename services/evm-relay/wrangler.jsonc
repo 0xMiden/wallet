@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
   "name": "miden-evm-relay",
-  "main": "src/index.ts",
+  // worker.ts exports the fetch handler of index.ts and the Sender Durable Object class.
+  "main": "src/worker.ts",
   "compatibility_date": "2026-11-20",
   "workers_dev": true,
   "preview_urls": false,
@@ -28,7 +29,13 @@
     // Limits GET /v1/account and GET /v1/relay/{id} per caller IP, on the key `read:<CF-Connecting-IP>`.
     // 189401 to 189404 are taken by the other Workers of the account.
     { "name": "READ_RATE_LIMIT", "namespace_id": "189405", "simple": { "limit": 60, "period": 60 } },
-    // Limits POST /v1/relay per caller IP, on the key `relay:<CF-Connecting-IP>`.
+    // Limits POST /v1/relay per caller IP, on the key `relay:<CF-Connecting-IP>`, and per address, on the key
+    // `relay-address:<evmAddress>`.
     { "name": "RELAY_RATE_LIMIT", "namespace_id": "189406", "simple": { "limit": 10, "period": 60 } }
-  ]
+  ],
+  // The Sender: one Durable Object per chain (named by the chain id), with SQLite storage. It owns the relayer nonce.
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY_SENDER", "class_name": "RelaySenderObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelaySenderObject"] }]
 }

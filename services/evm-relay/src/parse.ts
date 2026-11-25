@@ -41,6 +41,22 @@ export function address(value: unknown, path: string, allowZero = false): Hex {
   return hex;
 }
 
+/** `0x` and exactly `bytes` bytes of hex, returned in lower case. */
+export function hexBytes(value: unknown, path: string, bytes: number): Hex {
+  if (typeof value !== 'string' || value.length !== 2 + 2 * bytes || !/^0x[0-9a-fA-F]*$/.test(value)) {
+    fail(path, `must be ${bytes} bytes of hex`);
+  }
+  return `0x${value.slice(2).toLowerCase()}`;
+}
+
+/** A JSON number that is a safe integer of at least `min`. */
+export function safeInteger(value: unknown, path: string, min: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
+    fail(path, `must be an integer of at least ${min}`);
+  }
+  return value;
+}
+
 /** A decimal string below 2^256. */
 export function amount(value: unknown, path: string): bigint {
   if (typeof value !== 'string' || !DECIMAL.test(value)) fail(path, 'must be a decimal integer string');

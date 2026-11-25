@@ -6,31 +6,35 @@ This Worker is separate from `services/wallet-api`. The wallet-api Worker stores
 
 ## State of this service
 
-The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz` and the account read. It derives the relayer address from its key but does not sign. It has no Durable Object and no deploy workflow.
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay route and the Sender Durable Object. It has no timer yet: nothing reads receipts, sends a stored transaction again, replaces a fee or removes old rows. It has no deploy workflow.
 
 | Route | State |
 | --- | --- |
 | `GET /healthz` | Implemented |
 | `GET /v1/account` | Implemented |
-| `POST /v1/relay` | Registered and rate limited. Answers `501 not_implemented` |
+| `POST /v1/relay` | Implemented |
 | `GET /v1/relay/{id}` | Registered and rate limited. Answers `501 not_implemented`, or `404 not_found` when `{id}` is not `0x` and 64 hex characters |
 
-Later PRs implement the two relay routes to the contract below.
+A later PR implements `GET /v1/relay/{id}` and the timer of the Sender.
 
 ## Source layout
 
 | File | Responsibility |
 | --- | --- |
-| `src/index.ts` | The entry: CORS gate, `handleRequest`, the default `fetch` |
+| `src/worker.ts` | The Wrangler entry: exports the default `fetch` of `index.ts` and the Durable Object class |
+| `src/index.ts` | CORS gate, `handleRequest`, the default `fetch` |
 | `src/router.ts` | Typed route match, the method check, the rate limit and the dispatch |
 | `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig` |
 | `src/kinds.ts` | The relay kind registry: one handler per kind (below) |
 | `src/parse.ts` | The strict parse helpers of the config and the request bodies |
-| `src/rate-limit.ts` | The read and relay rate limits per caller IP, and the read limit per address |
+| `src/rate-limit.ts` | The read and relay rate limits per caller IP and per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
-| `src/chain.ts` | The chain reader: the reads of one account in JSON-RPC batches |
+| `src/chain.ts` | The chain reader (the account reads and the relay read, in JSON-RPC batches) and the broadcast |
+| `src/sender.ts` | `RelaySender`: the nonce, the signature, the stored row and the broadcast. Also the route's Sender client |
+| `src/sender-object.ts` | `RelaySenderObject`: the Durable Object that wraps `RelaySender` |
 | `src/routes/health.ts` | `/healthz` |
 | `src/routes/account.ts` | `GET /v1/account` |
+| `src/routes/relay.ts` | `POST /v1/relay` |
 | `src/http.ts` | Responses, body read with the 64 KiB cap, CORS |
 | `src/errors.ts` | `ApiError` and its helpers |
 | `src/types.ts` | `Env`, `RequestContext`, `ErrorCode` and the wire shapes |
@@ -46,9 +50,10 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each token pays a fixed fee to `feeRecipient` |
 | `RELAY_CONFIG` | Worker variable | JSON of the chains, below |
 | `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
-| `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay` |
-| `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. Today the Worker only derives the `executor` address from it. The Worker never logs it |
-| `RPC_URL_<chainId>` | Worker secret | The HTTP(S) JSON-RPC URL of each chain in `RELAY_CONFIG`, for example `RPC_URL_8453`. It is a paid URL: the Worker sends it only the reads of `GET /v1/account` and never forwards a caller's RPC request |
+| `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay`. A relay that passes the signature checks also counts on the key `relay-address:<evmAddress>` |
+| `RELAY_SENDER` | Durable Object binding | The class `RelaySenderObject`, with SQLite storage (migration `v1`, `new_sqlite_classes`). One object per chain, named by the decimal chain id |
+| `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. The Worker derives the `executor` address from it, and the Sender signs the relay transactions with it. The Worker never logs it |
+| `RPC_URL_<chainId>` | Worker secret | The HTTP(S) JSON-RPC URL of each chain in `RELAY_CONFIG`, for example `RPC_URL_8453`. It is a paid URL: the Worker sends it only its own reads and signed relay transactions, and never forwards a caller's RPC request |
 
 The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `DEPLOYMENT_REVISION` is `unknown`, `GAS_MODE` is `sponsor` and `RELAY_CONFIG` has no chains. The rate limits use the namespace ids 189405 and 189406; 189401 to 189404 belong to the other Workers of the account.
 
@@ -77,9 +82,9 @@ The parse is strict. It refuses an unknown field and a missing field, and it low
 
 `src/kinds.ts` holds one handler per relay kind (`RelayKind` of the shared batch module). A handler parses the config of its kind, parses the `params` of a relay request, gives the token, the fee and the deposit total (`amount + fee`) of the parsed params, and builds the calls of the batch from the config, the params and the fee recipient. The routes use only the registry, so a new bridge is one entry in the registry and one kind in the batch module.
 
-`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
+`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
-The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. Later PRs write one line when the relayer account has no funds. The Worker never logs a request body.
+The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
 
 ## Account read
 
@@ -91,6 +96,49 @@ The Worker writes logs, with invocation logs off. `GET /v1/account` writes one l
 One call thus makes two HTTP requests to the RPC, cold or warm. A failed request, an RPC error in the batch or a time-out gives `502 rpc_unavailable`. A wrong Calibur code or domain gives `503 service_unavailable`.
 
 The 200 response has `Cache-Control: private, max-age=5`, so the browser of the caller can reuse it for 5 seconds. The Worker keeps no shared cache of the response: the Cloudflare documentation does not confirm that the Cache API works on a `workers.dev` hostname ("Workers deployed to custom domains have access to functional `cache` operations").
+
+## Relay
+
+`POST /v1/relay` runs its checks from the cheapest to the most expensive. A failed check stops the request.
+
+1. The caller IP is charged on `relay:<CF-Connecting-IP>`. The body is read with the 64 KiB cap, and every field is parsed strictly. An unknown field is refused.
+2. The config: the chain (`unsupported_chain`), the kind of the chain (`unsupported_kind`), the `params` of the kind through the registry (`invalid_request`), the token (`token_not_allowed`), `amount + fee` against `minAmount` (`below_minimum`), and the fee rule: in `sponsor` mode the fee must be 0 (`invalid_request`); in `deduct` mode it must be at least the configured fee (`fee_too_low`), and the batch pays it to the chain's `feeRecipient`.
+3. The envelope: `evmAddress` is not the relayer (`invalid_request`), the top 192 bits of `batchNonce` are `nonceKeyOf(kind)` (`invalid_request`), and the deadline is more than 60 seconds and at most 24 hours and 5 minutes after now (`stale_request`).
+4. The Worker builds the calls from its config and the params, recovers the batch signer and compares it with `evmAddress` (`bad_signature`). The `id` is the EIP-712 digest of the batch.
+5. An authorization must name the pinned Calibur and the chain, have an `s` of at most secp256k1n/2, and recover to `evmAddress` (`bad_signature`).
+6. The address is charged on `relay-address:<evmAddress>`.
+7. When the Sender already holds a relay with this `id`, the route answers it and reads nothing from the chain.
+8. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, and `eth_estimateGas` from the relayer to the address with the `execute` calldata. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing.
+9. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one. A revert of the estimate gives `409 simulation_failed`. An RPC failure gives `502 rpc_unavailable`.
+10. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
+11. The route hands the job to the Sender of the chain and answers its result.
+
+One new relay thus makes two HTTP requests to the RPC: the read batch and the broadcast. A repeated request makes none.
+
+When the address delegates already and the request still has an authorization, the estimate includes that authorization but the transaction does not. A node skips an authorization that does not apply, so the gas limit is then a little higher than needed, never too low.
+
+### Sender
+
+The Sender is the Durable Object `RelaySenderObject` (binding `RELAY_SENDER`, SQLite storage). The route reaches the object of a chain with `idFromName(String(chainId))`, so one object owns the relayer nonce of one chain. The logic is the plain class `RelaySender` in `src/sender.ts`; the object only gives it the SQL storage, the relayer key, the RPC broadcast and the clock. The Jest tests run `RelaySender` on `node:sqlite`.
+
+Its storage has two tables, created in the constructor:
+
+- `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`: `next_nonce` (the nonce after the last stored transaction) and `chain_id` (the Sender refuses a job of another chain).
+- `inflight`: `id` (primary key, the batch digest), `evm_address`, `tx_hash`, `raw_tx` (the signed bytes; nullable, so a later cleanup can drop them), `request` (JSON of `to`, `data`, `gas` and `authorization`, for a fee replacement), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline`, `state` (`pending`, `succeeded` or `reverted`), `attempts`, `created_at`, `updated_at` (milliseconds). Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `nonce`.
+
+`submit(job)` does this:
+
+1. A row with the `id` exists: return it.
+2. A `pending` row of the address exists: the route answers `409 busy` with that row's `id`.
+3. `nonce = max(the relayer's pending nonce that the route read, next_nonce)`.
+4. Sign with `RELAYER_PRIVATE_KEY`: type 4 (EIP-7702) when the job has an authorization, else type 2. The transaction hash is the keccak256 of the signed bytes.
+5. In one storage transaction, insert the row with the signed bytes and set `next_nonce = nonce + 1`.
+6. Only then broadcast with `eth_sendRawTransaction`. "already known" counts as success. A failed broadcast does not fail the request and does not delete the row; a later step sends the same bytes again.
+7. Return `{ id, state: "pending", txHash }`.
+
+Steps 1 to 5 run in an exclusive section: a promise queue in the object lets one submit at a time run them, and the next one starts only after the row of the one before is committed (or its signature failed). So two submits never get the same nonce, even when the signer yields to the event loop. The section has only one `await`, the signature, which does no I/O; storage calls are synchronous. A nonce is written only in the transaction that stores its signed bytes, so no nonce is reserved without a stored transaction. The unique index on the pending nonce is a second guard. The broadcast runs after the section, so a slow RPC does not hold other submits. The Durable Object output gate also holds the outgoing broadcast until the storage write is durable.
+
+`get(id)` returns `{ id, state, txHash }` or null. The Sender has no alarm yet.
 
 ## Local run
 
@@ -104,11 +152,13 @@ yarn dev       # wrangler dev on port 8788
 yarn test      # the Jest suites in test/
 ```
 
+The tests of the Sender run its SQL on `node:sqlite`, which Node 22.13 and later load without a flag (Node prints an `ExperimentalWarning`). The Jest tests do not load `src/sender-object.ts` and `src/worker.ts`, because `cloudflare:workers` exists only in the Workers runtime.
+
 Local state goes to `.wrangler/`, and local secrets go to `.dev.vars`. Git ignores both. Requests without an `Origin` header, such as `curl`, pass the CORS gate.
 
 ## API contract
 
-This section is the reference for the wallet client. `GET /v1/account` implements it; later PRs implement the two relay routes.
+This section is the reference for the wallet client. `GET /v1/account` and `POST /v1/relay` implement it; a later PR implements `GET /v1/relay/{id}`.
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
 
@@ -134,15 +184,21 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 `POST /v1/relay` with
 
 ```
-{ chainId, kind: "agglayer-deposit", evmAddress,
-  params: { token, amount, midenAccountHex, fee },   // amount = bridged amount after the fee; fee = "0" in sponsor mode
-  batchNonce: "<decimal>", salt, deadline: <unix seconds>,
+{ chainId: <number>, kind: "agglayer-deposit", evmAddress,
+  params: { token, amount, midenAccountHex, fee },   // decimal strings; amount = bridged amount after the fee; fee = "0" in sponsor mode
+  batchNonce: "<decimal; the FULL Calibur nonce: key << 64 | sequence>",
+  salt: <0x64hex>, deadline: <JSON number; unix seconds>,
   signature: <0x130hex>,
-  authorization?: { address, chainId, nonce, r, s, yParity } }
-→ 200 { id: <0x64hex, the EIP-712 digest of the batch>, state: "pending", txHash }
+  authorization?: { address, chainId: <number>, nonce: <number>, r: <0x64hex>, s: <0x64hex>, yParity: 0 | 1 } }
+→ 200 { id, state: "pending" | "succeeded" | "reverted", txHash }
 ```
 
-The server builds the calls again from `params`; it never accepts calldata. The request authenticates itself through the signature; there is no login. The same request sent again returns the same answer.
+- `id` is the EIP-712 digest of the batch, lower case. `txHash` is always present.
+- The server builds the calls again from `params` and its own config, with the chain's `feeRecipient` in `deduct` mode; it never accepts calldata. The request authenticates itself through the signature; there is no login.
+- The same request sent again returns the stored relay in its current state (any of the three), not a new transaction. The id is the digest, so a request with another signature encoding of the same batch also returns it.
+- `below_minimum` compares `amount + fee`, the full deposit, with the token's `minAmount`.
+- A `batchNonce` whose key is not the kind's key is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
+- Send `authorization` when `/v1/account` says `needsAuthorization`, with `nonce` = `authorizationNonce`. For an address that delegates already, the server ignores it.
 
 `GET /v1/relay/{id}` → `200 { id, state: "pending" | "succeeded" | "reverted", txHash }` or `404 not_found`.
 
