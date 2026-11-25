@@ -385,13 +385,14 @@ function buildFallbackProviderReads(startedAt, state) {
   return providerReads;
 }
 
-async function buildNullResultRecoveryFallback(env) {
-  const { identity } = await readRecoveryReceipt(env, { requireNullResult: true });
+async function buildRecoveryFailureFallback(env) {
+  const { recovery, identity, previous } = await readRecoveryReceipt(env);
   const paths = preparedPaths(env);
   const rawPrepared = JSON.parse(await readFile(paths.manifest, 'utf8'));
   const accountId = env.CLOUDFLARE_ACCOUNT_ID;
-  const expectedAccountSha256 =
-    typeof accountId === 'string' && ACCOUNT_ID.test(accountId) ? hash(accountId) : rawPrepared?.accountSha256;
+  const hasAccountId = typeof accountId === 'string' && accountId.length > 0;
+  if (hasAccountId && !ACCOUNT_ID.test(accountId)) fail('prepared_artifact_mismatch');
+  const expectedAccountSha256 = hasAccountId ? hash(accountId) : rawPrepared?.accountSha256;
   if (typeof expectedAccountSha256 !== 'string' || !SHA256.test(expectedAccountSha256)) {
     fail('prepared_artifact_mismatch');
   }
@@ -402,16 +403,27 @@ async function buildNullResultRecoveryFallback(env) {
     startedAt: loaded.value.startedAt,
     preflightCalls: loaded.value.preflightCalls
   });
+  const hasPrior = recovery.resultArtifactId !== null;
+  if (hasPrior) {
+    if (
+      previous?.schema !== 1 ||
+      !same(previous.identity, identity) ||
+      !validProviderReads(previous.providerReads, loaded.value.startedAt) ||
+      previous.providerReads.preflight < loaded.value.preflightCalls
+    )
+      fail('prior_topology_budget_unavailable');
+  }
   return {
     schema: 1,
     identity,
     phase: 'recovery_cleanup',
     manifestSha256: hash(JSON.stringify(loaded.value.manifest)),
     bundleSha256: loaded.value.manifest.bundleSha256,
-    deploymentAttempted: state?.deploymentAttempted ?? 'unknown',
+    deploymentAttempted:
+      state?.deploymentAttempted ?? (typeof previous?.deploymentAttempted === 'boolean' ? previous.deploymentAttempted : 'unknown'),
     cleanup: 'blocked',
     reason: 'cleanup_failed',
-    providerReads: buildFallbackProviderReads(loaded.value.startedAt, state)
+    providerReads: hasPrior ? previous.providerReads : buildFallbackProviderReads(loaded.value.startedAt, state)
   };
 }
 
@@ -814,24 +826,49 @@ export async function cleanup(
   return result.cleanup === 'blocked' ? 1 : 0;
 }
 
-async function hasValidResultOnDisk(env) {
+async function buildSameRunFailureResult(env, operation) {
+  let identity = null;
   try {
-    const existing = JSON.parse(await readFile(resultPath(env), 'utf8'));
-    return existing?.schema === 1 && existing.identity !== null && typeof existing.identity === 'object';
+    identity = currentIdentity(env);
   } catch {
-    return false;
   }
-}
-
-async function readValidPriorResult(env) {
-  try {
-    const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
-    if (typeof priorPath !== 'string' || !priorPath.length) return null;
-    const prior = JSON.parse(await readFile(priorPath, 'utf8'));
-    return prior?.schema === 1 && prior.identity !== null && typeof prior.identity === 'object' ? prior : null;
-  } catch {
-    return null;
+  let existing = null;
+  if (identity !== null) {
+    try {
+      const candidate = JSON.parse(await readFile(resultPath(env), 'utf8'));
+      if (
+        candidate?.schema === 1 &&
+        same(candidate.identity, identity) &&
+        (candidate.providerReads === undefined ||
+          (Number.isSafeInteger(candidate.providerReads?.preflightStartedAt) &&
+            validProviderReads(candidate.providerReads, candidate.providerReads.preflightStartedAt)))
+      ) {
+        existing = { ...candidate };
+      }
+    } catch {
+    }
   }
+  if (existing) delete existing.ownershipDiagnostic;
+  if (operation === 'cleanup') {
+    return {
+      ...(existing ?? {}),
+      schema: 1,
+      identity,
+      phase: 'cleanup',
+      deploymentAttempted: existing?.deploymentAttempted ?? 'unknown',
+      cleanup: 'blocked',
+      reason: 'cleanup_failed'
+    };
+  }
+  return {
+    ...(existing ?? {}),
+    schema: 1,
+    identity,
+    phase: 'execution',
+    deploymentAttempted: existing?.deploymentAttempted ?? false,
+    cleanup: 'pending',
+    reason: 'execution_failed'
+  };
 }
 
 async function main() {
@@ -850,37 +887,35 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     })
     .catch(async error => {
       const env = process.env;
-      if (!(await hasValidResultOnDisk(env))) {
-        const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
-        const isRecoveredCli = process.argv[2] === 'cleanup-recovered';
-        const prior = isRecoveredCli ? await readValidPriorResult(env) : null;
-        const fallback =
-          prior !== null
-            ? {
-                ...prior,
-                phase: 'recovery_cleanup',
-                cleanup: 'blocked',
-                reason: 'cleanup_failed'
-              }
-            : isRecoveredCli && (typeof priorPath !== 'string' || priorPath.length === 0)
-              ? await buildNullResultRecoveryFallback(env).catch(() => null)
-              : null;
-        await writeResult(
-          env,
-          fallback ?? {
+      const operation = process.argv[2];
+      let fallback;
+      if (operation === 'cleanup-recovered') {
+        fallback =
+          (await buildRecoveryFailureFallback(env).catch(() => null)) ?? {
             schema: 1,
             identity: null,
-            phase: 'preparation',
-            deploymentAttempted: false,
-            cleanup: 'not_attempted',
-            reason: ['untrusted_workflow_context', 'cloudflare_credentials_unavailable', 'inventory_preflight_failed'].includes(
-              error?.reason
-            )
-              ? error.reason
-              : 'preparation_failed'
-          }
-        ).catch(() => {});
+            phase: 'recovery_cleanup',
+            deploymentAttempted: 'unknown',
+            cleanup: 'blocked',
+            reason: 'cleanup_failed'
+          };
+      } else if (operation === 'execute' || operation === 'cleanup') {
+        fallback = await buildSameRunFailureResult(env, operation);
+      } else {
+        fallback = {
+          schema: 1,
+          identity: null,
+          phase: 'preparation',
+          deploymentAttempted: false,
+          cleanup: 'not_attempted',
+          reason: ['untrusted_workflow_context', 'cloudflare_credentials_unavailable', 'inventory_preflight_failed'].includes(
+            error?.reason
+          )
+            ? error.reason
+            : 'preparation_failed'
+        };
       }
+      await writeResult(env, fallback).catch(() => {});
       process.exitCode = 1;
     });
 }

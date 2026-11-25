@@ -1140,7 +1140,12 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
 
     assert.equal(run.status, 1);
     const after = JSON.parse(await readFile(resultFile, 'utf8'));
-    assert.deepEqual(after, existing);
+    assert.deepEqual(after, {
+      ...existing,
+      phase: 'cleanup',
+      cleanup: 'blocked',
+      reason: 'cleanup_failed'
+    });
 
     const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-recovered-'));
     try {
@@ -1159,8 +1164,10 @@ test('cli failure handler preserves existing valid result.json instead of clobbe
       assert.equal(recoveredRun.status, 1);
       const recoveredAfter = JSON.parse(await readFile(recoveredResultFile, 'utf8'));
       assert.deepEqual(recoveredAfter, {
-        ...existing,
+        schema: 1,
+        identity: null,
         phase: 'recovery_cleanup',
+        deploymentAttempted: 'unknown',
         cleanup: 'blocked',
         reason: 'cleanup_failed'
       });
@@ -1336,6 +1343,229 @@ test('cli failure handler preserves validated identity and conservative reads fo
       assert.equal(negRun.status, 1);
       const negWritten = JSON.parse(await readFile(resultFile, 'utf8'));
       assert.equal(negWritten.identity, null);
+    }
+  } finally {
+    await rm(prepared.runnerTemp, { recursive: true, force: true });
+  }
+});
+
+test('cli failure handler updates stale pre-write result.json, validates prior provenance, and fails closed under recovery_cleanup', async () => {
+  const prepared = await preparedTestRun();
+  try {
+    const scriptPath = fileURLToPath(new URL('./feature-eligibility-staging-topology.mjs', import.meta.url));
+    const resultFile = path.join(prepared.runnerTemp, 'eligibility-topology-result', 'result.json');
+    const priorReads = {
+      preflight: 5,
+      cleanup: 0,
+      total: 5,
+      elapsedMs: 1_000,
+      preflightStartedAt: prepared.startedAt,
+      preflightDeadlineAt: prepared.startedAt + 120_000,
+      cleanupStartedAt: null,
+      cleanupDeadlineAt: null,
+      preflightElapsedMs: 1_000,
+      cleanupElapsedMs: null
+    };
+    await mkdir(path.dirname(resultFile), { recursive: true, mode: 0o700 });
+    await writeFile(
+      resultFile,
+      `${JSON.stringify({
+        schema: 1,
+        identity: prepared.identity,
+        phase: 'prepared',
+        deploymentAttempted: false,
+        cleanup: 'not_attempted',
+        reason: null,
+        providerReads: priorReads
+      })}\n`,
+      { mode: 0o600 }
+    );
+
+    const execFail = spawnSync(process.execPath, [scriptPath, 'execute'], {
+      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
+      encoding: 'utf8'
+    });
+    assert.equal(execFail.status, 1);
+    const execResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(execResult.identity, prepared.identity);
+    assert.equal(execResult.phase, 'execution');
+    assert.equal(execResult.cleanup, 'pending');
+    assert.equal(execResult.reason, 'execution_failed');
+
+    const cleanupFail = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
+      env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
+      encoding: 'utf8'
+    });
+    assert.equal(cleanupFail.status, 1);
+    const cleanupResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.deepEqual(cleanupResult.identity, prepared.identity);
+    assert.equal(cleanupResult.phase, 'cleanup');
+    assert.equal(cleanupResult.cleanup, 'blocked');
+    assert.equal(cleanupResult.reason, 'cleanup_failed');
+
+    const recoveryRunnerTemp = await mkdtemp(path.join(tmpdir(), 'topology-c3-prior-'));
+    try {
+      const recDir = path.join(recoveryRunnerTemp, 'eligibility-topology-recovery');
+      const prepDir = path.join(recoveryRunnerTemp, 'eligibility-topology-prepared');
+      const recResultFile = path.join(recoveryRunnerTemp, 'eligibility-topology-result', 'result.json');
+      const priorPath = path.join(recoveryRunnerTemp, 'prior.json');
+      await mkdir(recDir, { recursive: true, mode: 0o700 });
+      await mkdir(prepDir, { recursive: true, mode: 0o700 });
+      await writeFile(
+        path.join(prepDir, 'prepared.json'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'prepared.json'), 'utf8'),
+        { mode: 0o600 }
+      );
+      await writeFile(
+        path.join(prepDir, 'staging-topology-worker.mjs'),
+        await readFile(path.join(prepared.runnerTemp, 'eligibility-topology-prepared', 'staging-topology-worker.mjs'))
+      );
+      await writeFile(
+        path.join(recDir, 'recovery.json'),
+        `${JSON.stringify({
+          schema: 1,
+          repository: context.repository,
+          workflowPath: context.workflowPath,
+          runId: context.runId,
+          runAttempt: context.runAttempt,
+          sourceSha: context.sourceSha,
+          artifactId: '1234',
+          resultArtifactId: '5678'
+        })}\n`,
+        { mode: 0o600 }
+      );
+      await writeFile(
+        priorPath,
+        `${JSON.stringify({
+          schema: 1,
+          identity: prepared.identity,
+          phase: 'cleanup',
+          deploymentAttempted: true,
+          cleanup: 'pending',
+          reason: null,
+          ownershipDiagnostic: { gate: 'stale', form: 'null' },
+          providerReads: priorReads
+        })}\n`,
+        { mode: 0o600 }
+      );
+
+      const goodPrior = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt,
+          CLOUDFLARE_API_TOKEN: 'bad'
+        },
+        encoding: 'utf8'
+      });
+      assert.equal(goodPrior.status, 1);
+      const goodWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
+      assert.deepEqual(goodWritten.identity, prepared.identity);
+      assert.equal(goodWritten.phase, 'recovery_cleanup');
+      assert.equal(goodWritten.deploymentAttempted, true);
+      assert.equal(goodWritten.cleanup, 'blocked');
+      assert.equal(goodWritten.reason, 'cleanup_failed');
+      assert.deepEqual(goodWritten.providerReads, priorReads);
+      assert.equal('ownershipDiagnostic' in goodWritten, false);
+
+      await rm(recResultFile, { force: true });
+      const badAcctFormat = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt,
+          CLOUDFLARE_ACCOUNT_ID: 'invalid-account-id',
+          CLOUDFLARE_API_TOKEN: 'bad'
+        },
+        encoding: 'utf8'
+      });
+      assert.equal(badAcctFormat.status, 1);
+      const badAcctFormatWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
+      assert.equal(badAcctFormatWritten.identity, null);
+
+      await rm(recResultFile, { force: true });
+      const badAccount = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt,
+          CLOUDFLARE_ACCOUNT_ID: 'b'.repeat(32),
+          CLOUDFLARE_API_TOKEN: 'bad'
+        },
+        encoding: 'utf8'
+      });
+      assert.equal(badAccount.status, 1);
+      const badWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
+      assert.equal(badWritten.identity, null);
+      assert.equal(badWritten.phase, 'recovery_cleanup');
+      assert.equal(badWritten.cleanup, 'blocked');
+      assert.equal(badWritten.reason, 'cleanup_failed');
+
+      await rm(recResultFile, { force: true });
+      await writeFile(
+        priorPath,
+        `${JSON.stringify({
+          schema: 1,
+          identity: prepared.identity,
+          phase: 'cleanup',
+          deploymentAttempted: true,
+          cleanup: 'pending',
+          reason: null,
+          providerReads: { ...priorReads, preflight: 0, total: 0 }
+        })}\n`,
+        { mode: 0o600 }
+      );
+      const lowBudgetPrior = spawnSync(process.execPath, [scriptPath, 'cleanup-recovered'], {
+        env: {
+          ...prepared.env,
+          RUNNER_TEMP: recoveryRunnerTemp,
+          TOPOLOGY_RECOVERY_FILE: path.join(recDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt,
+          CLOUDFLARE_API_TOKEN: 'bad'
+        },
+        encoding: 'utf8'
+      });
+      assert.equal(lowBudgetPrior.status, 1);
+      const lowBudgetWritten = JSON.parse(await readFile(recResultFile, 'utf8'));
+      assert.equal(lowBudgetWritten.identity, null);
+      assert.equal(lowBudgetWritten.phase, 'recovery_cleanup');
+      assert.equal(lowBudgetWritten.cleanup, 'blocked');
+      assert.equal(lowBudgetWritten.reason, 'cleanup_failed');
+
+      await rm(resultFile, { force: true });
+      const absentExecFail = spawnSync(process.execPath, [scriptPath, 'execute'], {
+        env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
+        encoding: 'utf8'
+      });
+      assert.equal(absentExecFail.status, 1);
+      const absentExecWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+      assert.equal(absentExecWritten.phase, 'execution');
+      assert.equal(absentExecWritten.cleanup, 'pending');
+      assert.equal(absentExecWritten.reason, 'execution_failed');
+
+      await rm(resultFile, { force: true });
+      const absentCleanupFail = spawnSync(process.execPath, [scriptPath, 'cleanup'], {
+        env: { ...prepared.env, CLOUDFLARE_API_TOKEN: 'bad' },
+        encoding: 'utf8'
+      });
+      assert.equal(absentCleanupFail.status, 1);
+      const absentCleanupWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+      assert.equal(absentCleanupWritten.phase, 'cleanup');
+      assert.equal(absentCleanupWritten.cleanup, 'blocked');
+      assert.equal(absentCleanupWritten.reason, 'cleanup_failed');
+    } finally {
+      await rm(recoveryRunnerTemp, { recursive: true, force: true });
     }
   } finally {
     await rm(prepared.runnerTemp, { recursive: true, force: true });
