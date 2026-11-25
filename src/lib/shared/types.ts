@@ -537,6 +537,8 @@ export interface WalletAccount {
   // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
+  /** Local request a device-role choice belongs to. */
+  hotKeyRotationRequest?: string;
   /**
    * Set on adoption through Guardian seed recovery; the detached pending-note
    * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once

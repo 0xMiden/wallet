@@ -300,7 +300,7 @@ jest.mock('components/ui/Notice', () => ({
   )
 }));
 
-const flaggedAccount = { publicKey: 'account-1', requiresHotKeyRotation: true };
+const flaggedAccount = { publicKey: 'account-1', requiresHotKeyRotation: true, hotKeyRotationRequest: 'current' };
 
 const rotationRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
   id,
@@ -308,7 +308,8 @@ const rotationRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
   accountId: 'account-1',
   status: ITransactionStatus.Queued,
   initiatedAt: 100,
-  ...extra
+  ...extra,
+  extraInputs: { rotationRequest: 'current', ...extra.extraInputs }
 });
 const fundingRow = (id: string, extra: Partial<TableRow> = {}): TableRow => ({
   id,
@@ -434,7 +435,9 @@ describe('HotKeyRotationGate', () => {
     await chooseRole(testId);
 
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, mode);
+    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, mode, {
+      expected: 'current'
+    });
     expect(mockArmKeepPrompt).toHaveBeenCalledWith('account-1');
     expect(screen.queryByTestId('choose-device-role')).not.toBeInTheDocument();
     // The progress copy names the chosen mode: an add keeps the other devices, a replace rotates the key.
@@ -465,8 +468,25 @@ describe('HotKeyRotationGate', () => {
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add');
+    expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add', {
+      expected: 'current'
+    });
     expect(screen.queryByTestId('choose-device-role')).not.toBeInTheDocument();
+  });
+
+  it('asks again when the last failed choice belongs to a previous request', async () => {
+    mockTable = [
+      rotationRow('previous-failure', {
+        status: ITransactionStatus.Failed,
+        error: 'guardian unreachable',
+        extraInputs: { mode: 'replace', rotationRequest: 'previous' }
+      })
+    ];
+
+    render(<HotKeyRotationGate />);
+
+    expect(await screen.findByTestId('choose-device-role')).toBeInTheDocument();
+    expect(mockInitiate).not.toHaveBeenCalled();
   });
 
   it('asks again when the last rotation completed: a new flag is a new activation', async () => {
@@ -506,7 +526,9 @@ describe('HotKeyRotationGate', () => {
       await publishTable();
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace');
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace', {
+        expected: 'current'
+      });
     });
 
     it('does not adopt a revocation that failed for want of its fee as the activation: it asks', async () => {
@@ -1686,7 +1708,9 @@ describe('HotKeyRotationGate', () => {
       await publishTable();
 
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add');
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'add', {
+        expected: 'current'
+      });
     });
 
     it('asks the device role once a deferral ends with no rotation whose role it can resume', async () => {
@@ -1701,7 +1725,9 @@ describe('HotKeyRotationGate', () => {
 
       await chooseRole('device-role-main');
       await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
-      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace');
+      expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' }, 'replace', {
+        expected: 'current'
+      });
     });
 
     it('tries again on the next rows read after a deferral that read newer rows', async () => {

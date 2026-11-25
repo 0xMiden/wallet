@@ -512,9 +512,30 @@ describe('activation rows (review A1, A3)', () => {
     expect(isActivationRow({ ...row(), type: 'consume' }, 'account-1')).toBe(false);
   });
 
+  it('does not resume an older activation choice when a new rotation request is raised', () => {
+    const previous = row({ extraInputs: { mode: 'replace', rotationRequest: 'previous' } });
+
+    expect(resumableActivationMode([previous], 'current')).toBeNull();
+  });
+
+  it('requires a new choice for legacy rows with no request binding', () => {
+    expect(resumableActivationMode([row({ extraInputs: { mode: 'replace' } })])).toBeNull();
+  });
+
+  it('resumes the choice tied to the current request', () => {
+    const current = row({ extraInputs: { mode: 'add', rotationRequest: 'current' } });
+
+    expect(resumableActivationMode([current], 'current')).toBe('add');
+  });
+
   it('resumes no role from a row restored from a backup, and the newest local row otherwise', () => {
-    const restored = row({ initiatedAt: 200, restoredFromBackup: true, extraInputs: { mode: 'replace' } });
-    expect(resumableActivationMode([restored])).toBeNull();
-    expect(resumableActivationMode([row({ extraInputs: { mode: 'add' } }), restored])).toBe('add');
+    const restored = row({
+      initiatedAt: 200,
+      restoredFromBackup: true,
+      extraInputs: { mode: 'replace', rotationRequest: 'current' }
+    });
+    const local = row({ extraInputs: { mode: 'add', rotationRequest: 'current' } });
+    expect(resumableActivationMode([restored], 'current')).toBeNull();
+    expect(resumableActivationMode([local, restored], 'current')).toBe('add');
   });
 });

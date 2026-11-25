@@ -12800,6 +12800,32 @@ describe('generateTransaction - Guardian routing', () => {
     expect(row()?.status).toBe(ITransactionStatus.Completed);
   });
 
+  it('Guardian replace-hot-key: a stale activation request cannot build a proposal', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, provider } = arrangeRotation(createProposal);
+    tx.extraInputs = { mode: 'replace', rotationRequest: 'earlier' };
+    const currentProvider = {
+      ...provider,
+      getAccounts: async () =>
+        (await provider.getAccounts()).map(account => ({
+          ...account,
+          requiresHotKeyRotation: true,
+          hotKeyRotationRequest: 'current'
+        }))
+    };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      currentProvider
+    );
+
+    expect(createProposal).not.toHaveBeenCalled();
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian replace-hot-key: a row without a mode builds a replace proposal', async () => {
     const createProposal = proposalFor();
     const { tx, row, coldService, provider } = arrangeRotation(createProposal);
@@ -18125,6 +18151,49 @@ describe('initiateReplaceHotKeyTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
+  });
+
+  it('refuses a role for a replaced activation request and records the current request on queue', async () => {
+    const guardian = makeGuardianProvider(true);
+    const provider = {
+      ...guardian,
+      getAccounts: async () =>
+        (await guardian.getAccounts()).map(account => ({
+          ...account,
+          requiresHotKeyRotation: true,
+          hotKeyRotationRequest: 'current'
+        }))
+    };
+
+    await expect(
+      initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace', { expected: 'earlier' })
+    ).rejects.toThrow('The wallet activation request changed');
+    expect(txStore).toHaveLength(0);
+
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'current' });
+    expect(txStore[0]?.extraInputs).toMatchObject({ mode: 'add', rotationRequest: 'current' });
+  });
+
+  it('does not deduplicate an activation choice against a previous request', async () => {
+    const guardian = makeGuardianProvider(true);
+    let hotKeyRotationRequest = 'old';
+    const provider = {
+      ...guardian,
+      getAccounts: async () =>
+        (await guardian.getAccounts()).map(account => ({
+          ...account,
+          requiresHotKeyRotation: true,
+          hotKeyRotationRequest
+        }))
+    };
+
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'old' });
+    hotKeyRotationRequest = 'current';
+
+    await expect(
+      initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'current' })
+    ).rejects.toThrow();
+    expect(txStore).toHaveLength(1);
   });
 
   it('keeps revocations separate from activation and from a different target', async () => {

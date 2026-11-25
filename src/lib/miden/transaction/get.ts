@@ -74,8 +74,8 @@ export const getAllUncompletedTransactions = async () => {
  * True when the account's everyday-key rotation waits for funds (#805), so the rotation gate shows its funding panel:
  * `findAdoptableShortfallRow` finds the row the gate adopts.
  */
-export const isRotationAwaitingFunding = async (accountPublicKey: string): Promise<boolean> =>
-  (await findAdoptableShortfallRow(accountPublicKey)) !== undefined;
+export const isRotationAwaitingFunding = async (accountPublicKey: string, rotationRequest?: string): Promise<boolean> =>
+  (await findAdoptableShortfallRow(accountPublicKey, rotationRequest)) !== undefined;
 
 /**
  * True when the encrypted backup restored at least one row of this account from another device, so

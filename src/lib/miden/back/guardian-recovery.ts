@@ -875,7 +875,7 @@ function keepReservation(publicKey: string, kept: KeptReservation): void {
  * rest, so this returns false and the account is not run again until then.
  */
 async function notesPassDueBeforeRotation(account: WalletAccount): Promise<boolean> {
-  if (!(await isRotationAwaitingFunding(account.publicKey))) return false;
+  if (!(await isRotationAwaitingFunding(account.publicKey, account.hotKeyRotationRequest))) return false;
   const progress = await fetchGuardianNoteRecoveryProgress(account.publicKey);
   return resumePointFor(account, progress, await readGuardianHistoryGeneration())?.step !== 'history';
 }

@@ -106,11 +106,18 @@ export const HotKeyRotationGate: FC = () => {
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
-  return <HotKeyRotationOverlay key={currentAccount.publicKey} accountPublicKey={currentAccount.publicKey} />;
+  return (
+    <HotKeyRotationOverlay
+      key={`${currentAccount.publicKey}:${currentAccount.hotKeyRotationRequest ?? ''}`}
+      accountPublicKey={currentAccount.publicKey}
+      rotationRequest={currentAccount.hotKeyRotationRequest}
+    />
+  );
 };
 
 interface OverlayProps {
   accountPublicKey: string;
+  rotationRequest?: string;
 }
 
 /**
@@ -144,7 +151,8 @@ type RotationLookup = { status: 'tracking'; txId: string } | { status: 'deferred
 const ensureRotationTx = async (
   accountPublicKey: string,
   adoptExisting: boolean,
-  mode: HotKeyActivationMode | null
+  mode: HotKeyActivationMode | null,
+  rotationRequest: string | undefined
 ): Promise<RotationLookup> => {
   let txId: string | null = null;
   let deferred = false;
@@ -169,7 +177,9 @@ const ensureRotationTx = async (
     // A live device revocation is never the activation: the gate waits for it, so no activation is queued beside
     // a signer change already in flight.
     const live = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).toArray();
-    const existing = live.find(r => isActivationRow(r, accountPublicKey));
+    const existing = live.find(
+      row => isActivationRow(row, accountPublicKey) && row.extraInputs?.rotationRequest === rotationRequest
+    );
     if (existing) {
       txId = existing.id;
       return;
@@ -181,20 +191,27 @@ const ensureRotationTx = async (
       deferred = true;
       return;
     }
-    const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
+    const failed =
+      adoptExisting && rotationRequest !== undefined
+        ? await findAdoptableShortfallRow(accountPublicKey, rotationRequest)
+        : undefined;
     if (failed) {
       txId = failed.id;
       return;
     }
     const activationMode =
       mode ??
-      resumableActivationMode(await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray());
+      resumableActivationMode(
+        await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray(),
+        rotationRequest
+      );
     if (activationMode === null) return;
     txId = await initiateReplaceHotKeyTransaction(
       accountPublicKey,
       isDelegateProofEnabled(),
       zustandProvider,
-      activationMode
+      activationMode,
+      { expected: rotationRequest }
     );
   });
   if (deferred) return { status: 'deferred' };
@@ -259,7 +276,7 @@ const ChooseDeviceRoleStep: FC<{ accountPublicKey: string; onSubmit: (mode: HotK
   return <ChooseDeviceRole deviceCount={deviceCount} onSubmit={onSubmit} />;
 };
 
-const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
+const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey, rotationRequest }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
   const importHotKeyPair = useWalletStore(s => s.importHotKeyPair);
@@ -309,7 +326,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       // (Cross-window duplication is handled inside ensureRotationTx.)
       if (inFlightRef.current) return;
       setInitError(null);
-      inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting, chosenMode);
+      inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting, chosenMode, rotationRequest);
       try {
         const lookup = await inFlightRef.current;
         switch (lookup.status) {
@@ -332,7 +349,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
         setAdoptChecked(true);
       }
     },
-    [accountPublicKey]
+    [accountPublicKey, rotationRequest]
   );
 
   // Mount adopts a rotation that exists, or continues with the role of the last rotation that did not complete
@@ -378,7 +395,11 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     trackedRow: row,
     // Not before the rows load, nor while a found row loads: a rotation that exists must not flash the screen.
     roleChoicePending:
-      adoptChecked && rowsLoaded && txId === null && mode === null && resumableActivationMode(rotationRows) === null,
+      adoptChecked &&
+      rowsLoaded &&
+      txId === null &&
+      mode === null &&
+      resumableActivationMode(rotationRows, rotationRequest) === null,
     initError,
     baseFee,
     belowBaseFee: isBelowBaseFee(balancesLoading, balances, feeFaucetId, baseFee),

@@ -76,13 +76,16 @@ export const activationModeOf = (row: RotationModeRow): HotKeyActivationMode => 
 };
 
 /**
- * The role the user chose for the account's last rotation, while that rotation did not complete (it is live or
- * failed), else `null`. A reload or a second surface continues with this role and does not ask again. A completed
- * rotation finished its activation, so a new flag (another device took the account over) asks again. A row restored
- * from a backup was queued by another device or an earlier wallet, so its role is not this activation's choice.
+ * Resume the role chosen for this activation request. Legacy rows have no proof of a current choice.
  */
-export const resumableActivationMode = (rotationRows: readonly RotationModeRow[]): HotKeyActivationMode | null => {
-  const newest = newestRow(rotationRows.filter(row => row.restoredFromBackup !== true));
+export const resumableActivationMode = (
+  rotationRows: readonly RotationModeRow[],
+  rotationRequest?: string
+): HotKeyActivationMode | null => {
+  if (rotationRequest === undefined) return null;
+  const newest = newestRow(
+    rotationRows.filter(row => row.restoredFromBackup !== true && row.extraInputs?.rotationRequest === rotationRequest)
+  );
   if (newest === undefined || newest.status === ITransactionStatus.Completed) return null;
   return activationModeOf(newest);
 };

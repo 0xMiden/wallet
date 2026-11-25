@@ -253,7 +253,15 @@ describe('maybeStartGuardianRecovery gating', () => {
     const account = pendingAccount({ requiresHotKeyRotation: true });
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
     await drainDetachedRun();
-    expect(mockAwaitingFunding).toHaveBeenCalledWith(account.publicKey);
+    expect(mockAwaitingFunding).toHaveBeenCalledWith(account.publicKey, undefined);
+    expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+  });
+
+  it('checks the current activation request before starting a pre-rotation funding scan', async () => {
+    const account = pendingAccount({ requiresHotKeyRotation: true, hotKeyRotationRequest: 'current' });
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+    expect(mockAwaitingFunding).toHaveBeenCalledWith(account.publicKey, 'current');
     expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
   });
 

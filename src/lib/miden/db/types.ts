@@ -2229,6 +2229,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // `mode`: the activation mode the row was queued with. Absent means `replace`.
   extraInputs: {
     mode?: HotKeyActivationMode;
+    rotationRequest?: string;
     /** Remove only this commitment. No new device key is created or installed. */
     revokedSignerCommitment?: string;
     newHotPublicKey?: string;

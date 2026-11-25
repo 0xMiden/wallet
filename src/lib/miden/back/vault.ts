@@ -1,3 +1,4 @@
+import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import {
   AccountBuilder,
   AccountComponent,
@@ -13,11 +14,11 @@ import {
   PublicKey
 } from '@miden-sdk/miden-sdk/lazy';
 import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
+import { v4 as uuid } from 'uuid';
 import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
-import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
 import type { BackupMergeRecords } from 'lib/backup/state';
 import { deriveSyncSecretKey, isValidSyncSecretKey, signSyncMessage, syncPublicKeyHex } from 'lib/backup/sync-key';
@@ -1190,6 +1191,7 @@ export class Vault {
           ...(c.recoveredCold && {
             coldPublicKey: c.recoveredCold.coldPublicKey,
             requiresHotKeyRotation: true,
+            hotKeyRotationRequest: uuid(),
             guardianNoteRecoveryPending: true
           })
         })
@@ -1699,6 +1701,7 @@ export class Vault {
           evmAddress: evmKey.address,
           coldPublicKey: cold.coldPublicKey,
           requiresHotKeyRotation: true,
+          hotKeyRotationRequest: uuid(),
           guardianNoteRecoveryPending: true
         });
       }
@@ -2224,7 +2227,13 @@ export class Vault {
       // one is finished with: this device is the account's main device again.
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey
-          ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false, hotKeyRotatedOut: undefined }
+          ? {
+              ...acc,
+              hotPublicKey: newHotPubKey,
+              requiresHotKeyRotation: false,
+              hotKeyRotationRequest: undefined,
+              hotKeyRotatedOut: undefined
+            }
           : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
@@ -2326,7 +2335,13 @@ export class Vault {
       // write would leave the account pointing at a deleted key.
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey
-          ? { ...acc, hotPublicKey: undefined, requiresHotKeyRotation: true, hotKeyRotatedOut: undefined }
+          ? {
+              ...acc,
+              hotPublicKey: undefined,
+              requiresHotKeyRotation: true,
+              hotKeyRotationRequest: uuid(),
+              hotKeyRotatedOut: undefined
+            }
           : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);

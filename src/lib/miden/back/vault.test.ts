@@ -1733,6 +1733,7 @@ describe('Vault rotated-out hot key', () => {
 
   it('retireRotatedOutHotKey drops the key, flags the rotation and releases the blobs', async () => {
     const vault = await seedRotatedOutAccount({
+      hotKeyRotationRequest: 'earlier-request',
       hotKeyRotatedOut: { hotPublicKey: 'hot-pub-hex', onChainHotCommitment: '0xchain', detectedAt: 1 }
     });
 
@@ -1741,6 +1742,8 @@ describe('Vault rotated-out hot key', () => {
     const [account] = await vault.fetchAccounts();
     expect(account?.hotPublicKey).toBeUndefined();
     expect(account?.requiresHotKeyRotation).toBe(true);
+    expect(account?.hotKeyRotationRequest).toEqual(expect.any(String));
+    expect(account?.hotKeyRotationRequest).not.toBe('earlier-request');
     expect(account?.hotKeyRotatedOut).toBeUndefined();
     expect(account?.coldPublicKey).toBe('cold-pub-hex');
     expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
@@ -1903,7 +1906,8 @@ describe('Vault.swapHotKey', () => {
       hdIndex: 0,
       authScheme: 'ecdsa',
       coldPublicKey: 'cold-pub-hex',
-      requiresHotKeyRotation: true
+      requiresHotKeyRotation: true,
+      hotKeyRotationRequest: 'current-request'
     };
     await encryptAndSaveMany(
       [
@@ -1918,6 +1922,7 @@ describe('Vault.swapHotKey', () => {
     const [account] = await vault.fetchAccounts();
     expect(account?.hotPublicKey).toBe('new-pub');
     expect(account?.requiresHotKeyRotation).toBe(false);
+    expect(account?.hotKeyRotationRequest).toBeUndefined();
     expect(mockDeleteHotKey).not.toHaveBeenCalled();
   });
 });

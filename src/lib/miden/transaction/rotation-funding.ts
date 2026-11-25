@@ -50,7 +50,10 @@ export const newestRow = <T extends QueuedRowShape>(rows: readonly T[]): T | und
  * fail, minting a hot key it never uses. After a completed claim the gate queues the
  * rotation next, so there is then nothing to adopt.
  */
-export async function findAdoptableShortfallRow(accountPublicKey: string): Promise<ITransaction | undefined> {
+export async function findAdoptableShortfallRow(
+  accountPublicKey: string,
+  rotationRequest?: string
+): Promise<ITransaction | undefined> {
   const rows = await Repo.transactions
     .filter(
       row =>
@@ -58,7 +61,13 @@ export async function findAdoptableShortfallRow(accountPublicKey: string): Promi
         (isActivationRow(row, accountPublicKey) || isRotationFundingRow(row, accountPublicKey))
     )
     .toArray();
-  const rotation = newestRow(rows.filter(row => row.type === 'replace-hot-key'));
+  const rotation = newestRow(
+    rows.filter(
+      row =>
+        row.type === 'replace-hot-key' &&
+        (rotationRequest === undefined || row.extraInputs?.rotationRequest === rotationRequest)
+    )
+  );
   if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
   const failedAt = rotation.completedAt ?? rotation.initiatedAt;
   const claimedSince = rows.some(

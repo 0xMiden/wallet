@@ -4530,6 +4530,14 @@ const generateGuardianTransaction = async (
           proposalGuard: 'account_not_guardian'
         });
       }
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      const rotationRequest = rTx.extraInputs?.rotationRequest;
+      if (
+        rotationRequest !== undefined &&
+        (!walletAccount.requiresHotKeyRotation || walletAccount.hotKeyRotationRequest !== rotationRequest)
+      ) {
+        throw new Error(getMessage('recoveryActionUnavailable'));
+      }
       const sdkAccount = await withProposalStep('service_account_read', () =>
         withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
       );
@@ -4543,7 +4551,6 @@ const generateGuardianTransaction = async (
       );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
-      const rTx = transaction as ReplaceHotKeyTransaction;
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), guardianEndpoint: service.guardianEndpoint };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
