@@ -11,6 +11,9 @@ import {
 } from '../services/feature-eligibility/staging-topology-api.mjs';
 import {
   cleanupTopologyWorker,
+  MAX_PHASE_READS,
+  MAX_PROVIDER_READS,
+  PROVIDER_DEADLINE_MS,
   createTopologyApiBudget,
   isTargetAbsent,
   observeTopologyOwnership,
@@ -28,7 +31,6 @@ const RUN_WINDOW_MS = 8 * 60_000;
 const SCENARIO_TIMEOUT_MS = 5_000;
 const MAX_RESPONSE_BYTES = 1_024;
 const MAX_BUNDLE_BYTES = 10_000_000;
-const MAX_PHASE_READS = 250;
 const ACCOUNT_ID = /^[a-f0-9]{32}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -201,7 +203,7 @@ function validatePrepared(value, { identity, accountSha256, bundle } = {}) {
     value.expiresAt !== value.startedAt + RUN_WINDOW_MS ||
     !Number.isSafeInteger(value.preflightCalls) ||
     value.preflightCalls < 1 ||
-    value.preflightCalls > 250 ||
+    value.preflightCalls > MAX_PHASE_READS ||
     value.maxRuns !== TOPOLOGY_SCENARIOS.length ||
     !verifyTopologyManifest(value.manifest, {
       identity,
@@ -230,18 +232,18 @@ function validProviderReads(value, preflightStartedAt) {
       'preflightElapsedMs',
       'cleanupElapsedMs'
     ]) &&
-    Number.isSafeInteger(value.preflight) && value.preflight >= 0 && value.preflight <= 250 &&
-    Number.isSafeInteger(value.cleanup) && value.cleanup >= 0 && value.cleanup <= 250 &&
-    value.total === value.preflight + value.cleanup && value.total <= 500 &&
+    Number.isSafeInteger(value.preflight) && value.preflight >= 0 && value.preflight <= MAX_PHASE_READS &&
+    Number.isSafeInteger(value.cleanup) && value.cleanup >= 0 && value.cleanup <= MAX_PHASE_READS &&
+    value.total === value.preflight + value.cleanup && value.total <= MAX_PROVIDER_READS &&
     Number.isSafeInteger(value.elapsedMs) &&
     value.elapsedMs >= 0 &&
     value.preflightStartedAt === preflightStartedAt &&
-    value.preflightDeadlineAt === preflightStartedAt + 120_000 &&
+    value.preflightDeadlineAt === preflightStartedAt + PROVIDER_DEADLINE_MS &&
     value.preflightElapsedMs === value.elapsedMs &&
     ((value.cleanupStartedAt === null && value.cleanupDeadlineAt === null && value.cleanupElapsedMs === null) ||
       (Number.isSafeInteger(value.cleanupStartedAt) &&
         value.cleanupStartedAt >= preflightStartedAt &&
-        value.cleanupDeadlineAt === value.cleanupStartedAt + 120_000 &&
+        value.cleanupDeadlineAt === value.cleanupStartedAt + PROVIDER_DEADLINE_MS &&
         Number.isSafeInteger(value.cleanupElapsedMs) &&
         value.cleanupElapsedMs >= 0 &&
         value.cleanupElapsedMs <= value.elapsedMs))
@@ -354,13 +356,13 @@ async function readValidRunState(statePath, { identity, accountSha256, startedAt
       saved.startedAt === startedAt &&
       Number.isSafeInteger(saved.preflightCalls) &&
       saved.preflightCalls >= preflightCalls &&
-      saved.preflightCalls <= 250 &&
+      saved.preflightCalls <= MAX_PHASE_READS &&
       Number.isSafeInteger(saved.cleanupCalls) &&
       saved.cleanupCalls >= 0 &&
-      saved.cleanupCalls <= 250 &&
+      saved.cleanupCalls <= MAX_PHASE_READS &&
       ((saved.cleanupStartedAt === null && saved.cleanupDeadlineAt === null && saved.cleanupCalls === 0) ||
         (Number.isSafeInteger(saved.cleanupStartedAt) &&
-          saved.cleanupDeadlineAt === saved.cleanupStartedAt + 120_000)) &&
+          saved.cleanupDeadlineAt === saved.cleanupStartedAt + PROVIDER_DEADLINE_MS)) &&
       typeof saved.deploymentAttempted === 'boolean'
     )
       return saved;
@@ -507,7 +509,7 @@ async function prepare(env) {
   const bundle = await readBuiltBundle(env);
   const startedAt = Date.now();
   const expiresAt = startedAt + RUN_WINDOW_MS;
-  const api = createTopologyReadApi({ accountId, token, now: Date.now, startedAt });
+  const api = createTopologyReadApi({ accountId, token });
   const budget = createTopologyApiBudget(api, { now: Date.now, startedAt });
   const prepared = await prepareTopologyInventory({
     api: budget.preflight,
@@ -521,7 +523,7 @@ async function prepare(env) {
   if (!prepared || prepared.status !== 'inventory_observed' || prepared.deploymentAuthorized !== false)
     fail('inventory_preflight_failed');
   const stats = budget.stats();
-  if (stats.total > 250 || stats.cleanup !== 0) fail('preflight_read_limit');
+  if (stats.total > MAX_PHASE_READS || stats.cleanup !== 0) fail('preflight_read_limit');
   const paths = preparedPaths(env);
   await mkdir(paths.directory, { recursive: true, mode: 0o700 });
   await writeFile(paths.bundle, bundle, { mode: 0o600 });
@@ -571,7 +573,7 @@ export async function execute(env, { createReadApi = createTopologyReadApi, runC
   };
   const persist = () => writeRunState(paths.state, state);
   let syncResult = async () => {};
-  const api = createReadApi({ accountId, token, now: Date.now, startedAt: value.startedAt });
+  const api = createReadApi({ accountId, token });
   const budget = createTopologyApiBudget(api, {
     now: Date.now,
     startedAt: value.startedAt,
@@ -727,10 +729,7 @@ export async function cleanup(
   });
   const api = createReadApi({
     accountId: credentials.accountId,
-    token: credentials.token,
-    now: Date.now,
-    startedAt: loaded.value.startedAt,
-    cleanupStartedAt
+    token: credentials.token
   });
   const buildCleanupResult = (stats, extra = {}) => {
     const base = { ...(previous ?? {}) };
@@ -769,7 +768,7 @@ export async function cleanup(
   writeCleanupResult = (stats, extra) => writeResult(env, buildCleanupResult(stats, extra));
   if (state) {
     state.cleanupStartedAt = cleanupStartedAt;
-    state.cleanupDeadlineAt = cleanupStartedAt + 120_000;
+    state.cleanupDeadlineAt = cleanupStartedAt + PROVIDER_DEADLINE_MS;
     state.phase = 'cleanup';
     await writeRunState(loaded.paths.state, state);
   }

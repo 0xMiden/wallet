@@ -12,10 +12,10 @@ import {
 } from './staging-topology-namespaces.mjs';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const MAX_PROVIDER_READS = 500;
-const MAX_PHASE_READS = 250;
-const PROVIDER_DEADLINE_MS = 120_000;
-const PROVIDER_READ_TIMEOUT_MS = 5_000;
+export const MAX_PROVIDER_READS = 500;
+export const MAX_PHASE_READS = 250;
+export const PROVIDER_DEADLINE_MS = 120_000;
+export const PROVIDER_READ_TIMEOUT_MS = 5_000;
 
 function mismatch(record, key, expected, gate) {
   if (!isRecord(record)) return { gate, form: record === null ? 'null' : 'unexpected_type' };

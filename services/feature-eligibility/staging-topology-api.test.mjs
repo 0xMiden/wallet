@@ -206,27 +206,9 @@ test('read adapter retains only a valid target-script absence receipt', async ()
   assert.equal(await api('/account'), null);
 });
 
-test('read adapter does not start a request after the total deadline', async () => {
+test('read adapter is stateless and leaves budgets to the caller', async () => {
   let calls = 0;
   let clock = 1_800_000_000_000;
-  const api = create({
-    accountId,
-    token,
-    now: () => clock,
-    startedAt: clock,
-    fetchImpl: async () => {
-      calls++;
-      return Response.json({ success: true });
-    }
-  });
-  clock += 120_000;
-  assert.equal(await api('/account'), null);
-  assert.equal(calls, 0);
-});
-
-test('read adapter gives cleanup its own bounded deadline after preflight expires', async () => {
-  let clock = 1_800_000_000_000;
-  let calls = 0;
   const api = create({
     accountId,
     token,
@@ -237,34 +219,31 @@ test('read adapter gives cleanup its own bounded deadline after preflight expire
       return Response.json({ success: true, errors: [], result: { id: accountId } });
     }
   });
-
+  for (let index = 0; index < 251; index++) {
+    assert.deepEqual(await api('/account'), { success: true, errors: [], result: { id: accountId } });
+  }
+  assert.equal(calls, 251);
   clock += 120_000;
-  assert.equal(await api('/account', { phase: 'preflight' }), null);
-  assert.deepEqual(await api('/account', { phase: 'cleanup' }), {
-    success: true,
-    errors: [],
-    result: { id: accountId }
-  });
-  clock += 120_000;
-  assert.equal(await api('/account', { phase: 'cleanup' }), null);
-  assert.equal(calls, 1);
+  assert.deepEqual(await api('/account'), { success: true, errors: [], result: { id: accountId } });
+  assert.equal(calls, 252);
 });
 
-test('read adapter caps both phases at 250 requests and the shared total at 500', async () => {
-  let calls = 0;
+test('read adapter bounds an unsignalled stalled fetch', { timeout: 500 }, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let requestSignal;
   const api = create({
     accountId,
     token,
-    fetchImpl: async () => {
-      calls++;
-      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    fetchImpl: async (_url, init) => {
+      requestSignal = init.signal;
+      await new Promise(() => {});
     }
   });
-  for (let index = 0; index < 250; index++) assert.equal((await api('/account')).success, true);
-  assert.equal(await api('/account'), null);
-  for (let index = 0; index < 250; index++) assert.equal((await api('/account', { phase: 'cleanup' })).success, true);
-  assert.equal(await api('/account', { phase: 'cleanup' }), null);
-  assert.equal(calls, 500);
+  const pending = api('/account');
+  await Promise.resolve();
+  t.mock.timers.tick(5_000);
+  assert.equal(await pending, null);
+  assert.equal(requestSignal.aborted, true);
 });
 
 test('read adapter strips unrelated setting values while retaining fixed ownership markers', async () => {

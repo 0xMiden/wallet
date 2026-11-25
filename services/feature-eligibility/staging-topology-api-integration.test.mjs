@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTopologyReadApi } from './staging-topology-api.mjs';
-import { prepareTopologyInventory } from './staging-topology-preflight.mjs';
+import { createTopologyApiBudget, prepareTopologyInventory } from './staging-topology-preflight.mjs';
 
 const accountId = 'a'.repeat(32);
 const token = 'synthetic-token-for-test-only';
@@ -242,4 +242,22 @@ test('createTopologyReadApi preserves privacy-mismatch cleanup and tail-consumer
     ownershipDiagnostic: { gate: 'script_tail_consumers', form: 'unexpected_type' }
   });
   assert.deepEqual(blockedNullTails.deletes, []);
+});
+
+test('createTopologyApiBudget enforces single-layer read caps over createTopologyReadApi', async () => {
+  let fetchCalls = 0;
+  const api = createTopologyReadApi({
+    accountId,
+    token,
+    fetchImpl: async () => {
+      fetchCalls++;
+      return Response.json({ success: true, errors: [], result: { id: accountId } });
+    }
+  });
+  const budget = createTopologyApiBudget(api);
+  for (let index = 0; index < 250; index++) {
+    assert.deepEqual(await budget.preflight('/account'), { success: true, errors: [], result: { id: accountId } });
+  }
+  await assert.rejects(budget.preflight('/account'), /provider read budget exhausted/);
+  assert.equal(fetchCalls, 250);
 });

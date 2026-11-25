@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
 
 const MAX_BYTES = 1_048_576;
-const MAX_CALLS = 500;
-const MAX_PHASE_CALLS = 250;
-const MAX_DURATION_MS = 120_000;
 const CALL_TIMEOUT_MS = 5_000;
 const SCRIPT = /^[a-zA-Z0-9_-]{1,63}$/;
 export const TOPOLOGY_TARGET_SCRIPT = /^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/;
@@ -223,41 +220,19 @@ export function parseWorkerSubdomainSettings(value, { strictKeys = false } = {})
 }
 
 // This adapter only reads fixed provider paths; its output alone cannot authorize any mutation.
-export function createTopologyReadApi({
-  accountId,
-  token,
-  fetchImpl = fetch,
-  now = () => performance.now(),
-  startedAt,
-  cleanupStartedAt
-} = {}) {
+export function createTopologyReadApi({ accountId, token, fetchImpl = fetch } = {}) {
   if (
     typeof accountId !== 'string' ||
     !/^[a-f0-9]{32}$/.test(accountId) ||
     typeof token !== 'string' ||
     token.length < 20 ||
     token.length > 512 ||
-    typeof fetchImpl !== 'function' ||
-    typeof now !== 'function'
+    typeof fetchImpl !== 'function'
   )
     return async () => null;
-  const starts = { preflight: startedAt ?? now(), cleanup: cleanupStartedAt };
-  const calls = { preflight: 0, cleanup: 0 };
-  return async (path, { signal, phase = 'preflight' } = {}) => {
+  return async (path, { signal } = {}) => {
     const kind = typeof path === 'string' ? pathKind(path) : null;
-    if (
-      !kind ||
-      !Object.hasOwn(calls, phase) ||
-      signal?.aborted ||
-      calls[phase] >= MAX_PHASE_CALLS ||
-      calls.preflight + calls.cleanup >= MAX_CALLS
-    )
-      return null;
-    if (starts[phase] === undefined) starts[phase] = now();
-    if (!Number.isFinite(starts[phase])) return null;
-    const remaining = starts[phase] + MAX_DURATION_MS - now();
-    if (!Number.isFinite(remaining) || remaining <= 0) return null;
-    calls[phase]++;
+    if (!kind || signal?.aborted) return null;
     const controller = new AbortController();
     let settleAbort;
     const abortRace = new Promise(resolve => {
@@ -268,7 +243,6 @@ export function createTopologyReadApi({
       settleAbort(null);
     };
     signal?.addEventListener('abort', abort, { once: true });
-    const timeoutMs = Math.min(CALL_TIMEOUT_MS, remaining);
     let timer;
     try {
       const work = async () => {
@@ -305,7 +279,7 @@ export function createTopologyReadApi({
         if (kind === 'script-settings') return scriptSettingsMetadata(body);
         return body;
       };
-      timer = setTimeout(abort, timeoutMs);
+      if (!signal) timer = setTimeout(abort, CALL_TIMEOUT_MS);
       return await Promise.race([work(), abortRace]);
     } catch {
       return null;
