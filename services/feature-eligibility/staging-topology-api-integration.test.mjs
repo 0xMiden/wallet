@@ -119,3 +119,127 @@ test('read-only topology observation composes bounded reads and excludes setting
   assert.equal(JSON.stringify(result).includes('private-sentinel'), false);
   assert.equal(JSON.stringify(result).includes(token), false);
 });
+
+test('createTopologyReadApi preserves privacy-mismatch cleanup and tail-consumer diagnostics', async () => {
+  const { buildTopologyManifest } = await import('./staging-topology-manifest.mjs');
+  const { cleanupTopologyWorker, observeTopologyOwnership } = await import('./staging-topology-preflight.mjs');
+  const options = {
+    identity,
+    bundle: new Uint8Array([1, 2, 3]),
+    now,
+    expiresAt: now + 600_000,
+    maxRuns: 10,
+    inventory: []
+  };
+  const manifest = buildTopologyManifest(options);
+  const classes = ['TopologyControl', 'EligibilityGuard', 'CallerEligibilityGuard', 'RestartProof'];
+  const rows = classes.map((name, index) => ({
+    id: String(index + 1).padStart(32, '0'),
+    class: name,
+    script: manifest.scriptName,
+    use_sqlite: true
+  }));
+  const bindings = rows.map((row, index) => ({
+    name: manifest.config.durable_objects.bindings[index].name,
+    type: 'durable_object_namespace',
+    class_name: row.class,
+    namespace_id: row.id
+  }));
+  for (const [name, text] of Object.entries(manifest.config.vars)) bindings.push({ name, type: 'plain_text', text });
+  bindings.push({ name: 'TOPOLOGY_BEARER', type: 'secret_text' });
+  for (const rate of manifest.config.ratelimits) bindings.push({ ...rate, type: 'ratelimit' });
+
+  const runWithScriptSettings = async (scriptSettingsResult, { cleanupMode = false } = {}) => {
+    let deleted = false;
+    const base = `/client/v4/accounts/${accountId}`;
+    const api = createTopologyReadApi({
+      accountId,
+      token,
+      fetchImpl: async url => {
+        const parsed = new URL(url);
+        if (parsed.pathname === base) return Response.json({ success: true, errors: [], result: { id: accountId } });
+        if (parsed.pathname === `${base}/workers/scripts` && parsed.search === '?page=1&per_page=100')
+          return Response.json(page([{ id: manifest.scriptName }], 100));
+        if (parsed.pathname === `${base}/workers/durable_objects/namespaces` && parsed.search === '?page=1&per_page=1000')
+          return Response.json(page(rows, 1000));
+        if (parsed.pathname === `${base}/workers/scripts/${manifest.scriptName}/settings`) {
+          return deleted
+            ? Response.json({ success: false, errors: [{ code: 10007 }] }, { status: 404 })
+            : Response.json({ success: true, errors: [], result: { bindings } });
+        }
+        if (parsed.pathname === `${base}/workers/scripts/${manifest.scriptName}/script-settings`)
+          return Response.json({ success: true, errors: [], result: scriptSettingsResult });
+        if (parsed.pathname === `${base}/workers/scripts/${manifest.scriptName}/content/v2`)
+          return new Response(new Uint8Array([1, 2, 3]), {
+            headers: { 'content-type': 'application/javascript+module', 'cf-entrypoint': 'staging-topology-worker.mjs' }
+          });
+        throw new Error(`Unexpected request: ${url}`);
+      }
+    });
+    const mismatches = [];
+    if (!cleanupMode) {
+      const observed = await observeTopologyOwnership({
+        api,
+        accountId,
+        manifest,
+        options,
+        onMismatch: item => mismatches.push(item)
+      });
+      return { observed, mismatches };
+    }
+    const deletes = [];
+    const cleaned = await cleanupTopologyWorker({
+      api,
+      deleteScript: async name => {
+        deletes.push(name);
+        deleted = true;
+        return true;
+      },
+      accountId,
+      manifest,
+      options,
+      onMismatch: item => mismatches.push(item)
+    });
+    return { cleaned, deletes, mismatches };
+  };
+
+  for (const privacyResult of [
+    { logpush: null, observability: null, tail_consumers: [] },
+    { logpush: false, observability: {}, tail_consumers: [] },
+    { logpush: false, observability: { enabled: false, logs: { persist: null } }, tail_consumers: [] }
+  ]) {
+    const cleaned = await runWithScriptSettings(privacyResult, { cleanupMode: true });
+    assert.deepEqual(cleaned.cleaned, { cleanup: 'removed', reason: 'complete' });
+    assert.deepEqual(cleaned.deletes, [manifest.scriptName]);
+  }
+
+  const obsLogpushNull = await runWithScriptSettings({ logpush: null, observability: null, tail_consumers: [] });
+  assert.equal(obsLogpushNull.observed, null);
+  assert.deepEqual(obsLogpushNull.mismatches, [{ gate: 'script_logpush', form: 'null' }]);
+
+  const obsEmptyObs = await runWithScriptSettings({ logpush: false, observability: {}, tail_consumers: [] });
+  assert.equal(obsEmptyObs.observed, null);
+  assert.deepEqual(obsEmptyObs.mismatches, [{ gate: 'script_observability', form: 'missing' }]);
+
+  const blockedTails = await runWithScriptSettings(
+    { logpush: false, observability: null, tail_consumers: [{ service: 'other-worker' }] },
+    { cleanupMode: true }
+  );
+  assert.deepEqual(blockedTails.cleaned, {
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipDiagnostic: { gate: 'script_tail_consumers', form: 'different_value' }
+  });
+  assert.deepEqual(blockedTails.deletes, []);
+
+  const blockedNullTails = await runWithScriptSettings(
+    { logpush: false, observability: null, tail_consumers: null },
+    { cleanupMode: true }
+  );
+  assert.deepEqual(blockedNullTails.cleaned, {
+    cleanup: 'blocked',
+    reason: 'ownership_mismatch',
+    ownershipDiagnostic: { gate: 'script_tail_consumers', form: 'unexpected_type' }
+  });
+  assert.deepEqual(blockedNullTails.deletes, []);
+});

@@ -314,13 +314,71 @@ test('read adapter preserves explicit script logging state without exposing unre
   });
 });
 
-test('script logging observation preserves unknown observability and refuses tail consumers', async () => {
+test('script logging observation preserves closed structural indicators without leaking values', async () => {
   const path = '/workers/scripts/miden-elig-topology-12345-1/script-settings';
   const makeApi = result =>
     create({ accountId, token, fetchImpl: async () => Response.json({ success: true, errors: [], result }) });
-  assert.equal((await makeApi({ observability: null })(path))?.result?.observability, null);
-  assert.equal(await makeApi({ tail_consumers: [{ service: 'other-worker' }] })(path), null);
-  assert.equal(await makeApi({ observability: {} })(path), null);
+  assert.deepEqual(await makeApi({ logpush: null, tail_consumers: [] })(path), {
+    success: true,
+    errors: [],
+    result: { logpush: null, tail_consumers: [] }
+  });
+  assert.deepEqual(await makeApi({ observability: null })(path), {
+    success: true,
+    errors: [],
+    result: { observability: null }
+  });
+  assert.deepEqual(await makeApi({ observability: {} })(path), {
+    success: true,
+    errors: [],
+    result: { observability: {} }
+  });
+  assert.deepEqual(await makeApi({ observability: { enabled: null } })(path), {
+    success: true,
+    errors: [],
+    result: { observability: { enabled: null } }
+  });
+  assert.deepEqual(
+    await makeApi({ observability: { enabled: false, logs: { persist: null, secret: 'private-sentinel' } } })(path),
+    {
+      success: true,
+      errors: [],
+      result: { observability: { enabled: false, logs: { persist: null } } }
+    }
+  );
+  const nonEmptyTails = await makeApi({ tail_consumers: [{ service: 'other-worker' }] })(path);
+  assert.deepEqual(nonEmptyTails, {
+    success: true,
+    errors: [],
+    result: { tail_consumers: [{}] }
+  });
+  assert.equal(JSON.stringify(nonEmptyTails).includes('other-worker'), false);
+  assert.deepEqual(await makeApi({ tail_consumers: null })(path), {
+    success: true,
+    errors: [],
+    result: { tail_consumers: null }
+  });
+  assert.deepEqual(await makeApi({ logpush: 'false', extra: 'private-sentinel' })(path), {
+    success: true,
+    errors: [],
+    result: { logpush: 'unexpected_type' }
+  });
+  assert.deepEqual(await makeApi({ observability: ['private-sentinel'] })(path), {
+    success: true,
+    errors: [],
+    result: { observability: 'unexpected_type' }
+  });
+  assert.deepEqual(await makeApi({ observability: { enabled: false, logs: ['private-sentinel'] } })(path), {
+    success: true,
+    errors: [],
+    result: { observability: { enabled: false, logs: 'unexpected_type' } }
+  });
+  assert.deepEqual(await makeApi({ observability: { enabled: false, logs: null } })(path), {
+    success: true,
+    errors: [],
+    result: { observability: { enabled: false, logs: null } }
+  });
+  assert.equal(await makeApi([])(path), null);
   assert.equal(await makeApi({})('/workers/scripts/production/script-settings'), null);
 });
 

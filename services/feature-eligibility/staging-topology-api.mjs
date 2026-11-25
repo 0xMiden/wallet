@@ -39,18 +39,20 @@ function pathKind(path) {
   return settings && SCRIPT.test(settings[1]) ? (isTopologyTargetScript(settings[1]) ? 'target' : 'settings') : null;
 }
 
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const indicator = value => (typeof value === 'boolean' || value === null ? value : 'unexpected_type');
+
 function scriptSettingsMetadata(body) {
-  if (body?.success !== true || !Array.isArray(body.errors) || body.errors.length || !body.result) return null;
+  if (body?.success !== true || !Array.isArray(body.errors) || body.errors.length || !isPlainObject(body.result))
+    return null;
   const { logpush, observability, tail_consumers: tails } = body.result;
-  if (logpush !== undefined && typeof logpush !== 'boolean') return null;
-  if (observability !== undefined && observability !== null && typeof observability.enabled !== 'boolean') return null;
-  if (tails !== undefined && (!Array.isArray(tails) || tails.length)) return null;
   const result = {};
-  if (logpush !== undefined) result.logpush = logpush;
+  if (logpush !== undefined) result.logpush = indicator(logpush);
   if (observability !== undefined) {
-    if (observability === null) result.observability = null;
+    if (!isPlainObject(observability)) result.observability = observability === null ? null : 'unexpected_type';
     else {
-      const clean = { enabled: observability.enabled };
+      const clean = {};
+      if (observability.enabled !== undefined) clean.enabled = indicator(observability.enabled);
       for (const [group, keys] of [
         ['logs', ['enabled', 'invocation_logs', 'persist']],
         ['traces', ['enabled', 'persist']],
@@ -58,23 +60,21 @@ function scriptSettingsMetadata(body) {
       ]) {
         const value = observability[group];
         if (value === undefined) continue;
-        if (value === null) {
-          clean[group] = null;
+        if (!isPlainObject(value)) {
+          clean[group] = value === null ? null : 'unexpected_type';
           continue;
         }
-        if (typeof value !== 'object' || Array.isArray(value)) return null;
         const switches = {};
-        for (const key of keys) {
-          if (value[key] === undefined) continue;
-          if (typeof value[key] !== 'boolean') return null;
-          switches[key] = value[key];
-        }
+        for (const key of keys) if (value[key] !== undefined) switches[key] = indicator(value[key]);
         clean[group] = switches;
       }
       result.observability = clean;
     }
   }
-  if (tails !== undefined) result.tail_consumers = [];
+  if (tails !== undefined) {
+    if (Array.isArray(tails)) result.tail_consumers = tails.length ? [{}] : [];
+    else result.tail_consumers = tails === null ? null : 'unexpected_type';
+  }
   return { success: true, errors: [], result };
 }
 
