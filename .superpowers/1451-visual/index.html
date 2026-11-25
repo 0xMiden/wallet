@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" style="height: 100%">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Simulated bridge comparison</title>
+  </head>
+  <body style="height: 100%; margin: 0">
+    <div id="root" style="height: 100%; display: flex; flex-direction: column; overflow: hidden"></div>
+    <aside class="pointer-events-none fixed top-1 right-2 z-50 rounded bg-fill px-2 py-1 text-caption text-muted">
+      Simulated quotes
+    </aside>
+    <script>
+      if (new URLSearchParams(location.search).has('dark')) document.documentElement.classList.add('dark');
+    </script>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>
