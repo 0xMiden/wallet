@@ -1,9 +1,19 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { AccountsListDrawer } from './AccountsList';
 import { Contact } from './types';
+
+afterEach(async () => {
+  await act(async () => {});
+});
+
+const mockRefreshBackup = jest.fn<Promise<void>, [string]>(async () => {});
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: { refreshBackup: typeof mockRefreshBackup }) => T) =>
+    selector({ refreshBackup: mockRefreshBackup })
+}));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and we can assert rendered labels directly.
@@ -172,10 +182,10 @@ describe('AccountsListDrawer', () => {
   });
 
   describe('empty state', () => {
-    it('renders EmptyState, and no search or rows, when there is no one to pick', () => {
+    it('renders EmptyState, and no search or rows, when there is no one to pick', async () => {
       renderDrawer({ accounts: [] });
 
-      const empty = screen.getByTestId('empty-state');
+      const empty = await screen.findByTestId('empty-state');
       expect(empty).toHaveAttribute('data-icon', 'Users');
       expect(empty).toHaveAttribute('data-classname', 'flex-1');
       expect(screen.getByTestId('empty-title')).toHaveTextContent('noOtherAccounts');
@@ -289,4 +299,74 @@ describe('AccountsListDrawer', () => {
       expect(screen.getAllByTestId(/^send-contact-/)).toHaveLength(2);
     });
   });
+});
+
+describe('backup contacts refresh', () => {
+  beforeEach(() => {
+    mockRefreshBackup.mockReset();
+    mockRefreshBackup.mockResolvedValue(undefined);
+  });
+
+  it('refreshes on each open and keeps cached contacts available', async () => {
+    let finish: () => void = () => {};
+    mockRefreshBackup.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        })
+    );
+    const contact: Contact = { id: 'alice', name: 'Alice', isOwned: false, contactType: 'external' };
+    const props = { onOpenChange: jest.fn(), accounts: [contact], onSelectContact: jest.fn() };
+    const view = render(<AccountsListDrawer {...props} open={false} />);
+    expect(mockRefreshBackup).not.toHaveBeenCalled();
+    view.rerender(<AccountsListDrawer {...props} open />);
+    expect(mockRefreshBackup).toHaveBeenCalledWith('address-book');
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    await act(async () => finish());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    view.rerender(<AccountsListDrawer {...props} open={false} />);
+    view.rerender(<AccountsListDrawer {...props} open />);
+    await waitFor(() => expect(mockRefreshBackup).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows the empty state only after refresh settles, including a failure', async () => {
+    let fail: (error: Error) => void = () => {};
+    mockRefreshBackup.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        })
+    );
+    render(<AccountsListDrawer open onOpenChange={jest.fn()} accounts={[]} onSelectContact={jest.fn()} />);
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    await act(async () => fail(new Error('offline')));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+  });
+});
+
+it('ignores a previous refresh when the drawer closes and opens again', async () => {
+  let finishFirst: () => void = () => {};
+  let finishSecond: () => void = () => {};
+  mockRefreshBackup.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finishFirst = resolve;
+      })
+  );
+  mockRefreshBackup.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finishSecond = resolve;
+      })
+  );
+  const props = { onOpenChange: jest.fn(), accounts: [], onSelectContact: jest.fn() };
+  const view = render(<AccountsListDrawer {...props} open />);
+  view.rerender(<AccountsListDrawer {...props} open={false} />);
+  view.rerender(<AccountsListDrawer {...props} open />);
+  await act(async () => finishFirst());
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  await act(async () => finishSecond());
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });

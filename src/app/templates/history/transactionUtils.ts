@@ -11,7 +11,8 @@ import {
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus,
-  ITransactionType
+  ITransactionType,
+  NEAR_INTENTS_NO_EVM_CHAIN_ID
 } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -219,9 +220,7 @@ export const swapSettlementOf = (tx: ITransaction): IHistoryEntry['swapSettlemen
   if (extra.settledAt != null) return undefined;
   if (extra.reclaimedAt != null) return 'reclaimed';
   if (tx.recovered === true) return undefined;
-  // Returning funds only for an order settlement acts on: it never settles a restored row, so that stamp stays put.
-  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null && !tx.restoredFromBackup)
-    return 'reclaiming';
+  if (extra.expiryTriggeredAt != null && extra.autoConsume !== false && extra.orderId != null) return 'reclaiming';
   if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
   return undefined;
 };
@@ -283,6 +282,20 @@ const isNearIntentsEntryExpired = (entry: IHistoryEntry, now: number): boolean =
   entry.oneClickTracking !== undefined &&
   isNearIntentsDepositShownExpired(entry.oneClickTracking, now);
 
+const outboundNearIntentsStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  switch (entry.oneClickTracking?.phase) {
+    case 'delivered':
+      return 'confirmed';
+    case 'refunded':
+    case 'failed':
+      return 'failed';
+    case 'expired':
+      return 'expired';
+    default:
+      return 'pending';
+  }
+};
+
 /**
  * Normalize a `bridged-send` row to a single Pending/Confirmed/Failed status
  * across both routes: Agglayer derives it from the L1 claim lifecycle, Epoch from
@@ -312,6 +325,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry, now = Date.now()): BridgeSt
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
     return 'pending';
   }
+  if (entry.bridgeProvider === 'near-intents') return outboundNearIntentsStatusOf(entry);
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
@@ -321,13 +335,14 @@ export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' |
 
 /** The state of an Epoch deposit in The Compact without an allocation, for a row that is not restored. */
 export const lockedDepositStateOf = (
-  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase' | 'restoredFromBackup'>
+  entry: Pick<IHistoryEntry, 'bridgeInLockedDeposit' | 'bridgeInPhase'>
 ): EpochLockedDepositState | undefined =>
-  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, entry.restoredFromBackup === true);
+  epochLockedDepositState(entry.bridgeInLockedDeposit, entry.bridgeInPhase, false);
 
 /** A bridge row whose badge is `bridgeBadgeStatusOf` and not the plain Pending/Confirmed/Failed status. */
 export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
   isUsdcxBridgeEntry(entry) ||
+  entry.bridgeProvider === 'near-intents' ||
   entry.bridgeInProvider === 'near-intents' ||
   entry.bridgeInStoppedBeforeSource === true ||
   lockedDepositStateOf(entry) !== undefined;
@@ -407,7 +422,13 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     entry.bridgeProvider === 'agglayer'
       ? (entry.bridgeAgglayerRoute?.chainId ?? DEFAULT_CHAIN_ID)
       : (entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID);
-  const network = getChain(destinationChainId)?.name ?? String(destinationChainId);
+  const network =
+    entry.bridgeProvider === 'near-intents'
+      ? (entry.bridgeDestinationChain?.name ??
+        (entry.bridgeDestinationNetwork !== undefined && entry.bridgeDestinationNetwork !== NEAR_INTENTS_NO_EVM_CHAIN_ID
+          ? (getChain(entry.bridgeDestinationNetwork)?.name ?? String(entry.bridgeDestinationNetwork))
+          : '1Click'))
+      : (getChain(destinationChainId)?.name ?? String(destinationChainId));
   if (entry.bridgeProvider === 'usdcx') {
     return {
       inSymbol,
@@ -420,11 +441,20 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       status: bridgeStatusOf(entry)
     };
   }
-  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? inSymbol : 'USDC');
+  const outSymbol =
+    entry.bridgeOutputSymbol ??
+    entry.oneClickTracking?.destinationAsset.symbol ??
+    (entry.bridgeProvider === 'agglayer' ? inSymbol : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
-    entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
+    entry.bridgeProvider === 'agglayer'
+      ? 'Agglayer'
+      : entry.bridgeProvider === 'epoch'
+        ? 'Epoch'
+        : entry.bridgeProvider === 'near-intents'
+          ? '1Click'
+          : 'Bridge';
   // An Epoch row's EVM side takes the bridge USDC label only when the output is that token.
   const outLabel =
     entry.bridgeProvider === 'epoch' && epochOutputIsBridgeUsdc(snapshot, destinationChainId, outSymbol)

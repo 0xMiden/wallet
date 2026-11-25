@@ -68,6 +68,24 @@ describe('recovery verification', () => {
       expect(signers).toHaveBeenCalledWith(acc);
     });
 
+    // A revoke re-packs the set: `[hotA, cold, hotB]` loses hotA and becomes `[cold, hotB]`, and an add appends.
+    // The recovery key is found by membership, wherever it sits.
+    it.each([
+      ['first, after a revoke of slot 0', ['0xAABB', 'hotb']],
+      ['last, after an add', ['hota', 'hotb', '0xaabb']]
+    ])('passes the recovery key when it sits %s', async (_name, set) => {
+      signers.mockReturnValue(set);
+      await expect(assertRecoverySignerMatches(account(), '0xAABB')).resolves.toBeUndefined();
+    });
+
+    it('lets a WebAssembly trap reach the lock', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      signers.mockImplementation(() => {
+        throw trap;
+      });
+      await expect(assertRecoverySignerMatches(account(), '0xAABB')).rejects.toBe(trap);
+    });
+
     it('refuses a different recovery slot', async () => {
       signers.mockReturnValue(['hot', 'ffff']);
       await expect(assertRecoverySignerMatches(account(), '0xAABB')).rejects.toMatchObject({

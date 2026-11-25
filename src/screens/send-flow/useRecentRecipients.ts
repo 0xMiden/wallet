@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import type { IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
+import type { IBridgedSendExtraInputs, ISendExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { detectAddressChain } from 'utils/miden';
 
@@ -22,6 +22,14 @@ const EMPTY_RECENTS: RecentRecipient[] = [];
  */
 export const recipientOf = (row: ITransaction): { address: string; networkName?: string } | undefined => {
   if (row.type === 'send') {
+    const oneClick = (row.extraInputs as ISendExtraInputs | undefined)?.oneClick;
+    if (oneClick) {
+      const address = oneClick.request.recipient?.trim();
+      if (!address) return undefined;
+      const chainId = oneClick.destinationAsset.blockchain;
+      const networkName = oneClick.config?.chains?.find(c => c.id === chainId)?.name;
+      return { address, networkName };
+    }
     const address = row.secondaryAccountId?.trim();
     return address ? { address } : undefined;
   }
@@ -30,9 +38,9 @@ export const recipientOf = (row: ITransaction): { address: string; networkName?:
     const extraInputs: IBridgedSendExtraInputs | undefined = row.extraInputs;
     const address = extraInputs?.destinationAddress?.trim();
     if (!address) return undefined;
-    // Only a numeric chain id is stored, so resolve it back to a display name.
+    // Only a numeric chain id is stored on EVM bridge rows; 1Click non-EVM or unmapped chains keep `destinationChain`.
     const network = BRIDGE_NETWORKS.find(n => n.chainId === extraInputs?.destinationNetwork);
-    return { address, networkName: network?.name };
+    return { address, networkName: network?.name ?? extraInputs?.destinationChain?.name };
   }
 
   return undefined;
@@ -57,6 +65,14 @@ export const selectRecentRecipients = (rows: ITransaction[], accountId: string):
   for (const row of ordered) {
     const recipient = recipientOf(row);
     if (!recipient) continue;
+
+    const chain = detectAddressChain(recipient.address);
+    const isCrossChain =
+      row.type === 'bridged-send' ||
+      (row.type === 'send' && Boolean((row.extraInputs as ISendExtraInputs | undefined)?.oneClick));
+    // SendManager's recent list only supports Miden and EVM targets in this release; skip non-EVM 1Click destinations
+    // so Solana, Bitcoin, and NEAR addresses are never mislabelled as Miden.
+    if (isCrossChain && chain !== 'ethereum') continue;
 
     const key = recipient.address.toLowerCase();
     // Sending to yourself is blocked at entry, but a legacy row shouldn't

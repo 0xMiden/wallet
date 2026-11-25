@@ -107,6 +107,7 @@ import {
   generateTransactionsLoop,
   guardianCandidateRelease,
   initiateReplaceHotKeyTransaction,
+  initiateRevokeDeviceTransaction,
   initiateSwitchGuardianTransaction,
   initiateUpdateProcedureThresholdTransaction,
   LANDED_CONFIRM_BOUND_MS,
@@ -126,6 +127,7 @@ import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
+  type HotKeyActivationMode,
   IApprovedCustomEffects,
   ISubmitEvidence,
   ITransaction,
@@ -2182,11 +2184,19 @@ describe('generateTransaction - Guardian routing', () => {
   // A rotation that can run to completion: the cold service's proposal creator is
   // scripted per test, completion runs for real with its re-register stubbed, and
   // the hardening check that follows it finds the account already hardened.
-  const arrangeRotation = (createProposal: jest.Mock, waitForTransactionCommit = jest.fn(async () => {})) => {
+  const arrangeRotation = (
+    createProposal: jest.Mock,
+    waitForTransactionCommit = jest.fn(async () => {}),
+    createAddProposal: jest.Mock = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => ({
+      id: 'prop-add',
+      nonce: 7
+    }))
+  ) => {
     const client = makeClientApi(makeResult());
     const coldService = {
       guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: createProposal,
+      createAddHotKeyProposal: createAddProposal,
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
         authArg: () => undefined
@@ -11404,7 +11414,10 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-xyz']);
+    // A claim asks the Guardian first whether another device of the account already has it (multi-device).
+    expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-xyz'], {
+      stopIfStartedElsewhere: true
+    });
     // Every consume is hot-bound - no cold service built. The former
     // background→cold-key routing existed only to dodge the iOS `.userPresence`
     // Face ID gate on the hot key, which has since been removed.
@@ -11434,7 +11447,9 @@ describe('generateTransaction - Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b']);
+    expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b'], {
+      stopIfStartedElsewhere: true
+    });
   });
 
   it('Guardian zero-fill PSWAP reclaim: rebuilds the cancel in each proposal hold and signs the bytes it proposed', async () => {
@@ -12761,6 +12776,136 @@ describe('generateTransaction - Guardian routing', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('Guardian replace-hot-key: a row in add mode builds an add proposal with the minted key', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+    tx.extraInputs = { mode: 'add' };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(coldService.createAddHotKeyProposal).toHaveBeenCalledTimes(1);
+    expect(coldService.createAddHotKeyProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(createProposal).not.toHaveBeenCalled();
+    // The rest of the pipeline is the same as for a replace.
+    expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-add', undefined);
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it.each(['earlier', undefined])(
+    'Guardian replace-hot-key: a stale or unbound activation request cannot build a proposal (%s)',
+    async rotationRequest => {
+      const createProposal = proposalFor();
+      const { tx, row, provider } = arrangeRotation(createProposal);
+      tx.extraInputs = { mode: 'replace', rotationRequest };
+      const currentProvider = {
+        ...provider,
+        getAccounts: async () =>
+          (await provider.getAccounts()).map(account => ({
+            ...account,
+            requiresHotKeyRotation: true,
+            hotKeyRotationRequest: 'current'
+          }))
+      };
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        currentProvider
+      );
+
+      expect(createProposal).not.toHaveBeenCalled();
+      expect(mockGenerateHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+    }
+  );
+
+  it('Guardian replace-hot-key: a row without a mode builds a replace proposal', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, provider } = arrangeRotation(createProposal);
+    expect(tx.extraInputs.mode).toBeUndefined();
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(createProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+    expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // A revoke rides the replace-hot-key row: it removes another device's signer and keeps this
+  // device's own key, so it mints, persists and installs nothing.
+  it('Guardian replace-hot-key: a revoke row proposes the revocation of its target and mints no key', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, persistNewHotKey, swapHotKey, provider } = arrangeRotation(createProposal);
+    const target = `0x${'a1'.repeat(32)}`;
+    const createRevokeDeviceProposal = jest.fn(async (_target: string, _hot: string, _cold: string) => ({
+      id: 'prop-revoke',
+      nonce: 7
+    }));
+    Object.assign(coldService, { createRevokeDeviceProposal });
+    tx.extraInputs = { revokedSignerCommitment: target };
+    const revokeProvider = {
+      ...provider,
+      getAccounts: async () =>
+        (await provider.getAccounts()).map(account => ({
+          ...account,
+          hotPublicKey: 'hot-pk',
+          coldPublicKey: 'cold-pk'
+        }))
+    };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      revokeProvider
+    );
+
+    expect(createRevokeDeviceProposal).toHaveBeenCalledTimes(1);
+    expect(createRevokeDeviceProposal).toHaveBeenCalledWith(target, 'hot-pk', 'cold-pk');
+    expect(createProposal).not.toHaveBeenCalled();
+    expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+    expect(mockGenerateHotKey).not.toHaveBeenCalled();
+    expect(persistNewHotKey).not.toHaveBeenCalled();
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-revoke', undefined);
+    // Completion re-registers the post-revoke signer set and installs no key.
+    expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalled();
+    expect(swapHotKey).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Completed);
+    expect(row()?.displayMessage).toBe(getMessage('deviceRevoked'));
+  });
+
+  it('Guardian replace-hot-key: a revoke row fails without proposing when a device key is unknown', async () => {
+    const createProposal = proposalFor();
+    const { tx, row, coldService, provider } = arrangeRotation(createProposal);
+    const createRevokeDeviceProposal = jest.fn();
+    Object.assign(coldService, { createRevokeDeviceProposal });
+    tx.extraInputs = { revokedSignerCommitment: `0x${'a1'.repeat(32)}` };
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(createRevokeDeviceProposal).not.toHaveBeenCalled();
+    expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
   });
 
   it('Guardian replace-hot-key: a row that already persisted its key proposes with that key and mints nothing (#904)', async () => {
@@ -18011,6 +18156,59 @@ describe('initiateReplaceHotKeyTransaction', () => {
     txStore.length = 0;
   });
 
+  it('refuses a role for a replaced activation request and records the current request on queue', async () => {
+    const guardian = makeGuardianProvider(true);
+    const provider = {
+      ...guardian,
+      getAccounts: async () =>
+        (await guardian.getAccounts()).map(account => ({
+          ...account,
+          requiresHotKeyRotation: true,
+          hotKeyRotationRequest: 'current'
+        }))
+    };
+
+    await expect(
+      initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace', { expected: 'earlier' })
+    ).rejects.toThrow('The wallet activation request changed');
+    expect(txStore).toHaveLength(0);
+
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'current' });
+    expect(txStore[0]?.extraInputs).toMatchObject({ mode: 'add', rotationRequest: 'current' });
+  });
+
+  it('does not deduplicate an activation choice against a previous request', async () => {
+    const guardian = makeGuardianProvider(true);
+    let hotKeyRotationRequest = 'old';
+    const provider = {
+      ...guardian,
+      getAccounts: async () =>
+        (await guardian.getAccounts()).map(account => ({
+          ...account,
+          requiresHotKeyRotation: true,
+          hotKeyRotationRequest
+        }))
+    };
+
+    await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'old' });
+    hotKeyRotationRequest = 'current';
+
+    await expect(
+      initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add', { expected: 'current' })
+    ).rejects.toThrow();
+    expect(txStore).toHaveLength(1);
+  });
+
+  it('keeps revocations separate from activation and from a different target', async () => {
+    const provider = makeGuardianProvider(true);
+    const target = `0x${'1'.repeat(64)}`;
+    const first = await initiateRevokeDeviceTransaction('acc-1', target, false, provider);
+    expect(await initiateRevokeDeviceTransaction('acc-1', target, false, provider)).toBe(first);
+    expect(await initiateRevokeDeviceTransaction('acc-1', `0x${'2'.repeat(64)}`, false, provider)).not.toBe(first);
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).not.toBe(first);
+    expect(txStore).toHaveLength(3);
+  });
+
   it('reuses a pending recovery change but permits a new change after completion', async () => {
     const provider = makeGuardianProvider(true);
     const firstId = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
@@ -18035,8 +18233,57 @@ describe('initiateReplaceHotKeyTransaction', () => {
     expect(row.accountId).toBe('acc-1');
     expect(row.type).toBe('replace-hot-key');
     // The guardian the rotation runs under is recorded now, so its history row names it for good;
-    // newHotPublicKey joins it during generateGuardianTransaction.
-    expect(row.extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+    // newHotPublicKey joins it during generateGuardianTransaction. Without a mode argument the row is a replace.
+    expect(row.extraInputs).toEqual({ mode: 'replace', guardianEndpoint: 'https://old.guardian' });
+  });
+
+  it('records the add mode on the row when the caller asks for it', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeGuardianProvider(true), 'add');
+
+    expect(txStore).toHaveLength(1);
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'add',
+      guardianEndpoint: 'https://old.guardian'
+    });
+  });
+
+  it('records the replace mode on the row when the caller names it', async () => {
+    await initiateReplaceHotKeyTransaction('acc-1', false, makeGuardianProvider(true), 'replace');
+
+    expect(txStore).toHaveLength(1);
+    expect(txStore[0]?.extraInputs).toEqual({ mode: 'replace', guardianEndpoint: 'https://old.guardian' });
+  });
+
+  // One live rotation per account, and it runs only the mode it was queued with: a Replace (which cuts
+  // every other device off) must never return a pending Add (which keeps them), nor the reverse. A
+  // second row would run two rotations against one signer set, so the other mode is refused.
+  it.each([
+    ['add', 'replace'],
+    ['replace', 'add']
+  ] as const)(
+    'refuses a %s rotation in flight to a call that asks for %s, and keeps one row',
+    async (queued, asked) => {
+      const provider = makeGuardianProvider(true);
+      await initiateReplaceHotKeyTransaction('acc-1', false, provider, queued);
+
+      await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, asked)).rejects.toThrow(
+        getMessage('recoveryActionUnavailable')
+      );
+      expect(txStore).toHaveLength(1);
+      expect(txStore[0]?.extraInputs).toEqual(expect.objectContaining({ mode: queued }));
+    }
+  );
+
+  it('reuses a pending rotation for a call in its own mode, a missing mode being a replace', async () => {
+    const provider = makeGuardianProvider(true);
+    const addId = await initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add');
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'add')).resolves.toBe(addId);
+    txStore[0]!.status = ITransactionStatus.Completed;
+
+    const replaceId = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    delete (txStore[1]!.extraInputs as { mode?: string }).mode;
+    await expect(initiateReplaceHotKeyTransaction('acc-1', false, provider, 'replace')).resolves.toBe(replaceId);
+    expect(txStore).toHaveLength(2);
   });
 
   it('records the guardian when the provider spells the account id differently', async () => {
@@ -18055,7 +18302,10 @@ describe('initiateReplaceHotKeyTransaction', () => {
       ]
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
-    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({ guardianEndpoint: 'https://old.guardian' });
+    expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'replace',
+      guardianEndpoint: 'https://old.guardian'
+    });
   });
 
   it('records the network default for an account that names no guardian of its own', async () => {
@@ -18075,6 +18325,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
     expect((txStore[0] as Record<string, unknown>).extraInputs).toEqual({
+      mode: 'replace',
       guardianEndpoint: getEffectiveDefaultGuardianEndpoint()
     });
   });
@@ -18130,9 +18381,16 @@ describe('completeReplaceHotKeyTransaction', () => {
     });
   });
 
-  it('calls swapHotKey with the new hot pubkey, drops the cached service, and marks the row Completed', async () => {
+  // The history message follows the mode: an add keeps the other devices, a replace (or a row from before the
+  // mode existed) rotates them out.
+  it.each<[HotKeyActivationMode | undefined, string]>([
+    [undefined, 'Everyday key rotated'],
+    ['replace', 'Everyday key rotated'],
+    ['add', 'Device added']
+  ])('mode %s: swaps the hot key, drops the cached service and completes the row as "%s"', async (mode, message) => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
-    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    const inputs = mode === undefined ? { newHotPublicKey: 'new-hot-pub' } : { newHotPublicKey: 'new-hot-pub', mode };
+    tx.extraInputs = inputs;
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
     const swapHotKey = jest.fn(async () => {});
@@ -18153,7 +18411,9 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
-    expect(row.displayMessage).toBe('Everyday key rotated');
+    expect(row.displayMessage).toBe(message);
+    // The completion spreads the whole record, so the mode survives for the history label.
+    expect(row.extraInputs).toEqual(expect.objectContaining(inputs));
   });
 
   it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {
@@ -20315,7 +20575,7 @@ describe('generateTransaction: the rotation gate claim (#805)', () => {
     await run(row, { ...recovered, hotPublicKey: 'hot-pub' });
 
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
-    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1']);
+    expect(hotService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-1'], { stopIfStartedElsewhere: true });
   });
 
   it('requeues a flagged claim when the guardian cannot be reached, still flagged (#779)', async () => {
@@ -20534,7 +20794,9 @@ describe('Guardian proposal effect check', () => {
 
       const row = await run({ id: 'claim-fill', type: 'consume', accountId: 'guardian-acc', noteId: 'pswap-order' });
 
-      expect(service.createConsumeNotesProposal).toHaveBeenCalledWith(['pswap-order']);
+      expect(service.createConsumeNotesProposal).toHaveBeenCalledWith(['pswap-order'], {
+        stopIfStartedElsewhere: true
+      });
       expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
       expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop-fill');
       expect(row.status).toBe(ITransactionStatus.Failed);

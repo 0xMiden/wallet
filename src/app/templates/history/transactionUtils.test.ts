@@ -828,10 +828,10 @@ describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)
     expect(bridgeBadgeStatusOf(retried)).toBe('pending');
   });
 
-  it('reads plain Failed for a restored row', () => {
+  it('shows the recorded lock status for a restored row', () => {
     const restored = locked({ restoredFromBackup: true });
-    expect(hasOwnBridgeBadge(restored)).toBe(false);
-    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
+    expect(hasOwnBridgeBadge(restored)).toBe(true);
+    expect(bridgeBadgeStatusOf(restored)).toBe('depositLocked');
   });
 });
 
@@ -966,6 +966,31 @@ describe('bridgeStatusOf', () => {
   it('defaults an epoch row with no polled status to pending', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch' }))).toBe('pending');
   });
+
+  it.each([
+    ['depositing', 'pending'],
+    ['processing', 'pending'],
+    ['arriving', 'pending'],
+    ['delivered', 'confirmed'],
+    ['refunded', 'failed'],
+    ['failed', 'failed'],
+    ['expired', 'expired']
+  ] as const)('maps the near-intents outbound phase %s', (phase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({
+          bridgeProvider: 'near-intents',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase })
+        })
+      )
+    ).toBe(expected);
+  });
+
+  it('defaults a near-intents outbound row without tracking to pending and keeps own badge', () => {
+    const entry = bridgeEntry({ bridgeProvider: 'near-intents' });
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    expect(hasOwnBridgeBadge(entry)).toBe(true);
+  });
 });
 
 describe('bridgeRowDisplay', () => {
@@ -1002,6 +1027,59 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
     ).toBe('Base');
+  });
+
+  it('renders a near-intents outbound row with 1Click provider and non-EVM chain name', () => {
+    expect(
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: -1,
+          bridgeDestinationChain: { id: 'sol', name: 'Solana' },
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.95',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase: 'delivered' })
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MUSDC',
+      outSymbol: 'USDC',
+      inLabel: 'MUSDC',
+      outLabel: 'USDC',
+      outAmount: '4.95',
+      providerLabel: '1Click',
+      network: 'Solana',
+      status: 'confirmed'
+    });
+
+    expect(
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: 8453,
+          oneClickTracking: paymentTracking({
+            direction: 'miden-to-evm',
+            phase: 'processing',
+            destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 }
+          })
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MUSDC',
+      outSymbol: 'ETH',
+      inLabel: 'MUSDC',
+      outLabel: 'ETH',
+      outAmount: '5',
+      providerLabel: '1Click',
+      network: 'Base',
+      status: 'pending'
+    });
   });
 
   it('renders an epoch row from its quoted output', () => {
@@ -1521,10 +1599,10 @@ describe('swap settlement state', () => {
     );
   });
 
-  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
-  it('reports the return only for an order the settlement acts on', () => {
+  // A restored receipt keeps the recorded return-in-progress status.
+  it('reports a recorded return on both local and restored orders', () => {
     const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
-    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('reclaiming');
     expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
     expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
   });

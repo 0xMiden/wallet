@@ -126,6 +126,27 @@ beforeEach(() => {
 });
 
 describe('HistoryItem', () => {
+  it('titles a recovered add-device row as an added device', () => {
+    render(
+      <HistoryItem entry={makeEntry({ guardianRecovered: true, txType: 'replace-hot-key', hotKeyAdded: true })} />
+    );
+    expect(screen.getByText('t:guardianHistoryDeviceAdded')).toBeInTheDocument();
+    expect(screen.queryByText('t:guardianHistoryDeviceReplaced')).not.toBeInTheDocument();
+  });
+
+  it('titles a recovered revocation as a revoked device', () => {
+    render(
+      <HistoryItem
+        entry={makeEntry({
+          guardianRecovered: true,
+          txType: 'replace-hot-key',
+          revokedSignerCommitment: `0x${'ab'.repeat(32)}`
+        })}
+      />
+    );
+    expect(screen.getByText('t:deviceRevoked')).toBeInTheDocument();
+  });
+
   it('titles a legacy row with no stored message by its action', () => {
     render(<HistoryItem entry={makeEntry({ message: undefined, txType: 'send' })} />);
     expect(screen.getByText('t:sent')).toBeInTheDocument();
