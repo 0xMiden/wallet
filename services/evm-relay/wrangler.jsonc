@@ -1,0 +1,34 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "miden-evm-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  // Logs are on so the Worker can write one line when the relayer account has no funds.
+  // Invocation logs are off, and the code never logs a request body.
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  // Placeholders. The deploy workflow of a later PR renders a release copy with the real values.
+  // GAS_MODE is "sponsor" (the relayer pays the gas) or "deduct" (each token pays a fixed fee to feeRecipient).
+  // RELAY_CONFIG is the JSON of the chains, Calibur, Agglayer and tokens. The README gives its shape.
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "DEPLOYMENT_REVISION": "unknown",
+    "GAS_MODE": "sponsor",
+    "RELAY_CONFIG": "{\"chains\":{}}"
+  },
+  // Secrets of later PRs. Set them with `wrangler secret put`. Do not put them in vars.
+  // RELAYER_PRIVATE_KEY: the key of the relayer account that executes the batches and pays the gas.
+  // RPC_URL_<chainId>: the JSON-RPC URL of each chain in RELAY_CONFIG, for example RPC_URL_8453.
+  "ratelimits": [
+    // Limits GET /v1/account and GET /v1/relay/{id} per caller IP, on the key `read:<CF-Connecting-IP>`.
+    // 189401 to 189404 are taken by the other Workers of the account.
+    { "name": "READ_RATE_LIMIT", "namespace_id": "189405", "simple": { "limit": 60, "period": 60 } },
+    // Limits POST /v1/relay per caller IP, on the key `relay:<CF-Connecting-IP>`.
+    { "name": "RELAY_RATE_LIMIT", "namespace_id": "189406", "simple": { "limit": 10, "period": 60 } }
+  ]
+}
