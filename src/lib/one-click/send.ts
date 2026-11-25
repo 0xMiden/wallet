@@ -155,11 +155,12 @@ export function buildNearIntentsSendRequest(input: NearIntentsSendQuoteInput, no
 /** A dry quote (no deposit address). Throws `OneClickHttpError` with its code on a refused request. */
 export async function requestNearIntentsSendPreview(
   config: NearIntentsConfig,
-  input: NearIntentsSendQuoteInput
+  input: NearIntentsSendQuoteInput,
+  signal?: AbortSignal
 ): Promise<{ request: OneClickQuoteRequest; quote: OneClickQuoteResponse }> {
   const normalized = assertSendInput(input);
   const request = buildNearIntentsSendRequest(normalized);
-  const quote = await requestOneClickQuote(config, request, true);
+  const quote = await requestOneClickQuote(config, request, true, undefined, signal);
   return { request, quote };
 }
 

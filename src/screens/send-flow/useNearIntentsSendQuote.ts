@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { useAccount } from 'lib/miden/front';
@@ -12,7 +12,8 @@ import {
 } from 'lib/one-click/send';
 import type { OneClickQuoteResponse } from 'lib/one-click/types';
 import { useNearIntentsCatalog } from 'screens/near-intents-flow/useNearIntentsCatalog';
-import { PREVIEW_DEBOUNCE_MS, PREVIEW_REFRESH_MS } from 'screens/near-intents-flow/useNearIntentsQuote';
+import { nearIntentsQuoteExpired } from 'screens/near-intents-flow/useNearIntentsQuote';
+import { usePolledPreview } from 'screens/near-intents-flow/usePolledPreview';
 
 export type NearIntentsSendQuoteStatus = 'idle' | 'loading' | 'ready' | 'unsupported' | 'error';
 export type NearIntentsSendQuoteErrorCode = 'no_liquidity' | 'invalid_recipient';
@@ -43,13 +44,6 @@ export interface NearIntentsSendQuote {
   errorCode?: NearIntentsSendQuoteErrorCode;
 }
 
-interface PreviewState {
-  key: string;
-  quote?: OneClickQuoteResponse;
-  failed: boolean;
-  errorCode?: NearIntentsSendQuoteErrorCode;
-}
-
 /** The known reason of a refused 1Click request, or undefined. */
 export function nearIntentsErrorCode(error: Error): NearIntentsSendQuoteErrorCode | undefined {
   if (!(error instanceof OneClickHttpError)) return undefined;
@@ -65,8 +59,9 @@ export function nearIntentsErrorCode(error: Error): NearIntentsSendQuoteErrorCod
 
 /**
  * A dry NEAR Intents quote for a send from Miden. The hook finds the first pair of the token and the chain in the
- * confirmed catalog. It waits `PREVIEW_DEBOUNCE_MS` after a change of the input, then asks again every
- * `PREVIEW_REFRESH_MS` while the page is active. It ignores an answer for an input that is not the current one.
+ * confirmed catalog. It is polled by `usePolledPreview`: it waits `PREVIEW_DEBOUNCE_MS` after a change of the input
+ * or the config, then asks again `PREVIEW_REFRESH_MS` after each answer while the page is active. A pause, an
+ * unmount or a new input aborts the request on its way and drops the quote, and an expired quote is not `ready`.
  * The refund address is the Miden address of the current account.
  */
 export function useNearIntentsSendQuote({
@@ -94,6 +89,7 @@ export function useNearIntentsSendQuote({
     input === undefined
       ? ''
       : JSON.stringify([
+          config?.serviceUrl,
           input.pair.origin.assetId,
           input.pair.destination.assetId,
           input.amount.toString(),
@@ -103,52 +99,21 @@ export function useNearIntentsSendQuote({
   const inputRef = useRef(input);
   inputRef.current = input;
 
-  const [preview, setPreview] = useState<PreviewState>({ key: '', failed: false });
-  const sequence = useRef(0);
-  const active = enabled && pageActive;
+  const configRef = useRef(config);
+  configRef.current = config;
+  const active = enabled && pageActive && config !== null;
 
-  useEffect(() => {
-    sequence.current += 1;
+  const preview = usePolledPreview(key, active, async signal => {
     const current = inputRef.current;
-    // A new input clears the quote; a refresh of the same input keeps it until the answer comes.
-    setPreview(previous => (previous.key === key ? previous : { key, failed: false }));
-    if (current === undefined || config === null || !active) {
-      return () => {
-        sequence.current += 1;
-      };
+    const currentConfig = configRef.current;
+    if (current === undefined || currentConfig === null) throw new Error('There is no NEAR Intents send quote input');
+    try {
+      return (await requestNearIntentsSendPreview(currentConfig, current, signal)).quote;
+    } catch (error) {
+      if (!signal.aborted) console.warn('[NearIntentsSend] the quote request failed', error);
+      throw error;
     }
-
-    let stopped = false;
-    const refresh = () => {
-      const own = ++sequence.current;
-      requestNearIntentsSendPreview(config, current).then(
-        ({ quote }) => {
-          if (!stopped && sequence.current === own) setPreview({ key, quote, failed: false });
-        },
-        error => {
-          if (stopped || sequence.current !== own) return;
-          console.warn('[NearIntentsSend] the quote request failed', error);
-          setPreview({
-            key,
-            failed: true,
-            errorCode: error instanceof Error ? nearIntentsErrorCode(error) : undefined
-          });
-        }
-      );
-    };
-    let interval: number | undefined;
-    const timer = window.setTimeout(() => {
-      refresh();
-      interval = window.setInterval(refresh, PREVIEW_REFRESH_MS);
-    }, PREVIEW_DEBOUNCE_MS);
-
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-      if (interval !== undefined) window.clearInterval(interval);
-      sequence.current += 1;
-    };
-  }, [key, config, active]);
+  });
 
   if (!enabled) return { status: 'idle' };
   if (config === null) return { status: 'unsupported' };
@@ -163,8 +128,7 @@ export function useNearIntentsSendQuote({
   if (!faucetId) return { status: 'idle' };
   if (!pair) return { status: 'unsupported' };
   if (input === undefined) return { status: 'idle', pair };
-  if (preview.key !== key) return { status: 'loading', pair };
-  if (preview.failed) return { status: 'error', pair, errorCode: preview.errorCode };
-  if (preview.quote) return { status: 'ready', pair, quote: preview.quote };
+  if (preview.error) return { status: 'error', pair, errorCode: nearIntentsErrorCode(preview.error) };
+  if (preview.value && !nearIntentsQuoteExpired(preview.value)) return { status: 'ready', pair, quote: preview.value };
   return { status: 'loading', pair };
 }

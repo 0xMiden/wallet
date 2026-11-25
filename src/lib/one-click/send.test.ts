@@ -277,13 +277,18 @@ describe('buildNearIntentsSendRequest', () => {
 
 describe('requestNearIntentsSendPreview', () => {
   it('asks for a dry quote of the request', async () => {
-    const preview = await requestNearIntentsSendPreview(config, {
-      pair: solPair,
-      amount: 1_000_000n,
-      recipient: SOLANA_RECIPIENT,
-      refundTo: WALLET_ADDRESS
-    });
-    expect(requestQuote).toHaveBeenCalledWith(config, preview.request, true);
+    const controller = new AbortController();
+    const preview = await requestNearIntentsSendPreview(
+      config,
+      {
+        pair: solPair,
+        amount: 1_000_000n,
+        recipient: SOLANA_RECIPIENT,
+        refundTo: WALLET_ADDRESS
+      },
+      controller.signal
+    );
+    expect(requestQuote).toHaveBeenCalledWith(config, preview.request, true, undefined, controller.signal);
     expect(preview.request).toMatchObject({ recipient: SOLANA_RECIPIENT, refundTo: WALLET_ADDRESS, amount: '1000000' });
     expect(preview.quote.quote.amountIn).toBe('1000000');
   });

@@ -7,6 +7,7 @@ import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/avail
 
 import { SendRoute, SendRouteProps } from './SendRoute';
 import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
+import type { NearIntentsSendQuote } from './useNearIntentsSendQuote';
 import { useSendRouteEligibility } from './useSendRouteEligibility';
 
 jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
@@ -53,7 +54,6 @@ beforeEach(() => {
   mockAvailability = {};
   mockAgglayerChain = true;
   mockNearIntentsQuote = { status: 'idle' };
-  mockUseNearIntentsSendQuote.mockClear();
 });
 
 jest.mock('react-i18next', () => ({
@@ -109,12 +109,8 @@ jest.mock('./Route', () => ({
   )
 }));
 
-// The quote hook reads the bridge config, the catalog and 1Click; the card states have their own tests.
-let mockNearIntentsQuote: { status: string } = { status: 'idle' };
-const mockUseNearIntentsSendQuote = jest.fn((_params: unknown) => mockNearIntentsQuote);
-jest.mock('./useNearIntentsSendQuote', () => ({
-  useNearIntentsSendQuote: (params: unknown) => mockUseNearIntentsSendQuote(params)
-}));
+// SendManager owns the quote hook and passes the quote down; the card states have their own tests.
+let mockNearIntentsQuote: NearIntentsSendQuote = { status: 'idle' };
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
 // Confirm CTA's flow colour is assertable without the real Button's cva class computation.
@@ -132,7 +128,7 @@ function renderRoute(
 ) {
   const { faucetId = TEST_MIDEN_USDC_FAUCET, destinationChainId = 11155111, ...viewOverrides } = overrides;
   const props = {
-    faucetId,
+    nearIntentsQuote: mockNearIntentsQuote,
     route: 'epoch' as const,
     onRouteChange: jest.fn(),
     fastQuoteLoading: false,
@@ -229,27 +225,19 @@ describe('SendRoute', () => {
   describe('NEAR Intents', () => {
     const NEAR_INTENTS = { chainId: 'sol', recipient: 'SoLaNaRecipient', amount: 20_000_000n };
 
-    it('shows no NEAR Intents card and asks for no quote when NEAR Intents does not offer the network', () => {
+    it('shows no NEAR Intents card when NEAR Intents does not offer the network', () => {
       renderRoute();
 
       expect(screen.queryByTestId('near-intents-card')).not.toBeInTheDocument();
-      expect(mockUseNearIntentsSendQuote).toHaveBeenCalledWith(
-        expect.objectContaining({ enabled: false, faucetId: TEST_MIDEN_USDC_FAUCET })
-      );
     });
 
-    it('shows the NEAR Intents card beside the bridge routes and asks for its quote', () => {
+    it('shows the NEAR Intents card beside the bridge routes with the quote it is given', () => {
+      mockNearIntentsQuote = { status: 'loading' };
       renderRoute({ nearIntents: NEAR_INTENTS });
 
       expect(screen.getByTestId('route-options')).toHaveAttribute('data-bridge-routes', 'true');
       expect(screen.getByTestId('near-intents-card')).toHaveAttribute('data-selected', 'false');
-      expect(mockUseNearIntentsSendQuote).toHaveBeenCalledWith({
-        chainId: 'sol',
-        faucetId: TEST_MIDEN_USDC_FAUCET,
-        amount: 20_000_000n,
-        recipient: 'SoLaNaRecipient',
-        enabled: true
-      });
+      expect(screen.getByTestId('near-intents-card')).toHaveAttribute('data-status', 'loading');
     });
 
     it('selects NEAR Intents when the card is tapped', () => {
@@ -267,14 +255,17 @@ describe('SendRoute', () => {
       expect(props.onRouteChange).toHaveBeenCalledWith('near-intents');
     });
 
-    it.each(['idle', 'loading', 'unsupported', 'error'])('blocks Confirm while the quote is %s', status => {
-      mockNearIntentsQuote = { status };
-      const props = renderRoute({ route: 'near-intents', nearIntents: NEAR_INTENTS });
+    it.each<NearIntentsSendQuote['status']>(['idle', 'loading', 'unsupported', 'error'])(
+      'blocks Confirm while the quote is %s',
+      status => {
+        mockNearIntentsQuote = { status };
+        const props = renderRoute({ route: 'near-intents', nearIntents: NEAR_INTENTS });
 
-      expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
-      fireEvent.click(screen.getByTestId('bridge-route-confirm'));
-      expect(props.onConfirm).not.toHaveBeenCalled();
-    });
+        expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+        fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+        expect(props.onConfirm).not.toHaveBeenCalled();
+      }
+    );
 
     it('confirms NEAR Intents once the quote is ready, whatever the bridge features say', () => {
       mockAvailability = { fastBridgeOut: DOWN, bridgeOut: DOWN };

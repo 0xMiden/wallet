@@ -34,11 +34,19 @@ jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid={`token-logo-${symbol}`} />
 }));
 
-const mockRequestQuote = jest.fn<Promise<OneClickQuoteResponse>, [NearIntentsConfig, OneClickQuoteRequest, boolean]>();
+const mockRequestQuote = jest.fn<
+  Promise<OneClickQuoteResponse>,
+  [NearIntentsConfig, OneClickQuoteRequest, boolean, typeof fetch | undefined, AbortSignal | undefined]
+>();
 const { OneClickHttpError } = jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client');
 jest.mock('lib/one-click/client', () => ({
-  requestOneClickQuote: (config: NearIntentsConfig, request: OneClickQuoteRequest, dry: boolean) =>
-    mockRequestQuote(config, request, dry)
+  requestOneClickQuote: (
+    config: NearIntentsConfig,
+    request: OneClickQuoteRequest,
+    dry: boolean,
+    fetcher?: typeof fetch,
+    signal?: AbortSignal
+  ) => mockRequestQuote(config, request, dry, fetcher, signal)
 }));
 jest.mock('lib/one-click/address', () => jest.requireActual('lib/one-click/address'));
 const mockPersist = jest.fn<Promise<string>, [unknown]>();
@@ -231,8 +239,9 @@ describe('NearIntentsForm', () => {
     typeAmount('46');
     await flushQuote();
     expect(mockRequestQuote).toHaveBeenCalledTimes(1);
-    const [, request, dry] = mockRequestQuote.mock.calls[0]!;
+    const [, request, dry, , signal] = mockRequestQuote.mock.calls[0]!;
     expect(dry).toBe(true);
+    expect(signal).toBeInstanceOf(AbortSignal);
     expect(request.refundTo).toBe(previewRefundAddress('evm'));
     expect(button).toBeDisabled();
 

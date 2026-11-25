@@ -6,43 +6,37 @@ import { Button, ButtonVariant } from 'components/Button';
 
 import { NearIntentsRouteCard, RouteOptions, RouteOptionsProps } from './Route';
 import { SendStepLayout } from './SendStepLayout';
-import { useNearIntentsSendQuote } from './useNearIntentsSendQuote';
+import type { NearIntentsSendQuote } from './useNearIntentsSendQuote';
 import type { SendRouteEligibility } from './useSendRouteEligibility';
 
 export interface SendRouteProps extends Omit<
   RouteOptionsProps,
   'slowStatus' | 'fastAvailability' | 'slowAvailability' | 'nearIntentsCard' | 'bridgeRoutesAvailable'
 > {
-  faucetId: string;
   eligibility: SendRouteEligibility;
   embedded?: boolean;
   onBack: () => void;
   onConfirm: () => void;
-  /** Set when NEAR Intents offers the selected network. SendRoute then shows the NEAR Intents card and its quote. */
+  /** Set when NEAR Intents offers the selected network. SendRoute then shows the NEAR Intents card. */
   nearIntents?: { chainId: string; recipient: string; amount?: bigint };
+  /** The quote of the one `useNearIntentsSendQuote` that `SendManager` owns. */
+  nearIntentsQuote: NearIntentsSendQuote;
   /** False when no bridge route (Epoch, Agglayer, USDCx) serves the selected network; SendRoute then shows only the NEAR Intents card. */
   bridgeRoutesAvailable: boolean;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
 export const SendRoute: React.FC<SendRouteProps> = ({
-  faucetId,
   eligibility,
   embedded,
   onBack,
   onConfirm,
   nearIntents,
+  nearIntentsQuote,
   bridgeRoutesAvailable,
   ...options
 }) => {
   const { t } = useTranslation();
-  const nearIntentsQuote = useNearIntentsSendQuote({
-    chainId: nearIntents?.chainId,
-    faucetId,
-    amount: nearIntents?.amount,
-    recipient: nearIntents?.recipient,
-    enabled: nearIntents !== undefined
-  });
   const { route, onRouteChange } = options;
   const nearIntentsOffered = nearIntents !== undefined;
 

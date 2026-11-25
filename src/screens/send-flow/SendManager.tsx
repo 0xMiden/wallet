@@ -558,12 +558,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [nearIntentsChainId, networkKind, trimmedRecipient, amountBaseUnits]
   );
 
-  const commandNearIntentsQuote = useNearIntentsSendQuote({
+  // The one NEAR Intents quote of the send flow: the Route step and the Command composer both read it.
+  const nearIntentsQuote = useNearIntentsSendQuote({
     chainId: nearIntents?.chainId,
     faucetId: token?.id ?? '',
     amount: nearIntents?.amount,
     recipient: nearIntents?.recipient,
-    enabled: command && pathname === '/send' && isBridge && nearIntents !== undefined && bridgeRoute === 'near-intents'
+    enabled:
+      pathname === '/send' && isBridge && nearIntents !== undefined && (command || currentStep === SendFlowStep.Route)
   });
   const routeEligibility = useSendRouteEligibility(
     token?.id ?? '',
@@ -571,7 +573,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     bridgeRoute ?? 'epoch',
     usdcxAvailable,
     pathname === '/send' && isBridge && (command || currentStep === SendFlowStep.Route),
-    command ? commandNearIntentsQuote.status === 'ready' : nearIntents !== undefined
+    command ? nearIntentsQuote.status === 'ready' : nearIntents !== undefined
   );
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
@@ -1377,8 +1379,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onConfirm: onConfirmAmount
   };
   const routeProps: SendRouteProps = {
-    faucetId: spendableToken?.id ?? '',
     nearIntents,
+    nearIntentsQuote,
     bridgeRoutesAvailable: bridgeChainId !== undefined,
     eligibility: routeEligibility,
     usdcxAvailable,

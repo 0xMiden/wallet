@@ -27,7 +27,7 @@ let mockPageActive = true;
 const mockCatalogConfigs: Array<NearIntentsConfig | null> = [];
 const mockFindPairs = jest.fn((_catalog: NearIntentsCatalog, _faucetId: string, _chainId: string) => [PAIR]);
 const mockPreview = jest.fn(
-  (_config: NearIntentsConfig, _input: NearIntentsSendQuoteInput) =>
+  (_config: NearIntentsConfig, _input: NearIntentsSendQuoteInput, _signal?: AbortSignal) =>
     new Promise<{ request: OneClickQuoteRequest; quote: OneClickQuoteResponse }>(() => undefined)
 );
 
@@ -41,8 +41,8 @@ jest.mock('screens/near-intents-flow/useNearIntentsCatalog', () => ({
 jest.mock('lib/one-click/send', () => ({
   findNearIntentsSendPairs: (catalog: NearIntentsCatalog, faucetId: string, chainId: string) =>
     mockFindPairs(catalog, faucetId, chainId),
-  requestNearIntentsSendPreview: (config: NearIntentsConfig, input: NearIntentsSendQuoteInput) =>
-    mockPreview(config, input)
+  requestNearIntentsSendPreview: (config: NearIntentsConfig, input: NearIntentsSendQuoteInput, signal?: AbortSignal) =>
+    mockPreview(config, input, signal)
 }));
 jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: 'mm1refund' }) }));
 jest.mock('app/layouts/page-active', () => ({ usePageActive: () => mockPageActive }));
@@ -63,7 +63,7 @@ const quote = (correlationId: string): OneClickQuoteResponse => ({
     refundType: 'ORIGIN_CHAIN',
     recipient: 'SoLaNa',
     recipientType: 'DESTINATION_CHAIN',
-    deadline: '2026-11-11T00:05:00.000Z'
+    deadline: '2099-01-01T00:05:00.000Z'
   },
   quote: {
     amountIn: '20000000',
@@ -84,7 +84,7 @@ const REQUEST: OneClickQuoteRequest = {
   destinationAsset: PAIR.destination,
   refundTo: 'mm1refund',
   recipient: 'SoLaNa',
-  deadline: '2026-11-11T00:05:00.000Z',
+  deadline: '2099-01-01T00:05:00.000Z',
   slippageTolerance: 100
 };
 
@@ -171,12 +171,16 @@ describe('useNearIntentsSendQuote', () => {
 
     act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
     await settle();
-    expect(mockPreview).toHaveBeenCalledWith(CONFIG, {
-      pair: PAIR,
-      amount: 20_000_000n,
-      recipient: 'SoLaNa',
-      refundTo: 'mm1refund'
-    });
+    expect(mockPreview).toHaveBeenCalledWith(
+      CONFIG,
+      {
+        pair: PAIR,
+        amount: 20_000_000n,
+        recipient: 'SoLaNa',
+        refundTo: 'mm1refund'
+      },
+      expect.any(AbortSignal)
+    );
     expect(result.current).toEqual({ status: 'ready', pair: PAIR, quote: quote('first') });
 
     mockPreview.mockImplementation(async () => ({ request: REQUEST, quote: quote('second') }));
@@ -237,5 +241,72 @@ describe('useNearIntentsSendQuote', () => {
 
     act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS + PREVIEW_REFRESH_MS));
     expect(mockPreview).not.toHaveBeenCalled();
+  });
+
+  it('clears a fetched quote when paused and avoids overlapping slow refreshes', async () => {
+    mockPreview.mockResolvedValueOnce({ request: REQUEST, quote: quote('first') });
+    const { result, rerender } = render();
+
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    await settle();
+    expect(result.current.status).toBe('ready');
+
+    // Pausing must clear the old quote rather than keeping a stale ready state.
+    mockPageActive = false;
+    rerender(PARAMS);
+    expect(result.current.status).not.toBe('ready');
+
+    // Resuming and advancing across multiple refresh intervals while a fetch is still pending must not overlap.
+    mockPageActive = true;
+    mockPreview.mockImplementation(() => new Promise(() => undefined));
+    rerender(PARAMS);
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    expect(mockPreview).toHaveBeenCalledTimes(2);
+
+    act(() => jest.advanceTimersByTime(PREVIEW_REFRESH_MS * 3));
+    expect(mockPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears stale quotes when config changes, hides expired quotes, and aborts signals on input change or unmount', async () => {
+    mockPreview.mockResolvedValueOnce({ request: REQUEST, quote: quote('first') });
+    const { result, rerender, unmount } = render();
+
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    await settle();
+    expect(result.current.status).toBe('ready');
+
+    // Changing config.serviceUrl invalidates the preview key and clears the stale quote.
+    mockConfig = { ...CONFIG, serviceUrl: 'https://other.example' };
+    mockPreview.mockResolvedValueOnce({
+      request: REQUEST,
+      quote: {
+        ...quote('expired'),
+        quoteRequest: { ...quote('expired').quoteRequest, deadline: '2020-01-01T00:00:00.000Z' }
+      }
+    });
+    rerender(PARAMS);
+    expect(result.current.status).toBe('loading');
+
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    await settle();
+    expect(result.current.status).toBe('loading');
+
+    const signals: AbortSignal[] = [];
+    mockPreview.mockImplementation((_cfg, _in, signal) => {
+      if (signal) signals.push(signal);
+      return new Promise(() => undefined);
+    });
+    rerender({ ...PARAMS, amount: 25_000_000n });
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+
+    rerender({ ...PARAMS, amount: 30_000_000n });
+    expect(signals[0]?.aborted).toBe(true);
+
+    act(() => jest.advanceTimersByTime(PREVIEW_DEBOUNCE_MS));
+    expect(signals).toHaveLength(2);
+    unmount();
+    expect(signals[1]?.aborted).toBe(true);
   });
 });

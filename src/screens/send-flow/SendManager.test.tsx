@@ -485,6 +485,7 @@ jest.mock('./SendRoute', () => ({
             ? `${props.nearIntents.chainId}:${props.nearIntents.recipient}:${String(props.nearIntents.amount)}`
             : ''}
         </span>
+        <span data-testid="route-near-intents-quote">{props.nearIntentsQuote.status}</span>
         <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
         <span data-testid="route-usdcx-payout">
           {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
@@ -3485,6 +3486,7 @@ describe('NEAR Intents send wiring', () => {
     expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
     expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^false$/);
     expect(screen.getByTestId('route-near-intents')).toHaveTextContent(`sol:${MOCK_SOLANA_ADDRESS}:5`);
+    expect(screen.getByTestId('route-near-intents-quote')).toHaveTextContent(/^(loading|unsupported)$/);
     expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
 
     act(() => {

@@ -167,7 +167,8 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   previewRequestRef.current = previewRequest;
 
   const queryPreview = useCallback(
-    (request: OneClickQuoteRequest) => requestOneClickQuote(config, request, true),
+    (request: OneClickQuoteRequest, signal: AbortSignal) =>
+      requestOneClickQuote(config, request, true, undefined, signal),
     [config]
   );
   const preview = useNearIntentsQuote(previewRequest, queryPreview, active);
