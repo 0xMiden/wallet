@@ -1,5 +1,3 @@
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-
 import {
   COMMAND_AI_PROXY_STORAGE_KEY,
   CommandAiClientError,
@@ -7,40 +5,19 @@ import {
   resolveCommandAiEndpoint
 } from './client';
 
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: jest.fn(() => ({
-    network: 'testnet',
-    status: 'loading',
-    config: null,
-    derived: null,
-    lastFetch: null
-  }))
-}));
-
 describe('command-ai client', () => {
   const originalFetch = global.fetch;
   const originalEnvUrl = process.env.COMMAND_AI_PROXY_URL;
-  const originalWalletApiUrl = process.env.MIDEN_WALLET_API_URL;
 
   beforeEach(() => {
     localStorage.clear();
     delete process.env.COMMAND_AI_PROXY_URL;
-    delete process.env.MIDEN_WALLET_API_URL;
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue({
-      network: 'testnet',
-      status: 'loading',
-      config: null,
-      derived: null,
-      lastFetch: null
-    });
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     if (originalEnvUrl === undefined) delete process.env.COMMAND_AI_PROXY_URL;
     else process.env.COMMAND_AI_PROXY_URL = originalEnvUrl;
-    if (originalWalletApiUrl === undefined) delete process.env.MIDEN_WALLET_API_URL;
-    else process.env.MIDEN_WALLET_API_URL = originalWalletApiUrl;
   });
 
   it('accepts https and loopback http endpoints while rejecting arbitrary insecure http', () => {
@@ -53,24 +30,14 @@ describe('command-ai client', () => {
     expect(resolveCommandAiEndpoint()).toBe('http://127.0.0.1:9000');
   });
 
-  it('falls back to MIDEN_WALLET_API_URL and remote backup.baseUrl with COMMAND_AI_PROXY_URL taking priority', () => {
-    jest.mocked(getBridgeConfigSnapshot).mockReturnValue({
-      network: 'testnet',
-      status: 'ready',
-      config: { backup: { baseUrl: 'https://miden-wallet-api.example.workers.dev/' } } as never,
-      derived: null,
-      lastFetch: null
-    });
-    expect(resolveCommandAiEndpoint()).toBe('https://miden-wallet-api.example.workers.dev');
+  it('prioritizes explicit override > localStorage > COMMAND_AI_PROXY_URL', () => {
+    process.env.COMMAND_AI_PROXY_URL = 'https://miden-command-ai.example.workers.dev/';
+    expect(resolveCommandAiEndpoint()).toBe('https://miden-command-ai.example.workers.dev');
 
-    process.env.MIDEN_WALLET_API_URL = 'http://localhost:8788/';
-    expect(resolveCommandAiEndpoint()).toBe('http://localhost:8788');
-
-    process.env.COMMAND_AI_PROXY_URL = 'http://127.0.0.1:8787/';
+    localStorage.setItem(COMMAND_AI_PROXY_STORAGE_KEY, 'http://127.0.0.1:8787/');
     expect(resolveCommandAiEndpoint()).toBe('http://127.0.0.1:8787');
 
-    localStorage.setItem(COMMAND_AI_PROXY_STORAGE_KEY, 'https://custom-override.example/');
-    expect(resolveCommandAiEndpoint()).toBe('https://custom-override.example');
+    expect(resolveCommandAiEndpoint('https://override.example/')).toBe('https://override.example');
   });
 
   it('sends stateless redacted payload with credentials omitted and validates strict output', async () => {

@@ -191,6 +191,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -257,6 +258,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -352,6 +354,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
