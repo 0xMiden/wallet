@@ -113,6 +113,14 @@ describe('Route', () => {
 });
 
 describe('RouteOptions', () => {
+  it('offers Best Price and Fastest when both provider routes are available', () => {
+    render(<RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />);
+
+    const sort = screen.getByRole('radiogroup', { name: 'bridgeRouteSort' });
+    expect(within(sort).getByRole('radio', { name: 'bridgeRankBestValue' })).toBeChecked();
+    expect(within(sort).getByRole('radio', { name: 'bridgeRankFastest' })).toBeEnabled();
+  });
+
   it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(
     'blocks Slow while %s and keeps Fast available',
     status => {
