@@ -162,6 +162,31 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
     )
       return false;
   }
+  return nearForwardStopped(jobs, auditedPreAck);
+}
+
+// The 11-24 nightly stopped in preflight before any quote, so no independent audit run exists; the checkpoint digest
+// (empty authority, zero fees, createdAt equal to updatedAt) and the failed pre-release gate stand in for it.
+export function knownUnspentNearPreflight(checkpointDigest, run, jobs, now = Date.now()) {
+  return (
+    checkpointDigest === '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366' &&
+    run?.id === 45334301017 &&
+    run.repository?.id === 853430876 &&
+    run.workflow_id === 391951744 &&
+    run.head_sha === '4bc52ddc8c24cda196f627d46aa608004939620f' &&
+    run.head_branch === 'main' &&
+    run.event === 'schedule' &&
+    run.run_attempt === 1 &&
+    run.status === 'completed' &&
+    run.conclusion === 'failure' &&
+    Number.isSafeInteger(now) &&
+    now > Date.parse('2026-11-24T05:58:23.073Z') &&
+    Array.isArray(jobs?.jobs) &&
+    nearForwardStopped(jobs, true)
+  );
+}
+
+function nearForwardStopped(jobs, auditedPreAck) {
   const matching = jobs.jobs.filter(job => job.name === 'Chrome mainnet round trip');
   if (
     matching.length !== 1 ||
@@ -464,7 +489,9 @@ async function main() {
           45072272341: '45075171185',
           45092013711: '45095113595'
         }[id];
-        if (auditRunId) {
+        if (id === '45334301017')
+          verified = knownUnspentNearPreflight(createHash('sha256').update(checkpoint).digest('hex'), run, jobs);
+        else if (auditRunId) {
           const audit = await github(`actions/runs/${auditRunId}`);
           const auditJobs = await github(`actions/runs/${auditRunId}/jobs?per_page=100`);
           verified = knownUnspentNearPreAuthorization(

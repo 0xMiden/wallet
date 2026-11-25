@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.1.
+- [CHORE][ci] Keep a sanitized, bounded cause in the public stage file and process log when a native NEAR mainnet nightly stage is blocked, while the thrown error and every gate stay unchanged.
 - [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
 - [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
 - [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
@@ -16,6 +17,7 @@
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of run 45334301017, which stopped in preflight before any quote or send, as unspent so recovery clears it instead of refusing the next nightly.
 - [CHORE][ci] Name the exited process and print a sanitized, bounded log tail when a mainnet nightly NEAR step fails, and upload the same tail as a public summary instead of leaving the cause unlogged.
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.

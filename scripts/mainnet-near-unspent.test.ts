@@ -342,3 +342,45 @@ describe('native NEAR recovery reporting', () => {
     expect(reported(value)).toEqual([]);
   });
 });
+
+describe('native NEAR stage failure cause', () => {
+  const info = () => ({ annotations: [] as { type: string; description?: string }[], timeout: 30_000 });
+  const written = () =>
+    mockWrite.mock.calls.filter(([path]) => path === 'test-results/mainnet-near-forward-stage.json');
+  beforeEach(() => {
+    process.env.E2E_NETWORK = 'mainnet';
+    process.env.GITHUB_RUN_ID = '43930000000';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
+    process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    mockWrite.mockClear();
+    const { state } = fixture();
+    state.phase = 'recovery-required';
+    Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
+    mockState.mockReturnValue(state);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+  });
+  afterEach(() => {
+    process.env = { ...env };
+  });
+  it('keeps a sanitized bounded cause while the thrown error stays generic', async () => {
+    const secret = 'topsecretvalue-123456';
+    process.env.E2E_MAINNET_EVM_KEY = secret;
+    const recoverNear = jest
+      .fn()
+      .mockRejectedValue(new TypeError(`boom ${secret} 0x${'ab'.repeat(32)} token=abc ${'x'.repeat(900)}`));
+    const failure = Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', info(), recoverNear]);
+    await expect(failure).rejects.toThrow(
+      'Original native NEAR recovery blocked; retain its original public checkpoint, never renew uncertain authority'
+    );
+    const [, body] = written().at(-1) ?? [];
+    const cause = JSON.parse(String(body)).cause as string;
+    expect(cause).toContain('TypeError: boom');
+    expect(cause).not.toContain(secret);
+    expect(cause).not.toContain('ab'.repeat(32));
+    expect(cause).not.toContain('abc');
+    expect(cause.length).toBeLessThanOrEqual(300);
+  });
+});
+
