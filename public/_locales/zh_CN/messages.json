@@ -10201,32 +10201,32 @@
     "englishSource": "This only signs you in"
   },
   "commandAiBarLabel": {
-    "message": "Command assistant",
-    "englishSource": "(untranslated)"
+    "message": "命令助手",
+    "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Send, swap, bridge, earn, or ask about your wallet...",
-    "englishSource": "(untranslated)"
+    "message": "发送、兑换、桥接、赚取，或咨询您的钱包……",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
-    "message": "Run",
-    "englishSource": "(untranslated)"
+    "message": "运行",
+    "englishSource": "Run"
   },
   "commandAiWorking": {
-    "message": "Thinking...",
-    "englishSource": "(untranslated)"
+    "message": "思考中……",
+    "englishSource": "Thinking..."
   },
   "commandAiExpand": {
-    "message": "Expand to multi-line",
-    "englishSource": "(untranslated)"
+    "message": "展开为多行",
+    "englishSource": "Expand to multi-line"
   },
   "commandAiCollapse": {
-    "message": "Collapse to single line",
-    "englishSource": "(untranslated)"
+    "message": "折叠为单行",
+    "englishSource": "Collapse to single line"
   },
   "commandAiRedactedBadge": {
-    "message": "Protected: $kinds$",
-    "englishSource": "(untranslated)",
+    "message": "受保护：$kinds$",
+    "englishSource": "Protected: $kinds$",
     "placeholders": {
       "kinds": {
         "content": "$1"
@@ -10234,24 +10234,24 @@
     }
   },
   "commandAiOpenNativeForm": {
-    "message": "Open form",
-    "englishSource": "(untranslated)"
+    "message": "打开表单",
+    "englishSource": "Open form"
   },
   "commandAiChooseBridge": {
-    "message": "Which bridge route do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "您想使用哪条桥接路径？",
+    "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "Who do you want to send to?",
-    "englishSource": "(untranslated)"
+    "message": "你想发送给谁？",
+    "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {
-    "message": "Multiple contacts match that name. Which one?",
-    "englishSource": "(untranslated)"
+    "message": "有多个联系人与该姓名匹配。是哪一位？",
+    "englishSource": "Multiple contacts match that name. Which one?"
   },
   "commandAiIncompleteAddressMatches": {
-    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
-    "englishSource": "(untranslated)",
+    "message": "$prefix$输入不完整。您是指您保存的联系人之一吗？",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
     "placeholders": {
       "prefix": {
         "content": "$1"
@@ -10259,8 +10259,8 @@
     }
   },
   "commandAiIncompleteAddress": {
-    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "$address$是一个不完整的地址。请输入完整地址或选择一个联系人。",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
     "placeholders": {
       "address": {
         "content": "$1"
@@ -10268,8 +10268,8 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "此处不支持 $name$ 形式的 ENS 名称。请输入完整地址或选择联系人。",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -10277,20 +10277,20 @@
     }
   },
   "commandAiWrongNetworkAddress": {
-    "message": "That address belongs to a different Miden network.",
-    "englishSource": "(untranslated)"
+    "message": "该地址属于另一个 Miden 网络。",
+    "englishSource": "That address belongs to a different Miden network."
   },
   "commandAiInvalidAddress": {
-    "message": "Enter a valid Miden or destination address.",
-    "englishSource": "(untranslated)"
+    "message": "请输入有效的 Miden 或目标地址。",
+    "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Specify a recipient address or contact name.",
-    "englishSource": "(untranslated)"
+    "message": "请指定收件人地址或联系人姓名。",
+    "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
-    "message": "Could not match asset $asset$ in your wallet.",
-    "englishSource": "(untranslated)",
+    "message": "无法匹配您钱包中的资产$asset$。",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
     "placeholders": {
       "asset": {
         "content": "$1"
@@ -10298,100 +10298,100 @@
     }
   },
   "commandAiChooseAsset": {
-    "message": "Which asset do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "您想使用哪种资产？",
+    "englishSource": "Which asset do you want to use?"
   },
   "commandAiChooseAmount": {
-    "message": "How much do you want to send?",
-    "englishSource": "(untranslated)"
+    "message": "您想转出多少？",
+    "englishSource": "How much do you want to send?"
   },
   "commandAiChooseSwapTarget": {
-    "message": "Which token do you want to receive?",
-    "englishSource": "(untranslated)"
+    "message": "您希望收到哪种代币？",
+    "englishSource": "Which token do you want to receive?"
   },
   "commandAiChooseEarnVault": {
-    "message": "Which Earn vault do you want to deposit into?",
-    "englishSource": "(untranslated)"
+    "message": "您想存入哪个 Earn 保险库？",
+    "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "Which Earn position do you want to withdraw from?",
-    "englishSource": "(untranslated)"
+    "message": "您想从哪个“Earn”仓位中提现？",
+    "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
-    "message": "No matching bridge route is available right now.",
-    "englishSource": "(untranslated)"
+    "message": "目前没有可用的匹配桥接路径。",
+    "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap is unavailable for that pair right now.",
-    "englishSource": "(untranslated)"
+    "message": "该交易对目前无法进行掉期交易。",
+    "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "No Earn vaults or positions are available right now.",
-    "englishSource": "(untranslated)"
+    "message": "目前没有可用的“赚取”金库或头寸。",
+    "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
-    "message": "Live USD price is unavailable for that token. Enter a token amount.",
-    "englishSource": "(untranslated)"
+    "message": "该代币的实时美元价格不可用。请输入代币数量。",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
   },
   "commandAiInvalidModelOutput": {
-    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "无法安全验证该请求。请尝试重新表述或使用下方的表单。",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
-    "englishSource": "(untranslated)"
+    "message": "此处不支持该操作。请尝试“发送”、“兑换”、“跨链”、“赚取”或钱包相关问题。",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
-    "message": "Nothing active to update. Enter a full command.",
-    "englishSource": "(untranslated)"
+    "message": "无需更新任何活动内容。请输入完整的命令。",
+    "englishSource": "Nothing active to update. Enter a full command."
   },
   "commandAiUnconfigured": {
-    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
-    "englishSource": "(untranslated)"
+    "message": "AI 代理尚未配置。请设置端点或使用下方的操作栏。",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI service is temporarily unavailable. Try again or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "AI 服务暂时不可用。请重试或使用下方的表单。",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {
-    "message": "AI service rate limit reached. Try again shortly.",
-    "englishSource": "(untranslated)"
+    "message": "AI 服务已达到速率限制。请稍后再试。",
+    "englishSource": "AI service rate limit reached. Try again shortly."
   },
   "commandAiQueryBalanceTitle": {
-    "message": "Wallet balance",
-    "englishSource": "(untranslated)"
+    "message": "钱包余额",
+    "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Matching total",
-    "englishSource": "(untranslated)"
+    "message": "匹配总量",
+    "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
-    "message": "Matching activity",
-    "englishSource": "(untranslated)"
+    "message": "撮合活动",
+    "englishSource": "Matching activity"
   },
   "commandAiQueryEmpty": {
-    "message": "No matching entries found.",
-    "englishSource": "(untranslated)"
+    "message": "未找到匹配条目。",
+    "englishSource": "No matching entries found."
   },
   "commandAiLocalOnlyNote": {
-    "message": "Computed privately on this device",
-    "englishSource": "(untranslated)"
+    "message": "在此设备上私下计算",
+    "englishSource": "Computed privately on this device"
   },
   "commandAiRecentTurns": {
-    "message": "Conversation",
-    "englishSource": "(untranslated)"
+    "message": "对话",
+    "englishSource": "Conversation"
   },
   "commandAiAssistantName": {
     "message": "Bread Assistant",
-    "englishSource": "(untranslated)"
+    "englishSource": "Bread Assistant"
   },
   "commandAiPlanTitle": {
-    "message": "Action plan",
-    "englishSource": "(untranslated)"
+    "message": "行动计划",
+    "englishSource": "Action plan"
   },
   "commandAiPlanProgress": {
-    "message": "Step $current$ of $total$",
-    "englishSource": "(untranslated)",
+    "message": "$total$ 中的第 $current$ 步",
+    "englishSource": "Step $current$ of $total$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -10402,8 +10402,8 @@
     }
   },
   "commandAiPlanStepLabel": {
-    "message": "Step $num$",
-    "englishSource": "(untranslated)",
+    "message": "步骤 $num$",
+    "englishSource": "Step $num$",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -10411,75 +10411,75 @@
     }
   },
   "commandAiPlanStatusActive": {
-    "message": "Active",
-    "englishSource": "(untranslated)"
+    "message": "有效",
+    "englishSource": "Active"
   },
   "commandAiPlanStatusPending": {
-    "message": "Up next",
-    "englishSource": "(untranslated)"
+    "message": "接下来",
+    "englishSource": "Up next"
   },
   "commandAiPlanStatusDone": {
-    "message": "Done",
-    "englishSource": "(untranslated)"
+    "message": "完成",
+    "englishSource": "Done"
   },
   "commandAiPlanConfirmStep": {
-    "message": "Confirm this step in the dialog below, then advance.",
-    "englishSource": "(untranslated)"
+    "message": "请在下方对话框中确认此步骤，然后继续。",
+    "englishSource": "Confirm this step in the dialog below, then advance."
   },
   "commandAiPlanStepSubmitted": {
-    "message": "Step submitted! Ready for the next step.",
-    "englishSource": "(untranslated)"
+    "message": "步骤已提交！准备进行下一步。",
+    "englishSource": "Step submitted! Ready for the next step."
   },
   "commandAiPlanCompletedTitle": {
-    "message": "All steps completed",
-    "englishSource": "(untranslated)"
+    "message": "所有步骤已完成",
+    "englishSource": "All steps completed"
   },
   "commandAiPlanNextStep": {
-    "message": "Next step",
-    "englishSource": "(untranslated)"
+    "message": "下一步",
+    "englishSource": "Next step"
   },
   "commandAiPlanContinue": {
-    "message": "Continue",
-    "englishSource": "(untranslated)"
+    "message": "继续",
+    "englishSource": "Continue"
   },
   "commandAiPlanFinish": {
-    "message": "Finish plan",
-    "englishSource": "(untranslated)"
+    "message": "完成计划",
+    "englishSource": "Finish plan"
   },
   "commandAiPlanStop": {
-    "message": "Stop",
-    "englishSource": "(untranslated)"
+    "message": "停止",
+    "englishSource": "Stop"
   },
   "commandAiPlanMaxAmount": {
     "message": "Max",
-    "englishSource": "(untranslated)"
+    "englishSource": "Max"
   },
   "commandAiPlanPreviousOutput": {
-    "message": "Previous output",
-    "englishSource": "(untranslated)"
+    "message": "先前输出",
+    "englishSource": "Previous output"
   },
   "commandAiSamplePrompt1": {
-    "message": "Send 10 USDCx to John",
-    "englishSource": "(untranslated)"
+    "message": "向 John 发送 10 USDCx",
+    "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Bridge in 1 ETH and swap it to USDCx",
-    "englishSource": "(untranslated)"
+    "message": "将 1 ETH 转入，并将其兑换为 USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {
-    "message": "Summarize my last week activity",
-    "englishSource": "(untranslated)"
+    "message": "总结我上周的活动",
+    "englishSource": "Summarize my last week activity"
   },
   "commandAiSamplePrompt4": {
-    "message": "Make 10 USDCx earn in the most efficient way",
-    "englishSource": "(untranslated)"
+    "message": "让 10 USDCx 以最高效的方式获利",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
-    "englishSource": "(untranslated)"
+    "message": "将 1 ETH 转入，兑换为 USDCx，并存入高收益金库",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {
-    "message": "How much USDCx did I send this month?",
-    "englishSource": "(untranslated)"
+    "message": "这个月我发送了多少USDCx？",
+    "englishSource": "How much USDCx did I send this month?"
   }
 }
