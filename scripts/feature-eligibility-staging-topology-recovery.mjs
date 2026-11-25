@@ -10,12 +10,13 @@ const MAX_HISTORY_RUNS = 1000;
 const MAX_JOB_LOOKUPS = 5;
 const marker = /^cleanup_run_id=([1-9][0-9]{0,17}) cleanup_attempt=([1-9][0-9]{0,5})$/;
 const NOT_EXECUTED_STATUSES = ['queued', 'waiting', 'requested', 'pending'];
+const CLEANUP_STEP = 'Clean exact current run';
 const RUN_ONLY_STEPS = [
   'Bundle exact topology Worker',
   'Observe inventory and prepare exact run artifact',
   'Retain pre-deployment recovery artifact',
   'Deploy and exercise all synthetic scenarios',
-  'Clean exact current run'
+  CLEANUP_STEP
 ];
 const RETAIN_STEP = 'Retain unchanged prepared artifact for continuation';
 const RECOVER_STEP = 'Recover exact prior Worker cleanup';
@@ -91,6 +92,36 @@ export async function prepareTopologyRecovery(input, effects) {
     }
     return artifacts;
   };
+  const readCompletedTopologyJob = async (runId, runAttempt) => {
+    let listing;
+    try {
+      listing = await effects.github(`/actions/runs/${runId}/jobs?per_page=100&filter=latest`);
+    } catch {
+      return null;
+    }
+    if (!(Array.isArray(listing?.jobs) && listing.total_count === 1 && listing.jobs.length === 1)) return null;
+    const [job] = listing.jobs;
+    if (
+      !(
+        job?.run_id === runId &&
+        job.name === 'topology' &&
+        job.status === 'completed' &&
+        job.run_attempt === runAttempt &&
+        Array.isArray(job.steps) &&
+        job.steps.length <= 100
+      )
+    )
+      return null;
+    if (job.steps.length === 0) {
+      return {
+        emptyOffline: job.runner_id === null && ['cancelled', 'skipped'].includes(job.conclusion),
+        conclusionOf: () => undefined
+      };
+    }
+    const names = job.steps.map(step => step?.name);
+    if (names.some(name => typeof name !== 'string') || new Set(names).size !== names.length) return null;
+    return { emptyOffline: false, conclusionOf: name => job.steps.find(step => step.name === name)?.conclusion };
+  };
   let jobLookups = 0;
   const neverRetained = async candidate => {
     if (
@@ -110,32 +141,12 @@ export async function prepareTopologyRecovery(input, effects) {
       return false;
     if (jobLookups >= MAX_JOB_LOOKUPS) return false;
     jobLookups++;
-    let listing;
-    try {
-      listing = await effects.github(`/actions/runs/${candidate.id}/jobs?per_page=100&filter=latest`);
-    } catch {
-      return false;
-    }
-    if (!(Array.isArray(listing?.jobs) && listing.total_count === 1 && listing.jobs.length === 1)) return false;
-    const [job] = listing.jobs;
-    if (
-      !(
-        job?.run_id === candidate.id &&
-        job.name === 'topology' &&
-        job.status === 'completed' &&
-        job.run_attempt === 1 &&
-        Array.isArray(job.steps) &&
-        job.steps.length <= 100
-      )
-    )
-      return false;
-    if (job.steps.length === 0) return job.runner_id === null && ['cancelled', 'skipped'].includes(job.conclusion);
-    const names = job.steps.map(step => step?.name);
-    if (names.some(name => typeof name !== 'string') || new Set(names).size !== names.length) return false;
-    const conclusionOf = name => job.steps.find(step => step.name === name)?.conclusion;
+    const parsed = await readCompletedTopologyJob(candidate.id, 1);
+    if (!parsed) return false;
+    if (parsed.emptyOffline) return true;
     return (
-      [...RUN_ONLY_STEPS, RECOVER_STEP].every(name => conclusionOf(name) === 'skipped') &&
-      ['skipped', 'failure'].includes(conclusionOf(RETAIN_STEP))
+      [...RUN_ONLY_STEPS, RECOVER_STEP].every(name => parsed.conclusionOf(name) === 'skipped') &&
+      ['skipped', 'failure'].includes(parsed.conclusionOf(RETAIN_STEP))
     );
   };
   const seenRuns = new Set();
@@ -238,6 +249,13 @@ export async function prepareTopologyRecovery(input, effects) {
   const resultArtifactId = artifactFor(`eligibility-topology-result-${input.runId}-${input.runAttempt}`, {
     optional: !isCleanupRun
   });
+  let priorCleanupSkipped = false;
+  if (resultArtifactId === null) {
+    const parsed = await readCompletedTopologyJob(prior.id, prior.run_attempt);
+    priorCleanupSkipped = Boolean(
+      parsed && (parsed.emptyOffline || parsed.conclusionOf(CLEANUP_STEP) === 'skipped')
+    );
+  }
   return Object.freeze({
     schema: 1,
     repository: REPOSITORY,
@@ -246,7 +264,8 @@ export async function prepareTopologyRecovery(input, effects) {
     runAttempt: input.runAttempt,
     sourceSha: prior.head_sha,
     artifactId,
-    resultArtifactId
+    resultArtifactId,
+    priorCleanupSkipped
   });
 }
 

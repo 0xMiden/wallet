@@ -265,6 +265,7 @@ export function topologyCleanupBudget({
   previousReads,
   preflightStartedAt,
   allowPreparedFallback = false,
+  priorCleanupSkipped = false,
   recovered = false,
   now = Date.now
 } = {}) {
@@ -275,7 +276,7 @@ export function topologyCleanupBudget({
       cleanupStartedAt: Math.max(preflightStartedAt, now()),
       initialCalls: {
         preflight: MAX_PHASE_READS,
-        cleanup: 0
+        cleanup: priorCleanupSkipped ? 0 : MAX_PHASE_READS
       }
     };
   }
@@ -332,7 +333,21 @@ async function readRecoveryReceipt(env) {
   const recoveryFile = env.TOPOLOGY_RECOVERY_FILE;
   if (typeof recoveryFile !== 'string') fail('missing_recovery_receipt');
   const recovery = JSON.parse(await readFile(recoveryFile, 'utf8'));
-  if (!exactKeys(recovery, ['schema', 'repository', 'workflowPath', 'runId', 'runAttempt', 'sourceSha', 'artifactId', 'resultArtifactId']))
+  if (
+    !exactKeys(recovery, [
+      'schema',
+      'repository',
+      'workflowPath',
+      'runId',
+      'runAttempt',
+      'sourceSha',
+      'artifactId',
+      'resultArtifactId',
+      'priorCleanupSkipped'
+    ]) ||
+    typeof recovery.priorCleanupSkipped !== 'boolean' ||
+    (recovery.priorCleanupSkipped && recovery.resultArtifactId !== null)
+  )
     fail('invalid_recovery_receipt');
   const priorPath = env.TOPOLOGY_PRIOR_RESULT_FILE;
   let previous = {};
@@ -440,7 +455,7 @@ async function buildRecoveryFailureFallback(env) {
     )();
     providerReads = formatTopologyProviderReads({
       preflight: MAX_PHASE_READS,
-      cleanup: state?.cleanupCalls ?? 0,
+      cleanup: state?.cleanupCalls ?? (recovery.priorCleanupSkipped ? 0 : MAX_PHASE_READS),
       now: nowMs,
       preflightStartedAt: loaded.value.startedAt,
       cleanupStartedAt: hasCleanupWindow ? state.cleanupStartedAt : undefined
@@ -744,6 +759,7 @@ export async function cleanup(
     previousReads: previous.providerReads,
     preflightStartedAt: loaded.value.startedAt,
     allowPreparedFallback: recovered && recovery.resultArtifactId === null,
+    priorCleanupSkipped: recovered && recovery.priorCleanupSkipped,
     recovered,
     now: createMonotonicClock(loaded.value.startedAt)
   });

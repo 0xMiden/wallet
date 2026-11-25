@@ -125,7 +125,8 @@ test('recovery receipt binds one completed same-workflow main run, attempt and a
     runAttempt: '1',
     sourceSha,
     artifactId: '1234',
-    resultArtifactId: '5678'
+    resultArtifactId: '5678',
+    priorCleanupSkipped: false
   });
   assert.equal(calls.length, 5);
 });
@@ -294,7 +295,8 @@ test('recovery permits interrupted initial run without result artifact and block
     runAttempt: '1',
     sourceSha,
     artifactId: '1234',
-    resultArtifactId: null
+    resultArtifactId: null,
+    priorCleanupSkipped: false
   });
 
   const continuationPreparedOnly = [
@@ -713,4 +715,72 @@ test('prepareTopologyRecovery treats non-cleanup run-name formats as optional re
   });
   const receipt = await prepareTopologyRecovery({ runId: '88', runAttempt: '1' }, nonCleanupPrior.value);
   assert.equal(receipt.resultArtifactId, null);
+  assert.equal(receipt.priorCleanupSkipped, false);
+});
+
+test('prepareTopologyRecovery proves priorCleanupSkipped only when initial run Clean exact current run was skipped', async () => {
+  const preparedOnly = [
+    {
+      id: 1234,
+      name: 'eligibility-topology-prepared-77-1',
+      expired: false,
+      size_in_bytes: 1024,
+      workflow_run: {
+        id: 77,
+        repository_id: 1,
+        head_repository_id: 1,
+        head_branch: 'main',
+        head_sha: sourceSha
+      }
+    }
+  ];
+  const topologyJob = (steps, extra = {}) => ({
+    total_count: 1,
+    jobs: [
+      {
+        id: 7001,
+        run_id: 77,
+        name: 'topology',
+        status: 'completed',
+        conclusion: 'failure',
+        run_attempt: 1,
+        runner_id: 42,
+        steps,
+        ...extra
+      }
+    ]
+  });
+  const skippedCase = lineageEffects({
+    artifacts: preparedOnly,
+    jobsByRun: { 77: topologyJob([{ name: 'Clean exact current run', conclusion: 'skipped' }]) }
+  });
+  assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, skippedCase.value)).priorCleanupSkipped, true);
+
+  const emptyOfflineRunner = lineageEffects({
+    artifacts: preparedOnly,
+    jobsByRun: { 77: topologyJob([], { runner_id: null, conclusion: 'cancelled' }) }
+  });
+  assert.equal((await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, emptyOfflineRunner.value)).priorCleanupSkipped, true);
+
+  for (const jobPayload of [
+    topologyJob([{ name: 'Clean exact current run', conclusion: 'cancelled' }]),
+    topologyJob([{ name: 'Clean exact current run', conclusion: 'failure' }]),
+    topologyJob([{ name: 'Deploy and exercise all synthetic scenarios', conclusion: 'failure' }]),
+    topologyJob([], { runner_id: 42, conclusion: 'cancelled' }),
+    { total_count: 2, jobs: [topologyJob([]).jobs[0], { ...topologyJob([]).jobs[0], id: 7002 }] },
+    { total_count: 1, jobs: null },
+    new Error('jobs unavailable')
+  ]) {
+    const conservative = lineageEffects({ artifacts: preparedOnly, jobsByRun: { 77: jobPayload } });
+    const receipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, conservative.value);
+    assert.equal(receipt.resultArtifactId, null);
+    assert.equal(receipt.priorCleanupSkipped, false);
+  }
+
+  const withResultAndSkipped = lineageEffects({
+    jobsByRun: { 77: topologyJob([{ name: 'Clean exact current run', conclusion: 'skipped' }]) }
+  });
+  const withResultReceipt = await prepareTopologyRecovery({ runId: '77', runAttempt: '1' }, withResultAndSkipped.value);
+  assert.equal(withResultReceipt.resultArtifactId, '5678');
+  assert.equal(withResultReceipt.priorCleanupSkipped, false);
 });

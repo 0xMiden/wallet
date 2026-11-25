@@ -721,13 +721,25 @@ test('cleanup budget supports explicit prepared fallback within preflight cap an
     topologyCleanupBudget({ preflightStartedAt: 1_000, allowPreparedFallback: true, now: () => 300_000 }),
     {
       cleanupStartedAt: 300_000,
-      initialCalls: { preflight: 250, cleanup: 0 }
+      initialCalls: { preflight: 250, cleanup: 250 }
     }
   );
   assert.deepEqual(
     topologyCleanupBudget({ preflightStartedAt: 500_000, allowPreparedFallback: true, now: () => 300_000 }),
     {
       cleanupStartedAt: 500_000,
+      initialCalls: { preflight: 250, cleanup: 250 }
+    }
+  );
+  assert.deepEqual(
+    topologyCleanupBudget({
+      preflightStartedAt: 1_000,
+      allowPreparedFallback: true,
+      priorCleanupSkipped: true,
+      now: () => 300_000
+    }),
+    {
+      cleanupStartedAt: 300_000,
       initialCalls: { preflight: 250, cleanup: 0 }
     }
   );
@@ -853,7 +865,8 @@ test('cleanup and recovery cleanup flush live read counts and deadline to result
           runAttempt: context.runAttempt,
           sourceSha: context.sourceSha,
           artifactId: '1234',
-          resultArtifactId: '5678'
+          resultArtifactId: '5678',
+          priorCleanupSkipped: false
         })}\n`,
         { mode: 0o600 }
       );
@@ -949,7 +962,8 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
         runAttempt: context.runAttempt,
         sourceSha: context.sourceSha,
         artifactId: '1234',
-        resultArtifactId: null
+        resultArtifactId: null,
+        priorCleanupSkipped: true
       })}\n`,
       { mode: 0o600 }
     );
@@ -974,6 +988,51 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
     assert.equal(result.providerReads.preflight, 250);
     assert.ok(result.providerReads.cleanup > 0 && result.providerReads.cleanup < 99);
     assert.equal(result.providerReads.total, 250 + result.providerReads.cleanup);
+
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: null,
+        priorCleanupSkipped: false
+      })}\n`,
+      { mode: 0o600 }
+    );
+    let saturatedApiCalls = 0;
+    const saturatedExit = await topologyRunner.cleanup(
+      {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+        TOPOLOGY_PRIOR_RESULT_FILE: '',
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt
+      },
+      true,
+      {
+        createReadApi: () => async () => {
+          saturatedApiCalls++;
+          throw new Error('unexpected provider call under saturated fallback');
+        },
+        createScriptDeleter: () => async () => {
+          throw new Error('unexpected delete under saturated fallback');
+        }
+      }
+    );
+    const saturatedResult = JSON.parse(await readFile(resultFile, 'utf8'));
+    assert.equal(saturatedExit, 1);
+    assert.equal(saturatedApiCalls, 0);
+    assert.equal(saturatedResult.phase, 'recovery_cleanup');
+    assert.equal(saturatedResult.cleanup, 'blocked');
+    assert.equal(saturatedResult.reason, 'cleanup_failed');
+    assert.equal(saturatedResult.providerReads.preflight, 250);
+    assert.equal(saturatedResult.providerReads.cleanup, 250);
+    assert.equal(saturatedResult.providerReads.total, 500);
 
     await assert.rejects(
       topologyRunner.cleanup(
@@ -1001,7 +1060,37 @@ test('recovery cleans up a deployed worker from verified prepared artifact when 
         runAttempt: context.runAttempt,
         sourceSha: 'c'.repeat(40),
         artifactId: '1234',
-        resultArtifactId: '5678'
+        resultArtifactId: '5678',
+        priorCleanupSkipped: false
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await assert.rejects(
+      topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          TOPOLOGY_RECOVERY_FILE: path.join(recoveryDir, 'recovery.json'),
+          TOPOLOGY_PRIOR_RESULT_FILE: priorPath,
+          CLEANUP_RUN_ID: context.runId,
+          CLEANUP_ATTEMPT: context.runAttempt
+        },
+        true
+      ),
+      /invalid_recovery_receipt/
+    );
+
+    await writeFile(
+      path.join(recoveryDir, 'recovery.json'),
+      `${JSON.stringify({
+        schema: 1,
+        repository: context.repository,
+        workflowPath: context.workflowPath,
+        runId: context.runId,
+        runAttempt: context.runAttempt,
+        sourceSha: context.sourceSha,
+        artifactId: '1234',
+        resultArtifactId: '5678',
+        priorCleanupSkipped: true
       })}\n`,
       { mode: 0o600 }
     );
@@ -1040,7 +1129,8 @@ test('recovery supports multi-hop cleanup continuations when main advances after
         runAttempt: cleanupAttempt,
         sourceSha: advancedSha,
         artifactId: '1234',
-        resultArtifactId: '5678'
+        resultArtifactId: '5678',
+        priorCleanupSkipped: false
       },
       prior: {
         schema: 1,
@@ -1121,7 +1211,8 @@ test('cleanup-recovered starts a fresh 120s deadline >120s after predecessor cle
         runAttempt: '1',
         sourceSha: context.sourceSha,
         artifactId: '1234',
-        resultArtifactId: '5678'
+        resultArtifactId: '5678',
+        priorCleanupSkipped: false
       },
       prior: {
         schema: 1,
@@ -1218,7 +1309,8 @@ test('createMonotonicClock and topology phases clamp backward cross-runner clock
         runAttempt: context.runAttempt,
         sourceSha: context.sourceSha,
         artifactId: '1234',
-        resultArtifactId: '5678'
+        resultArtifactId: '5678',
+        priorCleanupSkipped: false
       },
       prior: execResult
     });
@@ -1333,7 +1425,8 @@ test('cli failure handler preserves validated identity and conservative reads fo
       runAttempt: context.runAttempt,
       sourceSha: context.sourceSha,
       artifactId: '1234',
-      resultArtifactId: null
+      resultArtifactId: null,
+      priorCleanupSkipped: false
     };
     const { recoveryFile } = await writeRecoveryFixture({
       runnerTemp: prepared.runnerTemp,
@@ -1356,16 +1449,16 @@ test('cli failure handler preserves validated identity and conservative reads fo
     assert.equal(written.reason, 'cleanup_failed');
     assert.equal(written.deploymentAttempted, 'unknown');
     assert.equal(written.providerReads.preflight, 250);
-    assert.equal(written.providerReads.cleanup, 0);
-    assert.equal(written.providerReads.total, 250);
+    assert.equal(written.providerReads.cleanup, 250);
+    assert.equal(written.providerReads.total, 500);
 
-    // Verify a follow-up cleanup-recovered continuation consumes this fallback result.json cleanly.
+    // Saturated fallback prevents a follow-up continuation from regaining cleanup reads.
     const nextTemp = await mkdtemp(path.join(tmpdir(), 'topology-cli-cont-'));
     try {
       const nextPrepDir = path.join(nextTemp, 'eligibility-topology-prepared');
       const { recoveryFile: nextRecoveryFile, priorPath: priorCopy } = await writeRecoveryFixture({
         runnerTemp: nextTemp,
-        recovery: { ...validRecovery, runId: '789', resultArtifactId: '9999' },
+        recovery: { ...validRecovery, runId: '789', resultArtifactId: '9999', priorCleanupSkipped: false },
         prior: written
       });
       await mkdir(nextPrepDir, { recursive: true, mode: 0o700 });
@@ -1394,10 +1487,56 @@ test('cli failure handler preserves validated identity and conservative reads fo
       const nextResult = JSON.parse(
         await readFile(path.join(nextTemp, 'eligibility-topology-result', 'result.json'), 'utf8')
       );
-      assert.equal(exitCode, 0);
-      assert.equal(fixture.isDeleted(), true);
+      assert.equal(exitCode, 1);
+      assert.equal(fixture.isDeleted(), false);
       assert.deepEqual(nextResult.identity, prepared.identity);
-      assert.equal(nextResult.cleanup, 'removed');
+      assert.equal(nextResult.cleanup, 'blocked');
+      assert.equal(nextResult.reason, 'cleanup_failed');
+      assert.equal(nextResult.providerReads.total, 500);
+
+      // When initial cleanup is proven skipped, fallback keeps cleanup: 0 and continuation can finish deletion.
+      const skippedRecovery = { ...validRecovery, priorCleanupSkipped: true };
+      await writeFile(recoveryFile, `${JSON.stringify(skippedRecovery)}\n`, { mode: 0o600 });
+      await rm(resultFile, { force: true });
+      const runSkippedBadToken = runTopologyCli('cleanup-recovered', {
+        ...prepared.env,
+        TOPOLOGY_RECOVERY_FILE: recoveryFile,
+        TOPOLOGY_PRIOR_RESULT_FILE: '',
+        CLEANUP_RUN_ID: context.runId,
+        CLEANUP_ATTEMPT: context.runAttempt,
+        CLOUDFLARE_API_TOKEN: 'bad'
+      });
+      assert.equal(runSkippedBadToken.status, 1);
+      const skippedWritten = JSON.parse(await readFile(resultFile, 'utf8'));
+      assert.equal(skippedWritten.providerReads.preflight, 250);
+      assert.equal(skippedWritten.providerReads.cleanup, 0);
+      assert.equal(skippedWritten.providerReads.total, 250);
+      await writeFile(
+        nextRecoveryFile,
+        `${JSON.stringify({ ...skippedRecovery, runId: '789', resultArtifactId: '9999', priorCleanupSkipped: false })}\n`,
+        { mode: 0o600 }
+      );
+      await writeFile(priorCopy, `${JSON.stringify(skippedWritten)}\n`, { mode: 0o600 });
+      const skippedContFixture = deletableWorkerFixture(prepared.manifest);
+      const skippedContExit = await topologyRunner.cleanup(
+        {
+          ...prepared.env,
+          RUNNER_TEMP: nextTemp,
+          TOPOLOGY_RECOVERY_FILE: nextRecoveryFile,
+          TOPOLOGY_PRIOR_RESULT_FILE: priorCopy,
+          CLEANUP_RUN_ID: '789',
+          CLEANUP_ATTEMPT: '1'
+        },
+        true,
+        skippedContFixture.options
+      );
+      const skippedContResult = JSON.parse(
+        await readFile(path.join(nextTemp, 'eligibility-topology-result', 'result.json'), 'utf8')
+      );
+      assert.equal(skippedContExit, 0);
+      assert.equal(skippedContFixture.isDeleted(), true);
+      assert.equal(skippedContResult.cleanup, 'removed');
+      await writeFile(recoveryFile, `${JSON.stringify(validRecovery)}\n`, { mode: 0o600 });
     } finally {
       await rm(nextTemp, { recursive: true, force: true });
     }
@@ -1525,7 +1664,8 @@ test('cli failure handler updates stale pre-write result.json, validates prior p
         runAttempt: context.runAttempt,
         sourceSha: context.sourceSha,
         artifactId: '1234',
-        resultArtifactId: '5678'
+        resultArtifactId: '5678',
+        priorCleanupSkipped: false
       };
       await mkdir(prepDir, { recursive: true, mode: 0o700 });
       await writeFile(
@@ -1654,7 +1794,8 @@ test('cleanup-recovered-interrupted writes fallback only when result.json is abs
         runAttempt: context.runAttempt,
         sourceSha: context.sourceSha,
         artifactId: '1234',
-        resultArtifactId: null
+        resultArtifactId: null,
+        priorCleanupSkipped: false
       }
     });
     const cliEnv = {
@@ -1672,6 +1813,9 @@ test('cleanup-recovered-interrupted writes fallback only when result.json is abs
     assert.equal(written.phase, 'recovery_cleanup');
     assert.equal(written.cleanup, 'blocked');
     assert.equal(written.reason, 'cleanup_failed');
+    assert.equal(written.providerReads.preflight, 250);
+    assert.equal(written.providerReads.cleanup, 250);
+    assert.equal(written.providerReads.total, 500);
 
     const sentinel = `${JSON.stringify({ sentinel: true })}\n`;
     await writeFile(resultFile, sentinel, { mode: 0o600 });
