@@ -26,7 +26,7 @@ const message = (text: string, value: unknown = { name: 'APIError', status: 409 
 
 it.each([
   {
-    value: { name: 'APIError', status: 409, code: privateMarker, txHash: privateMarker },
+    value: { name: 'APIError', status: 409, code: `not a code ${privateMarker}`, txHash: privateMarker },
     want: { kind: 'api-error', httpStatus: 409, cause: 'APIError: ' }
   },
   {
