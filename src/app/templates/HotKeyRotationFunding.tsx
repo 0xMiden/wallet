@@ -10,7 +10,12 @@ import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
-import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
+import {
+  isActivationRow,
+  isRotationFundingRow,
+  isRotationRow,
+  RotationFundingSelection
+} from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -44,7 +49,7 @@ export function useRotationGateRows(accountPublicKey: string): RotationGateRows 
         {
           next: all =>
             setRows({
-              rotationRows: all.filter(r => r.type === 'replace-hot-key'),
+              rotationRows: all.filter(r => isActivationRow(r, accountPublicKey)),
               fundingRows: all.filter(r => r.type === 'consume'),
               loaded: true
             }),

@@ -1,9 +1,10 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 
-import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { useActivityContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 
 import { ClaimsLoadingBar, RestoreDeclinedTransfers } from './ActivityClaimsStatus';
 import { ActivityGroupList } from './ActivityGroupList';
+import { activityCounterpartyNames } from './activityGroups';
 import { ActivityGroupsBoundary } from './ActivityGroupsBoundary';
 import History from './History';
 import { useActivityClaimList } from './useActivityClaimList';
@@ -28,8 +29,8 @@ interface ActivityGroupedHistoryProps {
  * field is on screen while it does, but to the groups rather than the entries, so a group can be
  * found by the name or category label its row shows.
  *
- * Incoming transfers waiting for a claim have no group to live in, so their cards sit above the
- * groups, as actionable here as in the List view.
+ * The claim cards above the list offer the same actions as in the List view. Their transfers also
+ * give the corresponding group a waiting count and a route into that group's activity.
  */
 export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
   search,
@@ -39,19 +40,10 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
 }) => {
   const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
     useActivityClaimList(search, 'all');
-  const { allContacts } = useFilteredContacts();
+  const activityContacts = useActivityContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const namesByAddress = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const contact of allContacts) {
-      const name = contact.name?.trim();
-      if (name) names.set(contact.address.trim().toLowerCase(), name);
-    }
-    return names;
-  }, [allContacts]);
-
-  const nameOf = useCallback((address: string) => namesByAddress.get(address.trim().toLowerCase()), [namesByAddress]);
+  const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
 
   return (
     <>
@@ -81,7 +73,10 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
               <ActivityGroupsBoundary onReturnToList={onReturnToList}>
                 <ActivityGroupList
                   entries={view.entries}
+                  claims={representedItems}
+                  hiddenLoaded={hidden.loaded}
                   nameOf={nameOf}
+                  accountAddress={account.publicKey}
                   initialLoading={view.initialLoading}
                   loadError={view.loadError}
                   onRetry={view.onRetry}

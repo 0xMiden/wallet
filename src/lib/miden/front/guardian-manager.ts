@@ -5,11 +5,7 @@ import { annotateCrash, withProposalStep, type ProposalGuard } from 'lib/telemet
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
-import {
-  getSignerCommitmentsFromAccount,
-  getSignerDetailsFromAccount,
-  resolveGuardianEndpoint
-} from '../guardian/account';
+import { findOwnSignerCommitment, getSignerCommitmentsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { readGuardianAuthFacts, withGuardianAuthFacts } from '../guardian/auth-facts';
 import { canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
@@ -74,7 +70,7 @@ export interface GuardianAccountProvider {
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
-  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) => Promise<string>;
   // Optional SW-only callbacks used by the proactive replace-hot-key flow.
   // Frontend providers (zustandProvider) leave these undefined; the rotation
   // path runs only inside the SW-side transaction processor where the
@@ -102,6 +98,18 @@ function refusedAtSelection(error: Error, proposalGuard: ProposalGuard): Error {
   annotateCrash(error, { proposalStep: 'service_select', proposalGuard });
   return error;
 }
+
+/** A service-build refusal; only the sync self-heal decides whether this device was rotated out. */
+export class HotKeySignerMissingError extends Error {
+  constructor(accountPublicKey: string) {
+    super(`Guardian account ${accountPublicKey}: no on-chain signer holds this device's hot key`);
+    this.name = 'HotKeySignerMissingError';
+  }
+}
+
+/** Name-based so the refusal survives intercom serialization. */
+export const isHotKeySignerMissingError = (error: unknown): error is HotKeySignerMissingError =>
+  typeof error === 'object' && error !== null && 'name' in error && error.name === 'HotKeySignerMissingError';
 
 /**
  * Create a MultisigService for the given Guardian account.
@@ -210,7 +218,7 @@ export async function getOrCreateMultisigService(
     // ONE hold for the account read AND the signer read derived from it. An `Account`
     // handle is a borrow of the client's RefCell rather than a snapshot, so reading its
     // signer set after this hold released was a call on a client an eviction may already
-    // have handed to a successor - and `getSignerDetailsFromAccount` reaches into account
+    // have handed to a successor - and `findOwnSignerCommitment` reaches into account
     // storage, so it is a genuine WASM call, not a field access. Same shape, and the same
     // fix, as the two guardian-sync self-heal snapshots. The `MultisigService.init` below
     // takes a hold of its own, so it stays OUTSIDE this one: the mutex is not reentrant
@@ -231,17 +239,17 @@ export async function getOrCreateMultisigService(
       if (!sdkAccount)
         return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined, signerCommitments: [] };
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
-      // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-      const { commitment } = await withProposalStep('service_signer_read', () =>
-        getSignerDetailsFromAccount(sdkAccount)
+      // Find this device's hot signer by membership. The signer set can hold more than one
+      // hot key, and a membership change moves the slots, so slot 0 is not this device.
+      const ownCommitment = await withProposalStep('service_signer_read', () =>
+        findOwnSignerCommitment(sdkAccount, hotPublicKey)
       );
-      // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The comment above
-      // calls that a genuine WASM call rather than a field access, which is exactly the
-      // category every sibling merged hold in this change re-checks after: the direct-switch
-      // finalizer re-checks after both of its awaits. Dormant only while
-      // `getSignerDetailsFromAccount` happens to have a synchronous body, and a guard whose
-      // safety rests on a callee not growing an await is one edit from being wrong.
+      // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The lookup derives
+      // the commitment through a dynamic SDK import, which is a parking await: an eviction
+      // in that gap hands the mutex on, and the reads below would then borrow a client that
+      // belongs to a successor.
       assertWasmHoldCurrent(hold, 'guardian service build, after the signer read');
+      const commitment = ownCommitment?.replace(/^0x/, '');
       // READ IN HERE, not at the log site below. `id()` is a call on a borrowed
       // handle, so asking for it after this hold released was the very thing the
       // comment above forbids - and a `console.log` is a silly place to take a
@@ -255,10 +263,18 @@ export async function getOrCreateMultisigService(
       };
     }, buildLockOptions);
 
-    if (!sdkAccount || commitment === undefined) {
+    if (!sdkAccount) {
       const missing = new Error('Account not found in local storage');
-      annotateCrash(missing, { proposalStep: sdkAccount ? 'service_signer_read' : 'service_account_read' });
+      annotateCrash(missing, { proposalStep: 'service_account_read' });
       throw missing;
+    }
+    // No slot holds this device's hot key. Fail here as a missing hot key does; this
+    // path does not mark the account rotated out, which only the sync self-heal and
+    // the direct switch decide.
+    if (commitment === undefined) {
+      const notSigner = new HotKeySignerMissingError(accountPublicKey);
+      annotateCrash(notSigner, { proposalStep: 'service_signer_read', proposalGuard: 'hot_key_missing' });
+      throw notSigner;
     }
 
     // Bind the service to the hot signer — the popup signs with the hot key.

@@ -1,6 +1,7 @@
 import type { SwapOrderTracking, SwapSettlementNotes, SwapSettlementTransaction } from 'lib/miden/transaction/get';
 
 import {
+  countsOnlyRecordedPaybacks,
   deliveredRequestedToken,
   deriveSwapReceipt,
   filledRequestedAmount,
@@ -100,6 +101,33 @@ describe('locallySettledRequestedAmount', () => {
     // 0n here means "nothing tagged", which callers must not read as evidence.
     expect(locallySettledRequestedAmount([], REQUESTED_FAUCET)).toBe(0n);
   });
+
+  it('counts the recorded payback amounts before the row amount', () => {
+    // A row that shares a note with an earlier claim has no row amount, but its recorded amounts are exact.
+    expect(
+      locallySettledRequestedAmount(
+        [consume({ amount: 300n, paybackAmount: 300n }), consume({ amount: undefined, paybackAmount: 250n })],
+        REQUESTED_FAUCET
+      )
+    ).toBe(550n);
+  });
+});
+
+describe('countsOnlyRecordedPaybacks', () => {
+  it('is true only when each claim of the requested token has a recorded payback amount', () => {
+    expect(countsOnlyRecordedPaybacks([consume({ paybackAmount: 400n })], REQUESTED_FAUCET)).toBe(true);
+    expect(countsOnlyRecordedPaybacks([consume({ paybackAmount: 400n }), consume()], REQUESTED_FAUCET)).toBe(false);
+    expect(countsOnlyRecordedPaybacks([], REQUESTED_FAUCET)).toBe(false);
+  });
+
+  it('ignores a claim of another token', () => {
+    expect(
+      countsOnlyRecordedPaybacks(
+        [consume({ paybackAmount: 400n }), consume({ faucetId: OFFERED_FAUCET })],
+        REQUESTED_FAUCET
+      )
+    ).toBe(true);
+  });
 });
 
 describe('filledRequestedAmount', () => {
@@ -136,6 +164,12 @@ describe('filledRequestedAmount', () => {
     expect(filledRequestedAmount(undefined, 1000n, 1000n)).toBe(1000n);
     // With no request to compare against there is nothing to disprove.
     expect(filledRequestedAmount(undefined, 1800n, undefined)).toBe(1800n);
+  });
+
+  it('keeps a sum above the request when it counts only recorded paybacks of the order', () => {
+    // A solver can pay more than the request. With no lineage, this sum is the only record of the fill.
+    expect(filledRequestedAmount(undefined, 1_000_925n, 1_000_425n, true)).toBe(1_000_925n);
+    expect(filledRequestedAmount(1_000_425n, 1_000_925n, 1_000_425n, true)).toBe(1_000_925n);
   });
 });
 
@@ -355,6 +389,29 @@ describe('deriveSwapReceipt', () => {
     // and 'active' and 'filled' both read "partially filled" once it does.
     expect(view.filledAmount).toBe(200n);
     expect(view.isPartialFill).toBe(true);
+  });
+
+  it('shows a fill above the request on a device that has no lineage for the order (multi-device)', () => {
+    // The device that did not place the order has only the claim rows from the backup. The solver paid 1_000_925 for
+    // a request of 1_000_425, and the receipt showed no fill at all.
+    const paid = consume({ amount: 1_000_925n, paybackAmount: 1_000_925n });
+    const view = derive({
+      requestedAmount: 1_000_425n,
+      settlement: settlement({ settled: ['0xnote1'], settledTransactions: [paid] })
+    });
+
+    expect(view.filledAmount).toBe(1_000_925n);
+    expect(view.orderState).toBe('filled');
+    expect(view.isPartialFill).toBe(false);
+  });
+
+  it('still shows no fill above the request when the claim has no recorded payback amounts', () => {
+    const view = derive({
+      requestedAmount: 1_000_425n,
+      settlement: settlement({ settled: ['0xnote1'], settledTransactions: [consume({ amount: 1_000_925n })] })
+    });
+
+    expect(view.filledAmount).toBeUndefined();
   });
 
   it('reports nothing filled, not a negative fill, when more is owed than was asked', () => {

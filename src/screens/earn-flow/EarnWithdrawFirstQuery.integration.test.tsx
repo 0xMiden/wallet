@@ -1,14 +1,22 @@
 import React, { useRef } from 'react';
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ExecuteActionOptions } from '@epoch-protocol/epoch-intents-sdk';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PageActiveContext, PageMountedByReturnContext, PageRevealedByLayerContext } from 'app/layouts/page-active';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { clearEarnSubmissionLocksForTests } from 'lib/epoch/earn-submission-lock';
-import type { EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
+import { assertWithdrawalReviewCurrent, type EarnWithdrawalQuote } from 'lib/epoch/earn-withdraw-quote';
 import { ensureEpochSmartAccount } from 'lib/epoch/sdk';
-import { PREPARED_FAUCET, PREPARED_OWNER, PREPARED_RECIPIENT, PREPARED_TOKEN } from 'lib/epoch/testing/earn-prepared';
+import {
+  preparedExecution,
+  PREPARED_FAUCET,
+  PREPARED_OWNER,
+  PREPARED_RECIPIENT,
+  PREPARED_TOKEN
+} from 'lib/epoch/testing/earn-prepared';
+import { prepareEarnWithdrawExecution } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import * as Repo from 'lib/miden/repo';
@@ -27,6 +35,7 @@ let mockLastLocation: LocationState | undefined;
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   ...jest.requireActual<typeof import('@epoch-protocol/epoch-intents-sdk')>('@epoch-protocol/epoch-intents-sdk'),
   EpochIntentSDK: class {
+    getWalletGaslessStatus = async () => ({ is7702Capable: true, needsSetup: false });
     helpers = { executeActions: mockExecuteActions };
   }
 }));
@@ -200,10 +209,10 @@ const mockQuote = (): EarnWithdrawalQuote => ({
   destinationSymbol: 'USDCX',
   destinationDecimals: 6,
   expectedAtomic: '10000000',
-  minimumAtomic: '9900000',
+  minimumAtomic: '1',
   expiresAt: Date.now() + 60000
 });
-const failure = new Error('Fresh withdrawal setup refused');
+const failure = new Error('Fresh withdrawal preparation refused');
 const reviewPath = '/earn/positions/position-1/withdraw/review';
 const statusPath = (id: string) => `/earn/withdraw-status/${encodeURIComponent(id)}`;
 
@@ -291,6 +300,7 @@ async function deliver(read: ReturnType<typeof nextStatusRead>) {
 }
 
 async function pastFailure() {
+  jest.mocked(ensureEpochSmartAccount).mockRejectedValueOnce(failure);
   await gaslessEarnWithdrawalToMiden({
     midenAccountPublicKey: PREPARED_RECIPIENT,
     evmAddress: PREPARED_OWNER,
@@ -321,7 +331,18 @@ describe('Earn withdrawal first-query reporting', () => {
     jest.clearAllMocks();
     mockCreatedIds.length = 0;
     mockLastLocation = undefined;
-    jest.mocked(ensureEpochSmartAccount).mockReset().mockRejectedValue(failure);
+    jest
+      .mocked(ensureEpochSmartAccount)
+      .mockReset()
+      .mockImplementation(async (_account, _owner, sdk) => {
+        if (!sdk) throw new Error('Expected a guarded SDK');
+        return sdk;
+      });
+    jest.mocked(assertWithdrawalReviewCurrent).mockReset().mockResolvedValue(undefined);
+    jest.mocked(prepareEarnWithdrawExecution).mockReset();
+    mockExecuteActions.mockImplementation(async (options: ExecuteActionOptions) => {
+      await options.onBeforeExecute?.(preparedExecution());
+    });
     navigate({ pathname: reviewPath, search: '?amount=10' }, HistoryAction.Replace);
   });
 
@@ -340,7 +361,7 @@ describe('Earn withdrawal first-query reporting', () => {
     const entered = deferred();
     const releaseProducer = deferred();
     const read = nextStatusRead();
-    jest.mocked(ensureEpochSmartAccount).mockImplementationOnce(async () => {
+    jest.mocked(prepareEarnWithdrawExecution).mockImplementationOnce(async () => {
       entered.resolve();
       await releaseProducer.promise;
       throw failure;
@@ -383,7 +404,7 @@ describe('Earn withdrawal first-query reporting', () => {
           chainId: 11155111
         }
       });
-      expect(mockExecuteActions).not.toHaveBeenCalled();
+      expect(mockExecuteActions).toHaveBeenCalledTimes(1);
       expect(read.rows).toEqual([]);
       await deliver(read);
       expect(read.rows).toEqual([
@@ -399,6 +420,40 @@ describe('Earn withdrawal first-query reporting', () => {
     } finally {
       releaseProducer.resolve();
       read.release.resolve();
+    }
+  });
+
+  it('keeps Review open with no new Activity row when the pre-execution balance check cannot reach Epoch', async () => {
+    jest
+      .mocked(assertWithdrawalReviewCurrent)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('earnPositionsUnavailable'));
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(0);
+    mockExecuteActions.mockImplementationOnce(async (options: ExecuteActionOptions) => {
+      clock.mockReturnValue(5_000);
+      await options.onBeforeExecute?.(preparedExecution());
+    });
+    try {
+      render(
+        <Provider>
+          <FlowRoute />
+        </Provider>
+      );
+      const confirm = screen.getByRole('button', { name: 'withdraw' });
+      await waitFor(() => expect(confirm).toBeEnabled());
+      await act(async () => {
+        fireEvent.click(confirm);
+        await expect(jest.mocked(gaslessEarnWithdrawalToMiden).mock.results[0]?.value).rejects.toThrow(
+          'earnPositionsUnavailable'
+        );
+      });
+      expect(assertWithdrawalReviewCurrent).toHaveBeenCalledTimes(2);
+      expect(mockLastLocation?.pathname).toBe(reviewPath);
+      expect(mockCreatedIds).toEqual([]);
+      expect(await screen.findByTestId('earn-withdraw-review-error')).toHaveTextContent('earnPositionsUnavailable');
+      expect(confirm).toBeEnabled();
+    } finally {
+      clock.mockRestore();
     }
   });
 

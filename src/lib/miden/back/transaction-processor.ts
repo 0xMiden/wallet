@@ -117,9 +117,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
       return await vault.getPublicKeyForCommitment(commitment);
     });
   },
-  signWord: async (publicKey: string, wordHex: string, transactionId?: string) => {
+  signWord: async (publicKey, wordHex, transactionId, rotationProposal) => {
     return withUnlocked(async ({ vault }) => {
-      return await vault.signWord(publicKey, wordHex, transactionId);
+      return await vault.signWord(publicKey, wordHex, transactionId, rotationProposal);
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {

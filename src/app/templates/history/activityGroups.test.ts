@@ -1,4 +1,5 @@
 import { ICON_BY_TYPE, ITransactionType } from 'lib/miden/db/types';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 
 import {
   ActivityCategory,
@@ -13,6 +14,11 @@ import {
   isPendingActivityEntry
 } from './activityGroups';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+
+jest.mock('lib/miden/sdk/helpers', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers');
+  return { ...actual, canonicalWalletAccountId: jest.fn(actual.canonicalWalletAccountId) };
+});
 
 const FAUCET = 'miden-native-faucet';
 
@@ -128,6 +134,21 @@ describe('groupActivityEntries', () => {
       ['address', 'mtst1alice', 2],
       ['swap', 'swap', 1]
     ]);
+  });
+
+  it('preserves unrecognized hexadecimal references without decoding them', () => {
+    const parseHex = jest.mocked(canonicalWalletAccountId);
+    const callsBefore = parseHex.mock.calls.length;
+    const groups = groupActivityEntries([
+      entry({ secondaryAddress: '0xABCD' }),
+      entry({ secondaryAddress: '0xabcd' }),
+      entry({ secondaryAddress: '0xABCD_tag' })
+    ]);
+    expect(groups.map(({ id, count }) => [id, count])).toEqual([
+      ['0xABCD', 2],
+      ['0xABCD_tag', 1]
+    ]);
+    expect(parseHex.mock.calls).toHaveLength(callsBefore);
   });
 
   it('sorts the groups by their latest entry, newest first', () => {

@@ -17,15 +17,17 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
-import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { type HotKeyActivationMode, isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { useOnChainSignerCount } from 'lib/miden/front/useOnChainSignerCount';
 import * as Repo from 'lib/miden/repo';
 import { resetWalletAndReload } from 'lib/miden/reset-and-reload';
 import {
   findAdoptableShortfallRow,
   hotKeyRotationLockName,
+  isActivationRow,
   isLiveRotationFundingRow,
   isLiveRotationRow,
   newestRow,
@@ -42,6 +44,7 @@ import { guardianNoteScanText, useGuardianNoteRecoveryProgress } from 'lib/walle
 import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+import { ChooseDeviceRole } from 'screens/onboarding/import-wallet-flow/ChooseDeviceRole';
 import { ImportHotKeyScreen } from 'screens/onboarding/import-wallet-flow/ImportHotKey';
 
 import {
@@ -51,12 +54,15 @@ import {
   useWatchedTransactionFailure
 } from './HotKeyRotationFunding';
 import {
+  activationModeOf,
   describeRotationFailure,
   isBelowBaseFee,
   resolveRotationGateView,
+  resumableActivationMode,
   rotationFundingMinimum,
   type RotationFailure
 } from './HotKeyRotationGate.selectors';
+import { armRecoveryPhraseKeepPrompt } from './RecoveryPhraseKeepPrompt';
 
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
@@ -64,10 +70,14 @@ import {
  * Guardian accounts recovered via seed phrase carry `requiresHotKeyRotation`:
  * they have no usable local hot key and cannot sign, sync, or transact until a
  * `replace_signer` rotation lands.
- * While the CURRENT account carries the flag, this gate auto-initiates the
- * rotation and paints a full-screen overlay that blocks all wallet
- * interaction; the flag clearing (via `Vault.swapHotKey`, accountsUpdated,
- * store sync) is the authoritative "done" signal that dismisses it.
+ * While the CURRENT account carries the flag, this gate paints a full-screen
+ * overlay that blocks all wallet interaction. Its first screen asks the device
+ * role: add this device (every other signer stays) or make it the main
+ * one (every other device is removed). Continue starts the rotation in that
+ * mode. A rotation that already exists (a reload during a rotation) is adopted
+ * on mount, and the gate does not ask again. The flag clearing (via
+ * `Vault.swapHotKey`, accountsUpdated, store sync) is the authoritative "done"
+ * signal that dismisses it.
  *
  * The rotation is a transaction and pays its fee from the account's vault, so an
  * account that holds no MIDEN cannot leave (#805). The gate then shows its funding
@@ -96,11 +106,18 @@ export const HotKeyRotationGate: FC = () => {
 
   // Keyed by account so switching between flagged accounts resets all
   // rotation state (txId, errors, in-flight guard) instead of leaking it.
-  return <HotKeyRotationOverlay key={currentAccount.publicKey} accountPublicKey={currentAccount.publicKey} />;
+  return (
+    <HotKeyRotationOverlay
+      key={`${currentAccount.publicKey}:${currentAccount.hotKeyRotationRequest ?? ''}`}
+      accountPublicKey={currentAccount.publicKey}
+      rotationRequest={currentAccount.hotKeyRotationRequest}
+    />
+  );
 };
 
 interface OverlayProps {
   accountPublicKey: string;
+  rotationRequest?: string;
 }
 
 /**
@@ -120,11 +137,23 @@ interface OverlayProps {
  * `ifAvailable` request makes the check race-free: we only requeue while provably no
  * loop is running.
  *
- * Resolves `null` when it DEFERRED (#805): the gate's funding claim is live, and a
+ * Resolves `deferred` when it DEFERRED (#805): the gate's funding claim is live, and a
  * rotation now would run before the vault that claim funds, fail, and mint a hot key it
  * never uses. The claim path takes the same lock and refuses while a rotation is live.
+ *
+ * A NEW rotation needs a device role: the `mode` the user chose in this overlay, else the mode of
+ * the account's last rotation that did not complete (`resumableActivationMode`), so a reload or a
+ * second surface continues with the role the user chose before. Without either, the call adopts
+ * what exists and resolves `none` when there is nothing, so the gate asks the user first.
  */
-const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean): Promise<string | null> => {
+type RotationLookup = { status: 'tracking'; txId: string } | { status: 'deferred' } | { status: 'none' };
+
+const ensureRotationTx = async (
+  accountPublicKey: string,
+  adoptExisting: boolean,
+  mode: HotKeyActivationMode | null,
+  rotationRequest: string | undefined
+): Promise<RotationLookup> => {
   let txId: string | null = null;
   let deferred = false;
   await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
@@ -145,27 +174,50 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
           });
       });
     }
-    const existing = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).first();
+    // A live device revocation is never the activation: the gate waits for it, so no activation is queued beside
+    // a signer change already in flight.
+    const live = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).toArray();
+    const existing = live.find(
+      row => isActivationRow(row, accountPublicKey) && row.extraInputs?.rotationRequest === rotationRequest
+    );
     if (existing) {
       txId = existing.id;
       return;
     }
-    if (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()) {
+    if (
+      live.length > 0 ||
+      (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first())
+    ) {
       deferred = true;
       return;
     }
-    const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
+    const failed =
+      adoptExisting && rotationRequest !== undefined
+        ? await findAdoptableShortfallRow(accountPublicKey, rotationRequest)
+        : undefined;
     if (failed) {
       txId = failed.id;
       return;
     }
-    txId = await initiateReplaceHotKeyTransaction(accountPublicKey, isDelegateProofEnabled(), zustandProvider);
+    const activationMode =
+      mode ??
+      resumableActivationMode(
+        await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray(),
+        rotationRequest
+      );
+    if (activationMode === null) return;
+    txId = await initiateReplaceHotKeyTransaction(
+      accountPublicKey,
+      isDelegateProofEnabled(),
+      zustandProvider,
+      activationMode,
+      { expected: rotationRequest }
+    );
   });
-  if (deferred) return null;
-  if (txId === null) {
-    throw new Error('Hot-key rotation lock callback did not produce a transaction id');
-  }
-  return txId;
+  if (deferred) return { status: 'deferred' };
+  if (txId !== null) return { status: 'tracking', txId };
+  if (mode === null) return { status: 'none' };
+  throw new Error('Hot-key rotation lock callback did not produce a transaction id');
 };
 
 /**
@@ -212,7 +264,19 @@ const RotationFailedPanel: FC<{
   );
 };
 
-const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
+/**
+ * The device-role screen. It reads the on-chain device count only while it shows, so the gate makes no WASM
+ * read for a rotation it adopts.
+ */
+const ChooseDeviceRoleStep: FC<{ accountPublicKey: string; onSubmit: (mode: HotKeyActivationMode) => void }> = ({
+  accountPublicKey,
+  onSubmit
+}) => {
+  const deviceCount = useOnChainSignerCount(accountPublicKey);
+  return <ChooseDeviceRole deviceCount={deviceCount} onSubmit={onSubmit} />;
+};
+
+const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey, rotationRequest }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
   const importHotKeyPair = useWalletStore(s => s.importHotKeyPair);
@@ -221,8 +285,14 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const [importError, setImportError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
-  const inFlightRef = useRef<Promise<string | null> | null>(null);
-  const { row, loaded: rowLoaded, readFailed } = useTransactionRow(txId ?? '');
+  // The device role the user chose in this overlay. `null` until a choice: no new rotation starts without one.
+  const [mode, setMode] = useState<HotKeyActivationMode | null>(null);
+  // The first lookup (adopt only) is done, so the gate knows whether a rotation exists before it asks.
+  const [adoptChecked, setAdoptChecked] = useState(false);
+  const inFlightRef = useRef<Promise<RotationLookup> | null>(null);
+  const { row: rowById, loaded: rowLoaded, readFailed } = useTransactionRow(txId ?? '');
+  // Without an id the overlay tracks no row.
+  const row = txId === null ? undefined : rowById;
   const trackedReadFailed = txId !== null && readFailed === true;
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
   const feeFaucetId = useNativeFeeFaucetId();
@@ -250,30 +320,54 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   useMobileBackHandler(() => true, [], { overlay: true });
 
   const beginRotation = useCallback(
-    async (adoptExisting: boolean) => {
+    async (adoptExisting: boolean, chosenMode: HotKeyActivationMode | null) => {
       // In-flight guard: strict-mode double-invoke and re-renders share one
       // promise instead of enqueueing duplicate rotation transactions.
       // (Cross-window duplication is handled inside ensureRotationTx.)
       if (inFlightRef.current) return;
       setInitError(null);
-      inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting);
+      inFlightRef.current = ensureRotationTx(accountPublicKey, adoptExisting, chosenMode, rotationRequest);
       try {
-        const id = await inFlightRef.current;
-        if (id !== null) setTxId(id);
+        const lookup = await inFlightRef.current;
+        switch (lookup.status) {
+          case 'tracking':
+            setTxId(lookup.txId);
+            break;
+          case 'none':
+            // No rotation exists and no role is chosen: the gate asks for the role.
+            setTxId(null);
+            break;
+          case 'deferred':
+            break;
+        }
         // A deferral too: the claim it waits on, maybe just requeued, runs in the worker's loop.
         if (isExtension()) requestSWTransactionProcessing();
       } catch (e) {
         setInitError(e instanceof Error ? e.message : String(e));
       } finally {
         inFlightRef.current = null;
+        setAdoptChecked(true);
       }
     },
-    [accountPublicKey]
+    [accountPublicKey, rotationRequest]
   );
 
+  // Mount adopts a rotation that exists, or continues with the role of the last rotation that did not complete
+  // (a reload during a rotation). Without a role it starts no rotation: the user chooses one on the first screen.
   useEffect(() => {
-    void beginRotation(true);
+    beginRotation(true, null);
   }, [beginRotation]);
+
+  const onChooseRole = useCallback(
+    (chosenMode: HotKeyActivationMode) => {
+      setMode(chosenMode);
+      armRecoveryPhraseKeepPrompt(accountPublicKey).catch(error =>
+        console.warn('[HotKeyRotationGate] could not arm the recovery phrase prompt:', error)
+      );
+      beginRotation(false, chosenMode);
+    },
+    [accountPublicKey, beginRotation]
+  );
 
   // Driver: on extension the service worker owns the FIFO loop; on
   // mobile/desktop the rotation never routes to the GeneratingTransaction page,
@@ -299,6 +393,13 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   const gate = resolveRotationGateView({
     trackedRow: row,
+    // Not before the rows load, nor while a found row loads: a rotation that exists must not flash the screen.
+    roleChoicePending:
+      adoptChecked &&
+      rowsLoaded &&
+      txId === null &&
+      mode === null &&
+      resumableActivationMode(rotationRows, rotationRequest) === null,
     initError,
     baseFee,
     belowBaseFee: isBelowBaseFee(balancesLoading, balances, feeFaucetId, baseFee),
@@ -312,9 +413,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const onRetry = useCallback(() => {
     if (trackedReadFailed) return;
     setTxId(null);
-    // Failed rows are terminal — retry always enqueues a fresh transaction.
-    void beginRotation(false);
-  }, [beginRotation, trackedReadFailed]);
+    // Failed rows are terminal — retry always enqueues a fresh transaction, with the role chosen here, else
+    // with the role of the failed rotation (a rotation adopted on mount).
+    beginRotation(false, mode);
+  }, [beginRotation, mode, trackedReadFailed]);
 
   const confirm = useConfirm();
   const alert = useAlert();
@@ -363,8 +465,8 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
 
   // A funding trigger never queues a second rotation beside a live one.
   const onFunded = useCallback(() => {
-    if (!trackedReadFailed && !rotationLive && !importing) void beginRotation(false);
-  }, [beginRotation, rotationLive, importing, trackedReadFailed]);
+    if (!trackedReadFailed && !rotationLive && !importing) beginRotation(false, mode);
+  }, [beginRotation, rotationLive, importing, mode, trackedReadFailed]);
 
   const { retryClaim } = useRotationFundingClaim({
     accountPublicKey,
@@ -386,8 +488,8 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const deferredRotationDue =
     gate.view === 'rotating' && txId === null && !rotationLive && !importing && !fundingRows.some(isLiveTransaction);
   useEffect(() => {
-    if (deferredRotationDue) void beginRotation(balancesLoading);
-  }, [beginRotation, deferredRotationDue, balancesLoading, rotationRows, fundingRows]);
+    if (deferredRotationDue) beginRotation(balancesLoading, mode);
+  }, [beginRotation, deferredRotationDue, balancesLoading, mode, rotationRows, fundingRows]);
 
   const watchedRotationFailure = useWatchedTransactionFailure(
     row,
@@ -423,6 +525,22 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
         ? 'raw_hot_key_rotation_funding_claim_failed'
         : 'hotKeyRotationFundingClaimFailed'
     : null;
+
+  // The progress copy follows the activation mode: the one chosen here, else the one of the row the gate adopted.
+  const progressMode: HotKeyActivationMode = mode ?? (row ? activationModeOf(row) : 'replace');
+
+  if (!importing && gate.view === 'choose-role') {
+    // The device-role step is a full page in the onboarding frame, not a card on the scrim: the user reads and
+    // chooses here, so it gets the page background, the left-aligned title and the pinned CTA every step has.
+    return (
+      <div
+        data-testid="hot-key-rotation-gate"
+        className="fixed inset-0 z-[9999] flex flex-col bg-app-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+      >
+        <ChooseDeviceRoleStep accountPublicKey={accountPublicKey} onSubmit={onChooseRole} />
+      </div>
+    );
+  }
 
   return (
     // A translucent scrim: the wallet stays visible
@@ -488,8 +606,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
         ) : (
           <>
             <Spinner />
-            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
-            <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
+            <h1 className="text-lg font-semibold text-ink">
+              {t(progressMode === 'add' ? 'hotKeyAddOverlayTitle' : 'hotKeyRotationOverlayTitle')}
+            </h1>
+            <p className="text-sm text-ink select-text">
+              {t(progressMode === 'add' ? 'hotKeyAddOverlayBody' : 'hotKeyRotationOverlayBody')}
+            </p>
           </>
         )}
       </div>

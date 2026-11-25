@@ -10,9 +10,11 @@ import {
   summaryBoundBlockNum,
   type ProposalMetadata,
   type TransactionProposal,
-  type Proposal
+  type Proposal,
+  type SyncStateResult
 } from '@openzeppelin/miden-multisig-client';
 
+import { signalGuardianStateAdopted } from 'lib/backup/adopt-signal';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -26,13 +28,16 @@ import { observeProposalCreateRejection } from 'lib/telemetry/proposal-create-di
 
 import {
   assertGuardianKeyCommitment,
+  findOwnSignerCommitment,
   getSignerCommitmentsFromAccount,
-  getSignerDetailsFromAccount,
+  hasSignerCommitment,
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
 import { readGuardianAuthFacts, withGuardianAuthFacts, type GuardianAuthFacts } from './auth-facts';
+import { ClaimStartedElsewhereError, claimNoteKeys, isClaimStartedElsewhere, notesClaimedIn } from './claims-elsewhere';
 import { configureGuardianAccount, ecdsaCosigners, type GuardianRegistration } from './configure';
+import { deviceSignersAfterRevocation } from './device-signers';
 import { waitForStateOnChain } from './direct-switch';
 import {
   GuardianProbeTimeoutError,
@@ -84,6 +89,19 @@ import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
 export { isGuardianAuthRejection } from './auth-facts';
+
+/**
+ * The commitment of the multisig's copy of the account, or null when it cannot
+ * be read. A trap is not a failed read: it goes to the lock, which retires the client.
+ */
+function localAccountCommitment(multisig: Multisig): string | null {
+  try {
+    return multisig.account.to_commitment().toHex();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return null;
+  }
+}
 
 /**
  * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
@@ -224,6 +242,33 @@ export class GuardianReRegisterRefusedError extends Error {
 
 export const isGuardianReRegisterRefusal = (error: unknown): boolean => error instanceof GuardianReRegisterRefusedError;
 
+/**
+ * The highest number of signers a multisig account can hold. This value is the
+ * `MAX_SIGNERS` of `@openzeppelin/miden-multisig-client` (`account/layout`).
+ * The package does not export it from its root, and its `exports` map does not
+ * permit a deep import, so this copy must agree with it.
+ */
+export const MAX_SIGNERS = 64;
+
+/** `createAddHotKeyProposal` refused: the new hot key is already an on-chain signer. */
+export class HotKeyAlreadySignerError extends Error {
+  constructor(accountId: string) {
+    super(`Not adding the device key to account ${accountId}: it is already an on-chain signer`);
+    this.name = 'HotKeyAlreadySignerError';
+  }
+}
+
+/** `createAddHotKeyProposal` refused: the account already holds `MAX_SIGNERS` signers. */
+export class SignerSetFullError extends Error {
+  constructor(accountId: string, signerCount: number) {
+    super(
+      `Not adding the device key to account ${accountId}: it already has ${signerCount} signers, ` +
+        `and the limit is ${MAX_SIGNERS}`
+    );
+    this.name = 'SignerSetFullError';
+  }
+}
+
 const MAX_SYNC_RETRIES = 30;
 const SYNC_RETRY_DELAY_MS = 1000;
 // The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
@@ -273,6 +318,12 @@ export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
  * own 409 if the previous delta is still settling.
  */
 export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
+
+/**
+ * How many of the newest canonical deltas `notesClaimedByAccount` reads. The claim it looks for landed a short time
+ * before the read, so it is near the top of the history.
+ */
+const CLAIMED_NOTES_HISTORY_PAGE = 50;
 
 /**
  * The Guardian's own hold on a candidate that never settles: past it the Guardian has released it (#1317). The
@@ -429,10 +480,11 @@ export class MultisigService {
 
   /**
    * Build a transient cold-bound MultisigService for ops that must be cold-signed
-   * (switch_guardian co-sign and replace_hot_key). The cold commitment is read
-   * from on-chain storage via getSignerDetailsFromAccount(_, true) - order
-   * convention `[hot, cold]` is preserved across rotations because
-   * createReplaceHotKeyProposal uses an in-place swap target list.
+   * (switch_guardian co-sign and replace_hot_key). The cold commitment is the
+   * on-chain signer whose commitment is the commitment of
+   * `walletAccount.coldPublicKey` (`findOwnSignerCommitment`). Do not use a
+   * position in the signer list: an add rotation appends a hot key, so the set
+   * can have more than two signers and its order is not a contract.
    *
    * Caller is expected to drop the returned service immediately after use so
    * cold key material doesn't outlive the operation.
@@ -450,8 +502,8 @@ export class MultisigService {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey - re-create the wallet`);
     }
-    // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
-    // maps, so it is a WASM call and not a field read - and every one of this
+    // UNDER A HOLD. The signer read walks the account's storage maps, so it is
+    // a WASM call and not a field read - and every one of this
     // method's five callers hands in an `account` read under a hold that has
     // already RELEASED, which left this call free to run concurrently with
     // another flow's client operation: the `recursive use of an object ...
@@ -474,14 +526,23 @@ export class MultisigService {
     // surfaces as the SDK's own `isDisposed` throw, i.e. a failed attempt and a
     // retry, not a wrong commitment written to the guardian. Should this method
     // ever read a field that a rotation moves, that reasoning expires and the
-    // threading is required.
-    const { commitment, signerCommitments } = await withWasmClientLock(
-      async () => ({
-        commitment: (await getSignerDetailsFromAccount(account, true)).commitment,
-        signerCommitments: getSignerCommitmentsFromAccount(account)
-      }),
-      lockOptions
-    );
+    // threading is required. The cold commitment is found by membership
+    // (`findOwnSignerCommitment`), not by position, so a rotation that moves the
+    // order does not change the result. That lookup parks on a dynamic SDK import
+    // after the storage read, and no client call follows it inside this hold, so
+    // no ownership re-check is needed after it; add one if a read ever follows.
+    const coldPublicKey = walletAccount.coldPublicKey;
+    const { commitment, signerCommitments } = await withWasmClientLock(async () => {
+      const allCommitments = getSignerCommitmentsFromAccount(account);
+      const ownCold = await findOwnSignerCommitment(account, coldPublicKey);
+      return { commitment: ownCold, signerCommitments: allCommitments };
+    }, lockOptions);
+    if (commitment === undefined) {
+      throw new Error(
+        `Guardian account ${walletAccount.publicKey}: the recovery (cold) key is not an on-chain signer of this account`
+      );
+    }
+    const coldCommitment = commitment.startsWith('0x') ? commitment : `0x${commitment}`;
     const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
     const authFacts = await readGuardianAuthFacts(
       `0x${walletAccount.coldPublicKey}`,
@@ -493,7 +554,7 @@ export class MultisigService {
       MultisigService.init(
         account,
         `0x${walletAccount.coldPublicKey}`,
-        `0x${commitment}`,
+        coldCommitment,
         signWordFn,
         guardianEndpoint,
         lockOptions
@@ -582,8 +643,16 @@ export class MultisigService {
 
   /**
    * Create a consume notes transaction proposal.
+   *
+   * `stopIfStartedElsewhere` is the multi-device gate. Each device of an account sees the same note, and the Guardian
+   * accepts a proposal from each. With the gate on, a recent pending claim of one of `noteIds` by another device
+   * stops this claim with `ClaimStartedElsewhereError` before the hold and before any proposal work
+   * (`claimStartedElsewhere`). No answer from the Guardian lets the claim go ahead.
    */
-  async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
+  async createConsumeNotesProposal(noteIds: string[], gate?: { stopIfStartedElsewhere: boolean }): Promise<Proposal> {
+    if (gate?.stopIfStartedElsewhere === true && (await this.claimStartedElsewhere(noteIds))) {
+      throw new ClaimStartedElsewhereError(noteIds);
+    }
     return this.withChainSyncedHold('consume proposal', () =>
       this.proposalStep(
         'proposal_create',
@@ -604,7 +673,8 @@ export class MultisigService {
    * The account's loaded on-chain auth structure: overall threshold, signer
    * commitments, and per-procedure thresholds. Used by the E2E harness to
    * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
-   * the signer set is `[hot, cold]`) - properties the balance-only checks miss.
+   * the signer set holds the cold key and one or more hot keys, `[hot, cold]`
+   * for a new account) - properties the balance-only checks miss.
    */
   getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1124,6 +1194,50 @@ export class MultisigService {
     }
   }
 
+  /**
+   * True when another device of this account has a recent pending claim of one of `noteIds` on this service's
+   * Guardian (multi-device). HTTP only, never under the WASM lock, and never rejects: a failed read, no answer
+   * within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, or a service with no request signer answers false, and the claim
+   * goes ahead as it did before this check.
+   */
+  async claimStartedElsewhere(noteIds: readonly string[]): Promise<boolean> {
+    const ownCommitment = this.requestSigner?.commitment;
+    if (ownCommitment === undefined) return false;
+    try {
+      const proposals = await withTimeout(
+        this.client.guardianClient.getDeltaProposals(this.accountId),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        'reading the pending guardian proposals'
+      );
+      const noteKeys = claimNoteKeys(noteIds);
+      const nowMs = Date.now();
+      return proposals.some(proposal => isClaimStartedElsewhere(proposal, ownCommitment, noteKeys, nowMs));
+    } catch (error) {
+      console.warn('[Guardian] could not read the pending proposals; the claim goes ahead', error);
+      return false;
+    }
+  }
+
+  /**
+   * The notes that the newest canonical deltas of this account consumed, from one page of the Guardian's history
+   * (multi-device). A note in this set is in the account's vault: a device of the account claimed it. Undefined
+   * when the Guardian gave no answer within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS. HTTP only, never under the WASM
+   * lock, and never rejects.
+   */
+  async notesClaimedByAccount(): Promise<ReadonlySet<string> | undefined> {
+    try {
+      const page = await withTimeout(
+        this.client.guardianClient.getDeltaHistory(this.accountId, { limit: CLAIMED_NOTES_HISTORY_PAGE }),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        'reading the guardian delta history'
+      );
+      return notesClaimedIn(page.entries);
+    } catch (error) {
+      console.warn('[Guardian] could not read the delta history for the claimed notes', error);
+      return undefined;
+    }
+  }
+
   async signAndCreateTransactionRequest(
     id: string,
     requestBytes?: Uint8Array,
@@ -1169,17 +1283,25 @@ export class MultisigService {
    * how long the hold lasted, from acquisition, even when the read throws.
    */
   async adoptGuardianStateOnce(onHeld?: (ms: number) => void): Promise<void> {
-    await withWasmClientLock(
-      async () => {
+    const adopted = await withWasmClientLock(
+      async hold => {
         const heldFrom = monotonicNowMs();
         try {
-          await this.multisig.syncState();
+          // As in runSync: a Guardian-sourced sync that changed the local copy is an adoption.
+          const before = localAccountCommitment(this.multisig);
+          const result: SyncStateResult | undefined = await this.multisig.syncState();
+          if (result?.source !== 'guardian' || getCurrentWasmLockHold() !== hold) return false;
+          const after = localAccountCommitment(this.multisig);
+          return after !== null && after !== before;
         } finally {
           onHeld?.(monotonicNowMs() - heldFrom);
         }
       },
       { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }
     );
+    // Outside the hold, as runSync does: another device made a transaction, so the backup reads the
+    // history. Without it the next runSync sees no change and the read waits for another trigger.
+    if (adopted) signalGuardianStateAdopted();
   }
 
   sync(): Promise<void> {
@@ -1213,11 +1335,24 @@ export class MultisigService {
         // to GUARDIAN_REQUEST_TIMEOUT_MS, so one unresponsive guardian holds the
         // whole app's WASM access for that minute once per retry in this loop; the
         // ceiling bounds the hold as a whole.
-        await withWasmClientLock(() => this.multisig.syncState(), {
-          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-          label: 'guardian-sync'
-        });
+        const adopted = await withWasmClientLock(
+          async hold => {
+            // The SDK does not say whether it overwrote the local account, so compare the
+            // commitment of the local copy before and after the sync (architecture doc 10).
+            const before = localAccountCommitment(this.multisig);
+            const result: SyncStateResult | undefined = await this.multisig.syncState();
+            // Only a Guardian-sourced result can overwrite local. The sync parked: an evicted
+            // hold reads nothing more, since its caller already saw the eviction.
+            if (result?.source !== 'guardian' || getCurrentWasmLockHold() !== hold) return false;
+            const after = localAccountCommitment(this.multisig);
+            return after !== null && after !== before;
+          },
+          { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }
+        );
         this.syncRetryCount = 0; // Reset retry count on successful sync
+        // Outside the hold: a newer state from the Guardian means another device made a
+        // transaction, so the backup reads the history. Never throws, never waits.
+        if (adopted) signalGuardianStateAdopted();
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1375,9 +1510,11 @@ export class MultisigService {
 
   /**
    * Build a proposal that replaces this account's hot signer in-place. Constructs an
-   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]`
-   * (preserving the `[hot, cold]` ordering convention so getSignerDetailsFromAccount
-   * keeps working post-rotation) from the commitment it is given.
+   * `update_signers` proposal whose target list is `[newHotCommit, coldCommit]` from the
+   * commitment it is given. The cold commitment is the on-chain signer of this service's
+   * request signer (the recovery key, `buildColdMultisigService`), found by membership in a
+   * fresh read of the account after the sync: a revoke re-packs the set, so slot 1 can hold
+   * another device's hot key, and a Replace that read it would remove the recovery key.
    *
    * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
    * convenience wrappers (those compute different target lists). At execution
@@ -1394,11 +1531,15 @@ export class MultisigService {
    * Each call first runs `syncBeforeRotationBuild`, so a retry after a
    * pending-delta 409 builds on the settled state.
    */
-  async createReplaceHotKeyProposal(account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+  async createReplaceHotKeyProposal(_account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    const coldPublicKey = this.requestSigner?.publicKey;
+    if (!coldPublicKey) {
+      throw new Error(
+        `Account ${this.accountId}: a Replace needs the cold-bound service, which holds the recovery key`
+      );
+    }
     await this.syncBeforeRotationBuild();
-    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
-    const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitRaw)];
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
@@ -1407,11 +1548,22 @@ export class MultisigService {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
         // WASM call after a parking await needs the ownership re-check - the build,
-        // the request construction, and the summary execution can each park on the
-        // network, and past an eviction the mutex (and the client) belong to a
-        // successor. All three transitions are pre-sign/pre-submit: stopping costs
+        // the account read, the request construction, and the summary execution can
+        // each park on the network, and past an eviction the mutex (and the client)
+        // belong to a successor. All of them are pre-sign/pre-submit: stopping costs
         // the user a retry and nothing else.
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
+        const freshAccount = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the account read');
+        if (!freshAccount) {
+          throw new Error(`Account ${this.accountId} is missing from local client`);
+        }
+        const coldCommitment = await findOwnSignerCommitment(freshAccount, coldPublicKey);
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the recovery key read');
+        if (!coldCommitment) {
+          throw new Error(`Account ${this.accountId}: the recovery (cold) key is not an on-chain signer`);
+        }
+        const targetSignerCommitments = [ensure0x(newHotCommitmentHex), ensure0x(coldCommitment)];
         const { request, salt } = await buildUpdateSignersTransactionRequest(
           webClient,
           targetThreshold,
@@ -1461,6 +1613,161 @@ export class MultisigService {
     );
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
+  }
+
+  /**
+   * Build a proposal that adds a hot signer and keeps every current signer. It is
+   * an `update_signers` proposal whose target list is the current on-chain set
+   * followed by `newHotCommit`, with the threshold unchanged. The other devices'
+   * hot keys continue to work.
+   *
+   * The current set is read in the build hold from a fresh read of the account,
+   * after `syncBeforeRotationBuild`. Do not read it from `account`: that copy was
+   * read before the sync and the guardian adopt, so a signer that another device
+   * added since then is not in it, and the update would remove that signer. Do not
+   * use the SDK's `createAddSignerProposal` either: it reads a cached list and it
+   * does not give the salt back.
+   *
+   * Refuses with `HotKeyAlreadySignerError` when the new commitment is already a
+   * signer, and with `SignerSetFullError` when the set holds `MAX_SIGNERS`. Both
+   * refusals occur before a sign or a submit.
+   *
+   * Sign and submit this proposal with a cold-bound MultisigService, as for
+   * `createReplaceHotKeyProposal`. The first parameter is kept for call-site parity
+   * with it and is not read, for the reason above.
+   */
+  async createAddHotKeyProposal(_account: Account, newHotCommitmentHex: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
+    const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
+    const newHotCommitment = ensure0x(newHotCommitmentHex);
+    // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
+    const targetThreshold = this.multisig.threshold;
+
+    const proposal = await withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        // An eviction ABANDONS this callback rather than cancelling it, so every
+        // WASM call after a parking await needs the ownership re-check. All the
+        // transitions here are pre-sign and pre-submit: stopping costs the user a
+        // retry and nothing else.
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the client build');
+        const freshAccount = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the account read');
+        if (!freshAccount) {
+          throw new Error(`Account ${this.accountId} is missing from local client`);
+        }
+        const currentSigners = getSignerCommitmentsFromAccount(freshAccount).map(ensure0x);
+        if (currentSigners.length === 0) {
+          throw new Error(`Account ${this.accountId}: its on-chain signer set cannot be read`);
+        }
+        if (hasSignerCommitment(freshAccount, newHotCommitment)) {
+          throw new HotKeyAlreadySignerError(this.accountId);
+        }
+        if (currentSigners.length >= MAX_SIGNERS) {
+          throw new SignerSetFullError(this.accountId, currentSigners.length);
+        }
+        const targets = [...currentSigners, newHotCommitment];
+        const { request, salt } = await buildUpdateSignersTransactionRequest(webClient, targetThreshold, targets, {
+          // The account id selects the fee-aware builder (see createReplaceHotKeyProposal).
+          accountId: this.accountId,
+          signatureScheme: 'ecdsa'
+        });
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the update-signers request build');
+        const boundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        // `summary` and `salt` are borrows of the client's RefCell, so touching them
+        // past an eviction IS the double borrow.
+        assertWasmHoldCurrent(hold, 'add-hot-key: after the summary execution');
+        const summaryCommitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+          normalizeProposalHexWord(commitment.toHex())
+        );
+        const summaryBase64 = u8ToB64(summary.serialize());
+        const saltHex = salt.toHex();
+        const nonce = await this.nextProposalNonce(hold, webClient, 'add-hot-key');
+        assertWasmHoldCurrent(hold, 'add-hot-key: before creating the proposal');
+        const metadata: ProposalMetadata = {
+          proposalType: 'add_signer',
+          targetThreshold,
+          targetSignerCommitments: targets,
+          saltHex,
+          boundBlockNum,
+          requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+          description: 'Add device (hot) signer'
+        };
+
+        // The id of the proposal must be the commitment of the summary this device derived and sent, before any
+        // signature.
+        return this.proposalStep(
+          'proposal_create',
+          () => this.createCheckedProposal(hold, nonce, summaryBase64, metadata, summaryCommitmentHex),
+          'replace-hot-key'
+        );
+      },
+      { label: 'add-hot-key-build' }
+    );
+    console.log('Created add-hot-key proposal:', proposal.id);
+    return proposal;
+  }
+
+  /** Remove one device after a fresh state read. Keep this device and the recovery key. */
+  async createRevokeDeviceProposal(target: string, hotPublicKey: string, coldPublicKey: string): Promise<Proposal> {
+    await this.syncBeforeRotationBuild();
+    const targetThreshold = this.multisig.threshold;
+    return withWasmClientLock(
+      async hold => {
+        const webClient = (await getMidenClient()).client;
+        assertWasmHoldCurrent(hold, 'revoke device', 'after client read');
+        const account = await midenClientProxy.getAccount(this.accountId);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after account read');
+        if (!account) throw new Error('Account is unavailable');
+        const own = await findOwnSignerCommitment(account, hotPublicKey);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after device key read');
+        const cold = await findOwnSignerCommitment(account, coldPublicKey);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after recovery key read');
+        if (!own || !cold) throw new Error('Device or recovery key is not a signer');
+        const targetSignerCommitments = deviceSignersAfterRevocation(
+          getSignerCommitmentsFromAccount(account),
+          target,
+          own,
+          cold,
+          targetThreshold
+        );
+        const { request, salt } = await buildUpdateSignersTransactionRequest(
+          webClient,
+          targetThreshold,
+          targetSignerCommitments,
+          { accountId: this.accountId, signatureScheme: 'ecdsa' }
+        );
+        assertWasmHoldCurrent(hold, 'revoke device', 'after request build');
+        const boundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        assertWasmHoldCurrent(hold, 'revoke device', 'after summary execution');
+        const summaryCommitmentHex = readWasmHandle(summary.toCommitment(), commitment =>
+          normalizeProposalHexWord(commitment.toHex())
+        );
+        const summaryBase64 = u8ToB64(summary.serialize());
+        const saltHex = salt.toHex();
+        const nonce = await this.nextProposalNonce(hold, webClient, 'revoke-device');
+        assertWasmHoldCurrent(hold, 'revoke device', 'before creating the proposal');
+        const metadata: ProposalMetadata = {
+          proposalType: 'remove_signer',
+          targetThreshold,
+          targetSignerCommitments,
+          saltHex,
+          boundBlockNum,
+          requiredSignatures: this.multisig.getEffectiveThreshold('remove_signer'),
+          description: 'Revoke device'
+        };
+        // The id of the proposal must be the commitment of the summary this device derived and sent, before any
+        // signature.
+        return this.proposalStep(
+          'proposal_create',
+          () => this.createCheckedProposal(hold, nonce, summaryBase64, metadata, summaryCommitmentHex),
+          'replace-hot-key'
+        );
+      },
+      { label: 'revoke-device-build' }
+    );
   }
 
   /**

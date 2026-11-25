@@ -649,13 +649,7 @@ export const ReviewTransaction: React.FC = () => {
           isDelegateProofEnabled()
         ] as const;
         if (command && approvedCalendarTarget !== undefined) {
-          txId = await initiateSendTransaction(
-            ...commonArguments,
-            authorization,
-            undefined,
-            undefined,
-            approvedCalendarTarget
-          );
+          txId = await initiateSendTransaction(...commonArguments, authorization, undefined, approvedCalendarTarget);
         } else {
           txId =
             authorization === undefined

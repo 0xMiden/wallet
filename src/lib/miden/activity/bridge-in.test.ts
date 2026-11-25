@@ -1274,4 +1274,32 @@ describe('suppressedLinkedConsumeIds', () => {
     expect(result).toEqual(new Set());
     expect(mockAnyOfToArray).not.toHaveBeenCalled();
   });
+
+  it('hides only the restored single-note receipt for a completed Earn withdrawal on the same account', async () => {
+    mockTransactions.push({
+      type: 'earn-withdraw',
+      accountId: 'account',
+      status: 2,
+      extraInputs: { phase: 'received', midenNoteId: '0xABCD' }
+    });
+    const receipt: ITransaction = {
+      id: 'restored',
+      type: 'consume',
+      accountId: 'account',
+      status: 2,
+      displayIcon: 'RECEIVE',
+      initiatedAt: 1,
+      noteIds: ['abcd'],
+      restoredFromBackup: true
+    };
+    expect(
+      await suppressedLinkedConsumeIds([
+        receipt,
+        { ...receipt, id: 'other-account', accountId: 'another-account' },
+        { ...receipt, id: 'another-note', noteIds: ['abce'] },
+        { ...receipt, id: 'batch', noteIds: ['abcd', 'abce'] },
+        { ...receipt, id: 'live', restoredFromBackup: false }
+      ])
+    ).toEqual(new Set(['restored']));
+  });
 });

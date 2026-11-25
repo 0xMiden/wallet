@@ -1310,6 +1310,47 @@ describe('getSwapSettlementNotes', () => {
     expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
   });
 
+  it('sums the recorded payback amounts only when each note of the claim has one', async () => {
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        amount: 1000n,
+        completedAt: 1_700_000_000,
+        extraInputs: {
+          swapOrderTxId: 'swap-1',
+          swapSettleKind: 'settle',
+          swapPaybackAmounts: { 'n-1': '400', 'n-2': '600' }
+        }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        // A claim that also took a note that settlement did not record: its sum can count another source.
+        noteIds: ['n-3', 'n-4'],
+        amount: 900n,
+        completedAt: 1_700_000_050,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapPaybackAmounts: { 'n-3': '500' } }
+      },
+      {
+        id: 'c-3',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-5'],
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim', swapPaybackAmounts: { 'n-5': '700' } }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.paybackAmount)).toEqual([1000n, undefined]);
+    expect(notes.reclaimedTransactions[0]?.paybackAmount).toBeUndefined();
+  });
+
   it('attributes an overlapping note to the earlier consume only', async () => {
     // A later batch that covers a new note as well as one already claimed keeps
     // its row — it delivered something — but not the duplicate id.

@@ -2,13 +2,14 @@ import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
+import { restoreHistoryFromBackup } from 'lib/backup/refresh';
 import {
   clearGuardianNoteRecoveryProgress,
   fetchGuardianNoteRecoveryProgress,
   type GuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { findOwnSignerCommitment, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
@@ -233,8 +234,16 @@ async function createGuardianClientContext(account: WalletAccount, endpoint?: st
   const commitment = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
     if (!sdkAccount) throw new Error(`Recovered Guardian account ${account.publicKey} is unavailable locally`);
-    const details = await getSignerDetailsFromAccount(sdkAccount, useCold);
-    return details.commitment;
+    // Find this device's own signer by membership. Its slot is not fixed: a
+    // membership change moves the slots.
+    const own = await findOwnSignerCommitment(sdkAccount, signerPublicKey);
+    if (own === undefined) {
+      throw new Error(
+        `Recovered Guardian account ${account.publicKey}: no on-chain signer holds this device's ` +
+          `${useCold ? 'cold' : 'hot'} key`
+      );
+    }
+    return own.startsWith('0x') ? own.slice(2) : own;
   });
 
   const guardianEndpoint = endpoint ?? resolveGuardianEndpoint(account);
@@ -953,7 +962,7 @@ function keepReservation(publicKey: string, kept: KeptReservation): void {
  * rest, so this returns false and the account is not run again until then.
  */
 async function notesPassDueBeforeRotation(account: WalletAccount): Promise<boolean> {
-  if (!(await isRotationAwaitingFunding(account.publicKey))) return false;
+  if (!(await isRotationAwaitingFunding(account.publicKey, account.hotKeyRotationRequest))) return false;
   const progress = await fetchGuardianNoteRecoveryProgress(account.publicKey);
   return resumePointFor(account, progress, await readGuardianHistoryGeneration())?.step !== 'history';
 }
@@ -1036,6 +1045,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       console.log(`[GuardianRecovery] Notes recovered for ${account.publicKey}; history waits for the key rotation`);
       return;
     }
+    // Load backup receipts before the Guardian fills gaps in the account history.
+    await restoreHistoryFromBackup();
     // History shares the seed-restore flag: the flag clears once every Guardian
     // source is read or history fails terminally, and a failed source retries
     // in the next session.

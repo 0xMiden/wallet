@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo } from 'react';
+import React, { memo, RefObject, useMemo, useRef } from 'react';
 
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,8 @@ import { ListRow } from 'components/ui/ListRow';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupAvatar } from './ActivityGroupAvatar';
@@ -26,6 +28,8 @@ import { historyEntryActionTitle } from './guardianHistoryLabels';
 import { historyEntryMatchesSearch } from './History';
 import { HistoryLoadErrorCard, HistoryLoadErrorNotice, shortAddr } from './HistoryView';
 import { IHistoryEntry } from './IHistoryEntry';
+import { isActivityClaimWaiting, type PendingActivityItem } from './PendingActivityCard';
+import { activityClaimMatchesSearch } from './useActivityClaimList';
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -50,6 +54,7 @@ export function activityGroupSubtitle(group: ActivityGroup, t: Translate): strin
 
 function latestEvent(group: ActivityGroup, t: Translate): string {
   const entry = group.latest;
+  if (!entry) return t('received');
   if (entry.isUnconfirmed) return t('notConfirmed');
   if (entry.isCancelled) return t('cancelled');
   if (group.kind === 'faucet') return t('faucetRequestTitle');
@@ -82,6 +87,9 @@ function relativeTime(timestamp: number): string | undefined {
 
 export interface ActivityGroupListProps {
   entries: IHistoryEntry[];
+  claims?: readonly PendingActivityItem[];
+  /** Hidden notes have loaded, so the claim card offers Decline. A fee-blocked transfer counts only then. */
+  hiddenLoaded?: boolean;
   /** Resolves a counterparty to a contact's or an own account's name. */
   nameOf: ActivityCounterpartyName;
   initialLoading: boolean;
@@ -93,17 +101,25 @@ export interface ActivityGroupListProps {
   loadMore: (page: number) => Promise<void>;
   scrollParentRef?: RefObject<HTMLDivElement>;
   searchQuery?: string;
+  /** Drops this list's activity-key memory when the wallet account changes. */
+  accountAddress?: string;
 }
 
 /**
- * A group answers a search by what its row shows (the name, the address, the category's label) or by any of its
- * entries, the way the List view's rows would.
+ * A group answers a search by what its row shows (the name, the address, the category's label), by any of its
+ * entries, or by a claim the cards would match: note symbol, resolved token label, asset name, and sender.
  */
-function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): boolean {
+function groupMatchesSearch(
+  group: ActivityGroup,
+  query: string,
+  t: Translate,
+  bridgeConfig: BridgeConfigSnapshot
+): boolean {
   const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
-  return group.entries.some(entry => historyEntryMatchesSearch(entry, query, t));
+  if (group.entries.some(entry => historyEntryMatchesSearch(entry, query, t))) return true;
+  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig));
 }
 
 /**
@@ -116,16 +132,39 @@ function groupMatchesSearch(group: ActivityGroup, query: string, t: Translate): 
  * exhausted (`hasMore` false) the `+` goes and the number is final.
  */
 export const ActivityGroupList = memo<ActivityGroupListProps>(
-  ({ entries, nameOf, initialLoading, loadError, onRetry, hasMore, loadMore, scrollParentRef, searchQuery }) => {
+  ({
+    entries,
+    claims,
+    hiddenLoaded = false,
+    nameOf,
+    initialLoading,
+    loadError,
+    onRetry,
+    hasMore,
+    loadMore,
+    scrollParentRef,
+    searchQuery,
+    accountAddress
+  }) => {
     const { t } = useTranslation();
     const readState = useActivityReadState();
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const query = searchQuery?.trim().toLowerCase() ?? '';
+    // Created with the list and replaced only when the account changes, so a new page of entries
+    // keeps the keys already resolved for this account.
+    const storedKeys = useRef<{ account: string | undefined; keys: Map<string, string> } | undefined>(undefined);
+    if (storedKeys.current === undefined || storedKeys.current.account !== accountAddress) {
+      storedKeys.current = { account: accountAddress, keys: new Map() };
+    }
+    const activityKeys = storedKeys.current.keys;
     const groups = useMemo(() => {
-      const all = groupActivityEntries(entries, nameOf);
-      return query ? all.filter(group => groupMatchesSearch(group, query, t)) : all;
-    }, [entries, nameOf, query, t]);
+      const all = groupActivityEntries(entries, nameOf, claims, activityKeys);
+      return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig)) : all;
+    }, [entries, claims, nameOf, query, t, bridgeConfig, activityKeys]);
 
-    if (groups.length === 0) {
+    const noGroups = groups.length === 0;
+    const canPage = hasMore && scrollParentRef && !loadError && !initialLoading;
+    if (noGroups && !canPage) {
       // As in the List view, a failed read outranks one still loading and never reads as "no activity".
       if (loadError) {
         return (
@@ -156,40 +195,50 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
       // list surfaces exist to stop. It also starts right under the header's own gap: a chat list
       // has no block of air between the rule and the first conversation.
       <ListGroup surface="plain" data-testid="activity-group-list">
-        {groups.map(group => (
-          <ListRow
-            key={`${group.kind}:${group.id}`}
-            to={activityGroupPath(group)}
-            // Every kind takes the same 40px round mark, so the title column starts at one x
-            // down the whole list. See `ActivityGroupAvatar`.
-            avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
-            // Opening a group does not read what is inside it — the dot goes out when the last
-            // unread child has been opened. See `isActivityGroupUnread`.
-            unread={isActivityGroupUnread(readState, group)}
-            unreadLabel={t('activityUnread')}
-            title={activityGroupTitle(group, t)}
-            subtitle={activityGroupSubtitle(group, t)}
-            trailing={
-              <span className="flex items-center gap-2">
-                {/* In flight rows stay visible as a badge on the group rather than dropping out
-                    of a view that only counts settled history. */}
-                {group.pendingCount > 0 && (
-                  <StatusBadge status="pending" size="sm" data-testid="activity-group-pending" />
-                )}
-                <span className="text-body-sm text-muted tabular-nums">
-                  {hasMore ? t('activityGroupPartialCount', { count: group.count }) : String(group.count)}
+        {groups.map(group => {
+          const waitingCount = group.claims.filter(claim => isActivityClaimWaiting(claim, hiddenLoaded)).length;
+          return (
+            <ListRow
+              key={`${group.kind}:${group.id}`}
+              to={activityGroupPath(group)}
+              // Every kind takes the same 40px round mark, so the title column starts at one x
+              // down the whole list. See `ActivityGroupAvatar`.
+              avatar={<ActivityGroupAvatar kind={group.kind} id={group.id} name={group.name} />}
+              // Opening a group does not read what is inside it — the dot goes out when the last
+              // unread child has been opened. See `isActivityGroupUnread`.
+              unread={isActivityGroupUnread(readState, group)}
+              unreadLabel={t('activityUnread')}
+              title={activityGroupTitle(group, t)}
+              subtitle={activityGroupSubtitle(group, t)}
+              trailing={
+                <span className="flex items-center gap-2">
+                  {/* In flight rows stay visible as a badge on the group rather than dropping out
+                      of a view that only counts settled history. */}
+                  {group.pendingCount > 0 && (
+                    <StatusBadge status="pending" size="sm" data-testid="activity-group-pending" />
+                  )}
+                  {waitingCount > 0 && (
+                    <span className="text-body-sm font-medium text-ink">
+                      {t('activityPendingWaiting', { count: waitingCount })}
+                    </span>
+                  )}
+                  {group.count > 0 && (
+                    <span className="text-body-sm text-muted tabular-nums">
+                      {hasMore ? t('activityGroupPartialCount', { count: group.count }) : String(group.count)}
+                    </span>
+                  )}
                 </span>
-              </span>
-            }
-            data-testid="activity-group-row"
-            dataAttributes={{
-              'data-group-kind': group.kind,
-              'data-group-id': group.id,
-              'data-group-count': String(group.count),
-              'data-group-pending': String(group.pendingCount)
-            }}
-          />
-        ))}
+              }
+              data-testid="activity-group-row"
+              dataAttributes={{
+                'data-group-kind': group.kind,
+                'data-group-id': group.id,
+                'data-group-count': String(group.count),
+                'data-group-pending': String(group.pendingCount)
+              }}
+            />
+          );
+        })}
       </ListGroup>
     );
 
@@ -203,7 +252,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
           >
-            {list}
+            {noGroups ? <Spinner /> : list}
           </InfiniteScroll>
         ) : (
           list

@@ -9,10 +9,12 @@
  */
 
 import type { ITransactionType } from 'lib/miden/db/types';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import { isFaucetRequest, networkHasFaucetClaims } from './transactionUtils';
 
 /**
@@ -99,16 +101,73 @@ export interface ActivityGroup extends ActivityGroupKey {
   count: number;
   /** How many of them are still in flight, which is what the row's pending badge reports. */
   pendingCount: number;
-  /** The newest entry, which the row renders as its subtitle. */
-  latest: IHistoryEntry;
-  /** `latest`'s timestamp, or `-Infinity` when no entry in the group carries a usable one. */
+  /** The newest transaction when it is newer than or tied with the visible claims. */
+  latest?: IHistoryEntry;
+  /** Visible claim cards that represent an incoming transfer until the claim settles. */
+  claims: PendingActivityItem[];
+  /** The latest activity timestamp, or `-Infinity` when none is available. */
   latestTimestamp: number;
   /** The contact's or account's name, when the address matches one. `address` groups only. */
   name?: string;
 }
 
 /** Resolves a counterparty address to a contact's or an own account's name, or `undefined`. */
-export type ActivityCounterpartyName = (address: string) => string | undefined;
+export type ActivityCounterpartyName = (address: string, knownKey?: string) => string | undefined;
+
+/**
+ * Counterparty text (trimmed, lowercased) to its activity key, for one mounted wallet account.
+ * The list and the group page each keep their own map. Nothing here retains one across mounts.
+ */
+export type ActivityKeyMemory = Map<string, string>;
+
+const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/i;
+
+function activityCounterpartyText(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+function activityCounterpartyKey(address: string, activityKeys?: ActivityKeyMemory, seen?: Set<string>): string {
+  const fallback = activityCounterpartyText(address);
+  seen?.add(fallback);
+  const suffix = fallback.indexOf('_');
+  if (fallback.startsWith('0x') && (suffix < 0 || !MIDEN_ACCOUNT_HEX.test(fallback.slice(0, suffix)))) {
+    return fallback;
+  }
+  const remembered = activityKeys?.get(fallback);
+  if (remembered !== undefined) return remembered;
+  const canonical = canonicalWalletAccountId(fallback);
+  // The SDK helper can fall back to a tag-stripped string when parsing fails.
+  if (!MIDEN_ACCOUNT_HEX.test(canonical)) return fallback;
+  const key = canonical.toLowerCase();
+  activityKeys?.set(fallback, key);
+  return key;
+}
+
+/** Drops remembered texts this pass did not keep. A non-hex parse fallback is never stored. */
+export function retainActivityKeyMemory(activityKeys: ActivityKeyMemory, texts: Iterable<string>): void {
+  const keep = new Set<string>();
+  for (const text of texts) {
+    const normalized = activityCounterpartyText(text);
+    if (normalized) keep.add(normalized);
+  }
+  for (const text of activityKeys.keys()) {
+    if (!keep.has(text)) activityKeys.delete(text);
+  }
+}
+
+export function activityCounterpartyNames(
+  contacts: readonly { address: string; name: string }[],
+  activityKeys?: ActivityKeyMemory
+): ActivityCounterpartyName {
+  const names = new Map<string, string>();
+  for (const contact of contacts) {
+    const name = contact.name?.trim();
+    if (!name) continue;
+    const key = activityCounterpartyKey(contact.address);
+    if (!names.has(key)) names.set(key, name);
+  }
+  return (address, knownKey) => names.get(knownKey ?? activityCounterpartyKey(address, activityKeys));
+}
 
 /** An entry the wallet has queued or is generating: the rows the pending badge counts. */
 export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
@@ -116,8 +175,8 @@ export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
 }
 
 /** A timestamp a `Date` can be built from; `-Infinity` for anything else, so it never wins a max. */
-function usableTimestamp(entry: IHistoryEntry): number {
-  return Number.isFinite(entry.timestamp) ? entry.timestamp : -Infinity;
+function usableTimestamp(timestamp = -Infinity): number {
+  return Number.isFinite(timestamp) ? timestamp : -Infinity;
 }
 
 /**
@@ -131,17 +190,13 @@ export function activityGroupKeyOf(entry: IHistoryEntry): ActivityGroupKey {
   }
   if (entry.txType === 'swap') return { kind: 'swap', id: 'swap' };
   if (isFaucetRequest(entry)) return { kind: 'faucet', id: 'faucet' };
-  const address = entry.secondaryAddress?.trim();
-  if (address) return { kind: 'address', id: address };
-  return { kind: 'other', id: 'other' };
+  return activityAddressGroupKey(entry.secondaryAddress);
 }
 
-/**
- * Two addresses that differ only in case are one counterparty: a `0x` address is routinely
- * written both ways, and the address book stores whichever the user pasted.
- */
-function addressBucket(key: ActivityGroupKey): string {
-  return key.kind === 'address' ? `address:${key.id.toLowerCase()}` : key.kind;
+function activityAddressGroupKey(counterparty?: string): ActivityGroupKey {
+  const address = counterparty?.trim();
+  if (address) return { kind: 'address', id: address };
+  return { kind: 'other', id: 'other' };
 }
 
 /**
@@ -149,43 +204,69 @@ function addressBucket(key: ActivityGroupKey): string {
  *
  * `nameOf` is consulted once per group, not once per entry: it is the address book plus the
  * user's own accounts, and a group either matches one or shows its truncated address.
+ *
+ * `activityKeys`, when the mounted list supplies it, remembers the counterparties of this pass
+ * and drops the rest. Callers that omit it resolve the keys on each pass.
  */
 export function groupActivityEntries(
   entries: readonly IHistoryEntry[],
-  nameOf: ActivityCounterpartyName = () => undefined
+  nameOf: ActivityCounterpartyName = () => undefined,
+  claims: readonly PendingActivityItem[] = [],
+  activityKeys?: ActivityKeyMemory
 ): ActivityGroup[] {
   const groups = new Map<string, ActivityGroup>();
+  const seen = activityKeys ? new Set<string>() : undefined;
 
-  for (const entry of entries) {
-    const key = activityGroupKeyOf(entry);
-    const bucket = addressBucket(key);
-    const timestamp = usableTimestamp(entry);
+  const getGroup = (key: ActivityGroupKey): ActivityGroup => {
+    const addressKey = key.kind === 'address' ? activityCounterpartyKey(key.id, activityKeys, seen) : undefined;
+    const bucket = addressKey === undefined ? key.kind : `address:${addressKey}`;
     const existing = groups.get(bucket);
-
-    if (!existing) {
-      groups.set(bucket, {
-        ...key,
-        entries: [entry],
-        count: 1,
-        pendingCount: isPendingActivityEntry(entry) ? 1 : 0,
-        latest: entry,
-        latestTimestamp: timestamp,
-        name: key.kind === 'address' ? nameOf(key.id) : undefined
-      });
-      continue;
+    if (existing) {
+      if (existing.kind === 'address' && MIDEN_ACCOUNT_HEX.test(existing.id) && !MIDEN_ACCOUNT_HEX.test(key.id)) {
+        existing.id = key.id;
+      }
+      return existing;
     }
 
-    existing.entries.push(entry);
-    existing.count += 1;
-    if (isPendingActivityEntry(entry)) existing.pendingCount += 1;
+    const group: ActivityGroup = {
+      ...key,
+      entries: [],
+      count: 0,
+      pendingCount: 0,
+      claims: [],
+      latestTimestamp: -Infinity,
+      name: addressKey === undefined ? undefined : nameOf(key.id, addressKey)
+    };
+    groups.set(bucket, group);
+    return group;
+  };
+
+  for (const entry of entries) {
+    const group = getGroup(activityGroupKeyOf(entry));
+    const timestamp = usableTimestamp(entry.timestamp);
+    group.entries.push(entry);
+    group.count += 1;
+    if (isPendingActivityEntry(entry)) group.pendingCount += 1;
     // `>`, not `>=`: the feed hands entries over newest first, so the first entry at a given
     // timestamp is the one the feed itself treats as newest (its secondary sort is the entry
     // type), and a later one must not displace it.
-    if (timestamp > existing.latestTimestamp) {
-      existing.latest = entry;
-      existing.latestTimestamp = timestamp;
+    if (!group.latest || timestamp > group.latestTimestamp) {
+      group.latest = entry;
+      group.latestTimestamp = timestamp;
     }
   }
+
+  for (const claim of claims) {
+    const group = getGroup(activityClaimGroupKeyOf(claim.note));
+    const timestamp = usableTimestamp(claim.note.receivedAt);
+    group.claims.push(claim);
+    if (timestamp > group.latestTimestamp) {
+      group.latest = undefined;
+      group.latestTimestamp = timestamp;
+    }
+  }
+
+  if (activityKeys && seen) retainActivityKeyMemory(activityKeys, seen);
 
   // Newest group first, then by id so a lap that loads no new entry never reshuffles the list.
   return [...groups.values()].sort((a, b) => b.latestTimestamp - a.latestTimestamp || a.id.localeCompare(b.id));
@@ -195,30 +276,37 @@ export function groupActivityEntries(
  * The predicate the group's own page hands to `History`, so that page is the same list as the
  * feed, narrowed — infinite scroll, the in-flight rows and the row rendering all come with it.
  */
-export function activityGroupMatcher(kind: ActivityGroupKind, id?: string): (entry: IHistoryEntry) => boolean {
-  const matches = groupKeyMatcher(kind, id);
+export function activityGroupMatcher(
+  kind: ActivityGroupKind,
+  id?: string,
+  activityKeys?: ActivityKeyMemory
+): (entry: IHistoryEntry) => boolean {
+  const matches = groupKeyMatcher(kind, id, activityKeys);
   return entry => matches(activityGroupKeyOf(entry));
 }
 
 /** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
 export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
-  return isFaucetClaimNote(note)
-    ? { kind: 'faucet', id: 'faucet' }
-    : { kind: 'address', id: note.senderAddress.trim() };
+  return isFaucetClaimNote(note) ? { kind: 'faucet', id: 'faucet' } : activityAddressGroupKey(note.senderAddress);
 }
 
 /** `activityGroupMatcher` for claim cards, which have no history entry yet. */
 export function activityClaimMatcher(
   kind: ActivityGroupKind,
-  id?: string
+  id?: string,
+  activityKeys?: ActivityKeyMemory
 ): (note: { faucetId: string; senderAddress: string }) => boolean {
-  const matches = groupKeyMatcher(kind, id);
+  const matches = groupKeyMatcher(kind, id, activityKeys);
   return note => matches(activityClaimGroupKeyOf(note));
 }
 
-function groupKeyMatcher(kind: ActivityGroupKind, id?: string): (key: ActivityGroupKey) => boolean {
-  const wanted = kind === 'address' ? id?.trim().toLowerCase() : undefined;
-  return key => key.kind === kind && (kind !== 'address' || key.id.toLowerCase() === wanted);
+function groupKeyMatcher(
+  kind: ActivityGroupKind,
+  id: string | undefined,
+  activityKeys?: ActivityKeyMemory
+): (key: ActivityGroupKey) => boolean {
+  const wanted = kind === 'address' && id !== undefined ? activityCounterpartyKey(id, activityKeys) : undefined;
+  return key => key.kind === kind && (kind !== 'address' || activityCounterpartyKey(key.id, activityKeys) === wanted);
 }
 
 /** The route of a group's page. A category group needs no id; an address carries one. */
