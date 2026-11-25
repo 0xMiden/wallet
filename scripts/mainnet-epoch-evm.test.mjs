@@ -377,7 +377,24 @@ test('never lets the headroom exceed the remaining fee budget, falling back to t
     return sign(tx);
   };
   await c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
-  assert.equal(signedFee, BigInt(c.state.evmFeeBudget) / 36_000n);
+  const gas = ((await c.input.client.estimateGas()) * 6n + 4n) / 5n;
+  assert.equal(signedFee, BigInt(c.state.evmFeeBudget) / gas);
+});
+test('caps an approval at half the remaining fee budget so the deposit keeps room', async () => {
+  const c = senderFixture();
+  const gas = ((await c.input.client.estimateGas()) * 6n + 4n) / 5n;
+  const affordable = BigInt(c.state.evmFeeBudget) / gas;
+  const estimate = (affordable * 3n) / 8n;
+  c.input.client.estimateFeesPerGas = async () => ({ maxFeePerGas: estimate, maxPriorityFeePerGas: 1n });
+  const seen = [];
+  const sign = c.input.sign;
+  c.input.sign = async tx => {
+    seen.push(tx.maxFeePerGas);
+    return sign(tx);
+  };
+  await c.build().send(approval(c.state, BigInt(c.state.returnAmount)), activeSignal());
+  assert.equal(seen[0], affordable / 2n);
+  assert.ok(seen[0] >= estimate);
 });
 test('binds the actual SDK deposit expiry within the uploaded window instead of assuming a dry-quote timestamp stays unchanged', async () => {
   const c = senderFixture();
