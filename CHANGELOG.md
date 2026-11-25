@@ -3,6 +3,23 @@
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] Register and receive `.miden` names, track name claims, and use names in Send and Address Book. Use the v17 testnet registry and registration script; read the USDCX name price and registration note fee from the chain. Guardian registration requests include the v17 auth advice and use the same stored request for the proposal and execution.
+- [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
+- [FEATURE][all] Send through NEAR Intents (1Click) from Miden to Ethereum, Solana, Bitcoin or NEAR: the wallet checks the destination address for its chain (EIP-55 checksum, a Solana key on the ed25519 curve, a NEAR account with a dot), sends a public note to the 1Click deposit address, and follows the send to delivery or refund.
+- [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
+- [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device; when two devices of one Guardian account claim the same transfer, the device that does not get it removes its claim with no failed row, and only the device that placed a swap claims that swap's payout unattended, while the other devices hold the payout back from their transfers to accept for 10 minutes and show the swap's fill when it paid more than the request.
+- [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
+- [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
+- [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
+- [FIX][all] Arcade sells a fixed package of 1,000 GC for 1 USDCx plus network fees when a sale can fill the package (#1452).
+- [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
+- [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
+- [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
+- [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
+- [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
+- [CHORE][ci] Run the Bread Connect Swift SDK tests on macOS through Release E2E instead of on every pull request.
+- [FIX][mobile] Keep the Android fullscreen dApp dialog window transparent and draw its backdrop on the animated container so repeated minimize and restore transitions no longer leave duplicate or nested previews (#2046).
+- [CHORE][all] Share the native-Reown versus wagmi contract transaction helper across USDCx deposits and CCTP execution (#1398).
 - [FIX][all] Route transaction detail sections and address roles through an explicit per-type policy so NEAR Intents deposits never inherit Agglayer routes or render refund addresses as Miden senders (#2145).
 - [FIX][mobile] Wrap long transaction details, warnings, and errors inside the dApp confirmation dialog so long identifiers stay within narrow screens (#2045).
 - [FIX][all] Stop Guardian submission when proof freshness cannot be established before the chain-tip deadline.
@@ -31,6 +48,14 @@
 - [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
 - [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
 - [CHANGE][mobile] Build the App Store iOS app, and compile iOS on every pull request, with Xcode 27 and the iOS 27 SDK, which App Store Connect makes mandatory from April 2027 (ITMS-90725). The iOS app now uses the UIScene life cycle, which that SDK needs for the app to start, so deep links and Universal Links arrive through the scene delegate; Capacitor moves to 8.6.2 on iOS and Android; the iOS hot key signer moves to `swift-secp256k1` 0.25.1, which that compiler needs, and makes the same public keys and signatures.
+
+- [FIX][all] Preserve the previous and new Guardian endpoints in encrypted history so other devices show the Guardian names on switch receipts.
+- [FIX][all] Refresh synced contacts when the Send contacts drawer opens and show a loading state while keeping saved contacts available.
+- [FEAT][all] List device signers in Settings and revoke another device with password or biometric authentication and the recovery key; show the notice after the Guardian verdict and use encrypted history for its transaction link.
+- [DOCS][backend] Define per-entry revisions, sync cursors and salt initialization in the wallet backend architecture proposal.
+- [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
+- [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
+- [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
 
 ## 1.18.1 (2026-11-23)
 

@@ -1,4 +1,77 @@
 {
+  "refresh": {
+    "message": "Yenile",
+    "englishSource": "Refresh"
+  },
+  "deviceRevokedBody": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Kurtarma ifadesini kullanarak bu cihazı tekrar ana cihaz yapın veya cüzdanı bu cihazdan kaldırın.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "Bu cihaz, hesabın imzalayanları listesinden kaldırıldı ve artık işlemleri imzalayamaz. Cüzdanı bu cihazdan kaldırın. Kurtarma ifadesini kullanarak erişimi geri yükleyebilirsiniz.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "Bu cihazı iptal etmek için kimlik doğrulaması yapın.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "İptal edilen imza sahibi taahhüdü",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "Cihazlar",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "Bu cihaz",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "Cihazı iptal et",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "Bu cihaz artık işlemleri imzalayamayacaktır. Kurtarma ifadesi varsa erişimi geri kazanabilir.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "Bu hesap için imza vermek üzere kayıtlı cihazlar. Kurtarma anahtarı gösterilmez.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "Bu cihazda saklanan kurtarma ifadesi, iptal işlemini onaylayacaktır.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "İptali onaylamak için kurtarma ifadesini girin. Bu ifade bu cihaza kaydedilmeyecektir.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "Cihaz listesi okunamıyor. Cüzdan senkronize olduktan sonra tekrar deneyin.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "Cihaz $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "Cihaz iptal edildi",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "Bu cihazın yetkisi iptal edildi",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "İptal işlemi",
+    "englishSource": "Revocation transaction"
+  },
   "passkeyUnlock": {
     "message": "Şifre kilidini açma",
     "englishSource": "Passkey unlock"
@@ -119,6 +192,159 @@
   "bridgeRouteAgglayer": {
     "message": "Yavaş · Agglayer",
     "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Niyetleri",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ saniye",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ dakika",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "$amount$ $symbol$ tutarında alırsınız",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents, bu ağda bu tokeni sunmamaktadır.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Bu tutar, NEAR Intents için çok düşüktür. Daha yüksek bir tutar girin.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents bu adrese teslimat yapamaz. Adresi ve ağı kontrol edin.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Teklif değişti ve artık incelediğinizden daha az bir tutar sunuyor. Yeni teklifi inceleyin, ardından tekrar onaylayın.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Ödeme başlamadan önce teklifin süresi doldu. Yeni teklifi inceleyin, ardından tekrar onaylayın.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Takas başarısız olursa, NEAR Intents tutarı bu Miden hesabına iade eder.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Yatırma adresi oluşturuldu",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Para yatırma adresine gönderme",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Yeni bir gönderim başlatın",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Para yatırma adresine yapılan ödeme başarısız oldu, bu nedenle herhangi bir para transferi gerçekleşmedi. Yeni bir para yatırma adresi almak için yeni bir gönderim işlemi başlatın.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Para yatırma adresi oluşturma",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Fonlar NEAR Intents'e gönderilir. $network$'ye teslimat devam eder. Durumunu Activity'den takip edin.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents, ödemeyi $network$ üzerinden gerçekleştirdi.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Alıcı (tahmini) alır",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Teslimat durumu",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "NEAR Intents'e Gönderme",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Alıcıya teslim edildi",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Süresi dolmuş",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Ödeme iadesi",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents takası tamamlayamadı ve tutarı Miden hesabınıza iade etti.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Teslimat başarısız",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents bu ödemeyi gerçekleştiremedi. Ayrıntılar için Etkinliği açın.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Teslimat süresi doldu",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents bu ödemeyi zamanında işleme almadı. Ayrıntılar için Etkinliği açın.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Alıcı aldı",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "$network$ gezgininde görüntüle",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "Bu transfer için bu rota kullanılamıyor. Kullanılabilir başka bir rotayla devam edebilirsiniz. Bu ekrandan herhangi bir işlem gönderilmedi.",
@@ -295,6 +521,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "Cihaz anahtarı değiştirildi",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "Cihaz eklendi",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "Hesap güvence altında",
@@ -2336,8 +2566,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden veya Ethereum adresi girin",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Adresi girin",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Bu cüzdan bu adrese gönderim yapamaz",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Tutar Seç",
@@ -4078,6 +4324,14 @@
     "message": "Günlük anahtarınız değiştiriliyor. Bu işlem, kurtarılmış bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "Bu cihazın eklenmesi",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "Bu cihaz, senkronizasyon yapabilmek ve işlem gerçekleştirebilmek için kendine ait bir günlük anahtar alıyor.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "Günlük anahtar rotasyonu başarısız oldu",
     "englishSource": "Everyday key rotation failed"
@@ -4125,6 +4379,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "Cüzdanı bu cihazdan kaldırın",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "Bu cihaz cüzdanınıza nasıl eklenmelidir?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "Bu cihaz, her gün kendine ait bir anahtar alır. Hesaptan küçük bir ağ ücreti ödenir.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "Bu cüzdanla zaten $count$ adet cihazınız var",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "Bu cüzdanla zaten 1 cihazınız var",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "Bu cihazı ekleyin",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "Bu cihazı ana cihaz olarak ayarlayın",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "Bu cüzdandan diğer tüm cihazlar kaldırılır",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "Kurtarma ifadesini bu cihazda saklayacak mısınız?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "Bu cihazda günlük işlemler kurtarma ifadesi olmadan da gerçekleştirilebilir. Guardian'da değişiklik yapıldığında ve günlük anahtar değiştirme işlemlerinde bu ifadenin girilmesi istenir. Cihazı kaldırmadan önce bu ifadeyi bir yere not edin.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "Kurtarma ifadesini kaldırın",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "Bu cihazda saklayın",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "Günlük anahtar rotasyonu doğrulanmadı",
@@ -9326,8 +9629,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "USDCx ile herhangi bir miktarda GC satın alın; buna ağ ücretleri de eklenir.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "1 USDCx karşılığında 1.000 GC satın alın, artı ağ ücretleri.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC satın alacak",
@@ -9372,9 +9675,9 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "Enter how many GC to buy. The purchase fills the public GC sale note on chain.",
+    "message": "This purchase fills a public GC sale note on chain.",
     "englishSource": "(untranslated)",
-    "rejectedSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "rejectedSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "Ödeme yaparsınız",

@@ -21,6 +21,7 @@ describe('SettingsSelectors', () => {
     PasskeyUnlockButton: 'Settings/PasskeyUnlockButton',
     SpendingLimitsButton: 'Settings/SpendingLimitsButton',
     MidenNameButton: 'Settings/MidenNameButton',
+    DevicesButton: 'Settings/DevicesButton',
     GuardianSettingsButton: 'Settings/GuardianSettingsButton',
     RecoveryPhraseButton: 'Settings/RecoveryPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
@@ -47,6 +48,7 @@ describe('SettingsSelectors', () => {
     expect(SettingsSelectors.KeysButton).toBe('Settings/KeysButton');
     expect(SettingsSelectors.SpendingLimitsButton).toBe('Settings/SpendingLimitsButton');
     expect(SettingsSelectors.MidenNameButton).toBe('Settings/MidenNameButton');
+    expect(SettingsSelectors.DevicesButton).toBe('Settings/DevicesButton');
     expect(SettingsSelectors.RecoveryPhraseButton).toBe('Settings/RecoveryPhraseButton');
     expect(SettingsSelectors.DAppsButton).toBe('Settings/DAppsButton');
     expect(SettingsSelectors.NetworksButton).toBe('Settings/NetworksButton');

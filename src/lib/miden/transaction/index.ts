@@ -27,6 +27,7 @@ import {
   type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
+import { ClaimStartedElsewhereError, claimNoteKeys } from 'lib/miden/guardian/claims-elsewhere';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -68,6 +69,7 @@ import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
+import { classifyProposalCreateRejection } from 'lib/miden/sdk/proposal-create-error-family';
 import { assertSwapAccountBalance, assertSwapVaultBalance, readSwapFeeContext } from 'lib/miden/swap/balance';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -117,6 +119,13 @@ import {
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
+import {
+  CLAIMED_ELSEWHERE_CHECK_SEC,
+  claimNoteIdsOf,
+  isRemovableClaim,
+  notesConsumedOutsideClient,
+  removeClaimMadeElsewhere
+} from './claim-made-elsewhere';
 import {
   completeBridgedSendTransaction,
   completeConsumeTransaction,
@@ -212,7 +221,9 @@ import {
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
+  isCurrentRotationRequest,
   ITransactionType,
+  nearIntentsSendTrackingOf,
   ReplaceHotKeyTransaction,
   SendTransaction,
   StageDetail,
@@ -1074,7 +1085,12 @@ function scheduleRequeueWake(
 }
 
 /** What an arm stamps on the row it requeues, on top of the requeue itself. */
-type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
+type RequeueExtraValues = {
+  unauthorizedRetryUntil?: number;
+  claimedElsewhereCheckUntil?: number;
+  requeueStreak?: IRequeueStreak;
+  guardianBusy?: true;
+};
 
 /**
  * Return a tx to the Queued state for a later generateTransactionsLoop cycle
@@ -2024,8 +2040,10 @@ export const generateTransaction = async (
   const provider: GuardianAccountProvider = {
     ...guardianProvider,
     getAccounts,
-    signWord: (publicKey, wordHex, transactionId) =>
-      guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
+    signWord: (publicKey, wordHex, transactionId, rotationProposal) =>
+      rotationProposal === true
+        ? guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id, true)
+        : guardianProvider.signWord(publicKey, wordHex, transactionId ?? transaction.id)
   };
   try {
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
@@ -2183,6 +2201,15 @@ const generateTransactionWithProvider = async (
         attemptMayHaveCrossed(currentRow, transaction.attemptId);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
+      // Another device of the account has this claim (multi-device): the row is removed with no failure, or waits for
+      // the Guardian's history to name its notes. Before the arms below, each of which would requeue or fail the row.
+      if (
+        !abandonedWrite &&
+        failedAtProposal &&
+        (await settleClaimMadeElsewhere(transaction, error, currentRow, signCallback, guardianProvider))
+      ) {
+        return;
+      }
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
@@ -2505,7 +2532,9 @@ const generateTransactionWithProvider = async (
   try {
     // Validate before fee discovery; keep the pre-write read because the intent can change during that await.
     if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
-    if (transaction.type === 'bridged-send') requireBridgedSendRecordedRequest(transaction);
+    if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) !== 'near-intents') {
+      requireBridgedSendRecordedRequest(transaction);
+    }
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2560,6 +2589,13 @@ const generateTransactionWithProvider = async (
         }
         case 'bridged-send':
         case 'earn-deposit': {
+          if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) === 'near-intents') {
+            // NEAR Intents send: a public P2ID to the 1Click deposit address whose quote deadline `sendTransaction`
+            // checks before its submit. It awaits a verdict and stamps stages like a plain send.
+            return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+              midenClientProxy.sendTransaction(transaction as SendTransaction, signer, stamp, submitGate)
+            );
+          }
           // Both carry the request built at initiate. A bridged send without its own bytes, or without the one note
           // those bytes recorded, was refused before this signer. So was an Earn deposit without its bytes or without
           // that one note, since nothing can rebuild its mandate binding.
@@ -3676,8 +3712,8 @@ const generateDirectSwitchGuardianTransaction = async (
       guardianProvider.signWord
     );
   } catch (error) {
-    // The build compared this device's hot key with the chain's signer slot 0 and
-    // found another device's key there. That is a finding about the ACCOUNT, not
+    // The build found this device's hot key in no slot of the chain's signer set: another
+    // device rotated it out. That is a finding about the ACCOUNT, not
     // about this switch, and the row's failure is the only place it would otherwise
     // surface; persist it so the wallet can say that another device holds the
     // account (`isHotKeyRotatedOut`). Best-effort, then the row fails as before.
@@ -3955,6 +3991,81 @@ const assertPriorCandidateSettled = async (transaction: ITransaction, service: M
   const state = await service.priorCandidateState(prior.nonce);
   if (state === 'candidate') throw new GuardianBackpressureError(accountId, prior.nonce);
   if (state === 'settled') clearGuardianCandidate(accountId, prior.nonce);
+};
+
+/**
+ * Settle a claim that failed at its proposal because another device of the account has the note (multi-device).
+ * Returns true when the row is settled here: removed, or put back in the queue to ask again. False leaves the row
+ * to the arms after this one, with its own error.
+ *
+ * Two failures arrive here:
+ *
+ * - `ClaimStartedElsewhereError`: the gate saw the pending claim of another device. The row is removed.
+ * - The multisig client's `ConsumeNoteNotAuthenticatedError`: it cannot authenticate a note that is consumed. The
+ *   local store does not say who consumed it (a sender can take a note back), so the row is removed only when the
+ *   Guardian's canonical history names every such note as an input of this account, which shows that the account
+ *   holds the assets. The Guardian makes a delta canonical some seconds after its transaction lands, so a claim with
+ *   no such evidence waits in the queue until `claimedElsewhereCheckUntil` and then fails with its own error.
+ *
+ * Every read here can fail, and a failed read settles nothing.
+ */
+const settleClaimMadeElsewhere = async (
+  transaction: ITransaction,
+  error: unknown,
+  currentRow: ITransaction | undefined,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider
+): Promise<boolean> => {
+  if (!isRemovableClaim(transaction)) return false;
+  if (error instanceof ClaimStartedElsewhereError) {
+    const removed = await removeClaimMadeElsewhere(transaction.id, transaction.attemptId);
+    if (removed) console.warn(`[Guardian] removed claim ${transaction.id}: another device started it`);
+    return removed;
+  }
+  if (classifyProposalCreateRejection(error) !== 'consume_note_authentication') return false;
+  let evidence: 'none' | 'claimed' | 'not-named-yet' = 'none';
+  try {
+    const consumed = await notesConsumedOutsideClient(claimNoteIdsOf(transaction));
+    if (consumed.length > 0) {
+      const service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const claimed = await service.notesClaimedByAccount();
+      const named = claimed !== undefined && [...claimNoteKeys(consumed)].every(noteKey => claimed.has(noteKey));
+      evidence = named ? 'claimed' : 'not-named-yet';
+    }
+  } catch (readError) {
+    // The lock retired a trap in the note read before it came here. Nothing below calls the client again.
+    console.warn(`[Guardian] could not check whether another device made claim ${transaction.id}`, readError);
+    return false;
+  }
+  switch (evidence) {
+    case 'none':
+      return false;
+    case 'claimed': {
+      const removed = await removeClaimMadeElsewhere(transaction.id, transaction.attemptId);
+      if (removed) console.warn(`[Guardian] removed claim ${transaction.id}: another device claimed its notes`);
+      return removed;
+    }
+    case 'not-named-yet': {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const deadline = currentRow?.claimedElsewhereCheckUntil ?? nowSec + CLAIMED_ELSEWHERE_CHECK_SEC;
+      // Room for the next attempt to run before the deadline, as the unauthorized arm requires.
+      if (nowSec + PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC >= deadline) return false;
+      console.warn(
+        `[Guardian] the notes of claim ${transaction.id} are consumed and the Guardian's history does not name ` +
+          `them yet - asking again in ${PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC}s`
+      );
+      await requeueWithWake(
+        transaction.id,
+        transaction.type,
+        PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC,
+        signCallback,
+        guardianProvider,
+        'guardian_backpressure',
+        { claimedElsewhereCheckUntil: deadline, guardianBusy: true }
+      );
+      return true;
+    }
+  }
 };
 
 /**
@@ -4329,7 +4440,11 @@ const generateGuardianTransaction = async (
         service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
         await releaseUnabandonedCandidate(transaction, service);
         await assertPriorCandidateSettled(transaction, service);
-        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+        // A claim that may be removed asks the Guardian first whether another device of the account already has it
+        // (multi-device). The loop's catch removes the row on the gate's refusal (`settleClaimMadeElsewhere`).
+        proposalResult = isRemovableClaim(transaction)
+          ? await service.createConsumeNotesProposal(consumeNoteIds, { stopIfStartedElsewhere: true })
+          : await service.createConsumeNotesProposal(consumeNoteIds);
       }
       break;
     }
@@ -4450,6 +4565,12 @@ const generateGuardianTransaction = async (
           proposalGuard: 'account_not_guardian'
         });
       }
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      const rotationRequest = rTx.extraInputs?.rotationRequest;
+      const isActivation = !rTx.extraInputs?.revokedSignerCommitment;
+      if (isActivation && !isCurrentRotationRequest(rotationRequest, walletAccount)) {
+        throw new Error(getMessage('recoveryActionUnavailable'));
+      }
       const sdkAccount = await withProposalStep('service_account_read', () =>
         withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
       );
@@ -4459,11 +4580,16 @@ const generateGuardianTransaction = async (
         });
       }
       service = await withProposalStep('service_load', () =>
-        MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord)
+        MultisigService.buildColdMultisigService(
+          sdkAccount,
+          walletAccount,
+          isActivation
+            ? (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, rTx.id, true)
+            : guardianProvider.signWord
+        )
       );
       // Stamp the guardian this rotation runs under before anything below can fail: a switch that
       // completed after initiation moved the account's endpoint, and the row must name this one.
-      const rTx = transaction as ReplaceHotKeyTransaction;
       rTx.extraInputs = { ...(rTx.extraInputs ?? {}), guardianEndpoint: service.guardianEndpoint };
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
@@ -4472,10 +4598,29 @@ const generateGuardianTransaction = async (
       // The key is resolved once, outside the retried call, so every attempt proposes
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
+      if (rTx.extraInputs.revokedSignerCommitment) {
+        const target = rTx.extraInputs.revokedSignerCommitment;
+        if (!walletAccount.hotPublicKey || !walletAccount.coldPublicKey) {
+          throw new Error('Device and recovery public keys are required');
+        }
+        const hotPublicKey = walletAccount.hotPublicKey;
+        const coldPublicKey = walletAccount.coldPublicKey;
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createRevokeDeviceProposal(target, hotPublicKey, coldPublicKey)
+        );
+        break;
+      }
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createReplaceHotKeyProposal(sdkAccount, commitmentHex)
-      );
+      // The mode selects the target signer set. A row without a mode is from before
+      // the field existed, and it is a replace.
+      proposalResult = await withGuardianConflictRetry(() => {
+        switch (rTx.extraInputs?.mode) {
+          case 'add':
+            return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
+          default:
+            return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+        }
+      });
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {
@@ -4513,18 +4658,29 @@ const generateGuardianTransaction = async (
     case 'bridged-send': {
       await assertOwnedNativeBridgeSource(transaction);
       const bridgeTx = transaction as BridgedSendTransaction;
+      const bridgeProvider = bridgeTx.extraInputs?.provider;
       // The recorded request and its one note, before the service load, which can reach the guardian. The note id
       // recorded at initiate stays the one signing is bound to after `proposeRebased` overwrites `requestBytes`.
-      const requestBytes = requireBridgedSendRecordedRequest(transaction);
+      const requestBytes =
+        bridgeProvider === 'near-intents' ? undefined : requireBridgedSendRecordedRequest(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
-      if (bridgeTx.extraInputs?.provider === 'epoch') {
+      if (bridgeProvider === 'near-intents') {
+        // NEAR Intents: a public P2ID note to the 1Click deposit address, with no recall window, as the
+        // ordinary send's non-recallable branch builds it. A bridged-send is not requeueable, so a transient
+        // 409 is waited out in process, as on the other bridge routes.
+        const depositAddress = bridgeTx.secondaryAccountId;
+        if (!depositAddress) throw new Error('The NEAR Intents send has no 1Click deposit address.');
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          service.createSendProposal(depositAddress, bridgeTx.faucetId, BigInt(bridgeTx.amount), NoteType.Public)
+        );
+      } else if (bridgeProvider === 'epoch') {
+        proposalResult = await withGuardianConflictRetry(() =>
+          proposeRebased(service, transaction, requestBytes!, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
         proposalResult = await withGuardianConflictRetry(() =>
-          proposeRebased(service, transaction, requestBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
+          proposeRebased(service, transaction, requestBytes!, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -5069,7 +5225,8 @@ const generateGuardianTransaction = async (
     guardianCoSignReturned = true;
 
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
-    const oneClick = transaction.type === 'send' ? transaction.extraInputs?.oneClick : undefined;
+    // A NEAR Intents send (a `bridged-send` row, or a `send` row of an older build) must not submit past its deadline.
+    const oneClick = nearIntentsSendTrackingOf(transaction);
     const oneClickDeadline = oneClick
       ? assertOneClickFundingDeadlineMatches(
           oneClick.fundingDeadline,

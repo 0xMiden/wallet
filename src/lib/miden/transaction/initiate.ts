@@ -6,7 +6,8 @@ import {
 } from 'lib/bridge/operation';
 import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
+import { getMessage } from 'lib/i18n/core';
+import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -23,6 +24,7 @@ import {
   isNoteTransportConfigured
 } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope, getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { nearIntentsEvmChainId } from 'lib/one-click/chains';
 import { assertOneClickQuoteBinding } from 'lib/one-click/client';
 import { assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
@@ -59,6 +61,7 @@ import {
   ITransactionStatus,
   RegisterNameTransaction,
   IUsdcxBurn,
+  NEAR_INTENTS_NO_EVM_CHAIN_ID,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -1074,7 +1077,6 @@ export const initiateSendTransaction = async (
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
   dappOrigin?: string,
-  oneClick?: IOneClickTrackingData,
   calendarRecallTarget?: string,
   recipientName?: string
 ): Promise<string> => {
@@ -1088,35 +1090,8 @@ export const initiateSendTransaction = async (
   // choice is a couple of taps away and needs no hostile page at all.
   assertValidRecallBlocks(recallBlocks);
   if (calendarRecallTarget !== undefined) {
-    if (dappOrigin !== undefined || oneClick !== undefined) throw new CalendarRecallReviewRequiredError();
+    if (dappOrigin !== undefined) throw new CalendarRecallReviewRequiredError();
     resolveSendReclaimHeight(0, recallBlocks, calendarRecallTarget);
-  }
-
-  if (oneClick) {
-    assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
-    const fundingDeadline = assertOneClickFundingDeadlineMatches(
-      oneClick.fundingDeadline,
-      oneClick.request.deadline,
-      oneClick.quote.quote.deadline
-    );
-    oneClick = { ...oneClick, fundingDeadline };
-    const midenAsset = oneClick.originAsset;
-    const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
-    if (
-      oneClick.direction !== 'miden-to-evm' ||
-      midenAsset.blockchain !== 'miden' ||
-      oneClick.destinationAsset.blockchain === 'miden' ||
-      oneClick.accountId !== senderAccountId ||
-      !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
-      !sameWalletAccountId(oneClick.accountAddress, senderAccountId) ||
-      oneClick.quote.quote.depositAddress !== recipientAccountId ||
-      oneClick.quote.quote.amountIn !== amount.toString() ||
-      oneClick.faucetId !== faucetId ||
-      !configuredAsset ||
-      configuredAsset.faucetId !== faucetId
-    ) {
-      throw new Error('The 1Click send does not match the signed Miden route.');
-    }
   }
 
   if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
@@ -1136,8 +1111,93 @@ export const initiateSendTransaction = async (
   );
   if (recipientName !== undefined) dbTransaction.recipientName = recipientName;
   if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
-  if (oneClick) dbTransaction.extraInputs = { ...dbTransaction.extraInputs, oneClick };
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
+  await queueOutgoingTransaction(
+    { ...dbTransaction, badgeNetwork: badgeNetwork() },
+    spendsOf(dbTransaction),
+    spendingLimitAuthorization
+  );
+
+  return dbTransaction.id;
+};
+
+/** The Miden send that a 1Click quote must bind: who sends, to which deposit address, which faucet and how much. */
+export interface OneClickMidenSend {
+  senderAccountId: string;
+  depositAddress: string;
+  faucetId: string;
+  amount: bigint;
+}
+
+/**
+ * Check that the 1Click tracking binds exactly this Miden send, before any row is queued: the quote signature and its
+ * binding to the request, the funding deadline, the direction, the sender, the refund address (this account), the
+ * deposit address (the note recipient), the amount (`amountIn`) and the configured faucet. Returns the tracking with
+ * its funding deadline. Throws on any difference.
+ */
+export const assertOneClickMidenSend = (
+  oneClick: IOneClickTrackingData,
+  send: OneClickMidenSend
+): IOneClickTrackingData => {
+  assertOneClickQuoteBinding(oneClick.request, oneClick.quote, false, oneClick.config);
+  const fundingDeadline = assertOneClickFundingDeadlineMatches(
+    oneClick.fundingDeadline,
+    oneClick.request.deadline,
+    oneClick.quote.quote.deadline
+  );
+  const midenAsset = oneClick.originAsset;
+  const configuredAsset = oneClick.config.midenAssets.find(asset => asset.assetId === midenAsset.assetId);
+  if (
+    oneClick.direction !== 'miden-to-evm' ||
+    midenAsset.blockchain !== 'miden' ||
+    oneClick.destinationAsset.blockchain === 'miden' ||
+    oneClick.accountId !== send.senderAccountId ||
+    !sameWalletAccountId(oneClick.request.refundTo, oneClick.accountAddress) ||
+    !sameWalletAccountId(oneClick.accountAddress, send.senderAccountId) ||
+    oneClick.quote.quote.depositAddress !== send.depositAddress ||
+    oneClick.quote.quote.amountIn !== send.amount.toString() ||
+    oneClick.faucetId !== send.faucetId ||
+    !configuredAsset ||
+    configuredAsset.faucetId !== send.faucetId
+  ) {
+    throw new Error('The 1Click send does not match the signed Miden route.');
+  }
+  return { ...oneClick, fundingDeadline };
+};
+
+/**
+ * Queue a NEAR Intents send from Miden as a `bridged-send` row with `provider: 'near-intents'`. The Miden leg is a
+ * public P2ID note to the 1Click deposit address (`secondaryAccountId`) with no recall: the wallet must not take back
+ * a deposit that 1Click can already have swapped, and a refund comes back from 1Click to `refundTo`. The real
+ * recipient on the destination chain is `destinationAddress`. The row is a spend of `amount` of `faucetId` for the
+ * spending limit, as a plain send is.
+ */
+export const initiateNearIntentsSendTransaction = async (
+  send: OneClickMidenSend,
+  oneClick: IOneClickTrackingData,
+  spendingLimitAuthorization?: SpendingLimitAuthorization
+): Promise<string> => {
+  const tracking = assertOneClickMidenSend(oneClick, send);
+  const chainId = tracking.destinationAsset.blockchain;
+  const chainName = tracking.config.chains.find(chain => chain.id === chainId)?.name ?? chainId;
+  const dbTransaction = new BridgedSendTransaction(
+    send.senderAccountId,
+    send.amount,
+    tracking.request.recipient,
+    nearIntentsEvmChainId(chainId) ?? NEAR_INTENTS_NO_EVM_CHAIN_ID,
+    'near-intents',
+    send.faucetId
+  );
+  dbTransaction.secondaryAccountId = send.depositAddress;
+  dbTransaction.noteType = NoteTypeEnum.Public;
+  dbTransaction.displayMessage = 'Sending through NEAR Intents';
+  dbTransaction.extraInputs = {
+    ...dbTransaction.extraInputs,
+    destinationChain: { id: chainId, name: chainName },
+    outputAmount: tracking.quote.quote.amountOutFormatted,
+    outputSymbol: tracking.destinationAsset.symbol,
+    oneClick: tracking
+  };
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
@@ -1542,24 +1602,55 @@ export const initiateSwitchGuardianTransaction = async (
  * + secureHotKey facade are only touched once we're actually processing the
  * tx) and persisted to the vault BEFORE submission. Cold-signed; default
  * `update_signers` threshold (1) means cold alone satisfies on-chain.
+ *
+ * `mode` selects the target signer set. `replace` (the default) removes the
+ * other device keys. `add` keeps them and adds the new hot key. The row
+ * records the mode, so a later run of the row uses the same mode.
  */
 export const initiateReplaceHotKeyTransaction = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  mode: HotKeyActivationMode = 'replace',
+  request?: { expected: string | undefined }
 ): Promise<string> => {
   const account = await resolveGuardianWalletAccount(
     accountId,
     guardianProvider,
     'Replace hot key is only supported for Guardian accounts'
   );
+  if (request && (!account.requiresHotKeyRotation || account.hotKeyRotationRequest !== request.expected)) {
+    throw new Error('The wallet activation request changed');
+  }
   const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
   // Record the guardian now: the account's endpoint moves with any later switch, and the history row
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
   // resolves (the account's own, else the network default), as the switch records its previous one.
   const guardianEndpoint = resolveGuardianEndpoint(account);
-  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  dbTransaction.extraInputs = {
+    mode,
+    ...(guardianEndpoint && { guardianEndpoint }),
+    ...(account.hotKeyRotationRequest && { rotationRequest: account.hotKeyRotationRequest })
+  };
   return queueRecoveryChange(dbTransaction);
+};
+
+/** Queue removal of one device. The recovery key signs this account update. */
+export const initiateRevokeDeviceTransaction = async (
+  accountId: string,
+  commitment: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!/^0x[0-9a-f]{64}$/i.test(commitment)) throw new Error('Invalid signer commitment');
+  const account = await resolveGuardianWalletAccount(accountId, guardianProvider, 'Guardian account required');
+  const transaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  transaction.extraInputs = {
+    revokedSignerCommitment: commitment,
+    guardianEndpoint: resolveGuardianEndpoint(account)
+  };
+  transaction.displayMessage = getMessage('revokeDevice');
+  return queueRecoveryChange(transaction);
 };
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
@@ -1684,6 +1775,12 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   return queueRecoveryChange(dbTransaction);
 };
 
+/** The activation mode of a hot-key rotation row; a revocation and the other recovery changes have none. */
+function activationModeOf(transaction: ITransaction): HotKeyActivationMode | undefined {
+  if (transaction.type !== 'replace-hot-key' || transaction.extraInputs?.revokedSignerCommitment) return undefined;
+  return transaction.extraInputs?.mode ?? 'replace';
+}
+
 async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
   return Repo.db.transaction('rw', Repo.transactions, async () => {
     const existing = await Repo.transactions
@@ -1693,11 +1790,24 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
           row.type === transaction.type &&
           compareAccountIds(row.accountId, transaction.accountId) &&
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.revokedSignerCommitment === transaction.extraInputs?.revokedSignerCommitment &&
           row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
           row.extraInputs?.threshold === transaction.extraInputs?.threshold
       )
       .first();
-    if (existing) return existing.id;
+    if (existing) {
+      // One live rotation per account, run in the mode it was queued with: a Replace cuts every other
+      // device off and an Add keeps them, so returning one for the other would let the recovery seed
+      // authorize a change the user did not ask for. A second row would run two rotations against one
+      // signer set, so the other mode is refused until this one ends. A missing mode is a replace.
+      if (
+        activationModeOf(existing) !== activationModeOf(transaction) ||
+        existing.extraInputs?.rotationRequest !== transaction.extraInputs?.rotationRequest
+      ) {
+        throw new Error(getMessage('recoveryActionUnavailable'));
+      }
+      return existing.id;
+    }
     await Repo.transactions.add(transaction);
     return transaction.id;
   });

@@ -1,3 +1,4 @@
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import * as Repo from 'lib/miden/repo';
 
 import {
@@ -11,6 +12,7 @@ import {
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/backup/adopt-signal', () => ({ signalTransactionCompleted: jest.fn() }));
 
 const unconfirmed = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx-u',
@@ -75,6 +77,26 @@ describe('a row proven landed takes its type`s icon (#1081)', () => {
     );
     await completeVerifiedLandedTransaction('tx-u');
     expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: 'RECEIVE' });
+  });
+});
+
+// A row of this device that lands on node evidence is a Completed row like any other, so the
+// encrypted backup uploads it at once, once the write has committed.
+describe('a verified landing signals the encrypted backup', () => {
+  beforeEach(() => jest.mocked(signalTransactionCompleted).mockClear());
+
+  it('signals once after promoting a Failed row', async () => {
+    await Repo.transactions.put(unconfirmed({ status: ITransactionStatus.Failed }));
+    await completeVerifiedLandedTransaction('tx-u');
+    expect(signalTransactionCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not signal for a row the write declined or a row restored from the backup', async () => {
+    await Repo.transactions.put(unconfirmed({ status: ITransactionStatus.Completed }));
+    await completeVerifiedLandedTransaction('tx-u');
+    await Repo.transactions.put(unconfirmed({ status: ITransactionStatus.Failed, restoredFromBackup: true }));
+    await completeVerifiedLandedTransaction('tx-u');
+    expect(signalTransactionCompleted).not.toHaveBeenCalled();
   });
 });
 

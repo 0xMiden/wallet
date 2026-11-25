@@ -566,7 +566,8 @@ const HistoryView = memo<HistoryViewProps>(
     const noEntries = timeline.length === 0;
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
-    if (noEntries) {
+    const canPage = fullHistory && hasMore && scrollParentRef && !loadError && !initialLoading;
+    if (noEntries && !canPage) {
       if (initialLoading && !loadError && hideLoadingSpinner) return null;
       // One read failing while the other still loads is already a failure worth a Retry.
       if (initialLoading && !loadError)
@@ -773,7 +774,7 @@ const HistoryView = memo<HistoryViewProps>(
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}
           >
-            {list}
+            {noEntries ? <Spinner /> : list}
           </InfiniteScroll>
         ) : (
           list

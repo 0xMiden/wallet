@@ -230,6 +230,44 @@ it('preserves a richer local action matched through its execution commitment', a
   expect(local?.recovery).toBeUndefined();
 });
 
+// A peer's threshold update, rotation or Guardian switch has no notes, and its backup receipt has no result bytes:
+// only the final account commitment, which the receipt carries, ties it to the Guardian record.
+it('keeps a restored backup receipt of a transaction with no notes, and adds no second row for it', async () => {
+  await transactions.add({
+    id: 'peer-threshold',
+    type: 'update-procedure-threshold',
+    accountId: 'account',
+    status: ITransactionStatus.Completed,
+    initiatedAt: 1,
+    displayIcon: 'DEFAULT',
+    displayMessage: 'Account secured',
+    transactionId: '0xpeer',
+    restoredFromBackup: true,
+    finalAccountCommitment: 'commitment-2'
+  });
+  for (const endpoint of ['https://one', 'https://two']) {
+    const client = clients.get(endpoint);
+    if (!client) throw new Error('Missing test source');
+    jest.spyOn(client, 'getDelta').mockImplementation(async (_account, nonce) => ({
+      ...delta(nonce),
+      metadata: { proposal: { proposalType: 'update_procedure_threshold' } }
+    }));
+  }
+  jest
+    .mocked(midenClientProxy.decodeGuardianHistory)
+    .mockImplementation(async () => ({ accountId: 'account', inputNotes: [], outputNotes: [] }));
+
+  await run();
+  const rows = await transactions.toArray();
+  expect(rows.map(row => row.recovery?.nonce ?? row.id).sort()).toEqual([1, 3, 'peer-threshold']);
+  expect(await transactions.get('peer-threshold')).toMatchObject({
+    transactionId: '0xpeer',
+    displayMessage: 'Account secured',
+    restoredFromBackup: true
+  });
+  expect(midenClientProxy.getGuardianResultCommitment).not.toHaveBeenCalled();
+});
+
 it('gives a matched local consume only the retained recovery data, across a version upgrade', async () => {
   const localFields = {
     transactionId: '0xlocal',

@@ -9,7 +9,7 @@ import { useContacts } from 'lib/miden/front';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import { useContactBridgeNetworks } from 'screens/contacts/contact-network';
+import { isContactAddressChain, useContactBridgeNetworks } from 'screens/contacts/contact-network';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BridgeNetworkId, defaultBridgeNetwork } from './bridge-networks';
@@ -47,7 +47,8 @@ interface SheetBodyProps {
 const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialName, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
-  const isEvm = detectAddressChain(address) === 'ethereum';
+  const chain = detectAddressChain(address);
+  const isEvm = chain === 'ethereum';
   const [name, setName] = useState(initialName ?? '');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
   const networks = useContactBridgeNetworks();
@@ -60,7 +61,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialName, initi
 
   const save = async () => {
     if (!trimmedName || saving) return;
-    if (!isValidRecipientAddress(address)) {
+    // A Solana, Bitcoin or NEAR address is a send recipient, but not a contact.
+    if (!isValidRecipientAddress(address) || !isContactAddressChain(chain)) {
       setError(t('invalidAddress'));
       setErrorId('invalidAddress');
       return;

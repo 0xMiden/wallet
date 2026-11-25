@@ -1,4 +1,77 @@
 {
+  "refresh": {
+    "message": "새로 고침",
+    "englishSource": "Refresh"
+  },
+  "deviceRevokedBody": {
+    "message": "이 기기는 계정의 서명자 목록에서 제거되었으며 더 이상 거래에 서명할 수 없습니다. 복구 문구를 사용하여 이 기기를 다시 주 기기로 설정하거나, 이 기기에서 지갑을 제거하십시오.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "이 기기는 계정의 서명자 목록에서 제거되었으며 더 이상 거래에 서명할 수 없습니다. 이 기기에서 지갑을 제거하십시오. 복구 문구를 사용하여 접근 권한을 복원할 수 있습니다.",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "이 기기를 취소하려면 인증을 수행하십시오.",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "취소된 서명자 약정",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "기기",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "이 장치",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "기기 권한 취소",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "이 기기는 더 이상 거래에 서명할 수 없게 됩니다. 복구 문구를 가지고 있다면 다시 접근 권한을 회복할 수 있습니다.",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "이 계정의 서명을 위해 등록된 기기들입니다. 복구 키는 표시되지 않습니다.",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "이 기기에 저장된 복구 문구를 통해 취소 승인이 이루어집니다.",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "취소를 승인하려면 복구 문구를 입력하십시오. 이 문구는 이 기기에 저장되지 않습니다.",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "기기 목록을 읽을 수 없습니다. 지갑이 동기화된 후 다시 시도해 주십시오.",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "기기 $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "기기 사용 권한 취소",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "이 장치는 취소되었습니다",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "취소 거래",
+    "englishSource": "Revocation transaction"
+  },
   "passkeyUnlock": {
     "message": "패스키 잠금 해제",
     "englishSource": "Passkey unlock"
@@ -119,6 +192,159 @@
   "bridgeRouteAgglayer": {
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR 인텐트",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$초",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$분",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "$amount$ $symbol$를 수령합니다.",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents는 이 네트워크에서 해당 토큰을 제공하지 않습니다.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "이 금액은 NEAR 인텐트(Intents)에 사용하기에 너무 적습니다. 더 큰 금액을 입력하십시오.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents는 이 주소로 전송할 수 없습니다. 주소와 네트워크를 확인해 주십시오.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "견적 내용이 변경되어 현재 귀하가 검토하신 금액보다 적게 제시되고 있습니다. 새로운 견적을 검토하신 후 다시 확인해 주십시오.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "결제가 시작되기 전에 호가가 만료되었습니다. 새로운 호가를 확인한 후 다시 확인해 주십시오.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "스왑이 실패할 경우, NEAR Intents는 해당 금액을 이 Miden 계정으로 환불합니다.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "생성된 입금 주소",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "입금 주소로 전송",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "새로운 송금 시작",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "입금 주소로의 결제가 실패했으므로 자금이 이체되지 않았습니다. 새로운 입금 주소를 받으려면 송금을 다시 시작하십시오.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "입금 주소 생성",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "자금은 NEAR Intents로 전송됩니다. $network$로의 전송이 계속 진행 중입니다. Activity에서 진행 상황을 확인하세요.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents가 $network$를 통해 결제를 처리했습니다.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "수취인은 (예상)을 받습니다.",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "인도 상태",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "NEAR 인텐트로 전송",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "수신자에게 전달됨",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "만료됨",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "결제 환불",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents에서 스왑을 완료할 수 없어 해당 금액을 귀하의 Miden 계정으로 환불했습니다.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "전달 실패",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents에서 이 결제를 처리할 수 없었습니다. 자세한 내용은 활동을 열어 확인하십시오.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "인도 기한 만료",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents가 이 결제를 제때 처리하지 못했습니다. 자세한 내용은 활동 내역을 확인하십시오.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "수신자가 받았습니다",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "$network$ 탐색기에서 보기",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "이 이체에는 이 경로를 사용할 수 없습니다. 사용 가능한 다른 경로를 통해 계속 진행할 수 있습니다. 이 화면에서는 아직 거래가 제출되지 않았습니다.",
@@ -295,6 +521,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "기기 키가 갱신되었습니다",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "장치 추가됨",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "계정 보안 유지",
@@ -2336,8 +2566,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden 또는 Ethereum 주소 입력",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "주소를 입력하세요",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "이 지갑은 이 주소로 송금할 수 없습니다",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "솔라나",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "비트코인",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "금액 선택",
@@ -4078,6 +4324,14 @@
     "message": "일상용 키가 교체되고 있습니다. 이는 복구된 계정을 설정할 때 동기화 및 거래를 수행할 수 있도록 하기 위해 필요한 과정입니다.",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "이 장치 추가",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "이 기기는 동기화 및 거래를 수행할 수 있도록 전용 일상용 키를 할당받게 됩니다.",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "일일 키 로테이션에 실패했습니다",
     "englishSource": "Everyday key rotation failed"
@@ -4125,6 +4379,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "이 기기에서 지갑 제거",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "이 기기는 지갑에 어떻게 연결되어야 합니까?",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "이 기기에는 매일 고유한 키가 할당됩니다. 계좌에서 소액의 네트워크 수수료가 지불됩니다.",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "이 지갑에는 이미 $count$대의 기기가 연결되어 있습니다.",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "이 지갑에는 이미 1개의 기기가 연결되어 있습니다.",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "이 장치를 추가하세요",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "이 기기를 기본 기기로 설정하세요",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "이 지갑에서는 그 외의 모든 기기가 제거됩니다.",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "이 기기에 복구 문구를 보관하시겠습니까?",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "이 기기에서는 복구 문구 없이도 일상적인 거래가 가능합니다. 가디언(Guardian) 변경이나 일상적인 키 교체 시에는 복구 문구를 입력하라는 메시지가 표시됩니다. 복구 문구를 제거하기 전에 반드시 기록해 두십시오.",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "복구 문구 삭제",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "이 기기에 보관하십시오",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "매일 키 교체는 확인되지 않음",
@@ -9325,8 +9628,8 @@
     "englishSource": "Transactions you make in Arcade games show up here."
   },
   "arcadeGcPurchasePackage": {
-    "message": "USDCx로 네트워크 수수료를 포함하여 원하는 금액의 GC를 구매하세요.",
-    "englishSource": "Buy any amount of GC with USDCx, plus network fees."
+    "message": "1 USDCx에 GC 1,000개를 구매하고, 네트워크 수수료를 추가하십시오.",
+    "englishSource": "Buy 1,000 GC for 1 USDCx, plus network fees."
   },
   "arcadeGcPurchaseAmountLabel": {
     "message": "GC 매수",
@@ -9371,8 +9674,8 @@
     "englishSource": "The GC sale is live. Network fees are paid from your USDCx."
   },
   "arcadeGcPurchaseReviewBody": {
-    "message": "구매할 GC 수량을 입력하십시오. 이 구매는 온체인에 게시된 공개 GC 판매 공note를 채웁니다.",
-    "englishSource": "Enter how many GC to buy. The purchase fills the public GC sale note on chain."
+    "message": "이 매수는 온체인에 게시된 공개 GC 판매 note를 채웁니다.",
+    "englishSource": "This purchase fills a public GC sale note on chain."
   },
   "arcadeGcPurchaseYouPay": {
     "message": "결제",

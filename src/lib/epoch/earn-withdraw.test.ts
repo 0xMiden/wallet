@@ -1942,21 +1942,27 @@ describe('reviewed withdrawals', () => {
     expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
-  it('rechecks availability after preparation and refuses execution if it changed', async () => {
+  it('checks the balance again when the first read is old and refuses a changed balance before saving a row', async () => {
     jest
       .mocked(assertWithdrawalReviewCurrent)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('earnWithdrawRefresh'));
     const execute = jest.fn();
     const deps = baseDeps({ sdk: fakeSdk(execute) });
-    await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
-      'earnWithdrawRefresh'
-    );
+    const clock = jest.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(5_000);
+    try {
+      await expect(gaslessEarnWithdrawalToMiden({ ...validArgs(), review: reviewed() }, deps)).rejects.toThrow(
+        'earnWithdrawRefresh'
+      );
+    } finally {
+      clock.mockRestore();
+    }
     expect(assertWithdrawalReviewCurrent).toHaveBeenCalledTimes(2);
+    expect(deps.initiateRow).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('submits a reviewed withdrawal through the real signing guards', async () => {
+  it('uses one recent balance check and saves the prepared withdrawal before execution', async () => {
     const execute = jest.fn().mockResolvedValue({ nonce: 'NONCE1' });
     const deps = baseDeps({ sdk: fakeSdk(execute) });
 
@@ -1966,6 +1972,8 @@ describe('reviewed withdrawals', () => {
     });
 
     expect(execute).toHaveBeenCalledTimes(1);
+    expect(assertWithdrawalReviewCurrent).toHaveBeenCalledTimes(1);
+    expect(deps.prepareExecution.mock.invocationCallOrder[0]).toBeLessThan(execute.mock.invocationCallOrder[0] ?? 0);
     expect(captureNativeAssetSnapshot).toHaveBeenCalled();
     const row = await Repo.transactions.where({ id: 'TX1' }).first();
     expect(row?.extraInputs).toMatchObject({ submissionState: 'accepted', reviewedMinimumReceivedAtomic: '1' });
@@ -2010,7 +2018,7 @@ describe('reviewed withdrawals', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('refuses a review that expires once its row exists, before any smart-account setup', async () => {
+  it('refuses execution if the review expires while its status screen opens', async () => {
     const review = reviewed();
     const execute = jest.fn();
     const deps = baseDeps({ sdk: fakeSdk(execute) });
@@ -2026,8 +2034,13 @@ describe('reviewed withdrawals', () => {
       now.mockRestore();
     }
     expect(deps.initiateRow).toHaveBeenCalledTimes(1);
-    expect(deps.ensureSmartAccount).not.toHaveBeenCalled();
+    expect(deps.prepareExecution).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
+    expect(deps.markNotSent).toHaveBeenCalledTimes(1);
+    expect(deps.markNotSent.mock.calls[0]?.[1]).toBe(REVIEW_CHANGED);
+    const row = await Repo.transactions.where({ id: 'TX1' }).first();
+    expect(row?.extraInputs).toMatchObject({ phase: 'failed', error: REVIEW_CHANGED });
+    expect(row?.error).toBe(REVIEW_CHANGED);
   });
 
   it('signs against the review extended after a smart-account setup that outlasted it (#2117)', async () => {
@@ -2043,7 +2056,7 @@ describe('reviewed withdrawals', () => {
       sdk: fakeSdk(execute),
       extendReview,
       ensureSmartAccount: jest.fn(async () => {
-        jest.setSystemTime(review.expiresAt);
+        await jest.advanceTimersByTimeAsync(60_000);
       })
     });
 
@@ -2074,34 +2087,4 @@ describe('reviewed withdrawals', () => {
     expect(deps.prepareExecution).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
-
-  // The status page, the Activity failure card and the History row show the saved error as written.
-  it.each(['availability', 'expiry'])(
-    'saves a sentence, not the review key, when the %s check refuses after the row exists',
-    async check => {
-      const review = reviewed();
-      let reads = 0;
-      jest.mocked(assertWithdrawalReviewCurrent).mockImplementation(async () => {
-        reads += 1;
-        if (check === 'availability' && reads > 1) throw new Error('earnWithdrawRefresh');
-      });
-      const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
-      const now = jest.spyOn(Date, 'now');
-      const expire = () => {
-        if (check === 'expiry') now.mockReturnValue(review.expiresAt);
-      };
-      try {
-        await expect(
-          gaslessEarnWithdrawalToMiden({ ...validArgs(), review, onRowCreated: expire }, deps)
-        ).rejects.toThrow(new Error('earnWithdrawRefresh'));
-      } finally {
-        now.mockRestore();
-      }
-      expect(deps.markNotSent).toHaveBeenCalledTimes(1);
-      expect(deps.markNotSent.mock.calls[0]?.[1]).toBe(REVIEW_CHANGED);
-      const row = await Repo.transactions.where({ id: 'TX1' }).first();
-      expect(row?.extraInputs).toMatchObject({ phase: 'failed', error: REVIEW_CHANGED });
-      expect(row?.error).toBe(REVIEW_CHANGED);
-    }
-  );
 });

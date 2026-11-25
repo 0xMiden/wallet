@@ -83,7 +83,7 @@ async function activity(context: BrowserContext, id: string, entry = 'sidepanel.
     if (!store) throw new Error('Build with MIDEN_E2E_TEST=true');
     // Fixture is frontend state only: the empty backend remains locked/idle.
     store.setState({ status: 2, isInitialized: true, accounts: [account], currentAccount: account });
-    window.history.replaceState(null, '', `${window.location.pathname}#/history`);
+    window.history.replaceState(null, '', `${window.location.pathname}#/history?filter=all&view=list`);
   }, WalletType.OffChain);
   const row = page.getByRole('radiogroup', { name: 'Activity filters' });
   await expect(row).toBeVisible();

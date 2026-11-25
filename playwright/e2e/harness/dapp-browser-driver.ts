@@ -98,6 +98,10 @@ export interface DappDriverOpts {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 250;
+const ACTIVE_EXPLORE = '[data-page-layer="/browser"] [data-tab-pane="explore"]:not([aria-hidden="true"])';
+const EXPLORE_SEARCH_TOGGLE = '[data-testid="explore-search-toggle"]';
+const EXPLORE_URL_INPUT = '[data-testid="dapp-hero-search"]';
+const DAPP_CAPSULE = '[data-testid="dapp-capsule"]';
 /** How long a screenshot assertion keeps re-capturing for the frame to settle before it fails. */
 const VISUAL_SETTLE_MS = 5_000;
 
@@ -195,12 +199,35 @@ export class DappBrowserDriver {
 
   // ── Navigation / opening ─────────────────────────────────────────────────
 
+  private async evaluateExploreControl(selector: string, action = ''): Promise<boolean> {
+    return this.target.evalJs<boolean>(`
+      const controls = document.querySelectorAll(${JSON.stringify(`${ACTIVE_EXPLORE} :is(${selector})`)});
+      const el = Array.from(controls).find(control => {
+        if (control.closest('[inert], [hidden], [aria-hidden="true"]') || control.disabled) return false;
+        const { left, top, width, height } = control.getBoundingClientRect();
+        const hit = document.elementFromPoint(left + width / 2, top + height / 2);
+        return width > 0 && height > 0 && control.contains(hit);
+      });
+      if (!el) return false;
+      ${action}
+      return true;
+    `);
+  }
+
+  private async waitForExploreControl(selector: string, description: string): Promise<void> {
+    await this.pollUntil(description, () => this.evaluateExploreControl(selector), Boolean);
+  }
+
+  private async actOnExploreControl(selector: string, action: string): Promise<void> {
+    if (!(await this.evaluateExploreControl(selector, action))) {
+      throw new Error(`[dapp-driver] the active Explore pane no longer owns a usable ${selector}`);
+    }
+  }
+
   /** Go to the browser tab and wait for the launcher to be interactive. */
   async gotoBrowserTab(): Promise<void> {
     await this.target.navigateTo('/browser');
-    await this.target.waitFor('[data-testid="explore-search-toggle"], [data-testid="dapp-capsule"]', {
-      timeoutMs: DEFAULT_TIMEOUT_MS
-    });
+    await this.waitForExploreControl(`${EXPLORE_SEARCH_TOGGLE}, ${DAPP_CAPSULE}`, 'a usable active Explore tab');
   }
 
   /**
@@ -228,31 +255,27 @@ export class DappBrowserDriver {
    */
   async openViaUrlBar(dappId: string): Promise<void> {
     const url = this.server.urlFor(dappId);
-    const searchOpen = await this.target.evalJs<boolean>(
-      `return !!document.querySelector('[data-testid="dapp-hero-search"]');`
+    await this.waitForExploreControl(EXPLORE_SEARCH_TOGGLE, 'the active Explore search toggle to be usable');
+    await this.actOnExploreControl(
+      EXPLORE_SEARCH_TOGGLE,
+      `if (el.getAttribute('aria-pressed') !== 'true') el.click();`
     );
-    if (!searchOpen) {
-      await this.target.waitFor('[data-testid="explore-search-toggle"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
-      await this.target.click('[data-testid="explore-search-toggle"]');
-    }
-    await this.target.waitFor('[data-testid="dapp-hero-search"]', { timeoutMs: DEFAULT_TIMEOUT_MS });
+    await this.waitForExploreControl(EXPLORE_URL_INPUT, 'the active Explore URL field to be usable');
     // React controls the input, so setting `.value` directly is invisible to it;
     // go through the native setter + an input event, the same way the other
     // suites fill controlled fields.
-    await this.target.evalJs(
-      `var el = document.querySelector('[data-testid="dapp-hero-search"]');` +
-        `if (!el) return false;` +
-        `var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;` +
+    await this.actOnExploreControl(
+      EXPLORE_URL_INPUT,
+      `const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;` +
         `setter.call(el, ${JSON.stringify(url)});` +
-        `el.dispatchEvent(new Event('input', { bubbles: true }));` +
-        `return true;`
+        `el.dispatchEvent(new Event('input', { bubbles: true }));`
     );
     // The go/return key is what submits — SearchInput only listens for Enter.
-    await this.target.evalJs(
-      `var el = document.querySelector('[data-testid="dapp-hero-search"]');` +
-        `if (!el) return false;` +
-        `el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));` +
-        `return true;`
+    await this.actOnExploreControl(
+      EXPLORE_URL_INPUT,
+      `el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+      }));`
     );
     await this.waitForForeground(dappId);
   }

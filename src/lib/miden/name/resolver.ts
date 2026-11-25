@@ -16,12 +16,19 @@
  */
 
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import { MIDEN_NAME_SLOTS, type MidenNameConfig, getMidenNameConfig } from './config';
 import { type AccountIdParts, encodeDomainFelts, validateMidenLabel } from './encoding';
 import { MidenNameAbortedError, MidenNameUnsupportedNetworkError } from './errors';
-import { readRegistryStorage } from './reads';
+import {
+  assertScopeCurrent,
+  captureEffectiveScope,
+  type EffectiveScope,
+  type RegistryStorageRead,
+  readRegistryStorage
+} from './reads';
 import { accountIdFromParts, decodeAccountWord, idPartsFromHex, statusKeyFeltsForLabel } from './sdk-words';
 
 const RESOLVE_CACHE_TTL_MS = 60_000;
@@ -59,17 +66,29 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 async function forwardLookup(
   config: MidenNameConfig,
   label: string,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  scope: EffectiveScope
 ): Promise<AccountIdParts | null> {
+  const domainWord = encodeDomainFelts(label);
+  throwIfAborted(signal);
+  try {
+    await ensureSdkWasmReady();
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   const registry = idPartsFromHex(config.registryAccountIdHex);
   const commitmentKey = statusKeyFeltsForLabel(label, registry);
-  const domainWord = encodeDomainFelts(label);
-  const storage = await readRegistryStorage(
-    config,
-    [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
-    'midenNameResolveForward'
-  );
-  throwIfAborted(signal);
+  let storage: RegistryStorageRead;
+  try {
+    storage = await readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.domainToAccount, keys: [commitmentKey, domainWord] }],
+      'midenNameResolveForward',
+      { scope, signal }
+    );
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   return (
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, commitmentKey)) ??
     decodeAccountWord(storage.mapValue(MIDEN_NAME_SLOTS.domainToAccount, domainWord))
@@ -84,7 +103,12 @@ async function forwardLookup(
 export async function fetchDomainRecord(label: string): Promise<AccountIdParts | null> {
   const config = getMidenNameConfig();
   if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
-  return forwardLookup(config, label, undefined);
+  const scope = captureEffectiveScope(config.network);
+  try {
+    return await forwardLookup(config, label, undefined, scope);
+  } finally {
+    assertScopeCurrent(scope);
+  }
 }
 
 /**
@@ -93,7 +117,15 @@ export async function fetchDomainRecord(label: string): Promise<AccountIdParts |
  * callers that compare against a wallet account id.
  */
 export async function fetchDomainRecordAccount(label: string): Promise<string | null> {
-  const record = await fetchDomainRecord(label);
+  const config = getMidenNameConfig();
+  if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
+  const scope = captureEffectiveScope(config.network);
+  let record: AccountIdParts | null;
+  try {
+    record = await forwardLookup(config, label, undefined, scope);
+  } finally {
+    assertScopeCurrent(scope);
+  }
   return record === null ? null : getBech32AddressFromAccountId(accountIdFromParts(record));
 }
 
@@ -109,11 +141,17 @@ export async function resolveMidenName(label: string, { signal }: ResolveOptions
   if (!config || validateMidenLabel(label) !== null) return null;
   throwIfAborted(signal);
 
-  const cacheKey = `${config.network}|forward|${label}`;
+  const scope = captureEffectiveScope(config.network);
+  const cacheKey = `${scope.network}|${scope.rpcUrl}|forward|${label}`;
   const cached = readCache(cacheKey);
   if (cached) return cached.value;
 
-  const account = await forwardLookup(config, label, signal);
+  let account: AccountIdParts | null;
+  try {
+    account = await forwardLookup(config, label, signal, scope);
+  } finally {
+    assertScopeCurrent(scope, signal);
+  }
   if (!account) {
     writeCache(cacheKey, null);
     return null;

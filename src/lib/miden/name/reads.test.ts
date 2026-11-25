@@ -1,22 +1,25 @@
-import { getCurrentMidenBlock } from 'lib/epoch/chain';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
-import { MIDEN_NAME_REGISTER_SCRIPT_ROOT, MIDEN_NAME_SLOTS } from './config';
+import { MIDEN_NAME_REGISTER_SCRIPT_ROOT, MIDEN_NAME_SLOTS, getMidenNameConfig } from './config';
 import { type Felts4, priceKeyFelts } from './encoding';
-import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
+import { MidenNameAbortedError, MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import {
   clearMidenNameQuoteCache,
   fetchMidenNameIssued,
   fetchMidenNameQuote,
   fetchRegistrationNoteState,
   findRegistryDeliveryNoteIds,
-  getChainTip
+  getChainTip,
+  readRegistryStorage
 } from './reads';
 import { domainCommitment, statusKeyFeltsForLabel } from './sdk-words';
 import {
   AccountId,
   AccountStorageRequirements,
+  Endpoint,
   KNOWN_ACCOUNTS,
   NonFungibleAsset,
   NoteId,
@@ -28,11 +31,12 @@ import {
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
 jest.mock('lib/miden-chain/constants', () => ({
-  ensureSdkWasmReady: jest.fn(async () => undefined),
-  getRpcEndpoint: jest.fn(() => 'endpoint')
+  ensureSdkWasmReady: jest.fn(async () => undefined)
 }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));
-jest.mock('lib/epoch/chain', () => ({ getCurrentMidenBlock: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: jest.fn(),
+  getEffectiveRpcUrl: jest.fn(() => 'https://rpc-a.example')
+}));
 jest.mock('lib/miden/sdk/helpers', () => ({ walletAccountIdToSdk: jest.fn() }));
 
 const REGISTRY_HEX = '0x16fb70069eed60110c6207189c8237';
@@ -41,11 +45,13 @@ const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 const TOKEN = { prefix: 0xccn, suffix: 0xddn };
 const ROOT: Felts4 = [11n, 12n, 13n, 14n];
 
+const mockWasmReady = jest.mocked(ensureSdkWasmReady);
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
-const mockTip = jest.mocked(getCurrentMidenBlock);
+const mockRpcUrl = jest.mocked(getEffectiveRpcUrl);
 const mockWalletId = jest.requireMock<{ walletAccountIdToSdk: jest.Mock<AccountId, [string]> }>(
   'lib/miden/sdk/helpers'
 ).walletAccountIdToSdk;
+let rpcEndpoints: string[] = [];
 
 interface FakeNoteStatus {
   status: string;
@@ -69,16 +75,33 @@ function setEntry(slot: string, key: Felts4, value: bigint[]): void {
   mapEntries.set(slot, entries);
 }
 
-function fakeProof(requirements: AccountStorageRequirements) {
-  return {
-    accountId: () => ({ toString: () => provenAccountHex }),
-    blockNum: () => 777,
+let proofsCreated: Array<{ free: jest.Mock<void, []> }> = [];
+
+function createFakeProof(requirements: AccountStorageRequirements) {
+  let freed = false;
+  const assertLive = (member: string) => {
+    if (freed) throw new Error(`AccountProof.${member} called after free()`);
+  };
+  const proof = {
+    accountId: () => {
+      assertLive('accountId');
+      return { toString: () => provenAccountHex };
+    },
+    blockNum: () => {
+      assertLive('blockNum');
+      return 777;
+    },
     getStorageSlotValue: (slot: string) => {
+      assertLive('getStorageSlotValue');
       const value = slotValues.get(slot);
       return value ? new Word(BigUint64Array.from(value)) : undefined;
     },
-    hasStorageMapTooManyEntries: (slot: string) => tooManyEntries.has(slot),
+    hasStorageMapTooManyEntries: (slot: string) => {
+      assertLive('hasStorageMapTooManyEntries');
+      return tooManyEntries.has(slot);
+    },
     getStorageMapEntries: (slot: string) => {
+      assertLive('getStorageMapEntries');
       const request = requirements.slots.find(entry => entry.slot === slot);
       if (!request) return undefined;
       const entries = mapEntries.get(slot) ?? new Map<string, bigint[]>();
@@ -86,26 +109,49 @@ function fakeProof(requirements: AccountStorageRequirements) {
         const value = entries.get(key.toHex());
         return value ? [{ key: () => key, value: () => new Word(BigUint64Array.from(value)) }] : [];
       });
-    }
+    },
+    free: jest.fn(() => {
+      freed = true;
+    })
   };
+  proofsCreated.push(proof);
+  return proof;
+}
+
+function fakeProof(requirements: AccountStorageRequirements) {
+  return createFakeProof(requirements);
 }
 
 const rpc = {
   getAccountProof: jest.fn(async (_id: AccountId, requirements: AccountStorageRequirements) => fakeProof(requirements)),
+  getBlockHeaderByNumber: jest.fn<Promise<{ blockNum: () => number }>, [number | undefined]>(),
   getNetworkNoteStatus: jest.fn<Promise<FakeNoteStatus>, [NoteId]>(),
   syncNotes: jest.fn<Promise<ReturnType<typeof syncResult>>, [number, number, NoteTag[]]>(),
-  getNotesById: jest.fn<Promise<FakeFetchedNote[]>, [NoteId[]]>()
+  getNotesById: jest.fn<Promise<FakeFetchedNote[]>, [NoteId[]]>(),
+  free: jest.fn()
 };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  proofsCreated = [];
+  rpcEndpoints = [];
   clearMidenNameQuoteCache();
+  mockWasmReady.mockReset().mockResolvedValue(undefined);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  mockRpcUrl.mockReturnValue('https://rpc-a.example');
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
   KNOWN_ACCOUNTS.set(TOKEN_HEX, TOKEN);
   ROOT_WORDS.set(MIDEN_NAME_REGISTER_SCRIPT_ROOT, [...ROOT]);
-  RpcClient.mockImplementation(() => rpc);
-  rpc.getAccountProof.mockImplementation(async (_id, requirements) => fakeProof(requirements));
+  RpcClient.mockImplementation((endpoint: Endpoint) => {
+    rpcEndpoints.push(endpoint.url);
+    return rpc;
+  });
+  rpc.getAccountProof.mockReset().mockImplementation(async (_id, requirements) => fakeProof(requirements));
+  rpc.getBlockHeaderByNumber.mockReset().mockResolvedValue({ blockNum: () => 1234 });
+  rpc.getNetworkNoteStatus.mockReset();
+  rpc.syncNotes.mockReset();
+  rpc.getNotesById.mockReset();
+  rpc.free.mockReset();
   mapEntries = new Map();
   slotValues = new Map([[MIDEN_NAME_SLOTS.commitmentVersion, [1n, 0n, 0n, 0n]]]);
   tooManyEntries = new Set();
@@ -123,6 +169,7 @@ describe('fetchMidenNameQuote', () => {
     expect(quote).toEqual({
       label: 'zzqxjv9q1kk',
       available: true,
+      priced: true,
       priceBaseUnits: 1000n,
       networkFeeBaseUnits: 210n,
       scriptAllowed: true,
@@ -147,9 +194,18 @@ describe('fetchMidenNameQuote', () => {
     expect(quote.priceBaseUnits).toBe(120_000_000n);
   });
 
-  it('reads a missing price entry as 0', async () => {
-    const quote = await fetchMidenNameQuote('ab');
-    expect(quote.priceBaseUnits).toBe(0n);
+  it('marks missing and zero price entries as unpriced and unavailable', async () => {
+    const missing = await fetchMidenNameQuote('ab');
+    expect(missing.priceBaseUnits).toBe(0n);
+    expect(missing.priced).toBe(false);
+    expect(missing.available).toBe(false);
+
+    setEntry(MIDEN_NAME_SLOTS.prices, priceKeyFelts(2, TOKEN), [0n, 0n, 0n, 0n]);
+    clearMidenNameQuoteCache();
+    const zero = await fetchMidenNameQuote('ab');
+    expect(zero.priceBaseUnits).toBe(0n);
+    expect(zero.priced).toBe(false);
+    expect(zero.available).toBe(false);
   });
 
   it('marks the script not allowed when the registration root is missing', async () => {
@@ -200,6 +256,27 @@ describe('fetchMidenNameQuote', () => {
     await expect(fetchMidenNameQuote('alice')).rejects.toThrow(MidenNameRegistryMismatchError);
   });
 
+  it('snapshots slot and map values and frees the AccountProof on success and validation errors', async () => {
+    const quote = await fetchMidenNameQuote('alice');
+    expect(quote.scriptAllowed).toBe(true);
+    expect(proofsCreated).toHaveLength(1);
+    expect(proofsCreated[0]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = '0x0000000000000000000000000000ff';
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(proofsCreated[1]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = REGISTRY_HEX;
+    slotValues.set(MIDEN_NAME_SLOTS.commitmentVersion, [2n, 0n, 0n, 0n]);
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(/commitment_version/);
+    expect(proofsCreated[2]?.free).toHaveBeenCalledTimes(1);
+
+    slotValues.set(MIDEN_NAME_SLOTS.commitmentVersion, [1n, 0n, 0n, 0n]);
+    tooManyEntries.add(MIDEN_NAME_SLOTS.assetStatus);
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(proofsCreated[3]?.free).toHaveBeenCalledTimes(1);
+  });
+
   it('builds new wasm arguments for the retry', async () => {
     rpc.getAccountProof.mockRejectedValueOnce(new Error('transport'));
     await fetchMidenNameQuote('alice');
@@ -235,6 +312,21 @@ describe('fetchMidenNameQuote', () => {
   it('throws for an invalid label before any RPC', async () => {
     await expect(fetchMidenNameQuote('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
     expect(rpc.getAccountProof).not.toHaveBeenCalled();
+  });
+
+  it('isolates quote cache by RPC URL within the same network and aborts on mid-flight scope change', async () => {
+    await fetchMidenNameQuote('alice');
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-b.example');
+    await fetchMidenNameQuote('alice');
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(2);
+
+    rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
+      mockRpcUrl.mockReturnValue('https://rpc-a.example');
+      return fakeProof(requirements);
+    });
+    await expect(fetchMidenNameQuote('bob')).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });
 
@@ -273,20 +365,41 @@ describe('fetchRegistrationNoteState', () => {
     });
   });
 
-  it('reports a note that the node does not know yet as unknown, with no retry', async () => {
-    rpc.getNetworkNoteStatus.mockRejectedValue(
-      new Error(
-        'failed to get network note status: grpc request failed for get_network_note_status: Resource Not Found'
-      )
-    );
+  it.each([
+    'failed to get network note status: grpc request failed for get_network_note_status: Resource Not Found',
+    'failed to get network note status: grpc request failed for get_network_note_status: code: Some requested entity was not found'
+  ])('reports a note that the node does not know yet as unknown, with no retry (%s)', async message => {
+    rpc.getNetworkNoteStatus.mockRejectedValue(new Error(message));
     await expect(fetchRegistrationNoteState('0xnote')).resolves.toEqual({ status: 'unknown', attemptCount: 0 });
     expect(rpc.getNetworkNoteStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('throws any other error, with no retry', async () => {
-    rpc.getNetworkNoteStatus.mockRejectedValue(new Error('grpc request failed: unavailable'));
-    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow('unavailable');
+  it.each([
+    'grpc request failed: unavailable',
+    '404 Not Found',
+    'failed to get network note status: 404 Not Found',
+    'failed to get network note status: route not found',
+    'account 0x1234 not found at block 5',
+    'grpc request failed: Resource Not Found'
+  ])('throws unrelated error "%s" with no retry', async message => {
+    rpc.getNetworkNoteStatus.mockRejectedValue(new Error(message));
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow(message);
     expect(rpc.getNetworkNoteStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts on scope switch during status read and on not-found catch branch', async () => {
+    rpc.getNetworkNoteStatus.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return { status: 'Pending', attemptCount: 0, lastError: undefined };
+    });
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getNetworkNoteStatus.mockImplementationOnce(async () => {
+      mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      throw new Error('failed to get network note status: Resource Not Found');
+    });
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });
 
@@ -351,7 +464,7 @@ describe('findRegistryDeliveryNoteIds', () => {
   });
 
   it('scans to the chain tip when toBlock is not given', async () => {
-    mockTip.mockResolvedValue(165337);
+    rpc.getBlockHeaderByNumber.mockResolvedValueOnce({ blockNum: () => 165337 });
     rpc.syncNotes.mockResolvedValueOnce(syncResult(165437, []));
     const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 165237 });
     expect(scan).toEqual({ noteIds: [], scannedTo: 165337 });
@@ -430,16 +543,599 @@ describe('findRegistryDeliveryNoteIds', () => {
     expect(rpc.getNotesById).not.toHaveBeenCalled();
   });
 
+  it('rejects without advancing scannedTo if getNotesById omits a requested candidate note ID', async () => {
+    const registry = new AccountId(REGISTRY_HEX, REGISTRY.prefix, REGISTRY.suffix);
+    const bobNfa = new NonFungibleAsset(registry, [
+      domainCommitment('bob', REGISTRY)[0],
+      domainCommitment('bob', REGISTRY)[1],
+      1n,
+      2n
+    ]);
+    const bobNfa2 = new NonFungibleAsset(registry, [
+      domainCommitment('bob', REGISTRY)[0],
+      domainCommitment('bob', REGISTRY)[1],
+      1n,
+      2n
+    ]);
+    const aliceNfa = new NonFungibleAsset(registry, [
+      domainCommitment('alice', REGISTRY)[0],
+      domainCommitment('alice', REGISTRY)[1],
+      3n,
+      4n
+    ]);
+    rpc.syncNotes
+      .mockResolvedValueOnce(
+        syncResult(165137, [
+          [
+            { sender: REGISTRY_HEX, id: '0xbob' },
+            { sender: REGISTRY_HEX, id: '0xalice' }
+          ]
+        ])
+      )
+      .mockResolvedValueOnce(
+        syncResult(165137, [
+          [
+            { sender: REGISTRY_HEX, id: '0xbob' },
+            { sender: REGISTRY_HEX, id: '0xalice' }
+          ]
+        ])
+      );
+    rpc.getNotesById
+      .mockResolvedValueOnce([fetchedNote('0xbob', [bobNfa])])
+      .mockResolvedValueOnce([fetchedNote('0xbob', [bobNfa2]), fetchedNote('0xalice', [aliceNfa])]);
+
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).rejects.toThrow(/omitted/i);
+    expect(bobNfa.freed).toBe(1);
+
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).resolves.toEqual({ noteIds: ['0xalice'], scannedTo: 165137 });
+    expect(aliceNfa.freed).toBe(1);
+  });
+
   it('makes a new note tag for the retry', async () => {
     rpc.syncNotes.mockRejectedValueOnce(new Error('transport')).mockResolvedValueOnce(syncResult(165137, []));
     await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 });
     expect(rpc.syncNotes.mock.calls[0]?.[2][0]).not.toBe(rpc.syncNotes.mock.calls[1]?.[2][0]);
   });
+
+  it('aborts on scope switch across deferred WASM readiness and before syncNotes retry', async () => {
+    const ready = deferred<void>();
+    mockWasmReady.mockReturnValueOnce(ready.promise);
+    const pendingScan = findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 });
+    mockRpcUrl.mockReturnValue('https://rpc-b.example');
+    ready.resolve(undefined);
+    await expect(pendingScan).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.syncNotes).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.syncNotes.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('transport');
+    });
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.syncNotes).toHaveBeenCalledTimes(1);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xnote1' }]]));
+    rpc.getNotesById.mockImplementationOnce(async () => {
+      mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+      return [fetchedNote('0xnote1')];
+    });
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+  });
 });
 
 describe('getChainTip', () => {
-  it('reads the chain head', async () => {
-    mockTip.mockResolvedValue(1234);
+  it('reads the chain head, pins rpcUrl across retries, and aborts on scope switch', async () => {
     await expect(getChainTip()).resolves.toBe(1234);
+    expect(rpcEndpoints).toEqual(['https://rpc-a.example']);
+
+    rpcEndpoints = [];
+    rpc.getBlockHeaderByNumber
+      .mockRejectedValueOnce(new Error('transport'))
+      .mockResolvedValueOnce({ blockNum: () => 5678 });
+    await expect(getChainTip()).resolves.toBe(5678);
+    expect(rpcEndpoints).toEqual(['https://rpc-a.example', 'https://rpc-a.example']);
+
+    const ready = deferred<void>();
+    mockWasmReady.mockReturnValueOnce(ready.promise);
+    const pending = getChainTip();
+    mockRpcUrl.mockReturnValue('https://rpc-b.example');
+    ready.resolve(undefined);
+    await expect(pending).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getBlockHeaderByNumber).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('readRegistryStorage scope pinning', () => {
+  it('pins rpcUrl across retries and aborts before retry or after WASM readiness on scope switch', async () => {
+    const config = getMidenNameConfig()!;
+    rpc.getAccountProof.mockRejectedValueOnce(new Error('transport'));
+    await readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }], 'direct');
+    expect(rpcEndpoints).toEqual(['https://rpc-a.example', 'https://rpc-a.example']);
+
+    rpc.getAccountProof.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('transport');
+    });
+    await expect(
+      readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }], 'direct-abort')
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(3);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    const ready = deferred<void>();
+    mockWasmReady.mockReturnValueOnce(ready.promise);
+    const pending = readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }],
+      'direct-wasm'
+    );
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+    ready.resolve(undefined);
+    await expect(pending).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const controller = new AbortController();
+    const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+    rpc.getAccountProof.mockClear().mockReturnValueOnce(attempt1.promise);
+    const pendingAbort = readRegistryStorage(
+      config,
+      [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }],
+      'direct-signal-abort',
+      { signal: controller.signal }
+    );
+    await flushMicrotasks();
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+    controller.abort();
+    attempt1.reject(new Error('transient transport'));
+    await expect(pendingAbort).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('cold-start WASM readiness gating', () => {
+  it('awaits ensureSdkWasmReady before constructing SDK objects and short-circuits invalid/cached calls', async () => {
+    let wasmReady = false;
+    const ready = deferred<void>();
+    mockWasmReady.mockImplementationOnce(async () => {
+      await ready.promise;
+      wasmReady = true;
+    });
+    const origFromHex = AccountId.fromHex.bind(AccountId);
+    const fromHexSpy = jest.spyOn(AccountId, 'fromHex').mockImplementation(hex => {
+      if (!wasmReady) throw new Error('WASM not initialized');
+      return origFromHex(hex);
+    });
+
+    try {
+      await expect(fetchMidenNameQuote('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      const quotePromise = fetchMidenNameQuote('alice');
+      await flushMicrotasks();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      ready.resolve(undefined);
+      await expect(quotePromise).resolves.toMatchObject({ label: 'alice' });
+
+      mockWasmReady.mockClear();
+      await expect(fetchMidenNameQuote('alice')).resolves.toMatchObject({ label: 'alice' });
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      wasmReady = false;
+      const ready2 = deferred<void>();
+      mockWasmReady.mockImplementationOnce(async () => {
+        await ready2.promise;
+        wasmReady = true;
+      });
+      await expect(fetchMidenNameIssued('Al!ce')).rejects.toThrow(/Invalid Miden Name label/);
+      expect(mockWasmReady).not.toHaveBeenCalled();
+
+      setEntry(MIDEN_NAME_SLOTS.assetStatus, statusKeyFeltsForLabel('alice', REGISTRY), [1n, 0n, 0n, 0n]);
+      fromHexSpy.mockClear();
+      const issuedPromise = fetchMidenNameIssued('alice');
+      await flushMicrotasks();
+      expect(fromHexSpy).not.toHaveBeenCalled();
+      ready2.resolve(undefined);
+      await expect(issuedPromise).resolves.toBe(true);
+      expect(fromHexSpy).toHaveBeenCalled();
+    } finally {
+      fromHexSpy.mockRestore();
+    }
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    await Promise.resolve();
+  }
+}
+
+describe('RpcClient lifecycle', () => {
+  it('frees the client after proof reads succeed or fail', async () => {
+    await fetchMidenNameQuote('alice');
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+
+    await fetchMidenNameIssued('alice');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    rpc.getAccountProof.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchMidenNameQuote('bob')).rejects.toThrow('rpc down');
+    expect(rpc.free).toHaveBeenCalledTimes(4);
+  });
+
+  it('defers proof client disposal on timeout until underlying attempts settle', async () => {
+    jest.useFakeTimers();
+    try {
+      const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+      const attempt2 = deferred<ReturnType<typeof fakeProof>>();
+      rpc.getAccountProof.mockReturnValueOnce(attempt1.promise).mockReturnValueOnce(attempt2.promise);
+
+      const outcome = fetchMidenNameQuote('alice').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      attempt1.reject(new Error('late failure'));
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+
+      attempt2.reject(new Error('late failure 2'));
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('frees AccountProof handles returned late after timeout without retrying validation errors', async () => {
+    provenAccountHex = '0xwrong';
+    await expect(fetchMidenNameQuote('alice')).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+    expect(proofsCreated[0]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = REGISTRY_HEX;
+    rpc.getAccountProof.mockClear();
+    rpc.free.mockClear();
+
+    jest.useFakeTimers();
+    try {
+      const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+      const attempt2 = deferred<ReturnType<typeof fakeProof>>();
+      rpc.getAccountProof.mockReturnValueOnce(attempt1.promise).mockReturnValueOnce(attempt2.promise);
+
+      const outcome = fetchMidenNameQuote('bob').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      const req1 = rpc.getAccountProof.mock.calls[0]?.[1];
+      const req2 = rpc.getAccountProof.mock.calls[1]?.[1];
+      const lateProof1 = fakeProof(req1!);
+      const lateProof2 = fakeProof(req2!);
+
+      attempt1.resolve(lateProof1);
+      await flushMicrotasks();
+      expect(lateProof1.free).toHaveBeenCalledTimes(1);
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+
+      attempt2.resolve(lateProof2);
+      await flushMicrotasks();
+      expect(lateProof2.free).toHaveBeenCalledTimes(1);
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('frees the client after note-status reads and defers disposal on timeout', async () => {
+    rpc.getNetworkNoteStatus.mockResolvedValueOnce({ status: 'Pending', attemptCount: 0, lastError: undefined });
+    await fetchRegistrationNoteState('0xnote');
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+
+    rpc.getNetworkNoteStatus.mockRejectedValueOnce(new Error('unavailable'));
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toThrow('unavailable');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    jest.useFakeTimers();
+    try {
+      const pending = deferred<FakeNoteStatus>();
+      rpc.getNetworkNoteStatus.mockReturnValueOnce(pending.promise);
+      const outcome = fetchRegistrationNoteState('0xnote').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+
+      pending.resolve({ status: 'Pending', attemptCount: 1, lastError: undefined });
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('frees the scan client after delivery scan with notesCarryingLabel, error, and empty range', async () => {
+    mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xnote1' }]]));
+    rpc.getNotesById.mockResolvedValueOnce([fetchedNote('0xnote1')]);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await findRegistryDeliveryNoteIds({
+      accountId: 'mtst1account',
+      fromBlock: 164937,
+      toBlock: 165137,
+      label: 'alice'
+    });
+    expect(rpc.free).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+
+    rpc.syncNotes.mockRejectedValue(new Error('scan down'));
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 164937, toBlock: 165137 })
+    ).rejects.toThrow('scan down');
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+
+    await findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 165237, toBlock: 165137 });
+    expect(rpc.free).toHaveBeenCalledTimes(2);
+  });
+
+  it('defers delivery-scan client disposal when notesCarryingLabel times out until all attempts settle', async () => {
+    jest.useFakeTimers();
+    try {
+      mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+      rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xnote1' }]]));
+      const getNotes1 = deferred<FakeFetchedNote[]>();
+      const getNotes2 = deferred<FakeFetchedNote[]>();
+      rpc.getNotesById.mockReturnValueOnce(getNotes1.promise).mockReturnValueOnce(getNotes2.promise);
+
+      const outcome = findRegistryDeliveryNoteIds({
+        accountId: 'mtst1account',
+        fromBlock: 164937,
+        toBlock: 165137,
+        label: 'alice'
+      }).then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      getNotes1.resolve([]);
+      await flushMicrotasks();
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      getNotes2.resolve([]);
+      await flushMicrotasks();
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('rejection and microtask scope checks', () => {
+  it('prefers MidenNameAbortedError when scope switches during rejected RPC reads or omitted notes', async () => {
+    const config = getMidenNameConfig()!;
+    rpc.getAccountProof.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('final attempt transport failure');
+    });
+    await expect(
+      readRegistryStorage(config, [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }], 'reject-abort', {
+        scope: { network: MIDEN_NETWORK_NAME.TESTNET, rpcUrl: 'https://rpc-a.example' }
+      })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getBlockHeaderByNumber.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('tip failure');
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xalice' }]]));
+    rpc.getNotesById.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      return [];
+    });
+    await expect(
+      findRegistryDeliveryNoteIds({
+        accountId: 'mtst1account',
+        fromBlock: 164937,
+        toBlock: 165137,
+        label: 'alice'
+      })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+  });
+
+  it('aborts on interleaved microtask switches on outer quote, issued, and delivery scan continuations', async () => {
+    mockWasmReady.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('wasm failed');
+    });
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('wasm failed');
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
+      queueMicrotask(() => queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example')));
+      return fakeProof(requirements);
+    });
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
+      queueMicrotask(() => queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET)));
+      return fakeProof(requirements);
+    });
+    await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockWasmReady.mockImplementationOnce(async () => {
+      mockRpcUrl.mockReturnValue('https://rpc-b.example');
+      throw new Error('wasm failed');
+    });
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      queueMicrotask(() => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getNetworkNoteStatus).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getNetworkNoteStatus.mockImplementationOnce(async () => {
+      queueMicrotask(() => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      return { status: 'Pending', attemptCount: 1, lastError: undefined };
+    });
+    await expect(fetchRegistrationNoteState('0xnote')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    const scheduleTicks = (ticks: number, fn: () => void) => {
+      const step = (remaining: number) => {
+        if (remaining <= 1) queueMicrotask(fn);
+        else queueMicrotask(() => step(remaining - 1));
+      };
+      step(ticks);
+    };
+
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    rpc.getAccountProof.mockClear();
+    await expect(
+      readRegistryStorage(
+        getMidenNameConfig()!,
+        [{ slot: MIDEN_NAME_SLOTS.assetStatus, keys: [[1n, 2n, 0n, 0n]] }],
+        'read-wasm-post-await'
+      )
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    rpc.getAccountProof.mockClear();
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getAccountProof).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+    expect(rpc.getBlockHeaderByNumber).not.toHaveBeenCalled();
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
+      scheduleTicks(3, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return fakeProof(requirements);
+    });
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    await expect(fetchMidenNameQuote('alice')).resolves.toMatchObject({ label: 'alice' });
+
+    rpc.getAccountProof.mockImplementationOnce(async (_id, requirements) => {
+      scheduleTicks(3, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      return fakeProof(requirements);
+    });
+    await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+
+    rpc.getBlockHeaderByNumber.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      return { blockNum: () => 1234 };
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    mockWalletId.mockImplementation(() => new AccountId('0xacc', 1n, 2n));
+    rpc.syncNotes.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return syncResult(165137, []);
+    });
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 164937, toBlock: 165137 })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xalice' }]]));
+    rpc.getNotesById.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      return [fetchedNote('0xalice')];
+    });
+    await expect(
+      findRegistryDeliveryNoteIds({ accountId: 'mtst1account', fromBlock: 164937, toBlock: 165137, label: 'alice' })
+    ).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    clearMidenNameQuoteCache();
+    mockWasmReady.mockImplementationOnce(async () => {
+      scheduleTicks(1, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      throw new Error('wasm rejected');
+    });
+    await expect(fetchMidenNameQuote('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockRpcUrl.mockReturnValue('https://rpc-a.example');
+    rpc.getBlockHeaderByNumber.mockImplementationOnce(async () => {
+      scheduleTicks(2, () => mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET));
+      throw new Error('tip rejected');
+    });
+    await expect(getChainTip()).rejects.toBeInstanceOf(MidenNameAbortedError);
+
+    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+    rpc.getAccountProof.mockImplementationOnce(async () => {
+      scheduleTicks(3, () => mockRpcUrl.mockReturnValue('https://rpc-b.example'));
+      throw new Error('proof rejected');
+    });
+    await expect(fetchMidenNameIssued('alice')).rejects.toBeInstanceOf(MidenNameAbortedError);
   });
 });

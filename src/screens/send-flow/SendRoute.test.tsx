@@ -7,6 +7,7 @@ import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/avail
 
 import { SendRoute, SendRouteProps } from './SendRoute';
 import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
+import type { NearIntentsSendQuote } from './useNearIntentsSendQuote';
 import { useSendRouteEligibility } from './useSendRouteEligibility';
 
 jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
@@ -52,6 +53,7 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
 beforeEach(() => {
   mockAvailability = {};
   mockAgglayerChain = true;
+  mockNearIntentsQuote = { status: 'idle' };
 });
 
 jest.mock('react-i18next', () => ({
@@ -91,9 +93,24 @@ jest.mock('./Route', () => ({
       data-fast-reason={props.fastAvailability.state === 'unavailable' ? props.fastAvailability.reason : ''}
       data-slow-state={props.slowAvailability.state}
       data-slow-reason={props.slowAvailability.state === 'unavailable' ? props.slowAvailability.reason : ''}
+      data-bridge-routes={String(props.bridgeRoutesAvailable)}
+    >
+      {props.nearIntentsCard}
+    </div>
+  ),
+  NearIntentsRouteCard: (props: any) => (
+    <button
+      type="button"
+      data-testid="near-intents-card"
+      data-status={props.quote.status}
+      data-selected={String(props.selected)}
+      onClick={props.onSelect}
     />
   )
 }));
+
+// SendManager owns the quote hook and passes the quote down; the card states have their own tests.
+let mockNearIntentsQuote: NearIntentsSendQuote = { status: 'idle' };
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
 // Confirm CTA's flow colour is assertable without the real Button's cva class computation.
@@ -111,11 +128,13 @@ function renderRoute(
 ) {
   const { faucetId = TEST_MIDEN_USDC_FAUCET, destinationChainId = 11155111, ...viewOverrides } = overrides;
   const props = {
+    nearIntentsQuote: mockNearIntentsQuote,
     route: 'epoch' as const,
     onRouteChange: jest.fn(),
     fastQuoteLoading: false,
     onBack: jest.fn(),
     onConfirm: jest.fn(),
+    bridgeRoutesAvailable: true,
     ...viewOverrides
   };
   const Probe = () => {
@@ -201,6 +220,68 @@ describe('SendRoute', () => {
     renderRoute();
 
     expect(screen.getByTestId('bridge-route-confirm')).toHaveAttribute('data-accent', 'send');
+  });
+
+  describe('NEAR Intents', () => {
+    const NEAR_INTENTS = { chainId: 'sol', recipient: 'SoLaNaRecipient', amount: 20_000_000n };
+
+    it('shows no NEAR Intents card when NEAR Intents does not offer the network', () => {
+      renderRoute();
+
+      expect(screen.queryByTestId('near-intents-card')).not.toBeInTheDocument();
+    });
+
+    it('shows the NEAR Intents card beside the bridge routes with the quote it is given', () => {
+      mockNearIntentsQuote = { status: 'loading' };
+      renderRoute({ nearIntents: NEAR_INTENTS });
+
+      expect(screen.getByTestId('route-options')).toHaveAttribute('data-bridge-routes', 'true');
+      expect(screen.getByTestId('near-intents-card')).toHaveAttribute('data-selected', 'false');
+      expect(screen.getByTestId('near-intents-card')).toHaveAttribute('data-status', 'loading');
+    });
+
+    it('selects NEAR Intents when the card is tapped', () => {
+      const props = renderRoute({ nearIntents: NEAR_INTENTS });
+
+      fireEvent.click(screen.getByTestId('near-intents-card'));
+
+      expect(props.onRouteChange).toHaveBeenCalledWith('near-intents');
+    });
+
+    it('selects NEAR Intents at once when no bridge route serves the network', () => {
+      const props = renderRoute({ nearIntents: NEAR_INTENTS, bridgeRoutesAvailable: false });
+
+      expect(screen.getByTestId('route-options')).toHaveAttribute('data-bridge-routes', 'false');
+      expect(props.onRouteChange).toHaveBeenCalledWith('near-intents');
+    });
+
+    it.each<NearIntentsSendQuote['status']>(['idle', 'loading', 'unsupported', 'error'])(
+      'blocks Confirm while the quote is %s',
+      status => {
+        mockNearIntentsQuote = { status };
+        const props = renderRoute({ route: 'near-intents', nearIntents: NEAR_INTENTS });
+
+        expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+        fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+        expect(props.onConfirm).not.toHaveBeenCalled();
+      }
+    );
+
+    it('confirms NEAR Intents once the quote is ready, whatever the bridge features say', () => {
+      mockAvailability = { fastBridgeOut: DOWN, bridgeOut: DOWN };
+      mockNearIntentsQuote = { status: 'ready' };
+      const props = renderRoute({ route: 'near-intents', nearIntents: NEAR_INTENTS, bridgeRoutesAvailable: false });
+
+      fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+
+      expect(props.onConfirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('blocks Confirm on a bridge route when no bridge route serves the network', () => {
+      renderRoute({ route: 'epoch', nearIntents: NEAR_INTENTS, bridgeRoutesAvailable: false });
+
+      expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+    });
   });
 
   it('forces the send accent on the route options regardless of the route, and wires Confirm', () => {

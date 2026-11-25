@@ -2,10 +2,12 @@ import React, { FC } from 'react';
 
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 
+import { nearIntentsSendTracking } from './helper';
 import { BridgeSuccess } from './success/BridgeSuccess';
 import { EarnSuccess } from './success/EarnSuccess';
 import { GuardianSwitchSuccess } from './success/GuardianSwitchSuccess';
 import { MidenNameSuccess } from './success/MidenNameSuccess';
+import { NearIntentsSendSuccess } from './success/NearIntentsSendSuccess';
 import { SendSuccess } from './success/SendSuccess';
 import { SwapSuccess } from './success/SwapSuccess';
 import { TransactionSuccessProps } from './success/TransactionSuccessLayout';
@@ -18,7 +20,10 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
   return (
     typeof candidate.destinationAddress === 'string' &&
     typeof candidate.destinationNetwork === 'number' &&
-    (candidate.provider === 'epoch' || candidate.provider === 'agglayer' || candidate.provider === 'usdcx')
+    (candidate.provider === 'epoch' ||
+      candidate.provider === 'agglayer' ||
+      candidate.provider === 'usdcx' ||
+      candidate.provider === 'near-intents')
   );
 };
 
@@ -27,7 +32,8 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
  * lives in `./success` and composes the shared `TransactionSuccessLayout`.
  *
  * `swap`, `switch-guardian`, `earn-deposit` and `register-name` route by the tx type; bridged
- * sends route by their extraInputs discriminator. `SendSuccess` covers send
+ * sends route by their extraInputs discriminator, and a NEAR Intents send by its
+ * 1Click tracking (`nearIntentsSendTracking`). `SendSuccess` covers send
  * plus every other type.
  */
 export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
@@ -44,6 +50,11 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
       return <MidenNameSuccess {...props} />;
     default:
       break;
+  }
+
+  const nearIntents = nearIntentsSendTracking(props.transaction);
+  if (nearIntents) {
+    return <NearIntentsSendSuccess {...props} tracking={nearIntents} />;
   }
 
   if (isBridgedSendExtraInputs(extraInputs)) {

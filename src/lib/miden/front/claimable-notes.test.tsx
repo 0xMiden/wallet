@@ -1610,6 +1610,38 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await waitFor(() => expect(ids(_g.__cnTest.kv[CACHE_KEY])).toEqual(['payment']));
   });
 
+  it('holds back the payback of a swap that another device placed, and lists it when the hold is over', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    _g.__cnTest.getBlockTimestamps = jest.fn(
+      async () =>
+        new Map([
+          [10, nowSec - 30],
+          [11, nowSec - 3600]
+        ])
+    );
+    // This device holds no order 901, so each payback of it is a peer's.
+    const peerPayback = (id: string, blockNum?: number) => ({
+      ...makeMockNote({ id }),
+      swapAttachment: { orderId: '901', depth: 1 },
+      blockNum
+    });
+    _g.__cnTest.consumableNotes = [
+      makeMockNote({ id: 'payment' }),
+      peerPayback('fresh-payback', 10),
+      peerPayback('old-payback', 11),
+      // No receive time is known, so the note is shown: a failed block-time read never hides a note.
+      peerPayback('undated-payback')
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const ids = (result.current.data ?? []).map(note => note.id).sort();
+    expect(ids).toEqual(['old-payback', 'payment', 'undated-payback']);
+    expect(result.current.data?.find(note => note.id === 'old-payback')).toMatchObject({ peerSwapPayback: true });
+    expect(result.current.data?.find(note => note.id === 'payment')?.peerSwapPayback).toBeUndefined();
+  });
+
   it('live single-asset notes preserve explicit asset knowledge', async () => {
     // The claim fee gate fails open on such a note: one of the hidden assets may pay the fee.
     _g.__cnTest.consumableNotes = [

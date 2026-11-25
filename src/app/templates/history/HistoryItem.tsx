@@ -13,7 +13,7 @@ import { isMobile } from 'lib/platform';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
-import { guardianHistoryActionKey, historyEntryActionTitle } from './guardianHistoryLabels';
+import { guardianRecoveredActionKey, historyEntryActionTitle } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
@@ -82,7 +82,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       ? midenNameRowTitle(entry, t)
       : undefined;
   const title = entry.guardianRecovered
-    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    ? t(
+        guardianRecoveredActionKey(entry.txType, {
+          reclaimed: entry.guardianReclaimed,
+          hotKeyAdded: entry.hotKeyAdded,
+          revokedSignerCommitment: entry.revokedSignerCommitment
+        })
+      )
     : isFaucet
       ? t('faucetRequest')
       : entry.isUnconfirmed

@@ -42,8 +42,11 @@ const MAX_RESPONSE_BYTES = 1_000_000;
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/;
 const BLOCKCHAIN = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** A reason that the proxy names for a refused request. The proxy hides every other provider reason. */
-export type OneClickErrorCode = 'no_liquidity';
+/**
+ * A reason that the proxy names for a refused request. The proxy hides every other provider reason.
+ * `invalid_recipient`: 1Click refused the destination address of a send from Miden.
+ */
+export type OneClickErrorCode = 'no_liquidity' | 'invalid_recipient';
 
 export class OneClickHttpError extends Error {
   constructor(
@@ -59,7 +62,15 @@ export class OneClickHttpError extends Error {
 function errorCodeOf(body: string): OneClickErrorCode | undefined {
   try {
     const parsed: unknown = JSON.parse(body);
-    return isRecord(parsed) && parsed.error === 'no_liquidity' ? 'no_liquidity' : undefined;
+    if (!isRecord(parsed)) return undefined;
+    switch (parsed.error) {
+      case 'no_liquidity':
+        return 'no_liquidity';
+      case 'invalid_recipient':
+        return 'invalid_recipient';
+      default:
+        return undefined;
+    }
   } catch {
     return undefined;
   }
@@ -171,12 +182,26 @@ export async function requestOneClickJson(
   config: NearIntentsConfig,
   path: string,
   init?: RequestInit,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<unknown> {
   const base = validateConfig(config);
+  const abortError = () =>
+    signal?.reason instanceof Error ? signal.reason : new DOMException('The operation was aborted.', 'AbortError');
+  if (signal?.aborted) throw abortError();
   const controller = new AbortController();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortFromCaller: (() => void) | undefined;
+  // `AbortSignal.any` is missing on iOS before 17.4, so the link to the caller's signal is made by hand.
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortFromCaller = () => {
+      controller.abort(signal?.reason);
+      void reader?.cancel().catch(() => undefined);
+      reject(abortError());
+    };
+    signal?.addEventListener('abort', abortFromCaller, { once: true });
+  });
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       controller.abort();
@@ -195,7 +220,8 @@ export async function requestOneClickJson(
           ...init?.headers
         }
       }),
-      timeout
+      timeout,
+      aborted
     ]);
     reader = response.body?.getReader();
     if (!reader) throw new Error('1Click response body is missing');
@@ -204,7 +230,7 @@ export async function requestOneClickJson(
     let body = '';
     try {
       while (true) {
-        const part = await Promise.race([reader.read(), timeout]);
+        const part = await Promise.race([reader.read(), timeout, aborted]);
         if (part.done) break;
         bytes += part.value.byteLength;
         if (bytes > MAX_RESPONSE_BYTES) throw new Error('1Click response is too large');
@@ -219,6 +245,7 @@ export async function requestOneClickJson(
     return JSON.parse(body);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (abortFromCaller) signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 
@@ -415,7 +442,8 @@ export async function requestOneClickQuote(
   config: NearIntentsConfig,
   request: OneClickQuoteRequest,
   dry = true,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<OneClickQuoteResponse> {
   validateRequest(request);
   const body = {
@@ -435,7 +463,13 @@ export async function requestOneClickQuote(
   // The request names no fees: NEAR set them up on the partner key, and 1Click adds them to the quote. A fee that
   // the wallet sent as well was added a second time. The signed amounts include the fees, so the wallet does not
   // check the quote's unsigned fee fields.
-  const raw = await requestOneClickJson(config, '/v0/quote', { method: 'POST', body: JSON.stringify(body) }, fetcher);
+  const raw = await requestOneClickJson(
+    config,
+    '/v0/quote',
+    { method: 'POST', body: JSON.stringify(body) },
+    fetcher,
+    signal
+  );
   const response = parseOneClickQuoteResponse(raw);
   assertOneClickQuoteBinding(request, response, dry, config);
   return response;

@@ -212,6 +212,8 @@ export default defineConfig({
     // Explore catalog E2E source; see vite.extension.config.ts.
     'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
     'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
+    // Loopback-only development override of the encrypted-backup base URL; see vite.extension.config.ts.
+    'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
     // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
     // (The side-panel one is inert on mobile — no chrome.sidePanel — but it is
     // still defined so the read folds to a constant like every other flag here;

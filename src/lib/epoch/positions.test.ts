@@ -89,6 +89,10 @@ function apiItem(deposits = '0', depositsUSD = 0, lenderKey = 'DUMMY_LENDING', m
 type Answer = { ok: boolean; status: number; json: () => Promise<unknown> };
 const answer = (body: unknown, status = 200): Answer => ({ ok: status < 400, status, json: async () => body });
 const positionsAnswer = (items: unknown) => answer({ success: true, data: { items } });
+const rateLimited = (retryAfter: string | null) => ({
+  ...answer(null, 429),
+  headers: new Headers(retryAfter === null ? undefined : { 'retry-after': retryAfter })
+});
 
 /** Serves an owner's positions with `owner`, and the catalogue routes, which a positions read must never ask for. */
 function serve(
@@ -588,6 +592,207 @@ describe('fetchEarnPositions', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('retries a timed-out withdrawal balance read once and returns the new balance', async () => {
+    jest.useFakeTimers();
+    let requests = 0;
+    const fetchMock = serve((_owner, init) => {
+      requests += 1;
+      if (requests === 2) return positionsAnswer([apiItem('12.5', 12.5)]);
+      return new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      );
+    });
+    try {
+      const read = fetchEarnPositions({ owners: [OWNER], markets: [DUMMY_UID], retryUntil: Date.now() + 30_000 });
+      await jest.advanceTimersByTimeAsync(15_000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const result = await read;
+      expect(result.positions).toEqual([expect.objectContaining({ owner: OWNER, withdrawable: '12.5' })]);
+      expect(result.errors).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops the retry at the quote deadline when the second request also stalls', async () => {
+    jest.useFakeTimers();
+    const fetchMock = serve(
+      (_owner, init) =>
+        new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+    );
+    try {
+      const read = fetchEarnPositions({ owners: [OWNER], markets: [DUMMY_UID], retryUntil: Date.now() + 20_000 });
+      await jest.advanceTimersByTimeAsync(20_000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await read).errors).toEqual([
+        { owner: OWNER, error: 'Request timed out after 5000 ms', stage: 'request' }
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start a request when the request budget stays full until after the review expires', async () => {
+    const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
+    const args = { owners: [OWNER], markets: [DUMMY_UID] };
+    await Promise.all(Array.from({ length: 10 }, () => fetchEarnPositions(args)));
+
+    const result = await fetchEarnPositions({ ...args, retryUntil: Date.now() + 20_000 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(10);
+    expect(result.errors).toEqual([{ owner: OWNER, error: 'No time left for a positions request', stage: 'request' }]);
+  });
+
+  describe('quoted Retry-After', () => {
+    const positionArgs = { owners: [OWNER], markets: [DUMMY_UID] };
+    const rateLimitError = [{ owner: OWNER, error: 'positions request failed (429)', stage: 'request' }];
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(1_700_000_000_000);
+    });
+
+    afterEach(() => jest.useRealTimers());
+
+    it.each([
+      ['delay-seconds', '2'],
+      ['padded delay-seconds', ' 2 '],
+      ['HTTP-date', 'Tue, 14 Nov 2023 22:13:22 GMT'],
+      ['rfc850-date', 'Tuesday, 14-Nov-23 22:13:22 GMT'],
+      ['asctime-date', 'Tue Nov 14 22:13:22 2023']
+    ])('retries one quoted 429 after a usable %s Retry-After and returns the new balance', async (_kind, header) => {
+      const fetchMock = serve().mockResolvedValueOnce(rateLimited(header));
+      fetchMock.mockResolvedValueOnce(positionsAnswer([apiItem('12.5', 12.5)]));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await read).toMatchObject({ positions: [expect.objectContaining({ withdrawable: '12.5' })], errors: [] });
+    });
+
+    it('retries one quoted 429 immediately when Retry-After is 0', async () => {
+      const fetchMock = serve().mockResolvedValueOnce(rateLimited('0')).mockResolvedValueOnce(positionsAnswer([]));
+      const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.errors).toEqual([]);
+    });
+
+    it('retries a quoted 429 only once', async () => {
+      const fetchMock = serve().mockResolvedValueOnce(rateLimited('1')).mockResolvedValueOnce(rateLimited('1'));
+      fetchMock.mockResolvedValueOnce(positionsAnswer([]));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+      let settled = false;
+      void read.then(() => (settled = true));
+
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(settled).toBe(true);
+      expect((await read).errors).toEqual(rateLimitError);
+    });
+
+    it.each([null, '', 'soon', '-1', '1.5', '+2', '1.0'])(
+      'leaves a quoted 429 with an unusable Retry-After (%s) terminal',
+      async header => {
+        const fetchMock = serve().mockResolvedValueOnce(rateLimited(header));
+        const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(result.errors).toEqual(rateLimitError);
+      }
+    );
+
+    it('does not retry a quoted 429 whose Retry-After is not inside the quote window', async () => {
+      const fetchMock = serve().mockResolvedValueOnce(rateLimited('25'));
+      const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.errors).toEqual(rateLimitError);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('does not retry a page positions read for a 429 Retry-After', async () => {
+      const fetchMock = serve().mockResolvedValueOnce(rateLimited('1'));
+      const result = await fetchEarnPositions({ owners: [OWNER] });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.errors).toEqual(rateLimitError);
+    });
+
+    it('does not send the 429 retry when the positions budget stays full through the quote deadline', async () => {
+      const fetchMock = serve();
+      await Promise.all(Array.from({ length: 9 }, () => fetchEarnPositions(positionArgs)));
+      fetchMock.mockResolvedValueOnce(rateLimited('1'));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(10);
+      expect((await read).errors).toEqual(rateLimitError);
+    });
+
+    it.each([408, 503])('still retries a quoted HTTP %s immediately without Retry-After', async status => {
+      const fetchMock = serve().mockResolvedValueOnce(answer(null, status));
+      const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.errors).toEqual([]);
+    });
+  });
+
+  describe('quoted body timeout', () => {
+    const positionArgs = { owners: [OWNER], markets: [DUMMY_UID] };
+    const abortMessage = 'The operation was aborted.';
+    const timedOutBody = (signal?: AbortSignal): Answer => ({
+      ...answer(null),
+      json: () =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException(abortMessage, 'AbortError')), { once: true });
+        })
+    });
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('retries a quoted balance read once when the response body aborts with AbortError', async () => {
+      const fetchMock = serve(() => positionsAnswer([apiItem('12.5', 12.5)]));
+      fetchMock.mockImplementationOnce((_url, init?: { signal?: AbortSignal }) => timedOutBody(init?.signal));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(await read).toMatchObject({ positions: [expect.objectContaining({ withdrawable: '12.5' })], errors: [] });
+    });
+
+    it('reports the positions timeout when a quoted body AbortError retries and the second read also stalls', async () => {
+      const fetchMock = serve((_owner, init) => timedOutBody(init?.signal));
+      const read = fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 20_000 });
+
+      await jest.advanceTimersByTimeAsync(20_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect((await read).errors).toEqual([
+        { owner: OWNER, error: 'Request timed out after 5000 ms', stage: 'response_decode' }
+      ]);
+    });
+
+    it.each([
+      ['does not retry a malformed quoted positions body', new SyntaxError('Unexpected token')],
+      [
+        'does not retry a quoted body AbortError unless the positions timer aborted',
+        new DOMException(abortMessage, 'AbortError')
+      ]
+    ])('%s', async (_description, error) => {
+      const fetchMock = serve(() => ({ ...answer(null), json: () => Promise.reject(error) }));
+      const result = await fetchEarnPositions({ ...positionArgs, retryUntil: Date.now() + 30_000 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.errors).toEqual([{ owner: OWNER, error: error.message, stage: 'response_decode' }]);
+    });
   });
 });
 

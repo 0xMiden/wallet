@@ -2,7 +2,6 @@ import {
   AccountId,
   type AccountProof,
   AccountStorageRequirements,
-  BasicFungibleFaucetComponent,
   Endpoint,
   RpcClient,
   SlotAndKeys
@@ -11,7 +10,9 @@ import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { earnMarketForVault, type EarnVaultInfo, earnVaultTakesDeposits, readEarnVaults } from 'lib/epoch/pools-read';
+import { readFaucetProofMetadata } from 'lib/miden/metadata/faucet-proof';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { isWasmTrap } from 'lib/miden/sdk/wasm-handle';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
@@ -243,17 +244,22 @@ function decodeRegistry(
 
 /** Runs a read of `accountId` at the chain tip; the node's not-found for that account becomes NotDeployedError. */
 async function readAccount<T>(accountId: string, label: string, read: () => Promise<T>): Promise<T> {
-  try {
-    return await withRpcTimeout(read, label);
-  } catch (err) {
-    // miden-node GetAccountError::AccountNotFound (crates/store/src/errors.rs), through the SDK's
-    // "invalid request parameters" wrapper.
-    const missing = /account (0x[0-9a-f]+) not found at block \d+/i.exec(errorMessage(err));
-    if (missing?.[1]?.toLowerCase() === accountId.toLowerCase()) {
-      throw new NotDeployedError(`${accountId} does not exist`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      return await withRpcTimeout(read, label, { retries: 0 });
+    } catch (err) {
+      lastErr = err;
+      if (isWasmTrap(err)) break;
     }
-    throw err;
   }
+  // miden-node GetAccountError::AccountNotFound (crates/store/src/errors.rs), through the SDK's
+  // "invalid request parameters" wrapper.
+  const missing = /account (0x[0-9a-f]+) not found at block \d+/i.exec(errorMessage(lastErr));
+  if (missing?.[1]?.toLowerCase() === accountId.toLowerCase()) {
+    throw new NotDeployedError(`${accountId} does not exist`);
+  }
+  throw lastErr;
 }
 
 function bridgeNetworkId(proof: AccountProof, bridge: string): bigint[] {
@@ -294,9 +300,8 @@ export async function readBridgeRegistry(
 
   // syncStorageMaps returns every map slot of the account (on testnet that is about 1,700 entries,
   // most of them ger_map), so it is the fallback, not the default. The client pages it to the tip.
-  const synced = await withRpcTimeout(
-    () => rpc.syncStorageMaps(0, undefined, AccountId.fromHex(midenBridge)),
-    'agglayer bridge storage maps'
+  const synced = await readAccount(midenBridge, 'agglayer bridge storage maps', () =>
+    rpc.syncStorageMaps(0, undefined, AccountId.fromHex(midenBridge))
   );
   const updates = synced.updates().map(update => ({
     slot: update.slotName(),
@@ -455,19 +460,102 @@ export async function readMidenFaucetMetadata(faucetId: string, rpcUrl: string):
   }
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
-  const fetched = await readAccount(faucetId, 'bridge config faucet', () =>
-    rpc.getAccountDetails(AccountId.fromHex(faucetId))
-  );
-  const account = fetched.account();
-  if (!account) throw new NotAFaucetError(`${faucetId} has no public state`);
-  let faucet: BasicFungibleFaucetComponent;
+  const attempts: { proof?: AccountProof }[] = [];
+  let inFlight = 0;
+  let finished = false;
+  let wasmTrapped = false;
+  let rpcFreed = false;
+  let winningAttempt: { proof?: AccountProof } | undefined;
+  const freeRpcIfDone = () => {
+    if (finished && inFlight === 0 && !wasmTrapped && !rpcFreed) {
+      rpcFreed = true;
+      try {
+        rpc.free?.();
+      } catch {
+        // Ignore cleanup errors on late-settling WASM handles.
+      }
+    }
+  };
   try {
-    faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
-  } catch (err) {
-    if (err instanceof WebAssembly.RuntimeError) throw err;
-    throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+    const proof = await readAccount(faucetId, 'bridge config faucet', () => {
+      const attempt: { proof?: AccountProof } = {};
+      attempts.push(attempt);
+      inFlight++;
+      let pending: Promise<AccountProof>;
+      try {
+        pending = rpc.getAccountProof(AccountId.fromHex(faucetId));
+      } catch (err) {
+        inFlight--;
+        if (isWasmTrap(err)) wasmTrapped = true;
+        throw err;
+      }
+      void pending.then(
+        resolved => {
+          inFlight--;
+          if (finished) {
+            try {
+              if (!wasmTrapped && attempt !== winningAttempt) resolved?.free?.();
+            } catch (err) {
+              if (isWasmTrap(err)) wasmTrapped = true;
+              // Ignore cleanup errors on late-settling WASM handles.
+            } finally {
+              freeRpcIfDone();
+            }
+          } else {
+            attempt.proof = resolved;
+          }
+        },
+        err => {
+          inFlight--;
+          if (isWasmTrap(err)) wasmTrapped = true;
+          if (finished) freeRpcIfDone();
+        }
+      );
+      return pending;
+    });
+    winningAttempt = attempts[attempts.length - 1];
+    try {
+      if (!proof.accountHeader()) throw new NotAFaucetError(`${faucetId} has no public state`);
+      try {
+        const { symbol, decimals } = readFaucetProofMetadata(proof);
+        return { symbol, decimals };
+      } catch (err) {
+        if (isWasmTrap(err)) throw err;
+        throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+      }
+    } catch (err) {
+      if (isWasmTrap(err)) wasmTrapped = true;
+      throw err;
+    } finally {
+      if (!wasmTrapped) {
+        try {
+          proof.free?.();
+        } catch (err) {
+          if (isWasmTrap(err)) wasmTrapped = true;
+          throw err;
+        }
+      }
+    }
+  } finally {
+    finished = true;
+    try {
+      for (const attempt of attempts) {
+        if (wasmTrapped) break;
+        if (attempt !== winningAttempt && attempt.proof) {
+          const staleProof = attempt.proof;
+          attempt.proof = undefined;
+          try {
+            staleProof.free?.();
+          } catch (err) {
+            if (isWasmTrap(err)) wasmTrapped = true;
+            // Ignore cleanup errors on stale WASM handles.
+          }
+        }
+      }
+    } finally {
+      freeRpcIfDone();
+    }
   }
-  return { symbol: faucet.symbol().toString(), decimals: faucet.decimals() };
 }
 
 // One read per faucet per derivation: the Earn probe and the swap registry can name the same faucet.

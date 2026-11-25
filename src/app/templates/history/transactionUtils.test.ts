@@ -33,11 +33,13 @@ import {
   formatDate,
   formatMoneyAmount,
   hasOwnBridgeBadge,
+  historySecondaryAddressOf,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  loadedActivityOneClickTracking,
   networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
@@ -828,10 +830,10 @@ describe('bridgeBadgeStatusOf for an Epoch deposit locked in The Compact (#2120)
     expect(bridgeBadgeStatusOf(retried)).toBe('pending');
   });
 
-  it('reads plain Failed for a restored row', () => {
+  it('shows the recorded lock status for a restored row', () => {
     const restored = locked({ restoredFromBackup: true });
-    expect(hasOwnBridgeBadge(restored)).toBe(false);
-    expect(bridgeBadgeStatusOf(restored)).toBe('failed');
+    expect(hasOwnBridgeBadge(restored)).toBe(true);
+    expect(bridgeBadgeStatusOf(restored)).toBe('depositLocked');
   });
 });
 
@@ -966,6 +968,31 @@ describe('bridgeStatusOf', () => {
   it('defaults an epoch row with no polled status to pending', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'epoch' }))).toBe('pending');
   });
+
+  it.each([
+    ['depositing', 'pending'],
+    ['processing', 'pending'],
+    ['arriving', 'pending'],
+    ['delivered', 'confirmed'],
+    ['refunded', 'failed'],
+    ['failed', 'failed'],
+    ['expired', 'expired']
+  ] as const)('maps the near-intents outbound phase %s', (phase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({
+          bridgeProvider: 'near-intents',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase })
+        })
+      )
+    ).toBe(expected);
+  });
+
+  it('defaults a near-intents outbound row without tracking to pending and keeps own badge', () => {
+    const entry = bridgeEntry({ bridgeProvider: 'near-intents' });
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    expect(hasOwnBridgeBadge(entry)).toBe(true);
+  });
 });
 
 describe('bridgeRowDisplay', () => {
@@ -1002,6 +1029,68 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ bridgeProvider: 'epoch', bridgeDestinationNetwork: 8453 })).network
     ).toBe('Base');
+  });
+
+  it('renders a near-intents outbound row with 1Click provider and non-EVM chain name', () => {
+    expect(
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          token: 'MUSDC',
+          amount: '5',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationNetwork: -1,
+          bridgeDestinationChain: { id: 'sol', name: 'Solana' },
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.95',
+          oneClickTracking: paymentTracking({ direction: 'miden-to-evm', phase: 'delivered' })
+        })
+      )
+    ).toEqual({
+      inSymbol: 'MUSDC',
+      outSymbol: 'USDC',
+      inLabel: 'MUSDC',
+      outLabel: 'USDC',
+      outAmount: '4.95',
+      providerLabel: '1Click',
+      network: 'Solana',
+      status: 'confirmed'
+    });
+
+    const nearIntentsNoQuote = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        bridgeOutputSymbol: 'ETH'
+      })
+    );
+    expect(nearIntentsNoQuote.outSymbol).toBe('ETH');
+    expect(nearIntentsNoQuote.outLabel).toBe('ETH');
+    expect(nearIntentsNoQuote.outAmount).toBeUndefined();
+    expect('amountLabel' in nearIntentsNoQuote).toBe(false);
+
+    const nearIntentsQuoted = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        oneClickTracking: paymentTracking({
+          direction: 'miden-to-evm',
+          phase: 'processing',
+          destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+          quote: {
+            quote: { amountOutFormatted: '0.00219' }
+          } as unknown as NonNullable<ReturnType<typeof paymentTracking>['quote']>
+        })
+      })
+    );
+    expect(nearIntentsQuoted.outAmount).toBe('0.00219');
+    expect(nearIntentsQuoted.outLabel).toBe('ETH');
   });
 
   it('renders an epoch row from its quoted output', () => {
@@ -1090,6 +1179,68 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
     ).toBe('0.015');
+  });
+
+  it('omits amountLabel on Circle xReserve bridgeRowDisplay output', () => {
+    const xReserve = bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'USDC', amount: '10', bridgeProvider: 'usdcx' }));
+    expect(xReserve.outAmount).toBe('10');
+    expect(xReserve.outLabel).toBe('USDC');
+    expect('amountLabel' in xReserve).toBe(false);
+  });
+});
+
+describe('loadedActivityOneClickTracking & historySecondaryAddressOf', () => {
+  it('reads 1Click tracking and destination recipient consistently across bridged-send, legacy send, and bridged-receive', () => {
+    const baseOutbound = paymentTracking({ direction: 'miden-to-evm' });
+    const outbound = paymentTracking({
+      direction: 'miden-to-evm',
+      request: {
+        ...baseOutbound.request,
+        recipient: 'So1anaRecipient11111111111111111111111111111'
+      }
+    });
+    const inbound = paymentTracking({ direction: 'evm-to-miden' });
+
+    const legacySend = {
+      id: 'legacy-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { oneClick: outbound }
+    } as ITransaction;
+    const nearBridged = {
+      id: 'near-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0xdest', oneClick: outbound }
+    } as ITransaction;
+    const epochBridged = {
+      id: 'epoch-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1alloc',
+      extraInputs: { provider: 'epoch', destinationAddress: '0xepochdest', oneClick: outbound }
+    } as ITransaction;
+    const receive = {
+      id: 'recv-1',
+      type: 'bridged-receive',
+      secondaryAccountId: 'mtst1sender',
+      extraInputs: { oneClick: inbound }
+    } as ITransaction;
+    const plain = {
+      id: 'plain-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1friend'
+    } as ITransaction;
+
+    expect(loadedActivityOneClickTracking(legacySend)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(nearBridged)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(epochBridged)).toBeUndefined();
+    expect(loadedActivityOneClickTracking(receive)).toBe(inbound);
+    expect(loadedActivityOneClickTracking(plain)).toBeUndefined();
+
+    expect(historySecondaryAddressOf(legacySend)).toBe('So1anaRecipient11111111111111111111111111111');
+    expect(historySecondaryAddressOf(nearBridged)).toBe('0xdest');
+    expect(historySecondaryAddressOf(epochBridged)).toBe('0xepochdest');
+    expect(historySecondaryAddressOf(plain)).toBe('mtst1friend');
   });
 });
 
@@ -1521,10 +1672,10 @@ describe('swap settlement state', () => {
     );
   });
 
-  // Settlement never acts on a restored row (localSwapOrders drops it), so its stamp cannot become reclaimed.
-  it('reports the return only for an order the settlement acts on', () => {
+  // A restored receipt keeps the recorded return-in-progress status.
+  it('reports a recorded return on both local and restored orders', () => {
     const stamped = { orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 };
-    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('pending');
+    expect(swapSettlementOf({ ...swap(stamped), restoredFromBackup: true })).toBe('reclaiming');
     expect(swapSettlementOf(swap(stamped))).toBe('reclaiming');
     expect(swapSettlementOf(swap({ expiresAt: 100, expiryTriggeredAt: 101 }))).toBeUndefined();
   });

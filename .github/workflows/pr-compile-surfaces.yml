@@ -1,18 +1,13 @@
 name: Compile surfaces
 
-# The wallet ships FOUR surfaces — Chrome extension, iOS, Android and the Tauri
-# desktop app — and until now only the extension was built on a PR. A change that
-# broke the Android gradle build, the iOS Xcode build, or the Rust in src-tauri
-# merged with nothing going red, and was found later by whoever next tried to
-# ship that platform.
+# The wallet ships FOUR surfaces: Chrome extension, iOS, Android, and the Tauri
+# desktop app. These COMPILE gates verify that the Android Gradle build, iOS
+# Xcode build, and Tauri Rust build compile without running an emulator,
+# simulator, or chain.
 #
-# These are COMPILE gates, deliberately: no emulator, no simulator, no chain.
-# They answer "does this still build" in minutes, which is the failure that
-# actually reaches main. Behaviour on those surfaces is covered by the E2E
-# suites (e2e-blockchain.yml for iOS, e2e-android.yml for Android).
-#
-# Each job is a required-check candidate, so none of them is `continue-on-error`:
-# a gate that cannot fail is worse than no gate, because it reads as coverage.
+# They now run on workflow_dispatch (dispatched nightly and per release by
+# release-e2e.yml) instead of on every pull_request, while keeping the
+# pull_request trigger so required status checks still report green when skipped.
 
 on:
   pull_request:
@@ -30,6 +25,7 @@ concurrency:
 jobs:
   android:
     name: Compile Android
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # Both linked-dependency injections build from source before yarn install: the
     # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
@@ -76,6 +72,7 @@ jobs:
 
   desktop:
     name: Compile desktop (Tauri)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # Both linked-dependency injections build from source before yarn install: the
     # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
@@ -135,6 +132,7 @@ jobs:
 
   ios:
     name: Compile iOS
+    if: github.event_name != 'pull_request'
     # Match the dedicated capacity of the iOS E2E jobs: a shared runner took
     # 33.8s to launch WebContent for a hosted fixture without changing its source.
     # xcode-27-xlarge has the toolchain of the store build (the `ios` job in

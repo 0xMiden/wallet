@@ -1,3 +1,4 @@
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
@@ -600,6 +601,18 @@ describe('requeueFailedTransaction - ambiguous post-submit failures are not repl
     ).toBe(true);
   });
 
+  it('refuses to requeue a legacy send row carrying outbound NEAR Intents tracking', async () => {
+    const legacyNearIntents = failedRow({
+      type: 'send',
+      extraInputs: { oneClick: paymentTracking({ direction: 'miden-to-evm' }) }
+    });
+    wireRow(legacyNearIntents);
+
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
+  });
+
   it('refuses at the model layer even when a transactionId exists but the node has no record', async () => {
     // The affordance IS shown for a row that carries an id (the node check can
     // still reconcile it to Completed), so the resubmit path needs its own
@@ -766,6 +779,19 @@ describe('isRequeueableTransaction', () => {
     ).toBe(false);
   });
 
+  it('excludes a NEAR Intents bridged-send, Failed or Unconfirmed: its quote is bound to the old attempt', () => {
+    for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]) {
+      expect(isRequeueableTransaction({ status, type: 'bridged-send', bridgeProvider: 'near-intents' })).toBe(false);
+    }
+  });
+
+  it('excludes a legacy send row carrying outbound NEAR Intents tracking, Failed or Unconfirmed', () => {
+    const oneClick = paymentTracking({ direction: 'miden-to-evm' });
+    for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]) {
+      expect(isRequeueableTransaction({ status, type: 'send', extraInputs: { oneClick } })).toBe(false);
+    }
+  });
+
   it('keeps an Agglayer (Slow) bridged-send retryable', () => {
     // Agglayer rows carry a pre-built, self-contained B2AGG `requestBytes`, so a
     // replay re-runs the same request and is meaningful.
@@ -894,6 +920,19 @@ describe('requeueFailedTransaction', () => {
     // Guards the backend entry point, not just the Retry button: a second
     // collateral note would be locked to the allocator until its reclaim height.
     const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'epoch' } });
+    wireRow(row);
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(refusal.message).toContain('not retryable');
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+
+  it('throws for a failed NEAR Intents bridged-send and leaves the row untouched', async () => {
+    // A replay would send to the deposit address of an old quote: after its deadline the deadline check fails it,
+    // and before it the rebuilt note could pay the address twice. The user starts a new send with a new quote.
+    const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'near-intents' } });
     wireRow(row);
     const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
     expect(refusal).toBeInstanceOf(Error);

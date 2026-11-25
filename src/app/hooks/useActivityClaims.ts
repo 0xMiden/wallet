@@ -231,11 +231,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       return;
     }
     const txIds = watchedTxIds.split(',');
+    const watched = new Set(txIds);
     let latestRows: ITransaction[] | undefined;
     let holdEnds: ReturnType<typeof setTimeout> | undefined;
     const publish = (rows: ITransaction[]) => {
       latestRows = rows;
       clearTimeout(holdEnds);
+      const present = new Set(rows.map(tx => tx.id));
       const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
       const failedRows = new Map<string, ITransaction>();
       const held = new Set<string>();
@@ -286,6 +288,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
         let next: Map<string, PendingActivityItem> | undefined;
         for (const [noteId, item] of previous) {
           if (item.txId === undefined) continue;
+          // The queue removed the row of this claim: another device of the account has it (multi-device). The attempt
+          // ends with its row, and the card follows the note again. Only a row that this subscription watches.
+          if (item.status === 'claiming' && watched.has(item.txId) && !present.has(item.txId)) {
+            next ??= new Map(previous);
+            next.delete(noteId);
+            continue;
+          }
           if (item.status === 'failed') {
             // The failure itself stays one object, or the card would restart its report on every re-read.
             const submission = submissions.get(item.txId);

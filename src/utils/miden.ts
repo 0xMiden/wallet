@@ -3,6 +3,8 @@ import { isAddress } from 'viem';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
+import { detectNearIntentsAddressKind } from 'lib/one-click/address';
 import { annotateRecipientValidation } from 'lib/telemetry/ui-producer-diagnostics';
 
 export const isHexAddress = (address: string) => {
@@ -95,24 +97,51 @@ export const isValidEthereumAddress = (address: string) => {
   return isAddress(trimmed);
 };
 
-/** Chain-aware recipient validity: `0x…` checks as Ethereum, anything else as Miden. */
-export const isValidRecipientAddress = (address: string) => {
-  if (isHexAddress(address.trim())) return isValidEthereumAddress(address);
-  try {
-    return isValidMidenAddress(address);
-  } catch {
-    return false;
-  }
-};
-
-export type AddressChain = 'miden' | 'ethereum';
+export type AddressChain = 'miden' | 'ethereum' | 'solana' | 'bitcoin' | 'near';
 
 /**
  * Detect which chain a recipient address targets, for UI affordances like the
- * send-flow "To" badge. A hex (`0x…`) address reads as Ethereum (cross-chain);
- * a Miden bech32 address — and any other / partial / empty input — reads as
- * Miden (same-chain), so the badge defaults to Miden until a `0x` is typed.
+ * send-flow "To" badge. A hex (`0x…`) address reads as Ethereum (cross-chain),
+ * also while it is partial. A full Solana, Bitcoin or NEAR address reads as that
+ * chain (a NEAR Intents send). A Miden bech32 address, and any other, partial or
+ * empty input, reads as Miden (same-chain).
  */
 export const detectAddressChain = (address: string): AddressChain => {
-  return isHexAddress(address.trim()) ? 'ethereum' : 'miden';
+  const trimmed = address.trim();
+  if (isHexAddress(trimmed)) return 'ethereum';
+  // A `.miden` name is a Miden Name, never a NEAR named account.
+  if (trimmed.toLowerCase().endsWith(MIDEN_NAME_SUFFIX)) return 'miden';
+  const kind = detectNearIntentsAddressKind(trimmed);
+  switch (kind) {
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return kind;
+    default:
+      // The `0x` rule above owns an EVM address.
+      return 'miden';
+  }
+};
+
+/**
+ * Chain-aware recipient validity: `0x…` checks as Ethereum, a Solana, Bitcoin
+ * or NEAR address by its format, anything else as Miden. This does not check
+ * that the wallet can send to the chain: the send flow does that.
+ */
+export const isValidRecipientAddress = (address: string) => {
+  const chain = detectAddressChain(address);
+  switch (chain) {
+    case 'ethereum':
+      return isValidEthereumAddress(address);
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return true;
+    case 'miden':
+      try {
+        return isValidMidenAddress(address);
+      } catch {
+        return false;
+      }
+  }
 };

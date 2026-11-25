@@ -2121,6 +2121,87 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['mine']);
   });
 
+  describe('NEAR Intents sends', () => {
+    const nearIntents = (id: string, phase: string | undefined, over: Partial<ITransaction> = {}): ITransaction =>
+      baseBridge({
+        id,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: '0x2222222222222222222222222222222222222222',
+          destinationNetwork: 1,
+          claimStatus: 'not-applicable',
+          oneClick: phase === undefined ? { direction: 'miden-to-evm' } : { direction: 'miden-to-evm', phase }
+        },
+        ...over
+      });
+
+    it.each(['depositing', 'processing', 'pending-deposit', 'known-deposit-tx', 'incomplete-deposit', 'arriving'])(
+      'keeps the card while the 1Click phase is %s',
+      async phase => {
+        bridgeRows.push(nearIntents('near-open', phase));
+
+        expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['near-open']);
+      }
+    );
+
+    it('keeps the card for a row with no 1Click phase yet', async () => {
+      bridgeRows.push(nearIntents('near-no-phase', undefined));
+
+      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['near-no-phase']);
+    });
+
+    it.each(['delivered', 'refunded', 'failed', 'expired'])(
+      'clears the card once the 1Click phase is %s',
+      async phase => {
+        bridgeRows.push(nearIntents('near-done', phase));
+
+        expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
+      }
+    );
+
+    it('never shows a restored or a failed NEAR Intents send', async () => {
+      bridgeRows.push(
+        nearIntents('near-restored', 'processing', { restoredFromBackup: true }),
+        nearIntents('near-failed', 'processing', { status: ITransactionStatus.Failed })
+      );
+
+      expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
+    });
+
+    it('never shows a send row of an older build, whatever its 1Click tracking', async () => {
+      bridgeRows.push({
+        ...nearIntents('legacy-send', 'processing'),
+        type: 'send',
+        extraInputs: { oneClick: { direction: 'miden-to-evm', phase: 'processing' } }
+      });
+
+      expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
+    });
+
+    it('polls no bridge service for a NEAR Intents send', async () => {
+      bridgeRows.push(
+        nearIntents('near-poll', 'processing', {
+          extraInputs: {
+            provider: 'near-intents',
+            destinationAddress: '0x2222222222222222222222222222222222222222',
+            destinationNetwork: 1,
+            claimStatus: 'not-applicable',
+            intentNonce: 'not-an-epoch-intent',
+            agglayerExitTxHash: '0xexit',
+            oneClick: { direction: 'miden-to-evm', phase: 'processing' }
+          }
+        })
+      );
+
+      await reconcileBridgedSends();
+
+      expect(pollEpochIntentFill).not.toHaveBeenCalled();
+      expect(searchExitDeposit).not.toHaveBeenCalled();
+      expect(updateClaimStatus).not.toHaveBeenCalled();
+      expect(completeVerifiedLanded).not.toHaveBeenCalled();
+    });
+  });
+
   // A row whose exit could not be bound is never polled, so nothing would ever clear its prompt (#1325).
   it('drops a Slow bridge whose exit could not be bound from the prompt', async () => {
     bridgeRows.push(

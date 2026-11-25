@@ -10,6 +10,10 @@ import { ITransaction, ITransactionStatus } from '../db/types';
 let mockRow: ITransaction | undefined;
 let mockBeforeModify: (() => void) | undefined;
 let mockRegistry: PendingBridgeInIntent[];
+const mockSignalBackup = jest.fn();
+jest.mock('lib/backup/adopt-signal', () => ({
+  signalTransactionCompleted: () => mockSignalBackup()
+}));
 const mockWithdrawPhase = jest.fn().mockResolvedValue(undefined);
 const mockReceivePhase = jest.fn().mockResolvedValue(undefined);
 jest.mock('../transaction/complete', () => ({
@@ -58,6 +62,7 @@ beforeEach(() => {
       info: { provider: 'epoch', sourceAmount: '1', earnWithdrawTxId: 'withdraw', bridgeReceiveTxId: 'receive' }
     }
   ];
+  mockSignalBackup.mockClear();
   mockWithdrawPhase.mockClear();
   mockReceivePhase.mockClear();
 });
@@ -97,6 +102,15 @@ it('uses the delivered asset data from the consume mutation for linked updates',
     transactionId: 'fresh-tx'
   });
   expect(mockRegistry).toEqual([]);
+});
+
+it('signals backup after adding bridge details to an already completed claim', async () => {
+  mockSignalBackup.mockImplementationOnce(() => {
+    expect(mockRow?.extraInputs?.bridgeIn).toMatchObject({ provider: 'usdcx' });
+  });
+
+  await applyBridgeInToConsumeRow('consume', { provider: 'usdcx', midenNoteId: 'note' });
+  expect(mockSignalBackup).toHaveBeenCalledTimes(1);
 });
 
 const BATCH_NOTE: AdoptableNote = { id: 'note', senderAddress: 'solver', faucetId: 'note-faucet', amount: 2n };

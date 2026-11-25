@@ -674,13 +674,13 @@ export function activityRowAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-7)}`;
 }
 
-/** Open `#/history` (the full Activity page) and wait for the grouped list to render. */
+/** Open Activity in List view for assertions against individual transaction rows. */
 export async function openHistory(wallet: HistoryWallet, timeoutMs: number = 60_000): Promise<Locator> {
-  await wallet.navigateTo('/history');
+  await wallet.navigateTo('/history?filter=all&view=list');
   const view = wallet.page.getByTestId('history-view');
   await view.waitFor({ state: 'visible', timeout: timeoutMs }).catch((cause: unknown) => {
     throw new Error(
-      `openHistory: #/history rendered no activity list within ${timeoutMs}ms. ` +
+      `openHistory: Activity List rendered no transaction rows within ${timeoutMs}ms. ` +
         `The list container ("history-view") is only rendered when there is at least one entry, ` +
         `so an empty history — or an account that never became ready — looks like this.\n` +
         `  underlying: ${cause instanceof Error ? cause.message : String(cause)}`

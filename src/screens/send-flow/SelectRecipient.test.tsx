@@ -5,6 +5,8 @@ import { MotionConfig } from 'framer-motion';
 
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
+import type { BridgeNetwork } from './bridge-networks';
+import type { NetworkOption } from './NetworkField';
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
@@ -15,14 +17,13 @@ jest.mock('react-i18next', () => ({
 
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
+const SOLANA_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+const mockBridgeNetworks: BridgeNetwork[] = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
-  },
-  getBridgeNetwork: (id: string | undefined) =>
-    id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
+  }
 }));
 
 // `components/Button` pulls in framer-motion, Capacitor haptics and the icon
@@ -196,6 +197,28 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-confirm')).toHaveAttribute('data-accent', 'send');
   });
 
+  it('shows a Solana recipient its one NEAR Intents network and enables Continue once it is selected', () => {
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
+    renderRecipient({ address: SOLANA_ADDRESS, isValidAddress: true, chain: 'solana', networks, network: 'solana' });
+
+    expect(screen.getByTestId('send-network-solana')).toHaveTextContent('Solana');
+    expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
+  });
+
+  it('keeps Continue disabled for a Solana recipient while no Solana network is selected', () => {
+    renderRecipient({ address: SOLANA_ADDRESS, isValidAddress: true, chain: 'solana', network: 'sepolia' });
+
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+  });
+
+  it('shows the unsupported-network message for a recipient the wallet cannot send to', () => {
+    renderRecipient({ address: SOLANA_ADDRESS, isValidAddress: false, error: 'recipientNetworkUnsupported' });
+
+    expect(screen.getByText('recipientNetworkUnsupported')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+  });
+
   it('shows Miden as the network for a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
@@ -234,6 +257,25 @@ describe('SelectRecipient — recent recipients', () => {
 
     fireEvent.click(screen.getAllByTestId('send-recent-recipient')[0]!);
     expect(onSelectRecent).toHaveBeenCalledWith(RECENTS[0]);
+  });
+
+  it('names the chain of a Solana, Bitcoin or NEAR recent, with no network badge', () => {
+    renderRecipient({
+      recents: [
+        { address: SOLANA_ADDRESS, chain: 'solana', networkName: 'Solana (config)' },
+        { address: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq', chain: 'bitcoin' },
+        { address: 'alice.near', chain: 'near' }
+      ]
+    });
+
+    expect(screen.getByText('Solana (config)')).toBeInTheDocument();
+    expect(screen.getByText('networkBitcoin')).toBeInTheDocument();
+    expect(screen.getByText('networkNear')).toBeInTheDocument();
+    expect(screen.getAllByTestId('contact-avatar').map(el => el.dataset.network)).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ]);
   });
 
   it('hides the recents section once an address is entered', () => {
