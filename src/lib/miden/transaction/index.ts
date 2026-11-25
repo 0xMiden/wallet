@@ -3909,6 +3909,17 @@ const ownAddLanded = async (rTx: ReplaceHotKeyTransaction, accountPublicKey: str
   return chainCommitment !== undefined && sameCommitment(chainCommitment, localCommitment);
 };
 
+const completeOwnLandedAddIfConfirmed = async (
+  rTx: ReplaceHotKeyTransaction,
+  accountPublicKey: string,
+  guardianProvider: GuardianAccountProvider
+): Promise<boolean> => {
+  if (!(await ownAddLanded(rTx, accountPublicKey))) return false;
+  console.warn(`[Guardian] add-hot-key ${rTx.id}: its key is already a committed signer; completing the landed add`);
+  await completeReplaceHotKeyTransaction(rTx, undefined, guardianProvider);
+  return true;
+};
+
 /**
  * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
  * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
@@ -4578,11 +4589,7 @@ const generateGuardianTransaction = async (
       // An earlier run of this add row landed on chain, and its completion did not run. A new proposal would be
       // refused (`HotKeyAlreadySignerError`), so the row runs the completion of a landed rotation instead: the Guardian
       // re-register, the key swap and the Completed write. Nothing is proposed, signed or submitted.
-      if (await ownAddLanded(rTx, walletAccount.publicKey)) {
-        console.warn(
-          `[Guardian] add-hot-key ${transaction.id}: its key is already a committed signer; completing the landed add`
-        );
-        await completeReplaceHotKeyTransaction(rTx, undefined, guardianProvider);
+      if (await completeOwnLandedAddIfConfirmed(rTx, walletAccount.publicKey, guardianProvider)) {
         return;
       }
       const sdkAccount = await withProposalStep('service_account_read', () =>
@@ -4627,14 +4634,31 @@ const generateGuardianTransaction = async (
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
       // The mode selects the target signer set. A row without a mode is from before
       // the field existed, and it is a replace.
-      proposalResult = await withGuardianConflictRetry(() => {
-        switch (rTx.extraInputs?.mode) {
-          case 'add':
-            return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
-          default:
-            return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+      try {
+        proposalResult = await withGuardianConflictRetry(() => {
+          switch (rTx.extraInputs?.mode) {
+            case 'add':
+              return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
+            default:
+              return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+          }
+        });
+      } catch (error) {
+        // `createAddHotKeyProposal` syncs the local account first (`syncBeforeRotationBuild`), so an add whose local
+        // copy was pre-apply or lagged behind the chain at entry only surfaces here as `HotKeyAlreadySignerError`.
+        // Re-check node confirmation when the row already carried its persisted key; newly minted keys, uncommitted
+        // local state, and unreachable node commitments still fail with the refusal.
+        if (
+          rTx.extraInputs?.mode === 'add' &&
+          mintedKey === undefined &&
+          error instanceof Error &&
+          error.name === 'HotKeyAlreadySignerError' &&
+          (await completeOwnLandedAddIfConfirmed(rTx, walletAccount.publicKey, guardianProvider))
+        ) {
+          return;
         }
-      });
+        throw error;
+      }
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {

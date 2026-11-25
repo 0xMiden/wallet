@@ -13070,6 +13070,124 @@ describe('generateTransaction - Guardian routing', () => {
       expect(swapHotKey).not.toHaveBeenCalled();
       expect(row()?.status).not.toBe(ITransactionStatus.Completed);
     });
+
+    it('completes a pre-apply landed add once createAddHotKeyProposal syncs the local account to chain', async () => {
+      let currentCommitment = '0xpreapply';
+      let currentSigners = ['0xcold'];
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        // Simulate syncBeforeRotationBuild() adopting the post-add state from Guardian before checking membership.
+        currentCommitment = LOCAL_COMMITMENT;
+        currentSigners = ['0xcold', '0xnewcommit'];
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, coldService, client, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+        'add',
+        currentSigners,
+        LOCAL_COMMITMENT,
+        createAddProposal
+      );
+      getAccount.mockImplementation(async () => ({
+        id: () => ({ toString: () => 'acc-1' }),
+        to_commitment: () => ({ toHex: () => currentCommitment })
+      }));
+      mockSignerSetHolds = jest.fn((commitmentHex: string) => currentSigners.includes(commitmentHex));
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Device added');
+      expect(row()?.error).toBeUndefined();
+      expect(row()?.transactionId).toBeUndefined();
+    });
+
+    it('completes a landed add after another device moved the chain head once createAddHotKeyProposal syncs', async () => {
+      const NEWER_COMMITMENT = '0xnewer';
+      let currentCommitment = LOCAL_COMMITMENT;
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        currentCommitment = NEWER_COMMITMENT;
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, coldService, client, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        NEWER_COMMITMENT,
+        createAddProposal
+      );
+      getAccount.mockImplementation(async () => ({
+        id: () => ({ toString: () => 'acc-1' }),
+        to_commitment: () => ({ toHex: () => currentCommitment })
+      }));
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Device added');
+      expect(row()?.error).toBeUndefined();
+      expect(row()?.transactionId).toBeUndefined();
+    });
+
+    it.each([
+      ['uncommitted local copy after sync', '0xanotherstate'],
+      ['unreadable node commitment after sync', undefined]
+    ])(
+      'still fails on HotKeyAlreadySignerError when %s prevents post-sync confirmation',
+      async (_label, chainCommitment) => {
+        let currentCommitment = '0xpreapply';
+        let currentSigners = ['0xcold'];
+        const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+          currentCommitment = LOCAL_COMMITMENT;
+          currentSigners = ['0xcold', '0xnewcommit'];
+          throw new HotKeyAlreadySignerError('acc-1');
+        });
+        const { tx, row, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+          'add',
+          currentSigners,
+          chainCommitment,
+          createAddProposal
+        );
+        getAccount.mockImplementation(async () => ({
+          id: () => ({ toString: () => 'acc-1' }),
+          to_commitment: () => ({ toHex: () => currentCommitment })
+        }));
+        mockSignerSetHolds = jest.fn((commitmentHex: string) => currentSigners.includes(commitmentHex));
+
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider
+        );
+
+        expect(createAddProposal).toHaveBeenCalledTimes(1);
+        expect(swapHotKey).not.toHaveBeenCalled();
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(String(row()?.error)).toContain('already an on-chain signer');
+      }
+    );
   });
 
   it.each(['earlier', undefined])(
