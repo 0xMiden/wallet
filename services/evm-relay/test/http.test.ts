@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 
-import { ORIGIN, RELAY_ID, bodyOf, createHarness, send } from './harness';
+import { ORIGIN, RELAY_ID, bodyOf, createHarness, oneChainConfig, send } from './harness';
 import { ApiError } from '../src/errors';
 import { MAX_BODY_BYTES, readJson } from '../src/http';
 
@@ -78,7 +78,7 @@ describe('CORS', () => {
 
   it('adds the CORS headers to an error of an allowed origin', async () => {
     const response = await send(createHarness(), '/v1/account', { headers: { Origin: ORIGIN } });
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(400);
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
   });
 
@@ -114,12 +114,25 @@ describe('health route', () => {
     ['GAS_MODE', { gasMode: null }],
     ['a valid GAS_MODE', { gasMode: 'free' }],
     ['RELAY_CONFIG', { relayConfig: null }],
-    ['a valid RELAY_CONFIG', { relayConfig: '{"chains":{"1":{"rpcUrl":"https://secret.example/key"}}}' }]
+    ['a valid RELAY_CONFIG', { relayConfig: '{"chains":{"1":{"rpcUrl":"https://secret.example/key"}}}' }],
+    ['RELAYER_PRIVATE_KEY', { relayerKey: null }],
+    ['a well-formed RELAYER_PRIVATE_KEY', { relayerKey: '0xsecret' }],
+    ['a RELAYER_PRIVATE_KEY of 64 hex characters', { relayerKey: `0x${'1'.repeat(63)}` }],
+    ['a RELAYER_PRIVATE_KEY that is a valid scalar', { relayerKey: `0x${'0'.repeat(64)}` }],
+    ['the RPC URL of a configured chain', { relayConfig: oneChainConfig() }],
+    ['a valid RPC URL', { relayConfig: oneChainConfig(), rpcUrls: { '8453': 'ftp://secret.example' } }]
   ])('answers 503 with ok false and no config value without %s', async (_name, options) => {
     const response = await send(createHarness(options), '/healthz');
     expect(response.status).toBe(503);
     const text = await response.text();
     expect(JSON.parse(text)).toEqual({ ok: false, revision: 'test-revision' });
+    expect(text).not.toContain('secret');
+  });
+
+  it('answers 200 when each configured chain has an RPC URL', async () => {
+    const harness = createHarness({ relayConfig: oneChainConfig(), rpcUrls: { '8453': 'https://secret.example/key' } });
+    const text = await (await send(harness, '/healthz')).text();
+    expect(JSON.parse(text)).toEqual({ ok: true, revision: 'test-revision' });
     expect(text).not.toContain('secret');
   });
 
@@ -170,7 +183,6 @@ describe('routing', () => {
   });
 
   it.each([
-    ['GET', '/v1/account?chainId=1&address=0x0000000000000000000000000000000000000001', {}],
     ['POST', '/v1/relay', { method: 'POST', body: '{}' }],
     ['GET', `/v1/relay/${RELAY_ID}`, {}],
     ['GET', `/v1/relay/0x${RELAY_ID.slice(2).toUpperCase()}`, {}]

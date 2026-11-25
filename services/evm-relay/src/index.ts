@@ -1,3 +1,4 @@
+import { createRpcReader, type ChainReader } from './chain';
 import { ConfigError, parseOrigins } from './config';
 import { corsHeaders, errorResponse, json, preflight, withHeaders } from './http';
 import { dispatch } from './router';
@@ -12,8 +13,12 @@ function allowedOrigins(env: Env): Set<string> | null {
   }
 }
 
-/** The CORS gate, then the dispatch. Every error leaves as a JSON error body. */
-export async function handleRequest(request: Request, env: Env): Promise<Response> {
+/** The CORS gate, then the dispatch. Every error leaves as a JSON error body. The tests pass a fake reader. */
+export async function handleRequest(
+  request: Request,
+  env: Env,
+  reader: ChainReader = createRpcReader(env)
+): Promise<Response> {
   const origins = allowedOrigins(env);
   if (origins === null) {
     return json({ error: 'service_unavailable', message: 'The service is not configured.' } satisfies ErrorBody, 503);
@@ -27,7 +32,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (request.method === 'OPTIONS') return withHeaders(preflight(request), headers);
   let response: Response;
   try {
-    response = await dispatch(request, env);
+    response = await dispatch(request, env, reader);
   } catch (error) {
     response = errorResponse(error);
   }
@@ -35,5 +40,6 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 }
 
 export default {
-  fetch: handleRequest
+  // A wrapper, because the runtime passes the execution context as the third argument.
+  fetch: (request: Request, env: Env) => handleRequest(request, env)
 } satisfies ExportedHandler<Env>;

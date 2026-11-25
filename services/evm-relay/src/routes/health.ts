@@ -1,16 +1,26 @@
-import { ConfigError, parseConfig } from '../config';
+import { ConfigError, parseConfig, type RelayConfig } from '../config';
 import { json } from '../http';
+import { relayerAddress, rpcUrlOf } from '../secrets';
 import type { Env, HealthResponse, RequestContext } from '../types';
 
-/** True when the variables parse and both rate limit bindings are present. */
-function isReady(env: Env): boolean {
+function configOf(env: Env): RelayConfig | null {
   try {
-    parseConfig(env);
+    return parseConfig(env);
   } catch (error) {
-    if (error instanceof ConfigError) return false;
+    if (error instanceof ConfigError) return null;
     throw error;
   }
-  return Boolean(env.READ_RATE_LIMIT) && Boolean(env.RELAY_RATE_LIMIT);
+}
+
+/**
+ * True when the variables parse, both rate limit bindings are present, the relayer key is valid and each configured
+ * chain has an RPC URL.
+ */
+function isReady(env: Env): boolean {
+  const config = configOf(env);
+  if (config === null) return false;
+  const rpcReady = [...config.chains.keys()].every(chainId => rpcUrlOf(env, chainId) !== null);
+  return Boolean(env.READ_RATE_LIMIT) && Boolean(env.RELAY_RATE_LIMIT) && relayerAddress(env) !== null && rpcReady;
 }
 
 /** Report readiness and the revision. Never put a config value or a secret in the body. */

@@ -35,9 +35,10 @@ describe('read rate limit', () => {
   it('refuses a read over the limit and keeps the budgets of other callers', async () => {
     const harness = createHarness();
     harness.readLimit.allow(1);
-    expect((await send(harness, '/v1/account', { headers: CALLER })).status).toBe(501);
+    // The account route answers 400 after the charge, because the query is missing.
+    expect((await send(harness, '/v1/account', { headers: CALLER })).status).toBe(400);
     await expectRateLimited(await send(harness, `/v1/relay/${RELAY_ID}`, { headers: CALLER }));
-    expect((await send(harness, '/v1/account', { headers: { 'CF-Connecting-IP': '198.51.100.1' } })).status).toBe(501);
+    expect((await send(harness, '/v1/account', { headers: { 'CF-Connecting-IP': '198.51.100.1' } })).status).toBe(400);
   });
 
   it('does not count /healthz', async () => {
@@ -69,7 +70,7 @@ describe('relay rate limit', () => {
     const harness = createHarness();
     harness.relayLimit.allow(0);
     await expectRateLimited(await send(harness, '/v1/relay', { method: 'POST', body: 'not json', headers: CALLER }));
-    expect((await send(harness, '/v1/account', { headers: CALLER })).status).toBe(501);
+    expect((await send(harness, '/v1/account', { headers: CALLER })).status).toBe(400);
   });
 
   it('answers 503 on the relay route without the binding', async () => {
