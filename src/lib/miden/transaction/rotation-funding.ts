@@ -13,8 +13,14 @@ export const hotKeyRotationLockName = (accountPublicKey: string): string => `hot
 
 type GateRowShape = Pick<ITransaction, 'type' | 'accountId' | 'status' | 'rotationFunding'>;
 
-export const isRotationRow = (row: GateRowShape, accountPublicKey: string): boolean =>
+export const isRotationRow = (row: Pick<ITransaction, 'type' | 'accountId'>, accountPublicKey: string): boolean =>
   row.type === 'replace-hot-key' && row.accountId === accountPublicKey;
+
+/** A device revocation shares the rotation row type but installs no key. */
+export const isActivationRow = (
+  row: Pick<ITransaction, 'type' | 'accountId' | 'extraInputs'>,
+  accountPublicKey: string
+): boolean => isRotationRow(row, accountPublicKey) && !row.extraInputs?.revokedSignerCommitment;
 
 export const isRotationFundingRow = (row: GateRowShape, accountPublicKey: string): boolean =>
   row.type === 'consume' && row.rotationFunding === true && row.accountId === accountPublicKey;
@@ -46,7 +52,11 @@ export const newestRow = <T extends QueuedRowShape>(rows: readonly T[]): T | und
  */
 export async function findAdoptableShortfallRow(accountPublicKey: string): Promise<ITransaction | undefined> {
   const rows = await Repo.transactions
-    .filter(row => isRotationRow(row, accountPublicKey) || isRotationFundingRow(row, accountPublicKey))
+    .filter(
+      row =>
+        row.restoredFromBackup !== true &&
+        (isActivationRow(row, accountPublicKey) || isRotationFundingRow(row, accountPublicKey))
+    )
     .toArray();
   const rotation = newestRow(rows.filter(row => row.type === 'replace-hot-key'));
   if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;

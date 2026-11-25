@@ -65,17 +65,6 @@ export const claimNoteIds = (row: GateRow): string[] => row.noteIds ?? [];
 export type RotationModeRow = Pick<ITransaction, 'status' | 'initiatedAt' | 'queuedSeq'> &
   Partial<Pick<ITransaction, 'extraInputs' | 'restoredFromBackup'>>;
 
-/**
- * An everyday-key activation row of the account: a `replace-hot-key` row that is not a device revocation. A
- * revocation shares the row type but carries `revokedSignerCommitment` and no mode, and its completion installs no
- * key, so the gate never adopts it, tracks it or resumes a role from it.
- */
-export const isActivationRow = (
-  row: Pick<ITransaction, 'type' | 'accountId'> & Partial<Pick<ITransaction, 'extraInputs'>>,
-  accountPublicKey: string
-): boolean =>
-  row.type === 'replace-hot-key' && row.accountId === accountPublicKey && !row.extraInputs?.revokedSignerCommitment;
-
 /** The mode a rotation row was queued with. A row without a mode is from before the field existed: a replace. */
 export const activationModeOf = (row: RotationModeRow): HotKeyActivationMode => {
   switch (row.extraInputs?.mode) {

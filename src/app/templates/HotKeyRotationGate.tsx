@@ -27,6 +27,7 @@ import { resetWalletAndReload } from 'lib/miden/reset-and-reload';
 import {
   findAdoptableShortfallRow,
   hotKeyRotationLockName,
+  isActivationRow,
   isLiveRotationFundingRow,
   isLiveRotationRow,
   newestRow,
@@ -55,7 +56,6 @@ import {
 import {
   activationModeOf,
   describeRotationFailure,
-  isActivationRow,
   isBelowBaseFee,
   resolveRotationGateView,
   resumableActivationMode,
@@ -182,9 +182,7 @@ const ensureRotationTx = async (
       return;
     }
     const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
-    // Only a shortfall this device queued: a revocation is not the activation, and a row restored from a backup
-    // was queued by another device or an earlier wallet.
-    if (failed && isActivationRow(failed, accountPublicKey) && failed.restoredFromBackup !== true) {
+    if (failed) {
       txId = failed.id;
       return;
     }

@@ -10,7 +10,12 @@ import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
-import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
+import {
+  isActivationRow,
+  isRotationFundingRow,
+  isRotationRow,
+  RotationFundingSelection
+} from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -19,13 +24,7 @@ import { isWalletReadyNow } from 'lib/store';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 
-import {
-  claimNoteIds,
-  GateRow,
-  isActivationRow,
-  RotationFundingReason,
-  RotationFundingStatus
-} from './HotKeyRotationGate.selectors';
+import { claimNoteIds, GateRow, RotationFundingReason, RotationFundingStatus } from './HotKeyRotationGate.selectors';
 
 /** The driver's cadence, the one `NativeNoteAutoConsumeManager` uses. */
 const FUNDING_CLAIM_INTERVAL_MS = 3_000;
