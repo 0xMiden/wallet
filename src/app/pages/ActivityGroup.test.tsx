@@ -4,14 +4,14 @@ import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { ActivityGroupList } from 'app/templates/history/ActivityGroupList';
-import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
-import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import {
   ACTIVITY_COUNTERPARTY_BECH32,
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
-} from 'app/templates/history/testing/activity-group-fixtures';
+} from 'app/templates/history/activityGroupTestFixtures';
+import { HistoryEntryType, IHistoryEntry } from 'app/templates/history/IHistoryEntry';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 
 import { ActivityGroupPage } from './ActivityGroup';
@@ -179,7 +179,7 @@ describe('ActivityGroupPage', () => {
 
   it('uses an independent decoded-address cache for a group page', () => {
     const decode = jest.mocked(Address.fromBech32);
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
     const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
     const clearDecodes = () => {
@@ -216,7 +216,7 @@ describe('ActivityGroupPage', () => {
 
   it('drops a decoded history spelling after an empty detail pass', () => {
     const decode = jest.mocked(Address.fromBech32);
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const counterpartyEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
     const counterpartyDecodes = () => decode.mock.calls.filter(([address]) => address === ACTIVITY_COUNTERPARTY_BECH32);
 
@@ -243,7 +243,7 @@ describe('ActivityGroupPage', () => {
     ['bare', ACTIVITY_COUNTERPARTY_HEX],
     ['tagged', `${ACTIVITY_COUNTERPARTY_HEX}_qr7qqq9wr6w`]
   ])('opens the same named group for a %s hex route and Bech32 counterparties', (_kind, routeId) => {
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const savedContacts = contacts.value;
     try {
       contacts.value = [{ address: ACTIVITY_COUNTERPARTY_PUBLIC_KEY, name: 'Saved counterparty' }];

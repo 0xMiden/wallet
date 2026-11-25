@@ -9,9 +9,9 @@ import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-
 
 import { ActivityGroupList } from './ActivityGroupList';
 import { activityCounterpartyNames } from './activityGroups';
+import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './activityGroupTestFixtures';
 import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './testing/activity-group-fixtures';
 
 const FAUCET = 'miden-native-faucet';
 
@@ -178,7 +178,7 @@ describe('ActivityGroupList — unread', () => {
 describe('ActivityGroupList', () => {
   it('retains decoded addresses only for the current list and account', () => {
     const decode = jest.mocked(Address.fromBech32);
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
     const currentPage = [firstEntry];
     const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
@@ -220,7 +220,7 @@ describe('ActivityGroupList', () => {
 
   it('retries an address that could not be decoded during the first render', () => {
     const decode = jest.mocked(Address.fromBech32);
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
     const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
 

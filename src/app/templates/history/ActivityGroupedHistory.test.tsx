@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
@@ -8,14 +9,14 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import type { PendingActivityItem } from './PendingActivityCard';
 import {
   ACTIVITY_COUNTERPARTY_BECH32,
   ACTIVITY_COUNTERPARTY_HEX,
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
-} from './testing/activity-group-fixtures';
+} from './activityGroupTestFixtures';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 
 const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   key: 'entry-1',
@@ -405,7 +406,7 @@ describe('ActivityGroupedHistory', () => {
   });
 
   it('groups equivalent hex and Bech32 counterparties under the saved contact name', () => {
-    const restoreDecoder = mockActivityCounterpartyDecode();
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
     const savedContacts = contacts.value;
     try {
       mockRealGroupList = true;
