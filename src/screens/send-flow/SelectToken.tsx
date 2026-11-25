@@ -22,14 +22,15 @@ import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
-import { canSendTokenToChain } from './send-token-routes';
+import type { SendNetwork } from './bridge-networks';
+import { canSendTokenToNetwork } from './send-token-routes';
 import { UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 
 export interface SelectTokenDrawerProps {
   open: boolean;
   usdcxOnly?: boolean;
-  destinationChainId?: number;
+  destinationNetwork?: SendNetwork;
   anchorRef?: React.RefObject<HTMLButtonElement>;
   onOpenChange: (open: boolean) => void;
   onSelect: (token: UIToken) => void;
@@ -49,7 +50,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
   onOpenChange,
   onSelect,
   usdcxOnly = false,
-  destinationChainId,
+  destinationNetwork,
   anchorRef
 }) => {
   const { t } = useTranslation();
@@ -69,7 +70,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
       b =>
         !isHidden(b.tokenId) &&
         !isNewTransferTokenHeld(bridgeConfig, b.tokenId, nativeFaucetId) &&
-        canSendTokenToChain(bridgeConfig, b.tokenId, destinationChainId)
+        canSendTokenToNetwork(bridgeConfig, b.tokenId, destinationNetwork)
     );
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
@@ -79,7 +80,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
         b.metadata.name?.toLowerCase().includes(query) ||
         midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery, destinationChainId]);
+  }, [balanceData, bridgeConfig, nativeFaucetId, isHidden, searchQuery, destinationNetwork]);
   // A row held until the document arrives is left out with a reason; a retired one is left out silently.
   const holdsPendingToken =
     !balancesLoading &&

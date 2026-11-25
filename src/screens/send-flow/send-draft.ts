@@ -17,9 +17,9 @@ export interface SendDraft {
   amount: string;
   recipientAddress: string;
   tokenId: string;
-  /** Destination network, only set when the recipient is a 0x (Ethereum) address. */
+  /** Destination network (a `SendNetwork` id, EVM or NEAR Intents), only set when the recipient is not a Miden address. */
   bridgeNetwork?: BridgeNetworkId;
-  /** Cross-chain route, only set when the recipient is a 0x (Ethereum) address. */
+  /** Cross-chain route, only set when the recipient is not a Miden address. */
   bridgeRoute?: BridgeRoute;
 }
 

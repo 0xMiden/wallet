@@ -33,11 +33,13 @@ import {
   formatDate,
   formatMoneyAmount,
   hasOwnBridgeBadge,
+  historySecondaryAddressOf,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  loadedActivityOneClickTracking,
   networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
@@ -1055,31 +1057,40 @@ describe('bridgeRowDisplay', () => {
       status: 'confirmed'
     });
 
-    expect(
-      bridgeRowDisplay(
-        UNLOADED,
-        bridgeEntry({
-          token: 'MUSDC',
-          amount: '5',
-          bridgeProvider: 'near-intents',
-          bridgeDestinationNetwork: 8453,
-          oneClickTracking: paymentTracking({
-            direction: 'miden-to-evm',
-            phase: 'processing',
-            destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 }
-          })
+    const nearIntentsNoQuote = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        bridgeOutputSymbol: 'ETH'
+      })
+    );
+    expect(nearIntentsNoQuote.outSymbol).toBe('ETH');
+    expect(nearIntentsNoQuote.outLabel).toBe('ETH');
+    expect(nearIntentsNoQuote.outAmount).toBeUndefined();
+    expect('amountLabel' in nearIntentsNoQuote).toBe(false);
+
+    const nearIntentsQuoted = bridgeRowDisplay(
+      UNLOADED,
+      bridgeEntry({
+        token: 'MUSDC',
+        amount: '5',
+        bridgeProvider: 'near-intents',
+        bridgeDestinationNetwork: 8453,
+        oneClickTracking: paymentTracking({
+          direction: 'miden-to-evm',
+          phase: 'processing',
+          destinationAsset: { assetId: 'base-eth', blockchain: 'base', symbol: 'ETH', decimals: 18 },
+          quote: {
+            quote: { amountOutFormatted: '0.00219' }
+          } as unknown as NonNullable<ReturnType<typeof paymentTracking>['quote']>
         })
-      )
-    ).toEqual({
-      inSymbol: 'MUSDC',
-      outSymbol: 'ETH',
-      inLabel: 'MUSDC',
-      outLabel: 'ETH',
-      outAmount: '5',
-      providerLabel: '1Click',
-      network: 'Base',
-      status: 'pending'
-    });
+      })
+    );
+    expect(nearIntentsQuoted.outAmount).toBe('0.00219');
+    expect(nearIntentsQuoted.outLabel).toBe('ETH');
   });
 
   it('renders an epoch row from its quoted output', () => {
@@ -1168,6 +1179,68 @@ describe('bridgeRowDisplay', () => {
     expect(
       bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
     ).toBe('0.015');
+  });
+
+  it('omits amountLabel on Circle xReserve bridgeRowDisplay output', () => {
+    const xReserve = bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'USDC', amount: '10', bridgeProvider: 'usdcx' }));
+    expect(xReserve.outAmount).toBe('10');
+    expect(xReserve.outLabel).toBe('USDC');
+    expect('amountLabel' in xReserve).toBe(false);
+  });
+});
+
+describe('loadedActivityOneClickTracking & historySecondaryAddressOf', () => {
+  it('reads 1Click tracking and destination recipient consistently across bridged-send, legacy send, and bridged-receive', () => {
+    const baseOutbound = paymentTracking({ direction: 'miden-to-evm' });
+    const outbound = paymentTracking({
+      direction: 'miden-to-evm',
+      request: {
+        ...baseOutbound.request,
+        recipient: 'So1anaRecipient11111111111111111111111111111'
+      }
+    });
+    const inbound = paymentTracking({ direction: 'evm-to-miden' });
+
+    const legacySend = {
+      id: 'legacy-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { oneClick: outbound }
+    } as ITransaction;
+    const nearBridged = {
+      id: 'near-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0xdest', oneClick: outbound }
+    } as ITransaction;
+    const epochBridged = {
+      id: 'epoch-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1alloc',
+      extraInputs: { provider: 'epoch', destinationAddress: '0xepochdest', oneClick: outbound }
+    } as ITransaction;
+    const receive = {
+      id: 'recv-1',
+      type: 'bridged-receive',
+      secondaryAccountId: 'mtst1sender',
+      extraInputs: { oneClick: inbound }
+    } as ITransaction;
+    const plain = {
+      id: 'plain-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1friend'
+    } as ITransaction;
+
+    expect(loadedActivityOneClickTracking(legacySend)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(nearBridged)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(epochBridged)).toBeUndefined();
+    expect(loadedActivityOneClickTracking(receive)).toBe(inbound);
+    expect(loadedActivityOneClickTracking(plain)).toBeUndefined();
+
+    expect(historySecondaryAddressOf(legacySend)).toBe('So1anaRecipient11111111111111111111111111111');
+    expect(historySecondaryAddressOf(nearBridged)).toBe('0xdest');
+    expect(historySecondaryAddressOf(epochBridged)).toBe('0xepochdest');
+    expect(historySecondaryAddressOf(plain)).toBe('mtst1friend');
   });
 });
 

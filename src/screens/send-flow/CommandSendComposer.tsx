@@ -6,6 +6,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
+import { sendNetworkKind } from './send-network-kind';
 import { SendAmount, SendAmountProps } from './SendAmount';
 
 export interface CommandSendComposerProps {
@@ -30,7 +31,8 @@ export function CommandSendComposer({
   const canReview =
     !routeBlocked &&
     recipient.isValidAddress &&
-    (recipient.chain !== 'ethereum' || (recipient.network !== undefined && recipient.network !== 'miden')) &&
+    (sendNetworkKind(recipient.chain) === undefined ||
+      (recipient.network !== undefined && recipient.network !== 'miden')) &&
     !!amount.token &&
     amount.token.scaleIsKnown &&
     !amount.tokenHeld &&

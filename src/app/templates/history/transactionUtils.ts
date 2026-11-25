@@ -7,12 +7,16 @@ import { getDateFnsLocale } from 'lib/i18n';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import {
+  IBridgedReceiveExtraInputs,
+  IBridgedSendExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  IOneClickTrackingData,
   ITransaction,
   ITransactionStatus,
   ITransactionType,
-  NEAR_INTENTS_NO_EVM_CHAIN_ID
+  NEAR_INTENTS_NO_EVM_CHAIN_ID,
+  nearIntentsSendTrackingOf
 } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -270,6 +274,26 @@ export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetada
     ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
     : undefined;
 
+/**
+ * The 1Click tracking Activity reads off a stored row: a NEAR Intents receive's own, or a NEAR Intents send's
+ * (`bridged-send`, or a `send` row that an older build stored) through `nearIntentsSendTrackingOf`.
+ */
+export const loadedActivityOneClickTracking = (tx: ITransaction): IOneClickTrackingData | undefined => {
+  if (tx.type === 'bridged-receive') return (tx.extraInputs as IBridgedReceiveExtraInputs | undefined)?.oneClick;
+  if (tx.type === 'bridged-send' || tx.type === 'send') return nearIntentsSendTrackingOf(tx);
+  return undefined;
+};
+
+/**
+ * The address Activity shows as `To` for a stored row. A bridge row has no Miden recipient, so it is the destination
+ * address; a NEAR Intents send's `secondaryAccountId` is the deposit address, so it is the 1Click recipient.
+ */
+export const historySecondaryAddressOf = (tx: ITransaction): string | undefined => {
+  const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+  const tracking = nearIntentsSendTrackingOf(tx);
+  return bridge?.destinationAddress ?? tracking?.request?.recipient ?? tx.secondaryAccountId;
+};
+
 /** `expired`: a NEAR Intents deposit that got no funds before its deadline. Nothing failed, so it is not `failed`. */
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed' | 'expired';
 
@@ -446,7 +470,14 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
     entry.oneClickTracking?.destinationAsset.symbol ??
     (entry.bridgeProvider === 'agglayer' ? inSymbol : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
-  const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
+  // A NEAR Intents row's `amount` is the Miden side, so it falls back to the 1Click quote or shows none.
+  const quotedOutAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol);
+  const nearIntentsQuote =
+    entry.oneClickTracking?.direction === 'miden-to-evm' ? entry.oneClickTracking.quote.quote : undefined;
+  const outAmount =
+    entry.bridgeProvider === 'near-intents'
+      ? (quotedOutAmount ?? formatMoneyAmount(nearIntentsQuote?.amountOutFormatted, 'receives', outSymbol))
+      : (quotedOutAmount ?? entry.amount);
   const providerLabel =
     entry.bridgeProvider === 'agglayer'
       ? 'Agglayer'
@@ -526,11 +557,12 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
     symbol: inSymbol,
     sourceToken: entry.bridgeInSourceToken
   });
+  const outLabel = midenTokenLabel(snapshot, entry.faucetId, outSymbol);
   return {
     inSymbol,
     outSymbol,
     inLabel,
-    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
+    outLabel,
     outAmount,
     providerLabel,
     network: 'Miden',

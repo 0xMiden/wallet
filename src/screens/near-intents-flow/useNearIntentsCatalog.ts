@@ -33,11 +33,20 @@ function loadCatalog(config: NearIntentsConfig): Promise<NearIntentsCatalog> {
   return load;
 }
 
-/** The NEAR Intents catalog for `config`. A catalog with no complete route is `unavailable`. */
-export function useNearIntentsCatalog(config: NearIntentsConfig): NearIntentsCatalogState {
-  const [state, setState] = useState<NearIntentsCatalogState>({ status: 'loading' });
+/**
+ * The NEAR Intents catalog for `config`. A catalog with no complete route is `unavailable`. A null config (NEAR
+ * Intents is off, or the caller does not need the catalog now) is `unavailable` and reads nothing.
+ */
+export function useNearIntentsCatalog(config: NearIntentsConfig | null): NearIntentsCatalogState {
+  const [state, setState] = useState<NearIntentsCatalogState>(
+    config === null ? { status: 'unavailable' } : { status: 'loading' }
+  );
 
   useEffect(() => {
+    if (config === null) {
+      setState({ status: 'unavailable' });
+      return;
+    }
     let active = true;
     setState({ status: 'loading' });
     loadCatalog(config).then(

@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { WalletContact } from 'lib/shared/types';
 
-import { isNewRecipient, useIsNewRecipient } from './useIsNewRecipient';
+import { isNewRecipient, recipientKey, useIsNewRecipient } from './useIsNewRecipient';
 
 // Both routing forms of the same account must collapse to one key, as the real SDK helper does; `0xself`
 // is this wallet's account in hex, the form a dApp may name its sender in.
@@ -85,6 +85,24 @@ describe('isNewRecipient', () => {
     const rows = [bridgedRow('0xAbCdEf0000000000000000000000000000000001')];
 
     expect(check('0xabcdef0000000000000000000000000000000001', rows)).toBe(false);
+  });
+
+  it('keeps underscore-separated NEAR names distinct, normalizes uppercase Bitcoin bech32, and skips Miden parsing for Solana', () => {
+    const nearRows = [bridgedRow('alice_bob.near', { extraInputs: { destinationAddress: 'alice_bob.near' } })];
+    expect(check('alice_carol.near', nearRows)).toBe(true);
+
+    const btcRows = [
+      bridgedRow('bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq', {
+        extraInputs: { destinationAddress: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq' }
+      })
+    ];
+    expect(check('BC1QAR0SRRR7XFKVY5L643LYDNW9RE59GTZZWF5MDQ', btcRows)).toBe(false);
+
+    mockCanonical.mockClear();
+    expect(recipientKey('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM')).toBe(
+      '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'
+    );
+    expect(mockCanonical).not.toHaveBeenCalled();
   });
 
   it('does not count a row restored from a backup file', () => {

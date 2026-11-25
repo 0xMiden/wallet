@@ -30,6 +30,8 @@ it('offers every production external chain on Mainnet', () => {
     'polygon',
     'robinhood'
   ]);
+  expect(result.current[0]).not.toHaveProperty('kind');
+  expect(result.current[0]).not.toHaveProperty('bridge');
 });
 
 it.each(['testnet', 'devnet', 'localnet'])('keeps test-chain choices on %s', network => {
@@ -68,6 +70,8 @@ it('updates choices when the effective network changes without a remount', () =>
     'polygon',
     'robinhood'
   ]);
+  expect(result.current[0]).not.toHaveProperty('kind');
+  expect(result.current[0]).not.toHaveProperty('bridge');
 });
 
 it('retains a saved test-chain contact on Mainnet without offering other test chains', () => {
@@ -110,4 +114,6 @@ it('keeps legacy default resolution and Miden contacts unchanged', () => {
     'polygon',
     'robinhood'
   ]);
+  expect(result.current[0]).not.toHaveProperty('kind');
+  expect(result.current[0]).not.toHaveProperty('bridge');
 });
