@@ -3,7 +3,7 @@ import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
 import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import type { BridgeConfig } from './schema';
+import type { BridgeConfig, RelayChainConfig, RelayConfig } from './schema';
 import { bridgeConfigBaseUrl, bridgeConfigUrl } from './source';
 import {
   BridgeConfigUnavailableError,
@@ -21,7 +21,11 @@ import {
   getEpochPositionsUrl,
   getEvmChainId,
   getMidenUsdc,
+  getRelayChain,
+  getRelayConfig,
   selectBackupBaseUrl,
+  selectRelayChain,
+  selectRelayConfig,
   selectEarnMarket,
   selectEarnVault,
   selectEarnVaultCatalog,
@@ -443,6 +447,54 @@ describe('the encrypted backup base URL', () => {
     expect(getBackupBaseUrl()).toBe(BACKUP_URL);
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(getBackupBaseUrl()).toBeNull();
+  });
+});
+
+describe('the deposit-address relay', () => {
+  const SEPOLIA_RELAY: RelayChainConfig = {
+    key: 'sepolia',
+    chainId: 11155111,
+    executor: '0x1111111111111111111111111111111111111111',
+    calibur: {
+      address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
+      runtimeHash: `0x${'ab'.repeat(32)}`,
+      domainName: 'Calibur',
+      domainVersion: '1.0.0'
+    },
+    maxFee: { '0x0000000000000000000000000000000000000000': '1000000000000000' }
+  };
+  // A chain this build does not know: the document can name it, but no getter finds it.
+  const UNKNOWN_RELAY: RelayChainConfig = { ...SEPOLIA_RELAY, key: 'newchain', chainId: 999_999 };
+  const RELAY: RelayConfig = { baseUrl: 'https://relay.example.org', chains: [SEPOLIA_RELAY, UNKNOWN_RELAY] };
+  const on = snapshot({ ...CONFIG, features: { ...CONFIG.features, relayDeposit: true }, relay: RELAY });
+
+  it('selects the section while the switch is on', () => {
+    expect(selectRelayConfig(on)).toEqual(RELAY);
+    expect(selectRelayChain(on, 11155111)).toEqual(SEPOLIA_RELAY);
+  });
+
+  it('selects null while no document is accepted, or while the switch is off or absent', () => {
+    expect(selectRelayConfig(EMPTY)).toBeNull();
+    expect(selectRelayConfig(snapshot())).toBeNull();
+    const off = snapshot({ ...CONFIG, features: { ...CONFIG.features, relayDeposit: false }, relay: RELAY });
+    expect(selectRelayConfig(off)).toBeNull();
+    expect(selectRelayChain(off, 11155111)).toBeNull();
+    expect(selectRelayChain(EMPTY, 11155111)).toBeNull();
+  });
+
+  it('selects no chain that the relay does not name, or that this build does not know', () => {
+    expect(selectRelayChain(on, 1)).toBeNull();
+    expect(selectRelayChain(on, 999_999)).toBeNull();
+  });
+
+  it("reads this realm's section without throwing", () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(on);
+    expect(getRelayConfig()).toEqual(RELAY);
+    expect(getRelayChain(11155111)).toEqual(SEPOLIA_RELAY);
+    expect(getRelayChain(1)).toBeNull();
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(getRelayConfig()).toBeNull();
+    expect(getRelayChain(11155111)).toBeNull();
   });
 });
 
