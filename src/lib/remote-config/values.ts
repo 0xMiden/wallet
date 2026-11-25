@@ -11,6 +11,8 @@ import {
   EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
+  type RelayChainConfig,
+  type RelayConfig,
   type SupportedEvmChainConfig
 } from './schema';
 import { bridgeConfigBaseUrl } from './source';
@@ -229,6 +231,24 @@ export function selectBackupBaseUrl(s: BridgeConfigSnapshot): string | null {
 }
 
 /**
+ * The deposit-address relay (`relay`): its base URL and its chains in the document's order, addresses in lowercase.
+ * Null while no document is accepted, or while `features.relayDeposit` is not exactly true.
+ */
+export function selectRelayConfig(s: BridgeConfigSnapshot): RelayConfig | null {
+  return s.config?.features.relayDeposit === true ? (s.config.relay ?? null) : null;
+}
+
+/**
+ * The relay entry of `chainId`. Null while `selectRelayConfig` is null, while the relay names no such chain, or while
+ * this build does not know the chain: the document can name a chain that `supportedEvmChains` leaves out.
+ */
+export function selectRelayChain(s: BridgeConfigSnapshot, chainId: number): RelayChainConfig | null {
+  const known = Object.values(s.config?.supportedEvmChains ?? {}).some(chain => chain.chainId === chainId);
+  if (!known) return null;
+  return selectRelayConfig(s)?.chains.find(chain => chain.chainId === chainId) ?? null;
+}
+
+/**
  * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
  * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
  * never runs.
@@ -394,6 +414,19 @@ export function getEarnMarket(): EarnMarket {
  */
 export function getBackupBaseUrl(): string | null {
   return selectBackupBaseUrl(getBridgeConfigSnapshot());
+}
+
+/**
+ * This realm's `selectRelayConfig`: null, never a throw, while the relay is off. A path that runs without a user
+ * action awaits `initBridgeConfig()` first, since this realm may not have hydrated its snapshot yet.
+ */
+export function getRelayConfig(): RelayConfig | null {
+  return selectRelayConfig(getBridgeConfigSnapshot());
+}
+
+/** This realm's `selectRelayChain`: null, never a throw, while the relay does not serve `chainId`. */
+export function getRelayChain(chainId: number): RelayChainConfig | null {
+  return selectRelayChain(getBridgeConfigSnapshot(), chainId);
 }
 
 /** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */
