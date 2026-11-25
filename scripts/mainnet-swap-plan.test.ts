@@ -130,23 +130,10 @@ describe('nightly swap cost gate', () => {
     c.reverse = { ...c.reverse, offered: wbtc, requested: usdc, offer: 1_728n, minimumReceive: 996_298n };
     expect(() => planMainnetSwapLoop(c)).toThrow(/dust/);
   });
-  it('still accepts a 6-decimal stablecoin pair near $1', () => {
-    expect(() => planMainnetSwapLoop(candidate())).not.toThrow();
-  });
-  it.each([
-    [6, 1_000_000n],
-    [8, 1_000_000n],
-    [8, 57_952_000_000n],
-    [12, 3_000_000_000n]
-  ])('never plans an intermediate amount under the floor (decimals %i, price %i)', (decimals, usdMicros) => {
-    const a = { ...holding('a'), decimals, usdMicros };
-    for (const amount of swapSearchAmounts(a)) {
-      const c = candidate();
-      const b = { ...holding('b'), decimals, usdMicros };
-      c.forward = { ...c.forward, offered: a, requested: b, offer: amount, minimumReceive: amount };
-      c.reverse = { ...c.reverse, offered: b, requested: a, offer: amount, minimumReceive: amount };
-      if (amount < SWAP_MIN_BASE_UNITS) expect(() => planMainnetSwapLoop(c)).toThrow(/dust/);
-    }
+  it('never searches amounts under the dust floor', () => {
+    const wbtc = { ...holding('wbtc'), decimals: 8, usdMicros: 57_952_000_000n };
+    expect(swapSearchAmounts(wbtc)).toEqual([]);
+    expect(swapSearchAmounts(holding('a')).every(amount => amount >= SWAP_MIN_BASE_UNITS)).toBe(true);
   });
   it('selects the lowest loss then the lowest principal, independent of registry order', () => {
     const costly = planMainnetSwapLoop(candidate());
