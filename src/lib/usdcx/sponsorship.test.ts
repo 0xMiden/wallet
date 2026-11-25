@@ -4,12 +4,7 @@ import { ITransactionStatus, RegisterNameTransaction, type ITransaction } from '
 import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 
 import { currentUsdcxFeeScope } from './fee-scope';
-import {
-  partitionApprovedSponsorship,
-  partitionApprovedUsdcxSponsorship,
-  sponsorshipApprovalOf,
-  usdcxSponsorshipApprovalOf
-} from './sponsorship';
+import { partitionApprovedSponsorship, sponsorshipApprovalOf } from './sponsorship';
 
 let mockScope = 'rpc-a|testnet';
 let mockNative: string | null = 'bech32:usdcx';
@@ -49,7 +44,7 @@ const burn: ViewNote = { id: 'burn', amounts: [{ faucetId: 'bech32:usdcx', amoun
 const sponsor: ViewNote = { id: 'sponsor', amounts: [{ faucetId: 'bech32:usdcx', amount: 119n }], nfts: [] };
 const kernel: AssetAmount = { faucetId: 'bech32:usdcx', amount: 119n };
 const partition = (notes = [burn, sponsor], fee: AssetAmount | undefined = kernel, maximum = '300') =>
-  partitionApprovedUsdcxSponsorship(notes, fee, usdcxSponsorshipApprovalOf(row(maximum)));
+  partitionApprovedSponsorship(notes, fee, sponsorshipApprovalOf(row(maximum)));
 
 beforeEach(() => {
   mockScope = 'rpc-a|testnet';
@@ -76,12 +71,12 @@ test('excludes only the exact canonical companion and records both native fees',
 });
 
 test('counts sponsorship even without an ordinary verification fee', () => {
-  const result = partitionApprovedUsdcxSponsorship([burn, sponsor], undefined, usdcxSponsorshipApprovalOf(row('119')));
+  const result = partitionApprovedSponsorship([burn, sponsor], undefined, sponsorshipApprovalOf(row('119')));
   expect(result).toEqual({ createdNotes: [burn], fee: kernel });
 });
 
 test('permits a genuinely free burn with a zero cap', () => {
-  expect(partitionApprovedUsdcxSponsorship([burn], undefined, usdcxSponsorshipApprovalOf(row('0')))).toEqual({
+  expect(partitionApprovedSponsorship([burn], undefined, sponsorshipApprovalOf(row('0')))).toEqual({
     createdNotes: [burn],
     fee: undefined
   });
@@ -122,16 +117,16 @@ test('leaves opaque, NFT, wrong-asset and malformed-amount notes visible to the 
 });
 
 test('does not apply this exception to other transaction types or unapproved notes', () => {
-  expect(usdcxSponsorshipApprovalOf({ ...row(), type: 'send' })).toBeUndefined();
-  expect(usdcxSponsorshipApprovalOf({ ...row(), approvedOutputNoteIds: [] })).toBeUndefined();
-  expect(partitionApprovedUsdcxSponsorship([burn, sponsor], kernel, undefined)).toEqual({
+  expect(sponsorshipApprovalOf({ ...row(), type: 'send' })).toBeUndefined();
+  expect(sponsorshipApprovalOf({ ...row(), approvedOutputNoteIds: [] })).toBeUndefined();
+  expect(partitionApprovedSponsorship([burn, sponsor], kernel, undefined)).toEqual({
     createdNotes: [burn, sponsor],
     fee: kernel
   });
 });
 
 test.each(['', '-1', '1.5', 'NaN', '0002', '99999999999999999999'])('refuses malformed budget %s', maximum => {
-  expect(() => usdcxSponsorshipApprovalOf(row(maximum))).toThrow();
+  expect(() => sponsorshipApprovalOf(row(maximum))).toThrow();
 });
 
 test('requires the recorded approval and authoritative native identity in the current source scope', () => {
@@ -139,17 +134,17 @@ test('requires the recorded approval and authoritative native identity in the cu
   const metadata = tx.extraInputs?.usdcxBurn;
   if (!metadata) throw new Error('missing test burn');
   Reflect.deleteProperty(metadata, 'networkFeeBudget');
-  expect(() => usdcxSponsorshipApprovalOf(tx)).toThrow();
+  expect(() => sponsorshipApprovalOf(tx)).toThrow();
   mockScope = 'rpc-b|testnet';
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockScope = 'rpc-a|testnet';
   mockNative = null;
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockNative = 'other';
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockNative = 'bech32:usdcx';
   mockSynced = null;
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
 });
 
 test('refuses a kernel fee in an asset outside the reviewed native budget', () => {

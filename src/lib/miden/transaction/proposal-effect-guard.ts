@@ -109,9 +109,8 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   try {
     const approval = sponsorshipApprovalOf(transaction);
     if (approval && view.fee) {
-      const feeFaucetId = 'kind' in approval ? approval.feeFaucetId : approval.budget.faucetId;
-      const exceedsCap = !('kind' in approval) && view.fee.amount > BigInt(approval.budget.maxAmount);
-      if (view.fee.faucetId !== feeFaucetId || view.fee.amount < 0n || exceedsCap) {
+      const exceedsCap = approval.capKernelFee && view.fee.amount > approval.maxAmount;
+      if (view.fee.faucetId !== approval.feeFaucetId || view.fee.amount < 0n || exceedsCap) {
         return 'the network fee exceeds its reviewed native budget';
       }
     }

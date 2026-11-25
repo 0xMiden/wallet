@@ -1284,7 +1284,7 @@ export const completeRegisterNameTransaction = async (tx: ITransaction, result: 
       : undefined;
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...landedFee(readLandedResultFields(result, tx.id)),
+    ...landedFee(readLandedResultFields(result, tx.id, tx)),
     displayMessage: 'Name requested',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,

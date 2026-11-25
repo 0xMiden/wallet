@@ -9,7 +9,10 @@ import {
   patchRegisterNameExtraInputs,
   promoteLandedRegisterNameRow
 } from './complete';
+import { forgetLandedCompletion, readLandedCompletion } from './landed-completion-reads';
+import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { ITransaction, ITransactionStatus, MidenNamePhase, RegisterNameTransaction } from '../db/types';
+import { canonicalFeeSponsorshipNoteId } from '../sdk/fee-sponsorship';
 
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('lib/backup/adopt-signal', () => ({ signalTransactionCompleted: jest.fn() }));
@@ -28,16 +31,41 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
-jest.mock('../activity/fee', () => ({
-  feeFieldsFromResult: () => ({})
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => 'mtst1native',
+  getSdkSyncedNativeAssetIdSync: () => 'mtst1native',
+  cacheScope: () => 'rpc|testnet',
+  getVerificationBaseFeeSync: () => 7
+}));
+
+jest.mock('../sdk/helpers', () => ({
+  getBech32AddressFromAccountId: (id: unknown) => String(id),
+  canonicalWalletAccountId: (id: string) => id
+}));
+
+jest.mock('../sdk/fee-sponsorship', () => ({
+  canonicalFeeSponsorshipNoteId: jest.fn(() => '0xsponsor')
 }));
 
 jest.mock('../activity/fee-notes', () => ({
+  ...jest.requireActual('../activity/fee-notes'),
   splitLandedOutputNotes: jest.fn()
 }));
 
+type MockSplitNote = {
+  id: () => { toString: () => string };
+  metadata: () => { tag: () => { asU32: () => number }; noteType: () => number };
+  assets: () => {
+    fungibleAssets: () => { faucetId: () => string; amount: () => bigint }[];
+    nonFungibleAssets: () => unknown[];
+  };
+};
+
 const mockSplit = jest.requireMock<{
-  splitLandedOutputNotes: jest.Mock<{ userNotes: { id: () => { toString: () => string } }[] }, [object, string?]>;
+  splitLandedOutputNotes: jest.Mock<
+    { feeNote?: MockSplitNote; userNotes: MockSplitNote[]; verificationFeeKnown: boolean },
+    [object, string?]
+  >;
 }>('../activity/fee-notes').splitLandedOutputNotes;
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('../../../../__mocks__/wasmMock.js'));
@@ -67,7 +95,14 @@ function storedPhase(id: string): MidenNamePhase | undefined {
   return inputs?.phase;
 }
 
-const noteId = (id: string) => ({ id: () => ({ toString: () => id }) });
+const makeNote = (id: string, amount = 0n, faucetId = 'mtst1native', tag = 0): MockSplitNote => ({
+  id: () => ({ toString: () => id }),
+  metadata: () => ({ tag: () => ({ asU32: () => tag }), noteType: () => 0 }),
+  assets: () => ({
+    fungibleAssets: () => [{ faucetId: () => faucetId, amount: () => amount }],
+    nonFungibleAssets: () => []
+  })
+});
 
 // A result shape that the completion reads. `TransactionResult` is a WASM
 // class, so the test builds it through the mocked module's prototype.
@@ -80,6 +115,7 @@ function makeResult(): TransactionResult {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReturnValue('0xsponsor');
   txStore.length = 0;
 });
 
@@ -163,21 +199,48 @@ describe('patchRegisterNameExtraInputs', () => {
 });
 
 describe('completeRegisterNameTransaction', () => {
-  it('completes the row, puts the registration note id first and moves the phase to submitted', async () => {
+  it('completes the row, puts the registration note id first, records companion feeAmount and moves the phase to submitted', async () => {
     const row = registerRow('requested');
     row.status = ITransactionStatus.GeneratingTransaction;
-    mockSplit.mockReturnValue({ userNotes: [noteId('0xsponsor'), noteId('0xnote')] });
-
-    await completeRegisterNameTransaction(row, makeResult());
+    mockSplit.mockReturnValue({
+      feeNote: makeNote('0xfee', 119n, 'mtst1native', TX_FEE_NOTE_TAG),
+      userNotes: [makeNote('0xsponsor', 210n, 'mtst1native'), makeNote('0xnote', 20_000_000n, 'mtst1miden')],
+      verificationFeeKnown: true
+    });
+    const result = makeResult();
+    readLandedCompletion(row, result);
+    try {
+      await completeRegisterNameTransaction(row, result);
+    } finally {
+      forgetLandedCompletion(result);
+    }
 
     const stored = txStore.find(candidate => candidate.id === row.id);
     expect(stored?.status).toBe(ITransactionStatus.Completed);
     expect(stored?.displayMessage).toBe('Name requested');
     expect(stored?.transactionId).toBe('0xtx');
     expect(stored?.outputNoteIds).toEqual(['0xnote', '0xsponsor']);
+    expect(stored?.feeAmount).toBe(329n);
+    expect(stored?.feeFaucetId).toBe('mtst1native');
     expect(storedPhase(row.id)).toBe('submitted');
     // The bytes stay on the row.
     expect(stored?.requestBytes).toEqual(new Uint8Array([1]));
+  });
+
+  it('records the companion fee when completeRegisterNameTransaction runs without a prior tail read', async () => {
+    const row = registerRow('requested');
+    row.status = ITransactionStatus.GeneratingTransaction;
+    mockSplit.mockReturnValue({
+      feeNote: makeNote('0xfee', 119n, 'mtst1native', TX_FEE_NOTE_TAG),
+      userNotes: [makeNote('0xsponsor', 210n, 'mtst1native'), makeNote('0xnote', 20_000_000n, 'mtst1miden')],
+      verificationFeeKnown: true
+    });
+
+    await completeRegisterNameTransaction(row, makeResult());
+
+    const stored = txStore.find(candidate => candidate.id === row.id);
+    expect(stored?.feeAmount).toBe(329n);
+    expect(stored?.feeFaucetId).toBe('mtst1native');
   });
 
   it('still completes when the output notes cannot be read', async () => {
