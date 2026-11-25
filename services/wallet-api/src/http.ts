@@ -33,10 +33,10 @@ export function withHeaders(response: Response, headers: Record<string, string>)
   return new Response(response.body, { status: response.status, headers: merged });
 }
 
-/** Read a JSON object body. Refuse a body over maxBytes before the parse. */
-export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
+/** Read a JSON object body. Refuse a body over MAX_BODY_BYTES before the parse. */
+export async function readJson(request: Request): Promise<Record<string, unknown>> {
   const declared = Number(request.headers.get('Content-Length'));
-  if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge('The request body is too large.');
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw tooLarge('The request body is too large.');
   const reader = request.body?.getReader();
   if (!reader) throw badRequest('The request body is missing.');
   const decoder = new TextDecoder();
@@ -46,7 +46,7 @@ export async function readJson(request: Request, maxBytes = MAX_BODY_BYTES): Pro
     const part = await reader.read();
     if (part.done) break;
     size += part.value.byteLength;
-    if (size > maxBytes) {
+    if (size > MAX_BODY_BYTES) {
       await reader.cancel().catch(() => undefined);
       throw tooLarge('The request body is too large.');
     }

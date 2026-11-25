@@ -16,14 +16,6 @@ export async function limitAuth({ request, env }: RequestContext): Promise<void>
   if (outcome.success !== true) throw rateLimited();
 }
 
-/** Apply the command-ai rate limit to the caller address. */
-export async function limitCommandAi({ request, env }: RequestContext): Promise<void> {
-  if (!env.COMMAND_AI_RATE_LIMIT) throw notConfigured();
-  const caller = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-  const outcome = await env.COMMAND_AI_RATE_LIMIT.limit({ key: `command-ai:${caller}` });
-  if (outcome.success !== true) throw rateLimited();
-}
-
 /** Which storage budget a request draws on. A delete is a write. */
 export type StorageAccess = 'read' | 'write';
 
