@@ -171,10 +171,20 @@ export interface ReadRegistryStorageOptions {
   scope?: EffectiveScope;
 }
 
+type RawProofSnapshot =
+  | { kind: 'mismatch'; message: string }
+  | {
+      kind: 'ok';
+      blockNum: number;
+      slotValuesByName: Map<string, string | undefined>;
+      entriesBySlot: Map<string, Map<string, Felts4>>;
+    };
+
 /**
  * Read map entries of the registry with ONE `getAccountProof`. Also makes sure
  * that the proof is for the registry and that `commitment_version` is 1.
- * Snapshots requested slot and map values and frees `AccountProof` before returning.
+ * Snapshots requested slot and map values and frees `AccountProof` per attempt
+ * before returning so timed-out attempts cannot leak WASM handles.
  */
 export async function readRegistryStorage(
   config: MidenNameConfig,
@@ -186,64 +196,66 @@ export async function readRegistryStorage(
   await awaitScoped(scope, ensureSdkWasmReady);
   const registryHex = config.registryAccountIdHex.toLowerCase();
 
-  const proof = await awaitScoped(scope, () =>
+  const snapshot = await awaitScoped(scope, () =>
     withRpcTimeout(
       () =>
-        readWithRpcUrl(scope, rpc =>
-          rpc.getAccountProof(
+        readWithRpcUrl<RawProofSnapshot>(scope, async rpc => {
+          const proof = await rpc.getAccountProof(
             AccountId.fromHex(config.registryAccountIdHex),
             AccountStorageRequirements.fromSlotAndKeysArray(
               requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
             )
-          )
-        ),
+          );
+          try {
+            const provenId = proof.accountId().toString().toLowerCase();
+            if (provenId !== registryHex) {
+              return { kind: 'mismatch', message: `proof is for ${provenId}, expected ${registryHex}` };
+            }
+
+            const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
+            const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
+            if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
+              return { kind: 'mismatch', message: `unsupported commitment_version ${String(version)}` };
+            }
+
+            const blockNum = proof.blockNum();
+            const slotValuesByName = new Map<string, string | undefined>();
+            for (const slot of options?.slotNames ?? []) {
+              slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
+            }
+
+            const entriesBySlot = new Map<string, Map<string, Felts4>>();
+            for (const { slot } of requests) {
+              if (proof.hasStorageMapTooManyEntries(slot) === true) {
+                return { kind: 'mismatch', message: `node did not return the entries of ${slot}` };
+              }
+              const entries = new Map<string, Felts4>();
+              for (const entry of proof.getStorageMapEntries(slot) ?? []) {
+                entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
+              }
+              entriesBySlot.set(slot, entries);
+            }
+
+            return { kind: 'ok', blockNum, slotValuesByName, entriesBySlot };
+          } finally {
+            proof.free();
+          }
+        }),
       label
     )
   );
 
-  let blockNum: number;
-  const slotValuesByName = new Map<string, string | undefined>();
-  const entriesBySlot = new Map<string, Map<string, Felts4>>();
-
-  try {
-    assertScopeCurrent(scope);
-    const provenId = proof.accountId().toString().toLowerCase();
-    if (provenId !== registryHex) {
-      throw new MidenNameRegistryMismatchError(`proof is for ${provenId}, expected ${registryHex}`);
-    }
-
-    const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
-    const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
-    if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
-      throw new MidenNameRegistryMismatchError(`unsupported commitment_version ${String(version)}`);
-    }
-
-    blockNum = proof.blockNum();
-    for (const slot of options?.slotNames ?? []) {
-      slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
-    }
-
-    for (const { slot } of requests) {
-      if (proof.hasStorageMapTooManyEntries(slot) === true) {
-        throw new MidenNameRegistryMismatchError(`node did not return the entries of ${slot}`);
-      }
-      const entries = new Map<string, Felts4>();
-      for (const entry of proof.getStorageMapEntries(slot) ?? []) {
-        entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
-      }
-      entriesBySlot.set(slot, entries);
-    }
-  } finally {
-    proof.free();
+  if (snapshot.kind === 'mismatch') {
+    throw new MidenNameRegistryMismatchError(snapshot.message);
   }
 
   return {
-    blockNum,
+    blockNum: snapshot.blockNum,
     slotValue(slot: string): string | undefined {
-      return slotValuesByName.get(slot);
+      return snapshot.slotValuesByName.get(slot);
     },
     mapValue(slot: string, key: Felts4): Felts4 {
-      return entriesBySlot.get(slot)?.get(wordFromFelts(key).toHex().toLowerCase()) ?? ZERO_FELTS;
+      return snapshot.entriesBySlot.get(slot)?.get(wordFromFelts(key).toHex().toLowerCase()) ?? ZERO_FELTS;
     }
   };
 }

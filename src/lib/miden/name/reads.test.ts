@@ -792,6 +792,50 @@ describe('RpcClient lifecycle', () => {
     }
   });
 
+  it('frees AccountProof handles returned late after timeout without retrying validation errors', async () => {
+    provenAccountHex = '0xwrong';
+    await expect(fetchMidenNameQuote('alice')).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(rpc.getAccountProof).toHaveBeenCalledTimes(1);
+    expect(proofsCreated[0]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = REGISTRY_HEX;
+    rpc.getAccountProof.mockClear();
+    rpc.free.mockClear();
+
+    jest.useFakeTimers();
+    try {
+      const attempt1 = deferred<ReturnType<typeof fakeProof>>();
+      const attempt2 = deferred<ReturnType<typeof fakeProof>>();
+      rpc.getAccountProof.mockReturnValueOnce(attempt1.promise).mockReturnValueOnce(attempt2.promise);
+
+      const outcome = fetchMidenNameQuote('bob').then(
+        () => 'resolved',
+        (error: unknown) => error
+      );
+      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+      expect(rpc.free).not.toHaveBeenCalled();
+
+      const req1 = rpc.getAccountProof.mock.calls[0]?.[1];
+      const req2 = rpc.getAccountProof.mock.calls[1]?.[1];
+      const lateProof1 = fakeProof(req1!);
+      const lateProof2 = fakeProof(req2!);
+
+      attempt1.resolve(lateProof1);
+      await flushMicrotasks();
+      expect(lateProof1.free).toHaveBeenCalledTimes(1);
+      expect(rpc.free).toHaveBeenCalledTimes(1);
+
+      attempt2.resolve(lateProof2);
+      await flushMicrotasks();
+      expect(lateProof2.free).toHaveBeenCalledTimes(1);
+      expect(rpc.free).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('frees the client after note-status reads and defers disposal on timeout', async () => {
     rpc.getNetworkNoteStatus.mockResolvedValueOnce({ status: 'Pending', attemptCount: 0, lastError: undefined });
     await fetchRegistrationNoteState('0xnote');
