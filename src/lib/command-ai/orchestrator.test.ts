@@ -361,4 +361,70 @@ describe('command-ai orchestrator', () => {
     expect(res.handoff.jumpToConfirm).toBe(false);
     expect(res.handoff.draft.autoReview).toBe(false);
   });
+
+  it('keeps outbound direction when selecting a bridge-out clarification chip with miden-testnet sourceNetwork', () => {
+    const baseCtx = createContext();
+    const ctx: OrchestratorWalletContext = {
+      ...baseCtx,
+      externalEvmAddress: VALID_EVM_ALICE_WORK,
+      bridgeRoutes: [
+        ...baseCtx.bridgeRoutes,
+        {
+          id: 'testnet:agglayer:usdcx:sepolia:send',
+          provider: 'agglayer',
+          mode: 'send',
+          sourceSymbol: 'USDCx',
+          sourceNetwork: 'miden-testnet',
+          destinationSymbol: 'USDC',
+          destinationNetwork: 'sepolia',
+          estimateFee: '$0.25',
+          etaLabel: '~2m'
+        },
+        {
+          id: 'testnet:xreserve:usdcx:sepolia:send',
+          provider: 'xreserve',
+          mode: 'send',
+          sourceSymbol: 'USDCx',
+          sourceNetwork: 'miden-testnet',
+          destinationSymbol: 'USDC',
+          destinationNetwork: 'sepolia',
+          estimateFee: '$0.10',
+          etaLabel: '~1m'
+        }
+      ]
+    };
+
+    const { map } = redactPrompt('bridge out 10 usdcx to sepolia', { contacts: ctx.contacts });
+    const clarifying = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'bridge',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: 'usdcx',
+        to_asset: null,
+        from_chain: null,
+        to_chain: 'sepolia',
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    expect(clarifying.kind).toBe('clarifying');
+    if (clarifying.kind !== 'clarifying') return;
+    expect(clarifying.chips.map(c => c.id)).toEqual([
+      'testnet:agglayer:usdcx:sepolia:send',
+      'testnet:xreserve:usdcx:sepolia:send'
+    ]);
+
+    const handoff = applyChipSelection(clarifying, clarifying.chips[1]!, ctx);
+    expect(handoff.kind).toBe('handoff');
+    if (handoff.kind !== 'handoff' || handoff.handoff.action !== 'bridge') return;
+    expect(handoff.handoff.draft.direction).toBe('out');
+    expect(handoff.handoff.draft.route).toBe('testnet:xreserve:usdcx:sepolia:send');
+    expect(handoff.handoff.draft.amount).toBe('10');
+  });
 });

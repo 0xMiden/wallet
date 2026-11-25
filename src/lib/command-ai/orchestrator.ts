@@ -698,49 +698,58 @@ function resolveSendFlow(
   };
 }
 
+function isMidenChain(value: string | undefined): boolean {
+  if (!value) return false;
+  const lower = value.trim().toLowerCase();
+  return lower === 'miden' || lower.startsWith('miden-');
+}
+
 function resolveBridgeFlow(
   draft: HydratedIntentDraft,
   map: RedactionMap,
   ctx: OrchestratorWalletContext
 ): OrchestratorResolution {
-  const fromChain = draft.fromChain;
-  const toChain = draft.toChain;
-  const direction: 'in' | 'out' | undefined =
-    toChain === 'miden' || (fromChain && fromChain !== 'miden')
-      ? 'in'
-      : fromChain === 'miden' || (toChain && toChain !== 'miden')
-        ? 'out'
-        : undefined;
-
-  let candidates = ctx.bridgeRoutes;
-  if (direction) {
-    candidates = candidates.filter(r => r.mode === (direction === 'in' ? 'receive' : 'send'));
-  }
-  if (draft.assetQuery) {
-    const assetLower = draft.assetQuery.trim().toLowerCase();
-    const assetMatches = candidates.filter(
-      r =>
-        r.sourceSymbol.toLowerCase() === assetLower ||
-        r.destinationSymbol.toLowerCase() === assetLower ||
-        (assetLower === 'usdc' &&
-          (r.sourceSymbol.toLowerCase() === 'usdcx' || r.destinationSymbol.toLowerCase() === 'usdcx'))
-    );
-    if (assetMatches.length > 0) candidates = assetMatches;
-  }
-  if (fromChain && fromChain !== 'miden') {
-    const chainMatches = candidates.filter(r => r.sourceNetwork.toLowerCase().includes(fromChain));
-    if (chainMatches.length > 0) candidates = chainMatches;
-  }
-  if (toChain && toChain !== 'miden') {
-    const chainMatches = candidates.filter(r => r.destinationNetwork.toLowerCase().includes(toChain));
-    if (chainMatches.length > 0) candidates = chainMatches;
-  }
+  let candidates: readonly BridgeRouteSummary[];
   if (draft.routeId) {
-    const byId = candidates.filter(r => r.id === draft.routeId);
-    if (byId.length > 0) candidates = byId;
-  } else if (draft.provider) {
-    const byProvider = candidates.filter(r => r.provider.toLowerCase() === draft.provider);
-    if (byProvider.length > 0) candidates = byProvider;
+    const exactRoute = ctx.bridgeRoutes.find(r => r.id === draft.routeId);
+    candidates = exactRoute ? [exactRoute] : [];
+  } else {
+    const fromChain = draft.fromChain;
+    const toChain = draft.toChain;
+    const direction: 'in' | 'out' | undefined =
+      isMidenChain(toChain) || (fromChain && !isMidenChain(fromChain))
+        ? 'in'
+        : isMidenChain(fromChain) || (toChain && !isMidenChain(toChain))
+          ? 'out'
+          : undefined;
+
+    candidates = ctx.bridgeRoutes;
+    if (direction) {
+      candidates = candidates.filter(r => r.mode === (direction === 'in' ? 'receive' : 'send'));
+    }
+    if (draft.assetQuery) {
+      const assetLower = draft.assetQuery.trim().toLowerCase();
+      const assetMatches = candidates.filter(
+        r =>
+          r.sourceSymbol.toLowerCase() === assetLower ||
+          r.destinationSymbol.toLowerCase() === assetLower ||
+          (assetLower === 'usdc' &&
+            (r.sourceSymbol.toLowerCase() === 'usdcx' || r.destinationSymbol.toLowerCase() === 'usdcx'))
+      );
+      if (assetMatches.length > 0) candidates = assetMatches;
+    }
+    if (fromChain && !isMidenChain(fromChain)) {
+      const chainMatches = candidates.filter(r => r.sourceNetwork.toLowerCase().includes(fromChain));
+      if (chainMatches.length > 0) candidates = chainMatches;
+    }
+    if (toChain && !isMidenChain(toChain)) {
+      const chainMatches = candidates.filter(r => r.destinationNetwork.toLowerCase().includes(toChain));
+      if (chainMatches.length > 0) candidates = chainMatches;
+    }
+    if (draft.provider) {
+      const byProvider = candidates.filter(r => r.provider.toLowerCase() === draft.provider);
+      if (byProvider.length > 0) candidates = byProvider;
+    }
   }
 
   if (candidates.length === 0) {
