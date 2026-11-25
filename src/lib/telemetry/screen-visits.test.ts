@@ -26,6 +26,7 @@ describe('screenForPath', () => {
     ['/browser', 'explore'],
     ['/history', 'activity'],
     ['/history/some-program', 'activity'],
+    ['/history-details/tx-1', 'activity'],
     ['/activity/group/swap', 'activity'],
     ['/activity/group/counterparty/0xdeadbeef', 'activity'],
     ['/bridge/deposit', 'funding'],

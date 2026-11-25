@@ -22,6 +22,7 @@ export function screenForPath(pathname: string): TelemetryScreen {
     case 'browser':
       return 'explore';
     case 'history':
+    case 'history-details':
     case 'activity':
       return 'activity';
     case 'generating-transaction':
