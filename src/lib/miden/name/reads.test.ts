@@ -70,16 +70,34 @@ function setEntry(slot: string, key: Felts4, value: bigint[]): void {
   mapEntries.set(slot, entries);
 }
 
-function fakeProof(requirements: AccountStorageRequirements) {
-  return {
-    accountId: () => ({ toString: () => provenAccountHex }),
-    blockNum: () => 777,
+type FakeProof = ReturnType<typeof createFakeProof>;
+let proofsCreated: FakeProof[] = [];
+
+function createFakeProof(requirements: AccountStorageRequirements) {
+  let freed = false;
+  const assertLive = (member: string) => {
+    if (freed) throw new Error(`AccountProof.${member} called after free()`);
+  };
+  const proof = {
+    accountId: () => {
+      assertLive('accountId');
+      return { toString: () => provenAccountHex };
+    },
+    blockNum: () => {
+      assertLive('blockNum');
+      return 777;
+    },
     getStorageSlotValue: (slot: string) => {
+      assertLive('getStorageSlotValue');
       const value = slotValues.get(slot);
       return value ? new Word(BigUint64Array.from(value)) : undefined;
     },
-    hasStorageMapTooManyEntries: (slot: string) => tooManyEntries.has(slot),
+    hasStorageMapTooManyEntries: (slot: string) => {
+      assertLive('hasStorageMapTooManyEntries');
+      return tooManyEntries.has(slot);
+    },
     getStorageMapEntries: (slot: string) => {
+      assertLive('getStorageMapEntries');
       const request = requirements.slots.find(entry => entry.slot === slot);
       if (!request) return undefined;
       const entries = mapEntries.get(slot) ?? new Map<string, bigint[]>();
@@ -87,8 +105,17 @@ function fakeProof(requirements: AccountStorageRequirements) {
         const value = entries.get(key.toHex());
         return value ? [{ key: () => key, value: () => new Word(BigUint64Array.from(value)) }] : [];
       });
-    }
+    },
+    free: jest.fn(() => {
+      freed = true;
+    })
   };
+  proofsCreated.push(proof);
+  return proof;
+}
+
+function fakeProof(requirements: AccountStorageRequirements) {
+  return createFakeProof(requirements);
 }
 
 const rpc = {
@@ -101,6 +128,7 @@ const rpc = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  proofsCreated = [];
   clearMidenNameQuoteCache();
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
@@ -210,6 +238,27 @@ describe('fetchMidenNameQuote', () => {
   it('refuses a proof that leaves out map entries', async () => {
     tooManyEntries.add(MIDEN_NAME_SLOTS.assetStatus);
     await expect(fetchMidenNameQuote('alice')).rejects.toThrow(MidenNameRegistryMismatchError);
+  });
+
+  it('snapshots slot and map values and frees the AccountProof on success and validation errors', async () => {
+    const quote = await fetchMidenNameQuote('alice');
+    expect(quote.scriptAllowed).toBe(true);
+    expect(proofsCreated).toHaveLength(1);
+    expect(proofsCreated[0]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = '0x0000000000000000000000000000ff';
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(proofsCreated[1]?.free).toHaveBeenCalledTimes(1);
+
+    provenAccountHex = REGISTRY_HEX;
+    slotValues.set(MIDEN_NAME_SLOTS.commitmentVersion, [2n, 0n, 0n, 0n]);
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(/commitment_version/);
+    expect(proofsCreated[2]?.free).toHaveBeenCalledTimes(1);
+
+    slotValues.set(MIDEN_NAME_SLOTS.commitmentVersion, [1n, 0n, 0n, 0n]);
+    tooManyEntries.add(MIDEN_NAME_SLOTS.assetStatus);
+    await expect(fetchMidenNameQuote('alice', { fresh: true })).rejects.toThrow(MidenNameRegistryMismatchError);
+    expect(proofsCreated[3]?.free).toHaveBeenCalledTimes(1);
   });
 
   it('builds new wasm arguments for the retry', async () => {

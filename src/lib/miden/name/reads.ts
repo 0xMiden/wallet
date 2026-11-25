@@ -121,14 +121,20 @@ async function withOwnedRpcClient<T>(run: (runRpc: OwnedRpcRunner) => Promise<T>
   }
 }
 
+export interface ReadRegistryStorageOptions {
+  slotNames?: readonly string[];
+}
+
 /**
  * Read map entries of the registry with ONE `getAccountProof`. Also makes sure
  * that the proof is for the registry and that `commitment_version` is 1.
+ * Snapshots requested slot and map values and frees `AccountProof` before returning.
  */
 export async function readRegistryStorage(
   config: MidenNameConfig,
   requests: RegistryMapRequest[],
-  label: string
+  label: string,
+  options?: ReadRegistryStorageOptions
 ): Promise<RegistryStorageRead> {
   await ensureSdkWasmReady();
   const registryHex = config.registryAccountIdHex.toLowerCase();
@@ -146,33 +152,45 @@ export async function readRegistryStorage(
     label
   );
 
-  const provenId = proof.accountId().toString().toLowerCase();
-  if (provenId !== registryHex) {
-    throw new MidenNameRegistryMismatchError(`proof is for ${provenId}, expected ${registryHex}`);
-  }
-
-  const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
-  const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
-  if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
-    throw new MidenNameRegistryMismatchError(`unsupported commitment_version ${String(version)}`);
-  }
-
+  let blockNum: number;
+  const slotValuesByName = new Map<string, string | undefined>();
   const entriesBySlot = new Map<string, Map<string, Felts4>>();
-  for (const { slot } of requests) {
-    if (proof.hasStorageMapTooManyEntries(slot) === true) {
-      throw new MidenNameRegistryMismatchError(`node did not return the entries of ${slot}`);
+
+  try {
+    const provenId = proof.accountId().toString().toLowerCase();
+    if (provenId !== registryHex) {
+      throw new MidenNameRegistryMismatchError(`proof is for ${provenId}, expected ${registryHex}`);
     }
-    const entries = new Map<string, Felts4>();
-    for (const entry of proof.getStorageMapEntries(slot) ?? []) {
-      entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
+
+    const versionWord = proof.getStorageSlotValue(MIDEN_NAME_SLOTS.commitmentVersion);
+    const version = versionWord ? feltsFromWord(versionWord)[0] : undefined;
+    if (version !== MIDEN_NAME_COMMITMENT_VERSION) {
+      throw new MidenNameRegistryMismatchError(`unsupported commitment_version ${String(version)}`);
     }
-    entriesBySlot.set(slot, entries);
+
+    blockNum = proof.blockNum();
+    for (const slot of options?.slotNames ?? []) {
+      slotValuesByName.set(slot, proof.getStorageSlotValue(slot)?.toHex().toLowerCase());
+    }
+
+    for (const { slot } of requests) {
+      if (proof.hasStorageMapTooManyEntries(slot) === true) {
+        throw new MidenNameRegistryMismatchError(`node did not return the entries of ${slot}`);
+      }
+      const entries = new Map<string, Felts4>();
+      for (const entry of proof.getStorageMapEntries(slot) ?? []) {
+        entries.set(entry.key().toHex().toLowerCase(), feltsFromWord(entry.value()));
+      }
+      entriesBySlot.set(slot, entries);
+    }
+  } finally {
+    proof.free();
   }
 
   return {
-    blockNum: proof.blockNum(),
+    blockNum,
     slotValue(slot: string): string | undefined {
-      return proof.getStorageSlotValue(slot)?.toHex().toLowerCase();
+      return slotValuesByName.get(slot);
     },
     mapValue(slot: string, key: Felts4): Felts4 {
       return entriesBySlot.get(slot)?.get(wordFromFelts(key).toHex().toLowerCase()) ?? ZERO_FELTS;
@@ -217,7 +235,8 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
       { slot: MIDEN_NAME_SLOTS.prices, keys: [priceKey] },
       { slot: MIDEN_NAME_SLOTS.feeSchedule, keys: [scriptRoot] }
     ],
-    'midenNameQuote'
+    'midenNameQuote',
+    { slotNames: [MIDEN_NAME_SLOTS.registerDomainNoteRoot] }
   );
 
   const status = storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey);
