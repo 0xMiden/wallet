@@ -109,9 +109,9 @@ export async function readBoundedBytes(response, { maxBytes = MAX_BYTES, signal 
   }
 }
 
-async function contentDigest(response) {
+async function contentDigest(response, signal) {
   if (!response.ok || response.headers.get('cf-entrypoint') !== 'staging-topology-worker.mjs') return null;
-  const bytes = await readBoundedBytes(response);
+  const bytes = await readBoundedBytes(response, { signal });
   if (bytes === null) return null;
   const type = response.headers.get('content-type') || '';
   let moduleBytes = bytes;
@@ -278,8 +278,8 @@ export function createTopologyReadApi({
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal
         });
-        if (kind === 'content') return await contentDigest(response);
-        const bytes = await readBoundedBytes(response);
+        if (kind === 'content') return await contentDigest(response, controller.signal);
+        const bytes = await readBoundedBytes(response, { signal: controller.signal });
         if (bytes === null) return null;
         const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
         if (
@@ -344,7 +344,7 @@ export function createTopologyScriptDeleter({ accountId, token, fetchImpl = fetc
           );
           if (!response.ok) return false;
           if (response.body === null) return true;
-          const bytes = await readBoundedBytes(response);
+          const bytes = await readBoundedBytes(response, { signal: controller.signal });
           if (bytes === null) return false;
           if (bytes.length === 0) return true;
           const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));

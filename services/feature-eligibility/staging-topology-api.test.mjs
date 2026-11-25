@@ -395,3 +395,71 @@ test('script observation retains independent logging and tracing switches', asyn
     traces: { enabled: true, persist: false }
   });
 });
+
+function createAbortingMultiChunkStream(onFirstChunk) {
+  const state = { pulls: 0, cancelled: false };
+  const stream = new ReadableStream(
+    {
+      pull(chunkController) {
+        state.pulls++;
+        if (state.pulls === 1) {
+          chunkController.enqueue(new Uint8Array([123]));
+          onFirstChunk();
+          return;
+        }
+        chunkController.enqueue(new Uint8Array([125]));
+        chunkController.close();
+      },
+      cancel() {
+        state.cancelled = true;
+      }
+    },
+    new CountQueuingStrategy({ highWaterMark: 0 })
+  );
+  return { stream, state };
+}
+
+test('read adapter forwards abort signal to readBoundedBytes for JSON responses', { timeout: 500 }, async () => {
+  const phase = new AbortController();
+  const { stream, state } = createAbortingMultiChunkStream(() => phase.abort());
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () => new Response(stream, { headers: { 'content-type': 'application/json' } })
+  });
+  assert.equal(await api('/account', { signal: phase.signal }), null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.pulls, 1);
+  assert.equal(state.cancelled, true);
+});
+
+test('read adapter forwards abort signal through contentDigest to readBoundedBytes', { timeout: 500 }, async () => {
+  const phase = new AbortController();
+  const { stream, state } = createAbortingMultiChunkStream(() => phase.abort());
+  const api = create({
+    accountId,
+    token,
+    fetchImpl: async () =>
+      new Response(stream, {
+        headers: { 'content-type': 'application/javascript+module', 'cf-entrypoint': 'staging-topology-worker.mjs' }
+      })
+  });
+  assert.equal(await api('/workers/scripts/miden-elig-topology-12345-1/content/v2', { signal: phase.signal }), null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.pulls, 1);
+  assert.equal(state.cancelled, true);
+});
+
+test('script deleter forwards timeout abort signal to readBoundedBytes', { timeout: 500 }, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { stream, state } = createAbortingMultiChunkStream(() => t.mock.timers.tick(5_000));
+  const deleter = deleteScript({
+    accountId,
+    token,
+    fetchImpl: async () => new Response(stream, { status: 200 })
+  });
+  assert.equal(await deleter('miden-elig-topology-12345-1'), false);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.pulls, 1);
+  assert.equal(state.cancelled, true);
+});
