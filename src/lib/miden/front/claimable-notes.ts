@@ -25,7 +25,13 @@ import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
-import { classifySwapOrderNotes } from '../swap/classification';
+import {
+  classifySwapOrderNotes,
+  isHeldBackPeerSwapPayback,
+  isPeerSwapPayback,
+  localSwapOrders,
+  swapOrderIdsOf
+} from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -54,6 +60,7 @@ type ParsedNote = {
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
   standardPayment?: boolean;
+  peerSwapPayback?: boolean;
   carriesMoreAssets?: boolean;
   /** Block that includes the note; its timestamp becomes `receivedAt` once the note read is done. */
   blockNum?: number;
@@ -66,7 +73,9 @@ type ParsedNote = {
 function parseNotes(
   rawNotes: ConsumableNoteDto[],
   notesBeingClaimed: ReadonlyMap<string, string>,
-  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
+  swapOrders: Map<string, SwapOrderNoteMetadata> = new Map(),
+  // The ids of the swap orders this device placed: a payback of any other order is a peer's (`isPeerSwapPayback`).
+  ownSwapOrderIds: ReadonlySet<string> = new Set()
 ): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
@@ -102,6 +111,7 @@ function parseNotes(
       blockNum: note.blockNum,
       recallableAtMs: note.recallableAtMs,
       standardPayment: note.standardPayment,
+      peerSwapPayback: isPeerSwapPayback(note, ownSwapOrderIds) ? true : undefined,
       // The claim fee gate cannot see the other assets, one of which may pay the fee.
       carriesMoreAssets: note.assets.length > 1
     });
@@ -160,6 +170,7 @@ function attachMetadataToNotes(
       receivedAt: n.receivedAt,
       recallableAtMs: n.recallableAtMs,
       standardPayment: n.standardPayment,
+      peerSwapPayback: n.peerSwapPayback,
       carriesMoreAssets: n.carriesMoreAssets
     }));
 }
@@ -168,8 +179,16 @@ function attachMetadataToNotes(
  * Whether the claim list shows a note: every note but a swap note settlement claims unattended. A payback marked
  * `coverageShort` is listed for a manual claim, and settlement may still claim it on its own read of notes and lineages.
  */
-const isListedClaimableNote = (note: { swapOrder?: { autoConsume?: boolean; coverageShort?: true } }): boolean =>
-  !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
+const isListedClaimableNote = (note: {
+  swapOrder?: { autoConsume?: boolean; coverageShort?: true };
+  peerSwapPayback?: boolean;
+  receivedAt?: number;
+}): boolean => {
+  // A payback of a swap that another device of the account placed: that device claims it, so this one holds it back
+  // for a time and does not ask the user to accept it (multi-device).
+  if (isHeldBackPeerSwapPayback(note)) return false;
+  return !note.swapOrder || note.swapOrder.autoConsume === false || note.swapOrder.coverageShort === true;
+};
 
 // -------------------- Side-effect helpers --------------------
 
@@ -244,11 +263,13 @@ async function fetchNotesFromLocalClient(
   // same 5s cadence: flag-OFF it is inline WASM, it rebuilds the client when the slot is
   // empty, and left on the 5-minute backstop it reopened exactly the unbounded park the
   // read no longer takes — one hold further down the same function.
+  // Read once, outside the hold: the classification below takes them, and so does the peer-payback flag.
+  const ownSwapOrders = await localSwapOrders(publicAddress);
   let swapOrders;
   try {
     swapOrders = await withWasmClientLock(
       // Two holds read notes and lineages, so a fill can show before its payback: a short one is marked, not dropped.
-      async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold),
+      async hold => classifySwapOrderNotes(rawNotes, publicAddress, ownSwapOrders, hold),
       {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'claimable-notes-swap-lineage'
@@ -272,7 +293,7 @@ async function fetchNotesFromLocalClient(
   // it cannot be reused to hide quarantined notes. We instead filter the
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
-  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
+  const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders, swapOrderIdsOf(ownSwapOrders));
   const visible = quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
   // Display dates come from block headers, read now that both holds have released the client.
   const blockTimes = await getBlockTimestamps(
@@ -388,6 +409,7 @@ function toCachedClaimableNote(note: ClaimableNoteWithMetadata): ClaimableNoteWi
     swapOrder: note.swapOrder,
     recallableAtMs: note.recallableAtMs,
     standardPayment: note.standardPayment,
+    peerSwapPayback: note.peerSwapPayback,
     receivedAt: note.receivedAt
   };
 }
@@ -621,6 +643,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           receivedAt: n.receivedAt,
           recallableAtMs: n.recallableAtMs,
           standardPayment: n.standardPayment,
+          peerSwapPayback: n.peerSwapPayback,
           carriesMoreAssets: n.carriesMoreAssets
         }))
     );

@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { sameTxHash } from 'lib/agglayer/status';
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   matchesEarnDepositIntent,
@@ -8,6 +9,7 @@ import {
   type ExpectedEarnDepositIntent,
   type ExpectedEarnWithdrawIntent
 } from 'lib/epoch/intent-key';
+import { getMessage } from 'lib/i18n/core';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
@@ -44,6 +46,7 @@ import {
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
+import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import {
   bridgedSendCompletionRead,
@@ -443,11 +446,11 @@ export const completeReplaceHotKeyTransaction = async (
   let storedAccountId = tx.accountId;
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
-    if (!newHotPublicKey) {
+    if (!newHotPublicKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
     }
 
-    if (!guardianProvider.swapHotKey) {
+    if (!guardianProvider.swapHotKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('swapHotKey not implemented in this provider');
     }
 
@@ -461,7 +464,8 @@ export const completeReplaceHotKeyTransaction = async (
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
-    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // on-chain account (now [new-hot, cold] after a replace, or the earlier set
+    // plus new-hot after an add) right before registering (#619 gap
     // 3) - otherwise this could re-push the OLD allowlist, the historical
     // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
     // Best-effort: an on-chain-successful rotation must not be failed by a
@@ -543,7 +547,9 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    // A revocation installs no new key, so it has nothing to swap.
+    if (newHotPublicKey && guardianProvider.swapHotKey)
+      await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
   } catch (error) {
     retireLandedTrap(error, tx.id, result);
     console.error('Error completing replace-hot-key transaction:', error);
@@ -568,7 +574,9 @@ export const completeReplaceHotKeyTransaction = async (
     {
       // Kept from the read made before the re-register and the swap, which can replace the client.
       ...(result ? landedFee(readLandedResultFields(result, tx.id)) : {}),
-      displayMessage: 'Everyday key rotated',
+      displayMessage: tx.extraInputs.revokedSignerCommitment
+        ? getMessage('deviceRevoked')
+        : hotKeyActivationMessage(tx.extraInputs.mode),
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
@@ -581,7 +589,8 @@ export const completeReplaceHotKeyTransaction = async (
     'everyday key rotation'
   );
 
-  // The account now has both signers on-chain, so bring it up to the same
+  // The account now has its new hot signer and the cold signer on-chain (and,
+  // after an add, the other devices' hot signers too), so bring it up to the same
   // hardening a freshly-created 3-key account has (update_guardian threshold
   // 2, which the update_signers rotation above can't carry). Best-effort and
   // idempotent; never affects the rotation's success. After an eviction during
@@ -1333,11 +1342,9 @@ export const updateEarnWithdrawPhase = async (
 ) => {
   let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (
-      expected &&
-      (tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected))
-    )
-      return;
+    if (tx.restoredFromBackup) return false;
+    if (expected && (tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected)))
+      return false;
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
@@ -1352,6 +1359,8 @@ export const updateEarnWithdrawPhase = async (
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
     return undefined;
   });
+
+  if (settled !== undefined && !settled.restoredFromBackup) signalTransactionCompleted();
 
   if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
     reportTransactionFailure({
@@ -1437,14 +1446,16 @@ export const updateBridgedReceivePhase = async (
   const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
+  let receiptChanged = false;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.restoredFromBackup) return false;
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-    if (!canMoveBridgedReceivePhase(inputs?.phase, phase) || (canUpdate && !canUpdate(tx))) return;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase) || (canUpdate && !canUpdate(tx))) return false;
     // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
     // stands.
     const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
-    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
-    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return false;
+    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return false;
     const nowSec = Math.floor(Date.now() / 1000);
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
@@ -1464,6 +1475,7 @@ export const updateBridgedReceivePhase = async (
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
     if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
+    receiptChanged = fromPhase !== phase && BRIDGED_RECEIVE_SETTLED_PHASES.has(phase);
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
@@ -1487,7 +1499,10 @@ export const updateBridgedReceivePhase = async (
       tx.displayMessage = 'Bridged from EVM';
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
+
+  if (receiptChanged) signalTransactionCompleted();
 
   if (failed !== undefined && !failed.restoredFromBackup) {
     const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
@@ -1590,6 +1605,7 @@ export const updateBridgeClaimStatus = async (
 ) => {
   let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.restoredFromBackup) return false;
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
     if (ei.provider === 'agglayer') {
       if (ei.claimStatus === 'claimed' && claimStatus !== 'claimed') return;
@@ -1611,6 +1627,7 @@ export const updateBridgeClaimStatus = async (
       applyVerifiedLanding(tx, bridgedSendLandedValues());
       landed = tx;
     }
+    return undefined;
   });
 
   if (landed !== undefined) {
@@ -1639,7 +1656,10 @@ export const listUnconfirmedSwitchRows = async (accountId: string): Promise<Swit
   const rows = await Repo.transactions
     .where('type')
     .equals('switch-guardian')
-    .filter(row => row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed')
+    .filter(
+      row =>
+        !row.restoredFromBackup && row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed'
+    )
     .toArray();
   return rows.filter((row): row is SwitchGuardianTransaction => row.type === 'switch-guardian');
 };
@@ -1672,14 +1692,16 @@ export const listUnconfirmedSwitchRows = async (accountId: string): Promise<Swit
 export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
   if (landed) {
     await Repo.transactions.where({ id }).modify(tx => {
+      if (tx.restoredFromBackup) return false;
       tx.displayMessage = 'Guardian switched';
       tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+      return undefined;
     });
     return;
   }
   let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
+    if (tx.restoredFromBackup || rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1790,6 +1812,7 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
   });
   if (demoted === undefined) return;
   if (!demoted.restoredFromBackup) {
+    signalTransactionCompleted();
     reportTransactionFailure({
       point: 'bridge_send_settlement',
       type: demoted.type,

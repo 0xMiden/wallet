@@ -87,7 +87,7 @@ import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
-import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
+import { guardianHistoryIcon, guardianRecoveredActionKey } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -692,7 +692,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const oneClickAmount = oneClickTracking ? oneClickEntryAmount(oneClickTracking) : undefined;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
-        const consumedBridge = consumeExtra?.bridgeIn;
+        const consumedBridge = consumeExtra?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn;
         const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
           tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
         const earnDepositExtra: IEarnDepositExtraInputs | undefined =
@@ -711,8 +711,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.recovered
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
-            : (tx.displayMessage ?? ''),
+            ? t(
+                guardianRecoveredActionKey(tx.type, {
+                  reclaimed: tx.recovery?.reclaimed,
+                  hotKeyAdded: hotKeyExtra?.mode === 'add',
+                  revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment
+                })
+              )
+            : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
           transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
@@ -759,6 +765,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
+          hotKeyAdded: hotKeyExtra?.mode === 'add',
+          revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment,
           errorMessage:
             submission !== undefined && !isUnconfirmed ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
@@ -1248,6 +1256,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {entry.revokedSignerCommitment && (
+                    <DetailRow label={t('deviceSignerCommitment')}>
+                      <HashChip hash={entry.revokedSignerCommitment} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
                   {isHotKeyRotation && entry.newHotPublicKey && (
                     <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
                       <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />
@@ -1676,15 +1689,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )
                     )}
                   </DetailSection>
-                  {transaction && isOpenNearIntentsDeposit(entry.oneClickTracking) && (
-                    <Button
-                      data-testid="history-near-intents-deposit-button"
-                      variant={ButtonVariant.Secondary}
-                      title={t('nearIntentsOpenDeposit')}
-                      onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
-                      className="mt-5 w-full max-w-none"
-                    />
-                  )}
+                  {transaction &&
+                    !transaction.restoredFromBackup &&
+                    isOpenNearIntentsDeposit(entry.oneClickTracking) && (
+                      <Button
+                        data-testid="history-near-intents-deposit-button"
+                        variant={ButtonVariant.Secondary}
+                        title={t('nearIntentsOpenDeposit')}
+                        onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
+                        className="mt-5 w-full max-w-none"
+                      />
+                    )}
                 </div>
               </div>
             )}
@@ -1774,8 +1789,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         className="mt-4"
                       />
                     )}
-                  {/* An Epoch deposit in The Compact without an allocation: only its sponsor can recover it (#2120).
-                      `lockedDepositStateOf` leaves out a restored row. */}
+
                   {(() => {
                     const lockedState = lockedDepositStateOf(entry);
                     if (!entry.txId || !entry.bridgeInLockedDeposit || lockedState === undefined) return null;
@@ -1784,6 +1798,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         txId={entry.txId}
                         lock={entry.bridgeInLockedDeposit}
                         state={lockedState}
+                        readOnly={entry.restoredFromBackup}
                         amountLabel={[entry.bridgeInSourceAmount, entry.bridgeInSourceSymbol].filter(Boolean).join(' ')}
                         className="mt-4"
                       />

@@ -1720,6 +1720,16 @@ describe('HistoryDetails', () => {
     }
   );
 
+  it.each([
+    { name: 'a revocation', extraInputs: { revokedSignerCommitment: `0x${'ab'.repeat(32)}` }, title: 'deviceRevoked' },
+    { name: 'an added device', extraInputs: { mode: 'add' }, title: 'guardianHistoryDeviceAdded' },
+    { name: 'a replaced device', extraInputs: { mode: 'replace' }, title: 'guardianHistoryDeviceReplaced' }
+  ])('titles a recovered device change that is $name', async ({ extraInputs, title }) => {
+    const view = await renderRecovered({ ...recoveredRow('replace-hot-key'), extraInputs });
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', title);
+    view.unmount();
+  });
+
   it('titles a local consume that gained recovery data with its own message and icon', async () => {
     await renderRecovered({
       ...recoveredRow('consume'),
@@ -6226,7 +6236,7 @@ describe('HistoryDetails swap order actions', () => {
     expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
   });
 
-  it('shows no reclaim notice on a restored order, which the settlement never acts on', async () => {
+  it('keeps the returning status on a restored order without offering a reclaim action', async () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
     setMockRow({
@@ -6235,8 +6245,8 @@ describe('HistoryDetails swap order actions', () => {
     });
     await renderAndLoad();
 
-    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'pending');
-    expect(screen.queryByTestId('swap-cancel-order-pending')).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-swap-settlement', 'reclaiming');
+    expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
   });
 
   // A row is Queued OR its order is open, never both: an order only exists once

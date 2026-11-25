@@ -1,7 +1,12 @@
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { localSwapOrders } from './classification';
+import {
+  isHeldBackPeerSwapPayback,
+  isPeerSwapPayback,
+  localSwapOrders,
+  PEER_SWAP_PAYBACK_HOLD_SECONDS
+} from './classification';
 
 // `settlement.test.ts` mocks `Repo.transactions.filter` to return a fixed array,
 // so the predicate inside `localSwapOrders` never actually runs there. These
@@ -101,5 +106,33 @@ describe('localSwapOrders', () => {
     withRows([order(overrides)]);
 
     expect(await localSwapOrders(ACCOUNT)).toEqual([]);
+  });
+});
+
+describe('peer swap paybacks (multi-device)', () => {
+  const OWN = new Set(['77']);
+
+  it('flags a payback of an order this device did not place', () => {
+    expect(isPeerSwapPayback({ swapAttachment: { orderId: '901', depth: 1 } }, OWN)).toBe(true);
+    expect(isPeerSwapPayback({ swapAttachment: { orderId: '901', depth: 1 } }, new Set())).toBe(true);
+  });
+
+  it("does not flag a payback of this device's own order, nor a note with no attachment", () => {
+    expect(isPeerSwapPayback({ swapAttachment: { orderId: '77', depth: 2 } }, OWN)).toBe(false);
+    expect(isPeerSwapPayback({ swapAttachment: null }, OWN)).toBe(false);
+  });
+
+  it('holds a peer payback back only while it is younger than the hold', () => {
+    const now = 1_000_000;
+    const at = (age: number) => ({ peerSwapPayback: true, receivedAt: now - age });
+    expect(isHeldBackPeerSwapPayback(at(0), now)).toBe(true);
+    expect(isHeldBackPeerSwapPayback(at(PEER_SWAP_PAYBACK_HOLD_SECONDS - 1), now)).toBe(true);
+    expect(isHeldBackPeerSwapPayback(at(PEER_SWAP_PAYBACK_HOLD_SECONDS), now)).toBe(false);
+  });
+
+  it('never holds back a note with no known receive time, nor a note that is not a peer payback', () => {
+    expect(isHeldBackPeerSwapPayback({ peerSwapPayback: true }, 1_000_000)).toBe(false);
+    expect(isHeldBackPeerSwapPayback({ receivedAt: 1_000_000 }, 1_000_000)).toBe(false);
+    expect(isHeldBackPeerSwapPayback({ peerSwapPayback: false, receivedAt: 1_000_000 }, 1_000_000)).toBe(false);
   });
 });

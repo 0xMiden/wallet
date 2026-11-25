@@ -99,12 +99,10 @@ type HistoryProps = {
   externalLoading?: boolean;
   /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
   hideLoadingSpinner?: boolean;
-  /**
-   * Narrows the list further, after the search and the filter. The Groups view's own page hands
-   * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
-   * row rendering all come with it - rather than a second list that would drift from it.
-   */
+  /** Narrows the list further after the search and the filter. */
   predicate?: (entry: IHistoryEntry) => boolean;
+  /** Narrows a complete batch after the predicate, including when it is empty. */
+  filterEntries?: (entries: readonly IHistoryEntry[]) => IHistoryEntry[];
   /**
    * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
    * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
@@ -264,6 +262,7 @@ const History = memo<HistoryProps>(
     filter,
     onInitialLoad,
     predicate,
+    filterEntries,
     renderEntries,
     pendingItems,
     drawnPendingItems,
@@ -669,10 +668,11 @@ const History = memo<HistoryProps>(
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
       entries = filter === 'arcade' && !predicate ? [] : entries.filter(e => matchesActivityFilter(filter, e));
     }
-    // Last, so a group's page narrows what the search and the filter already left.
+    // A caller narrows what the search and the filter already left.
     if (predicate) {
       entries = entries.filter(predicate);
     }
+    if (filterEntries) entries = filterEntries(entries);
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
@@ -808,7 +808,8 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
-  const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+  const bridgeIn: IBridgeInInfo | undefined =
+    tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
   const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
   const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
   return {
@@ -817,7 +818,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage,
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage),
     transactionIcon:
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
     errorMessage: tx.error,
@@ -994,12 +995,13 @@ async function fetchTransactionsAsHistoryEntries(
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage;
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage);
     const icon =
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
-    const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const bridgeIn: IBridgeInInfo | undefined =
+      tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
@@ -1023,6 +1025,8 @@ async function fetchTransactionsAsHistoryEntries(
       dappOrigins: tx.dappOrigins,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
+      hotKeyAdded: tx.type === 'replace-hot-key' && tx.extraInputs?.mode === 'add',
+      revokedSignerCommitment: tx.type === 'replace-hot-key' ? tx.extraInputs?.revokedSignerCommitment : undefined,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no

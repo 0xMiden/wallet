@@ -1,0 +1,933 @@
+/**
+ * The `history` feature (architecture doc 6).
+ *
+ * PROJECTION (6.1, 6.3). A synced row is a projection of `ITransaction`, not
+ * the row: raw bytes, retry counters, relay state, stage stamps, diagnostics
+ * and the Guardian candidate stay on the device that made the row. `x` holds
+ * the type-specific fields of the table in 6.3. Times are unix ms.
+ *
+ * CHUNKS (6.4). Each device writes only its own stream, `history:<deviceId>:<n>`.
+ * A row is appended to the open chunk when it reaches a terminal status; a chunk that
+ * the row would take past the 25 KiB blob cap closes and chunk n + 1 opens.
+ * A later receipt change rewrites the row in its own chunk. Receipt changes
+ * can grow a closed chunk past the cap (a claim hash on every bridge row):
+ * such a chunk spills its last rows into the open chunk, and both are
+ * uploaded. A peer that holds a spilled row from the old chunk replaces it
+ * when the new chunk arrives, since the row keeps its id. The chunk
+ * assignment is kept locally and chunk updates run one at a time.
+ *
+ * RESTORE (6.2). A row of another device lands in the local table with
+ * `restoredFromBackup`, which keeps it away from the processing loop, Retry,
+ * `waitForTransaction` and every reconciler. Restore accepts only receipt statuses.
+ */
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import {
+  type IBridgeInInfo,
+  type IConsumedAssetTotal,
+  ITransaction,
+  ITransactionIcon,
+  ITransactionStatus,
+  ITransactionType,
+  isLiveTransaction
+} from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { normalizedCommitment } from 'lib/miden/sdk/note-details-commitment';
+import { readsAsNotConfirmed } from 'lib/miden/transaction/submission-feedback';
+import { NoteTypeEnum } from 'lib/miden/types';
+import { isRecord } from 'lib/update/guards';
+
+import { type ReceiptFields, readReceiptExtra } from './history-receipt';
+import { HISTORY_BLOB_CAP, encryptedBlobLength, plaintextDigest } from '../crypto';
+import { type IncomingEntry, hashedKeyOf, readFeature, uploadEntries } from '../entries';
+import { type BackupSession, assertSessionLive } from '../session';
+import { type HistoryState, getBackupDeviceId, persistBackupState } from '../state';
+
+/**
+ * Room kept free in each chunk for later receipt changes (a claim hash, a
+ * received amount). An append that would leave less closes the chunk.
+ */
+export const CHUNK_HEADROOM_BYTES = 1536;
+
+/** Type-specific fields of a row: flat, short keys, plain values. */
+export type HistoryRowExtra = Record<string, string | number>;
+
+/** One synced row, version 1. */
+export interface HistoryRow {
+  v: 1;
+  id: string;
+  t: ITransactionType;
+  s: ITransactionStatus;
+  ic: ITransactionIcon;
+  a: string;
+  sa?: string;
+  f?: string;
+  am?: string;
+  fa?: string;
+  ff?: string;
+  nt?: NoteTypeEnum;
+  nd?: ITransaction['noteDelivery'];
+  at?: { faucetId: string; amount: string }[];
+  e?: string;
+  u?: boolean;
+  ni?: string[];
+  no?: string[];
+  r?: ReceiptFields;
+  tx?: string;
+  /** The account commitment after the transaction (`ITransaction.finalAccountCommitment`). */
+  fc?: string;
+  n?: string[];
+  ia: number;
+  ca?: number;
+  m?: string;
+  x?: HistoryRowExtra;
+}
+
+export function historyEntryKey(deviceId: string, n: number): string {
+  return `history:${deviceId}:${n}`;
+}
+
+/** Append terminal rows that originated on this device. */
+export function isAppendableRow(tx: ITransaction): boolean {
+  return readTerminalStatus(tx.status) !== null && !tx.restoredFromBackup && !tx.recovered;
+}
+
+function pickString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function pickNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** A bigint or a decimal string, as a decimal string. */
+function pickDecimal(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) return value;
+  return undefined;
+}
+
+/** Keep only the fields that have a value. */
+function compact(fields: Record<string, string | number | undefined>): HistoryRowExtra | undefined {
+  const extra: HistoryRowExtra = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) extra[key] = value;
+  }
+  return Object.keys(extra).length > 0 ? extra : undefined;
+}
+
+/** The `x` of a row, per the table in architecture doc 6.3. */
+export function projectExtra(tx: ITransaction): HistoryRowExtra | undefined {
+  const raw: unknown = tx.extraInputs;
+  if (!isRecord(raw)) return undefined;
+  switch (tx.type) {
+    case 'bridged-send':
+      return compact({
+        pv: pickString(raw, 'provider'),
+        da: pickString(raw, 'destinationAddress'),
+        dn: pickNumber(raw, 'destinationNetwork'),
+        sf: pickString(raw, 'sourceFaucetId'),
+        cs: pickString(raw, 'claimStatus'),
+        ct: pickString(raw, 'claimTxHash'),
+        xh: pickString(raw, 'agglayerExitTxHash'),
+        eh: pickString(raw, 'evmTxHash'),
+        fh: pickString(raw, 'fillTxHash'),
+        fc: pickNumber(raw, 'fillChainId')
+      });
+    case 'bridged-receive':
+      return compact({
+        pv: pickString(raw, 'provider'),
+        sc: pickNumber(raw, 'sourceChainId'),
+        sd: pickString(raw, 'sourceAddress'),
+        sm: pickString(raw, 'sourceAmount'),
+        ss: pickString(raw, 'sourceSymbol'),
+        eh: pickString(raw, 'evmTxHash'),
+        in: pickString(raw, 'intentNonce'),
+        mn: pickString(raw, 'midenNoteId'),
+        oa: pickString(raw, 'outputAmount'),
+        os: pickString(raw, 'outputSymbol'),
+        ph: pickString(raw, 'phase')
+      });
+    case 'earn-deposit':
+      return compact({
+        mu: pickString(raw, 'marketUid'),
+        er: pickString(raw, 'evmRecipient'),
+        in: pickString(raw, 'intentNonce'),
+        eh: pickString(raw, 'evmTxHash'),
+        es: pickString(raw, 'epochStatus'),
+        pr: pickString(raw, 'protocol'),
+        ci: pickNumber(raw, 'chainId')
+      });
+    case 'earn-withdraw':
+      return compact({
+        mu: pickString(raw, 'marketUid'),
+        er: pickString(raw, 'evmOwner'),
+        in: pickString(raw, 'withdrawIntentNonce'),
+        mn: pickString(raw, 'midenNoteId'),
+        eh: pickString(raw, 'evmTxHash'),
+        es: pickString(raw, 'phase'),
+        pr: pickString(raw, 'protocol'),
+        ci: pickNumber(raw, 'chainId')
+      });
+    case 'swap':
+      return compact({
+        rf: pickString(raw, 'requestedFaucetId'),
+        ra: pickDecimal(raw, 'requestedAmount'),
+        on: tx.outputNoteIds?.[0],
+        sk: settlementKindOf(raw)
+      });
+    case 'consume': {
+      const purchase = raw.gcPurchase;
+      if (!isRecord(purchase)) return undefined;
+      return compact({
+        gs: pickString(purchase, 'saleNoteId'),
+        gl: pickString(purchase, 'sellerAccountId'),
+        gp: pickString(purchase, 'payFaucetId'),
+        gq: pickDecimal(purchase, 'fillAmount'),
+        gf: pickString(purchase, 'gcFaucetId'),
+        ge: pickDecimal(purchase, 'expectedAmount')
+      });
+    }
+    case 'send':
+    case 'execute':
+    case 'update-procedure-threshold':
+      return undefined;
+    case 'switch-guardian':
+      return compact({
+        pg: pickString(raw, 'previousGuardianEndpoint'),
+        ng: pickString(raw, 'newGuardianEndpoint')
+      });
+    case 'replace-hot-key':
+      return compact({ rc: pickString(raw, 'revokedSignerCommitment'), mode: pickString(raw, 'mode') });
+  }
+}
+
+function settlementKindOf(raw: Record<string, unknown>): string | undefined {
+  if (pickNumber(raw, 'settledAt') !== undefined) return 'settle';
+  if (pickNumber(raw, 'reclaimedAt') !== undefined) return 'reclaim';
+  return undefined;
+}
+
+function noteIdsOf(tx: ITransaction): string[] | undefined {
+  const ids = new Set<string>();
+  const output = tx.type === 'consume' ? [] : (tx.outputNoteIds ?? []);
+  for (const id of [...(tx.noteIds ?? []), ...(tx.noteId ? [tx.noteId] : []), ...output]) {
+    if (id) ids.add(id);
+  }
+  const list = [...ids];
+  return list.length > 0 ? list : undefined;
+}
+
+/** Project one local row. Seconds become unix ms. */
+export function projectTransaction(tx: ITransaction): HistoryRow {
+  return {
+    v: 1,
+    id: tx.id,
+    t: tx.type,
+    s: tx.status,
+    ic: tx.displayIcon,
+    a: tx.accountId,
+    sa: tx.secondaryAccountId,
+    f: tx.faucetId,
+    am: tx.amount === undefined ? undefined : tx.amount.toString(),
+    fa: tx.feeAmount === undefined ? undefined : tx.feeAmount.toString(),
+    ff: tx.feeFaucetId,
+    nt: tx.noteType,
+    nd: tx.noteDelivery,
+    at: tx.assetTotals?.map(({ faucetId, amount }) => ({ faucetId, amount: amount.toString() })),
+    e: tx.error,
+    u: readsAsNotConfirmed(tx) || undefined,
+    ni: tx.inputNoteIds,
+    no: tx.outputNoteIds,
+    r: isRecord(tx.extraInputs) ? readReceiptExtra(tx.type, tx.extraInputs) : undefined,
+    tx: tx.transactionId,
+    fc: tx.finalAccountCommitment || undefined,
+    n: noteIdsOf(tx),
+    ia: tx.initiatedAt * 1000,
+    ca: tx.completedAt === undefined ? undefined : tx.completedAt * 1000,
+    m: tx.displayMessage,
+    x: projectExtra(tx)
+  };
+}
+
+function readTransactionType(value: unknown): ITransactionType | null {
+  switch (value) {
+    case 'send':
+    case 'consume':
+    case 'execute':
+    case 'bridged-send':
+    case 'bridged-receive':
+    case 'earn-deposit':
+    case 'earn-withdraw':
+    case 'switch-guardian':
+    case 'replace-hot-key':
+    case 'swap':
+    case 'update-procedure-threshold':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function readIcon(value: unknown): ITransactionIcon | null {
+  switch (value) {
+    case 'SEND':
+    case 'RECEIVE':
+    case 'SWAP':
+    case 'FAILED':
+    case 'MINT':
+    case 'DEFAULT':
+      return value;
+    default:
+      return null;
+  }
+}
+
+/** Only terminal statuses are restored. A live status from a peer is never written. */
+function readTerminalStatus(value: unknown): ITransactionStatus | null {
+  switch (value) {
+    case ITransactionStatus.Completed:
+      return ITransactionStatus.Completed;
+    case ITransactionStatus.Failed:
+    case ITransactionStatus.Unconfirmed:
+      return value;
+    default:
+      return null;
+  }
+}
+
+function optionalString(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? value : null;
+}
+
+function optionalDecimal(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' && /^-?\d+$/.test(value) ? value : null;
+}
+
+function readExtra(value: unknown): HistoryRowExtra | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  const extra: HistoryRowExtra = {};
+  for (const [key, field] of Object.entries(value)) {
+    if (typeof field === 'string' || (typeof field === 'number' && Number.isFinite(field))) extra[key] = field;
+  }
+  return extra;
+}
+
+function readNoteIds(value: unknown): string[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return null;
+  const ids = value.filter((id): id is string => typeof id === 'string');
+  return ids;
+}
+
+function readAssetTotals(value: object[]): HistoryRow['at'] {
+  return value.flatMap(item => {
+    if (!isRecord(item) || typeof item.faucetId !== 'string') return [];
+    const amount = optionalDecimal(item.amount);
+    return typeof amount === 'string' ? [{ faucetId: item.faucetId, amount }] : [];
+  });
+}
+
+function readDelivery(value: unknown): HistoryRow['nd'] {
+  switch (value) {
+    case 'pending':
+    case 'relayed':
+    case 'confirmed':
+    case 'undelivered':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+/** Parse one row of a decrypted chunk. Null for any other shape. */
+export function parseHistoryRow(value: unknown): HistoryRow | null {
+  if (!isRecord(value) || value.v !== 1) return null;
+  const t = readTransactionType(value.t);
+  const s = readTerminalStatus(value.s);
+  const ic = readIcon(value.ic);
+  const { id, a, ia, ca } = value;
+  if (t === null || s === null || ic === null || typeof id !== 'string' || id === '' || typeof a !== 'string') {
+    return null;
+  }
+  if (typeof ia !== 'number' || !Number.isSafeInteger(ia) || ia < 0) return null;
+  if (ca !== undefined && (typeof ca !== 'number' || !Number.isSafeInteger(ca) || ca < 0)) return null;
+  const sa = optionalString(value.sa);
+  const f = optionalString(value.f);
+  const tx = optionalString(value.tx);
+  const m = optionalString(value.m);
+  const am = optionalDecimal(value.am);
+  const fa = optionalDecimal(value.fa);
+  const n = readNoteIds(value.n);
+  const x = readExtra(value.x);
+  if (
+    sa === null ||
+    f === null ||
+    tx === null ||
+    m === null ||
+    am === null ||
+    fa === null ||
+    n === null ||
+    x === null
+  ) {
+    return null;
+  }
+  // The restore reads a swap's requested amount with BigInt, so it must be what the projection writes.
+  if (t === 'swap' && x?.ra !== undefined && optionalDecimal(x.ra) === null) return null;
+  return {
+    v: 1,
+    id,
+    t,
+    s,
+    ic,
+    a,
+    sa,
+    f,
+    am,
+    fa,
+    tx,
+    n,
+    ia,
+    ca,
+    m,
+    x,
+    ff: optionalString(value.ff) ?? undefined,
+    nt: value.nt === NoteTypeEnum.Public || value.nt === NoteTypeEnum.Private ? value.nt : undefined,
+    nd: readDelivery(value.nd),
+    at: Array.isArray(value.at) ? readAssetTotals(value.at) : undefined,
+    e: optionalString(value.e) ?? undefined,
+    u: value.u === true || undefined,
+    ni: readNoteIds(value.ni) ?? undefined,
+    no: readNoteIds(value.no) ?? undefined,
+    r: isRecord(value.r) ? readReceiptExtra(t, value.r) : undefined,
+    fc: optionalString(value.fc) || undefined
+  };
+}
+
+/** Parse a decrypted chunk: a JSON array of rows. Rows of another shape are dropped. */
+export function parseHistoryChunk(plaintext: string): HistoryRow[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(plaintext);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  const rows = value.map(parseHistoryRow).filter(row => row !== null);
+  // Counted, never printed: the rows are decrypted history.
+  if (rows.length < value.length)
+    console.warn(`[backup] dropped ${value.length - rows.length} history row(s) of another shape`);
+  return rows;
+}
+
+function extraString(extra: HistoryRowExtra | undefined, key: string): string | undefined {
+  const value = extra?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function extraNumber(extra: HistoryRowExtra | undefined, key: string): number | undefined {
+  const value = extra?.[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+/** Rebuild the `extraInputs` a receipt reads from `x`. Fields without a value stay absent. */
+export function restoreExtraInputs(row: HistoryRow): Record<string, unknown> | undefined {
+  const x = row.x;
+  switch (row.t) {
+    case 'bridged-send':
+      return {
+        provider: extraString(x, 'pv'),
+        destinationAddress: extraString(x, 'da'),
+        destinationNetwork: extraNumber(x, 'dn'),
+        sourceFaucetId: extraString(x, 'sf'),
+        claimStatus: extraString(x, 'cs'),
+        claimTxHash: extraString(x, 'ct'),
+        agglayerExitTxHash: extraString(x, 'xh'),
+        evmTxHash: extraString(x, 'eh'),
+        fillTxHash: extraString(x, 'fh'),
+        fillChainId: extraNumber(x, 'fc')
+      };
+    case 'bridged-receive':
+      return {
+        provider: extraString(x, 'pv'),
+        sourceChainId: extraNumber(x, 'sc'),
+        sourceAddress: extraString(x, 'sd'),
+        sourceAmount: extraString(x, 'sm'),
+        sourceSymbol: extraString(x, 'ss'),
+        evmTxHash: extraString(x, 'eh'),
+        intentNonce: extraString(x, 'in'),
+        midenNoteId: extraString(x, 'mn'),
+        outputAmount: extraString(x, 'oa'),
+        outputSymbol: extraString(x, 'os'),
+        phase: extraString(x, 'ph')
+      };
+    case 'earn-deposit':
+      return {
+        marketUid: extraString(x, 'mu'),
+        evmRecipient: extraString(x, 'er'),
+        intentNonce: extraString(x, 'in'),
+        evmTxHash: extraString(x, 'eh'),
+        epochStatus: extraString(x, 'es'),
+        protocol: extraString(x, 'pr'),
+        chainId: extraNumber(x, 'ci')
+      };
+    case 'earn-withdraw':
+      return {
+        marketUid: extraString(x, 'mu'),
+        evmOwner: extraString(x, 'er'),
+        withdrawIntentNonce: extraString(x, 'in'),
+        midenNoteId: extraString(x, 'mn'),
+        evmTxHash: extraString(x, 'eh'),
+        phase: extraString(x, 'es'),
+        protocol: extraString(x, 'pr'),
+        chainId: extraNumber(x, 'ci')
+      };
+    case 'swap': {
+      const requested = extraString(x, 'ra');
+      return {
+        requestedFaucetId: extraString(x, 'rf'),
+        requestedAmount: requested === undefined ? undefined : BigInt(requested),
+        settledAt: extraString(x, 'sk') === 'settle' && row.ca !== undefined ? Math.floor(row.ca / 1000) : undefined,
+        reclaimedAt: extraString(x, 'sk') === 'reclaim' && row.ca !== undefined ? Math.floor(row.ca / 1000) : undefined
+      };
+    }
+    case 'consume':
+      return extraString(x, 'gs') === undefined
+        ? undefined
+        : {
+            gcPurchase: {
+              saleNoteId: extraString(x, 'gs'),
+              sellerAccountId: extraString(x, 'gl'),
+              payFaucetId: extraString(x, 'gp'),
+              fillAmount: extraString(x, 'gq'),
+              gcFaucetId: extraString(x, 'gf'),
+              expectedAmount: extraString(x, 'ge')
+            }
+          };
+    case 'send':
+    case 'execute':
+    case 'update-procedure-threshold':
+      return undefined;
+    case 'switch-guardian':
+      if (x === undefined) return undefined;
+      return {
+        previousGuardianEndpoint: extraString(x, 'pg'),
+        newGuardianEndpoint: extraString(x, 'ng')
+      };
+    case 'replace-hot-key':
+      return { revokedSignerCommitment: extraString(x, 'rc'), mode: extraString(x, 'mode') };
+  }
+}
+
+/** Rebuild a read-only local row from a peer's projection. Unix ms become seconds. */
+export function restoreTransaction(row: HistoryRow): ITransaction {
+  const initiatedAt = Math.floor(row.ia / 1000);
+  const notes = row.n ?? [];
+  const isConsume = row.t === 'consume';
+  const legacyExtra = restoreExtraInputs(row);
+  const receipt = readReceiptExtra(row.t, row.r);
+  const assetTotals: IConsumedAssetTotal[] | undefined = row.at?.map(({ faucetId, amount }) => ({
+    faucetId,
+    amount: BigInt(amount)
+  }));
+  return {
+    id: row.id,
+    type: row.t,
+    accountId: row.a,
+    status: row.s,
+    initiatedAt,
+    completedAt: row.ca === undefined ? initiatedAt : Math.floor(row.ca / 1000),
+    displayIcon: row.ic,
+    displayMessage: row.m,
+    secondaryAccountId: row.sa,
+    faucetId: row.f,
+    amount: row.am === undefined ? undefined : BigInt(row.am),
+    feeAmount: row.fa === undefined ? undefined : BigInt(row.fa),
+    feeFaucetId: row.ff,
+    noteType: row.nt,
+    noteDelivery: row.nd,
+    assetTotals,
+    error: row.e,
+    restoredOutcomeUnconfirmed: row.u,
+    inputNoteIds: row.ni ?? (isConsume && notes.length > 0 ? notes : undefined),
+    transactionId: row.tx,
+    finalAccountCommitment: row.fc,
+    noteId: notes[0],
+    noteIds: isConsume && notes.length > 0 ? notes : undefined,
+    outputNoteIds: row.no ?? (!isConsume && notes.length > 0 ? notes : undefined),
+    extraInputs: receipt ? { ...legacyExtra, ...receipt } : legacyExtra,
+    restoredFromBackup: true
+  };
+}
+
+async function findGuardianReceipt(restored: ITransaction): Promise<ITransaction | undefined> {
+  if (restored.status !== ITransactionStatus.Completed) return undefined;
+  // The account commitment after a transaction names that one transaction. A receipt with no notes has only it.
+  const commitment = restored.finalAccountCommitment;
+  if (commitment) {
+    const match = await Repo.transactions
+      .filter(
+        row =>
+          row.recovered === true &&
+          row.recovery?.finalCommitment === commitment &&
+          sameWalletAccountId(row.accountId, restored.accountId)
+      )
+      .first();
+    if (match) return match;
+  }
+  const notes = restored.type === 'consume' ? restored.noteIds : restored.outputNoteIds;
+  const [first, ...rest] = (notes ?? []).map(normalizedCommitment);
+  if (!first) return undefined;
+  const expected = new Set([first, ...rest]);
+  return Repo.transactions
+    .where('noteIds')
+    .anyOfIgnoreCase(first, `0x${first}`)
+    .filter(row => {
+      if (!row.recovered || row.type !== restored.type || !sameWalletAccountId(row.accountId, restored.accountId)) {
+        return false;
+      }
+      const candidate = row.type === 'consume' ? row.noteIds : row.outputNoteIds;
+      return candidate?.length === expected.size && candidate.every(id => expected.has(normalizedCommitment(id)));
+    })
+    .first();
+}
+
+function hasSameClaimNotes(first: ITransaction, second: ITransaction): boolean {
+  const noteKeys = (tx: ITransaction) =>
+    new Set((tx.noteIds ?? tx.inputNoteIds ?? (tx.noteId ? [tx.noteId] : [])).map(normalizedCommitment));
+  const expected = noteKeys(first);
+  const actual = noteKeys(second);
+  return expected.size > 0 && expected.size === actual.size && [...expected].every(id => actual.has(id));
+}
+
+async function addBackupBridgeReceipt(existing: ITransaction, restored: ITransaction): Promise<boolean> {
+  const bridgeIn: IBridgeInInfo | undefined = restored.extraInputs?.bridgeIn;
+  if (
+    existing.type !== 'consume' ||
+    restored.type !== 'consume' ||
+    existing.status !== ITransactionStatus.Completed ||
+    restored.status !== ITransactionStatus.Completed ||
+    existing.extraInputs?.bridgeIn ||
+    !bridgeIn ||
+    !hasSameClaimNotes(existing, restored)
+  ) {
+    return false;
+  }
+  await Repo.transactions.update(existing.id, {
+    backupBridgeReceipt: { bridgeIn, displayMessage: restored.displayMessage }
+  });
+  return true;
+}
+
+/**
+ * Write peer rows into the local table. A row this device holds as its own is
+ * keeps its local transaction state. A matching claim can gain peer bridge details.
+ * A row restored before is replaced by the newer projection.
+ */
+export async function applyHistoryRows(rows: readonly HistoryRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  let written = 0;
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
+    for (const row of rows) {
+      const restored = restoreTransaction(row);
+      const existing = await Repo.transactions.get(row.id);
+      if (existing !== undefined) {
+        if (existing.restoredFromBackup && !existing.recovered && !isLiveTransaction(existing)) {
+          if (!restored.extraInputs?.bridgeIn) restored.backupBridgeReceipt = existing.backupBridgeReceipt;
+          await Repo.transactions.put(restored);
+          written += 1;
+        } else if (
+          sameWalletAccountId(existing.accountId, restored.accountId) &&
+          (await addBackupBridgeReceipt(existing, restored))
+        ) {
+          written += 1;
+        }
+        continue;
+      }
+      if (row.tx !== undefined) {
+        const matches = await Repo.transactions.where('transactionId').equals(row.tx).toArray();
+        const duplicate = matches.find(match => {
+          if (match.type !== restored.type || !sameWalletAccountId(match.accountId, restored.accountId)) return false;
+          if (restored.type !== 'bridged-receive') return true;
+          const savedNote = match.extraInputs?.midenNoteId;
+          const restoredNote = restored.extraInputs?.midenNoteId;
+          if (typeof savedNote !== 'string' || typeof restoredNote !== 'string') return true;
+          return normalizedCommitment(savedNote) === normalizedCommitment(restoredNote);
+        });
+        if (duplicate) {
+          if (
+            duplicate.recovered &&
+            restored.type === 'consume' &&
+            restored.status === ITransactionStatus.Completed &&
+            restored.extraInputs?.bridgeIn &&
+            hasSameClaimNotes(duplicate, restored)
+          ) {
+            restored.recovery = duplicate.recovery;
+            await Repo.transactions.delete(duplicate.id);
+            await Repo.transactions.add(restored);
+            written += 1;
+          } else if (await addBackupBridgeReceipt(duplicate, restored)) {
+            written += 1;
+          }
+          continue;
+        }
+      }
+      // Guardian recovery may run before this peer uploads the detailed receipt.
+      const matchingGuardianRow = await findGuardianReceipt(restored);
+      if (matchingGuardianRow) {
+        restored.recovery = matchingGuardianRow.recovery;
+        await Repo.transactions.delete(matchingGuardianRow.id);
+      }
+      await Repo.transactions.add(restored);
+      written += 1;
+    }
+  });
+  return written;
+}
+
+/** The decoded blob size of a chunk made of these row JSON strings. */
+function chunkBlobBytes(rows: readonly string[]): number {
+  const encoder = new TextEncoder();
+  const body = rows.reduce((sum, row) => sum + encoder.encode(row).byteLength, 0);
+  return encryptedBlobLength(2 + body + Math.max(0, rows.length - 1));
+}
+
+/**
+ * Move rows out of every chunk whose rewritten body passed the cap, last row
+ * first, into the open chunk (a new one when the overfull chunk is the open
+ * one). Returns the chunk numbers that changed. A chunk of one row always fits,
+ * since a row over the cap on its own is never projected.
+ */
+export function spillOverfullChunks(history: HistoryState, rowsOf: (ids: readonly string[]) => string[]): number[] {
+  const changed = new Set<number>();
+  for (let index = 0; index < history.chunks.length; index += 1) {
+    const chunk = history.chunks[index];
+    if (chunk === undefined) continue;
+    while (chunk.ids.length > 1 && chunkBlobBytes(rowsOf(chunk.ids)) > HISTORY_BLOB_CAP) {
+      const id = chunk.ids.pop();
+      if (id === undefined) break;
+      let open = history.chunks[history.chunks.length - 1];
+      if (open === undefined || open === chunk) {
+        open = { n: chunk.n + 1, ids: [] };
+        history.chunks.push(open);
+      }
+      open.ids.push(id);
+      const assignment = history.assigned[id];
+      if (assignment !== undefined) assignment.n = open.n;
+      changed.add(chunk.n);
+      changed.add(open.n);
+    }
+  }
+  return [...changed];
+}
+
+let historyChain: Promise<unknown> = Promise.resolve();
+
+/** Run chunk updates one at a time. */
+function inHistoryLane<T>(task: () => Promise<T>): Promise<T> {
+  const run = historyChain.then(task, task);
+  historyChain = run.catch(() => undefined);
+  return run;
+}
+
+/** The flush pass waiting in the history lane that has not started yet, with the session it is for. */
+let pendingFlush: { session: BackupSession; result: Promise<number> } | null = null;
+
+/**
+ * Append new Completed rows to this device's chunks, rewrite the chunks whose
+ * rows changed, and upload the changed chunks. Returns how many chunks the
+ * server acknowledged.
+ *
+ * Requests coalesce: a request made while a pass of the same session waits in
+ * the lane joins it, so a burst of completions costs one pass running and one
+ * more after it. That pass reads the rows when it starts, so it sees every
+ * row a joined request was made for.
+ */
+export function flushHistory(session: BackupSession): Promise<number> {
+  if (pendingFlush !== null && pendingFlush.session === session) return pendingFlush.result;
+  const pending: { session: BackupSession; result: Promise<number> } = {
+    session,
+    result: inHistoryLane(() => {
+      if (pendingFlush === pending) pendingFlush = null;
+      return flushPass(session);
+    })
+  };
+  pendingFlush = pending;
+  return pending.result;
+}
+
+/** A Completed row of this device with no notes, whose result bytes are kept and whose commitment is not read yet. */
+function needsFinalAccountCommitment(tx: ITransaction): boolean {
+  return (
+    tx.status === ITransactionStatus.Completed &&
+    !tx.restoredFromBackup &&
+    !tx.recovered &&
+    tx.resultBytes !== undefined &&
+    tx.finalAccountCommitment === undefined &&
+    noteIdsOf(tx) === undefined &&
+    !tx.inputNoteIds?.length
+  );
+}
+
+/**
+ * Read the final account commitment of each Completed row with no notes from its result bytes, and keep it on the
+ * row (`finalAccountCommitment`), so that the receipt carries it. The Guardian history pass of another device ties
+ * its record of the transaction to the receipt by it. The reaper releases the bytes 10 minutes after completion, so
+ * a completion reads it at once; it needs no session. A result that does not decode leaves the row without it, and
+ * the next flush reads again while the bytes stay. Never throws.
+ */
+export async function recordFinalAccountCommitments(): Promise<void> {
+  try {
+    const rows = await Repo.transactions.filter(needsFinalAccountCommitment).toArray();
+    for (const tx of rows) {
+      if (tx.resultBytes === undefined) continue;
+      let commitment: string;
+      try {
+        // The proxy holds the WASM lock for the decode, and its lock retires the client on a trap.
+        commitment = await midenClientProxy.getGuardianResultCommitment(tx.resultBytes);
+      } catch (error) {
+        console.warn(`[backup] the final account commitment of history row ${tx.id} could not be read`, error);
+        continue;
+      }
+      if (commitment === '') continue;
+      await Repo.transactions.where({ id: tx.id }).modify(row => {
+        if (row.finalAccountCommitment === undefined) row.finalAccountCommitment = commitment;
+      });
+    }
+  } catch (error) {
+    console.warn('[backup] the final account commitments could not be recorded', error);
+  }
+}
+
+async function flushPass(session: BackupSession): Promise<number> {
+  // The task waited in the lane, then for the device id: a lock or a wipe may have landed.
+  assertSessionLive(session);
+  const deviceId = await getBackupDeviceId();
+  await recordFinalAccountCommitments();
+  assertSessionLive(session);
+  const history = session.state.history;
+  const projections = new Map<string, string>();
+  const project = (tx: ITransaction) => {
+    const json = JSON.stringify(projectTransaction(tx));
+    if (chunkBlobBytes([json]) > HISTORY_BLOB_CAP) {
+      console.warn(`[backup] history row ${tx.id} is over the chunk cap; not synced`);
+      return;
+    }
+    projections.set(tx.id, json);
+  };
+
+  // Rows already in a chunk: their current projection, whatever their status now.
+  const assignedIds = Object.keys(history.assigned);
+  const assignedRows = await Repo.transactions.bulkGet(assignedIds);
+  assertSessionLive(session);
+  for (const tx of assignedRows) {
+    if (tx !== undefined && !tx.restoredFromBackup) project(tx);
+  }
+  const dirty = new Set(history.dirty);
+  for (const [id, assignment] of Object.entries(history.assigned)) {
+    const json = projections.get(id);
+    if (json === undefined) continue;
+    const digest = plaintextDigest(json);
+    if (digest !== assignment.digest) {
+      assignment.digest = digest;
+      dirty.add(assignment.n);
+    }
+  }
+
+  // Append new terminal rows in time order.
+  const candidates = await Repo.transactions
+    .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
+    .toArray();
+  assertSessionLive(session);
+  candidates.sort(
+    (a, b) =>
+      (a.completedAt ?? a.initiatedAt) - (b.completedAt ?? b.initiatedAt) ||
+      a.initiatedAt - b.initiatedAt ||
+      a.id.localeCompare(b.id)
+  );
+  const rowsOf = (ids: readonly string[]) =>
+    ids.map(id => projections.get(id)).filter((json): json is string => json !== undefined);
+  for (const tx of candidates) {
+    project(tx);
+    const json = projections.get(tx.id);
+    if (json === undefined) continue;
+    let open = history.chunks[history.chunks.length - 1];
+    if (open === undefined) {
+      open = { n: 0, ids: [] };
+      history.chunks.push(open);
+    }
+    const after = chunkBlobBytes([...rowsOf(open.ids), json]);
+    if (open.ids.length > 0 && after > HISTORY_BLOB_CAP - CHUNK_HEADROOM_BYTES) {
+      open = { n: open.n + 1, ids: [] };
+      history.chunks.push(open);
+    }
+    open.ids.push(tx.id);
+    history.assigned[tx.id] = { n: open.n, digest: plaintextDigest(json) };
+    dirty.add(open.n);
+  }
+  // A rewritten chunk can be over the cap now: its last rows move to the open chunk.
+  for (const n of spillOverfullChunks(history, rowsOf)) dirty.add(n);
+  history.dirty = [...dirty].sort((a, b) => a - b);
+  await persistBackupState(session.state);
+  if (history.dirty.length === 0) return 0;
+
+  // A row this device no longer holds keeps no projection, so a rewrite of its chunk drops it.
+  const outgoing = history.dirty.flatMap(n => {
+    const chunk = history.chunks.find(candidate => candidate.n === n);
+    if (chunk === undefined) return [];
+    return [{ entryKey: historyEntryKey(deviceId, n), plaintext: `[${rowsOf(chunk.ids).join(',')}]` }];
+  });
+  const written = await uploadEntries(session, 'history', outgoing);
+  const marks = session.state.features.history.entries;
+  history.dirty = history.dirty.filter(n => {
+    const item = outgoing.find(candidate => candidate.entryKey === historyEntryKey(deviceId, n));
+    if (item === undefined) return false;
+    return marks[hashedKeyOf(session, item.entryKey)]?.digest !== plaintextDigest(item.plaintext);
+  });
+  assertSessionLive(session);
+  await persistBackupState(session.state);
+  return written.length;
+}
+
+/** The hashed keys of this device's own chunks: never applied from the server. */
+async function ownChunkKeys(session: BackupSession): Promise<Set<string>> {
+  const deviceId = await getBackupDeviceId();
+  return new Set(session.state.history.chunks.map(chunk => hashedKeyOf(session, historyEntryKey(deviceId, chunk.n))));
+}
+
+/**
+ * How many history chunks of OTHER devices this device has applied: the
+ * server entries it recorded, less its own chunks. More than zero means the
+ * backup holds a peer's history, so the backup is the record of history.
+ */
+export async function peerHistoryChunkCount(session: BackupSession): Promise<number> {
+  const own = await ownChunkKeys(session);
+  return Object.keys(session.state.features.history.entries).filter(key => !own.has(key)).length;
+}
+
+/**
+ * Read the chunks of other devices and write their rows locally. `since`
+ * bounds the read to chunks written at or after the last applied cursor.
+ * Returns true when a read brought new chunks.
+ */
+export async function readHistory(session: BackupSession, since: boolean): Promise<boolean> {
+  const ownHashedKeys = await ownChunkKeys(session);
+  const replay = session.state.history.bridgeReceiptsReplayed !== true;
+  const outcome = await readFeature(session, 'history', {
+    since,
+    replay,
+    ownHashedKeys,
+    apply: async (entries: IncomingEntry[]) => {
+      const rows = entries.flatMap(entry => parseHistoryChunk(entry.plaintext));
+      await applyHistoryRows(rows);
+      session.state.history.bridgeReceiptsReplayed = true;
+    }
+  });
+  return outcome === 'applied';
+}

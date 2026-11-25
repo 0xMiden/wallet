@@ -1,6 +1,11 @@
 import * as Repo from 'lib/miden/repo';
 
-import { getCompletedTransactions, getNoteHoldingTransactions, getUnconfirmedTransactions } from './get';
+import {
+  getCompletedTransactions,
+  getNoteHoldingTransactions,
+  getUnconfirmedTransactions,
+  hasRestoredTransactionsOf
+} from './get';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -111,5 +116,30 @@ describe('getNoteHoldingTransactions (#1081)', () => {
     ]);
     const holding = (await getNoteHoldingTransactions('mtst1acct')).map(r => r.id).sort();
     expect(holding).toEqual(['x-just-completed', 'x-retyped']);
+  });
+});
+
+// The backup replaces an account's Guardian history pass only once it restored a row of that account.
+describe('hasRestoredTransactionsOf', () => {
+  it('answers per account, across id spellings, and ignores rows this device made', async () => {
+    await Repo.transactions.bulkPut([
+      row('own', { accountId: 'mtst1other_suffix', restoredFromBackup: true }),
+      row('local', { accountId: 'mtst1acct_suffix' })
+    ]);
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(false);
+    expect(await hasRestoredTransactionsOf('mtst1other')).toBe(true);
+
+    await Repo.transactions.put(row('peer', { restoredFromBackup: true }));
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(true);
+  });
+
+  // A Guardian-recovered receipt carries the backup marker too (with `recovered`), but it is the Guardian
+  // pass's own partial work: it must not end that pass as if the backup covered the account.
+  it('does not count a Guardian-recovered receipt as backup coverage', async () => {
+    await Repo.transactions.put(row('guardian', { restoredFromBackup: true, recovered: true }));
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(false);
+
+    await Repo.transactions.put(row('peer', { restoredFromBackup: true }));
+    expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(true);
   });
 });
