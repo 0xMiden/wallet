@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { ITransaction, ITransactionStatus, MidenNamePhase, RegisterNameTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -10,6 +11,14 @@ import {
   useMidenNameRegistrations,
   useOwnedMidenName
 } from './registrations';
+
+jest.mock('lib/dexie-live-query', () => {
+  const actual = jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query');
+  return {
+    ...actual,
+    subscribeToLiveQuery: jest.fn(actual.subscribeToLiveQuery)
+  };
+});
 
 let mockNetwork = 'testnet';
 let mockSupported = true;
@@ -201,6 +210,7 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
 
   it('gives no owned label when the network is not supported', async () => {
     mockSupported = false;
+    jest.mocked(subscribeToLiveQuery).mockClear();
     await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
     const { result, unmount } = renderHook(() => ({
       list: useMidenNameRegistrations(ACCOUNT),
@@ -208,6 +218,7 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
     }));
     await waitFor(() => expect(result.current.list.loaded).toBe(true));
     expect(result.current.owned).toBeUndefined();
+    expect(subscribeToLiveQuery).not.toHaveBeenCalled();
     unmount();
   });
 

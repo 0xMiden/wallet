@@ -108,10 +108,11 @@ export interface MidenNameRegistrationsState {
 /** Live list of the registrations of an account (see `listMidenNameRegistrations`). */
 export function useMidenNameRegistrations(accountId: string | undefined): MidenNameRegistrationsState {
   const [state, setState] = useState<MidenNameRegistrationsState>({ rows: [], loaded: false });
+  const supported = isMidenNameSupported();
 
   useEffect(() => {
     setState({ rows: [], loaded: false });
-    if (!accountId) {
+    if (!accountId || !supported) {
       setState({ rows: [], loaded: true });
       return undefined;
     }
@@ -119,7 +120,7 @@ export function useMidenNameRegistrations(accountId: string | undefined): MidenN
       next: rows => setState({ rows, loaded: true }),
       error: error => console.error('[miden-name] Failed to read registrations:', error)
     });
-  }, [accountId]);
+  }, [accountId, supported]);
 
   return state;
 }
@@ -136,7 +137,7 @@ export function ownedLabelOf(rows: ITransaction[]): string | undefined {
  * deployment.
  */
 export function useOwnedMidenName(accountId: string | undefined): string | undefined {
-  const { rows } = useMidenNameRegistrations(accountId);
-  if (!isMidenNameSupported()) return undefined;
-  return ownedLabelOf(rows);
+  const supported = isMidenNameSupported();
+  const { rows } = useMidenNameRegistrations(supported ? accountId : undefined);
+  return supported ? ownedLabelOf(rows) : undefined;
 }
