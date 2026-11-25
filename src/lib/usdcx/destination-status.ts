@@ -1,5 +1,6 @@
 import { createPublicClient, http, isAddress } from 'viem';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getChain } from 'lib/walletconnect/config';
@@ -178,6 +179,7 @@ export async function pollUsdcxDestination(
       : floor;
   if (!payout && resumeAfter === floor) return { more };
 
+  let payoutRecorded = false;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;
     const previous = current?.usdcxBurn;
@@ -198,10 +200,12 @@ export async function pollUsdcxDestination(
     }
     // A cursor another surface already moved is left alone, so two realms cannot walk it backwards.
     if (!payout && previous.payoutScannedBlock !== cursor) return;
+    payoutRecorded = payout !== undefined;
     row.extraInputs = {
       ...current,
       usdcxBurn: payout ? { ...previous, payout } : { ...previous, payoutScannedBlock: resumeAfter.toString() }
     };
   });
+  if (payoutRecorded) signalTransactionCompleted();
   return { more };
 }

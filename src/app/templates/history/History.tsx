@@ -818,7 +818,8 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
-  const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+  const bridgeIn: IBridgeInInfo | undefined =
+    tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
   const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
   const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
   return {
@@ -827,7 +828,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage,
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage),
     transactionIcon:
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
     errorMessage: tx.error,
@@ -1004,12 +1005,13 @@ async function fetchTransactionsAsHistoryEntries(
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage;
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage);
     const icon =
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
-    const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const bridgeIn: IBridgeInInfo | undefined =
+      tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
@@ -1031,6 +1033,8 @@ async function fetchTransactionsAsHistoryEntries(
       dappOrigins: tx.dappOrigins,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
+      hotKeyAdded: tx.type === 'replace-hot-key' && tx.extraInputs?.mode === 'add',
+      revokedSignerCommitment: tx.type === 'replace-hot-key' ? tx.extraInputs?.revokedSignerCommitment : undefined,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no

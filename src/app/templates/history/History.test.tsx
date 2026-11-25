@@ -629,6 +629,28 @@ describe('History', () => {
     expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
   });
 
+  // The Activity title tells an added device from a replaced one by the row's recorded mode.
+  it('marks only a hot-key rotation recorded in add mode as a device addition', async () => {
+    const rotation = { accountId: '0xme', displayIcon: 'DEFAULT', status: STATUS.Completed };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...rotation, id: 'added', type: 'replace-hot-key', completedAt: 400, extraInputs: { mode: 'add' } },
+      { ...rotation, id: 'replaced', type: 'replace-hot-key', completedAt: 300, extraInputs: { mode: 'replace' } },
+      { ...rotation, id: 'legacy', type: 'replace-hot-key', completedAt: 200, extraInputs: {} },
+      { ...rotation, id: 'other', type: 'execute', completedAt: 100, extraInputs: { mode: 'add' } }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(4));
+
+    const hotKeyAdded = (id: string) =>
+      mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === `completed-${id}`).hotKeyAdded;
+    expect(hotKeyAdded('added')).toBe(true);
+    expect(hotKeyAdded('replaced')).toBe(false);
+    expect(hotKeyAdded('legacy')).toBe(false);
+    expect(hotKeyAdded('other')).toBe(false);
+  });
+
   it('projects each rotation row verdict for the Activity title and chip', async () => {
     const rotation = { accountId: '0xme', displayIcon: 'DEFAULT', type: 'switch-guardian' };
     mockGetCompletedTransactions.mockResolvedValueOnce([
@@ -3011,6 +3033,35 @@ describe('History', () => {
       bridgeIntentNonce: 'n2',
       secondaryAddress: '0xpend'
     });
+  });
+
+  it('shows peer bridge details for a claim recorded as a plain receive', async () => {
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'LOCAL-CLAIM',
+        status: STATUS.Completed,
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        type: 'consume',
+        completedAt: 4000,
+        backupBridgeReceipt: {
+          displayMessage: 'Bridged from EVM',
+          bridgeIn: { provider: 'usdcx', evmTxHash: '0xdeposit', midenNoteId: '0xnote' }
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() =>
+      expect(mockHistoryViewProps.entries).toContainEqual(
+        expect.objectContaining({
+          key: 'completed-LOCAL-CLAIM',
+          message: 'Bridged from EVM',
+          bridgeInProvider: 'usdcx',
+          bridgeInEvmTxHash: '0xdeposit'
+        })
+      )
+    );
   });
 
   it('drops a failed claim row the superseded lookup names (#771)', async () => {

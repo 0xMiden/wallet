@@ -107,6 +107,10 @@ export enum WalletMessageType {
   MarkHotKeyRotatedOutResponse = 'MARK_HOT_KEY_ROTATED_OUT_RESPONSE',
   RetireRotatedOutHotKeyRequest = 'RETIRE_ROTATED_OUT_HOT_KEY_REQUEST',
   RetireRotatedOutHotKeyResponse = 'RETIRE_ROTATED_OUT_HOT_KEY_RESPONSE',
+  BackupRefreshRequest = 'BACKUP_REFRESH_REQUEST',
+  BackupRefreshResponse = 'BACKUP_REFRESH_RESPONSE',
+  BackupDeleteProfileRequest = 'BACKUP_DELETE_PROFILE_REQUEST',
+  BackupDeleteProfileResponse = 'BACKUP_DELETE_PROFILE_RESPONSE',
   CheckGuardianDriftRequest = 'CHECK_GUARDIAN_DRIFT_REQUEST',
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
@@ -253,6 +257,8 @@ export interface SerializedConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /** A payback of a PSWAP order this device did not place (`ConsumableNote.peerSwapPayback`); absent reads as not. */
+  peerSwapPayback?: boolean;
   /** The note holds fungible assets beyond the one `faucetId` and `amountBaseUnits` describe; absent reads as not. */
   carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */
@@ -429,7 +435,7 @@ export interface GetStateResponse extends WalletMessageBase {
 // TODO: Make generalizable and pull out somewhere
 export type GuardianRecoveryAction =
   | { type: 'switch-guardian'; accountId: string; newGuardianEndpoint: string }
-  | { type: 'replace-hot-key'; accountId: string }
+  | { type: 'replace-hot-key'; accountId: string; revokedSignerCommitment?: string }
   | { type: 'update-procedure-threshold'; accountId: string; procedure: string; threshold: number };
 
 export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
@@ -481,17 +487,18 @@ export type KeyDerivation = 'v1';
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
 
 /**
- * Persisted finding that the account's on-chain hot signer (signer slot 0) is
- * not the hot key this device holds: another device, most often a seed
- * recovery, rotated the key and holds the account now. The verdict names the
- * local key it was judged against, so it binds to that key alone: a record
- * whose `hotPublicKey` has moved on carries a verdict about a key it no longer
- * uses, and the predicate ignores it.
+ * Persisted finding that no on-chain signer slot holds the hot key this device
+ * holds: another device, most often a seed recovery, rotated the key out and
+ * holds the account now. The check is by membership, because the signer set can
+ * hold more than one hot key and a membership change moves the slots. The
+ * verdict names the local key it was judged against, so it binds to that key
+ * alone: a record whose `hotPublicKey` has moved on carries a verdict about a
+ * key it no longer uses, and the predicate ignores it.
  */
 export interface HotKeyRotatedOutVerdict {
   /** This device's hot key at the time of the check (`WalletAccount.hotPublicKey`). */
   hotPublicKey: string;
-  /** The hot-signer commitment the chain named instead. */
+  /** Evidence only: a signer commitment the chain named in place of this device's key (the first slot). */
   onChainHotCommitment: string;
   /** Wall-clock time of the check, ms since the epoch. */
   detectedAt: number;
@@ -511,6 +518,12 @@ export interface GuardianInfo {
 export interface WalletAccount {
   publicKey: string;
   name: string;
+  /**
+   * Unix ms of the rename that gave the account its current `name`: the time the user renamed it here, or the
+   * rename time of a peer's backup entry that this device applied. The encrypted backup merges names by this time
+   * (`nlu`). Absent for a name the account was created with, and for a rename made before this field existed.
+   */
+  nameUpdatedAt?: number;
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
@@ -524,6 +537,8 @@ export interface WalletAccount {
   // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
+  /** Local request a device-role choice belongs to. */
+  hotKeyRotationRequest?: string;
   /**
    * Set on adoption through Guardian seed recovery; the detached pending-note
    * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once
@@ -976,6 +991,7 @@ export interface SignTransactionResponse extends WalletMessageBase {
 
 export interface SignWordRequest extends WalletMessageBase {
   transactionId?: string;
+  rotationProposal?: true;
   type: WalletMessageType.SignWordRequest;
   publicKey: string;
   wordHex: string;
@@ -1104,6 +1120,51 @@ export interface MarkHotKeyRotatedOutRequest extends WalletMessageBase {
 
 export interface MarkHotKeyRotatedOutResponse extends WalletMessageBase {
   type: WalletMessageType.MarkHotKeyRotatedOutResponse;
+}
+
+/**
+ * The event that asks for an encrypted-backup refresh (wallet-api). Each event
+ * reads only its own features: `unlock` and `foreground` read the storage index
+ * and every changed feature, `address-book` and `contacts-changed` the contacts
+ * (the second after a local contacts write, so the change uploads at once),
+ * `activity-open` and `guardian-adopt` the history, and `transaction-completed`
+ * uploads the history.
+ */
+export type BackupRefreshReason =
+  | 'unlock'
+  | 'foreground'
+  | 'address-book'
+  | 'contacts-changed'
+  | 'account-renamed'
+  | 'activity-open'
+  | 'guardian-adopt'
+  | 'transaction-completed';
+
+/**
+ * What a backup refresh did. `disabled` (off mainnet or no base URL), `locked`
+ * and `no-sync-key` are normal states; `failed` is logged in the backend;
+ * `updated` means local data changed or the server acknowledged a change.
+ */
+export type BackupRefreshOutcome = 'disabled' | 'locked' | 'no-sync-key' | 'failed' | 'unchanged' | 'updated';
+
+export interface BackupRefreshRequest extends WalletMessageBase {
+  type: WalletMessageType.BackupRefreshRequest;
+  reason: BackupRefreshReason;
+}
+
+export interface BackupRefreshResponse extends WalletMessageBase {
+  type: WalletMessageType.BackupRefreshResponse;
+  outcome: BackupRefreshOutcome;
+}
+
+/** Delete the backup profile and every entry on the server, then the local backup records. */
+export interface BackupDeleteProfileRequest extends WalletMessageBase {
+  type: WalletMessageType.BackupDeleteProfileRequest;
+}
+
+export interface BackupDeleteProfileResponse extends WalletMessageBase {
+  type: WalletMessageType.BackupDeleteProfileResponse;
+  outcome: BackupRefreshOutcome;
 }
 
 /**
@@ -1398,6 +1459,8 @@ export type WalletRequest =
   | SetGuardianSyncStatusRequest
   | MarkHotKeyRotatedOutRequest
   | RetireRotatedOutHotKeyRequest
+  | BackupRefreshRequest
+  | BackupDeleteProfileRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
   | StartGuardianRecoveryRequest
@@ -1477,6 +1540,8 @@ export type WalletResponse =
   | SetGuardianSyncStatusResponse
   | MarkHotKeyRotatedOutResponse
   | RetireRotatedOutHotKeyResponse
+  | BackupRefreshResponse
+  | BackupDeleteProfileResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
   | StartGuardianRecoveryResponse

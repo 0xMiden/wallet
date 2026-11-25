@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device; when two devices of one Guardian account claim the same transfer, the device that does not get it removes its claim with no failed row, and only the device that placed a swap claims that swap's payout unattended, while the other devices hold the payout back from their transfers to accept for 10 minutes and show the swap's fill when it paid more than the request.
 - [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
 - [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
 - [FIX][all] Earn withdrawals reuse a recent balance check from the same attempt and retry temporary Epoch read failures within the quote window. If the wallet cannot check the balance, Review shows the error and Activity has no failed withdrawal (#2126).
@@ -43,6 +44,14 @@
 - [CHORE][all] Put the exchange price feeds behind one source interface and tag every quote with the kind of feed that produced it, so the screens and the spending-limit price cache check one field; prices shown do not change.
 - [FIX][ci] Reconcile the exact cancelled nightly Swap checkpoint after verifying that custody did not change.
 - [CHANGE][mobile] Build the App Store iOS app, and compile iOS on every pull request, with Xcode 27 and the iOS 27 SDK, which App Store Connect makes mandatory from April 2027 (ITMS-90725). The iOS app now uses the UIScene life cycle, which that SDK needs for the app to start, so deep links and Universal Links arrive through the scene delegate; Capacitor moves to 8.6.2 on iOS and Android; the iOS hot key signer moves to `swift-secp256k1` 0.25.1, which that compiler needs, and makes the same public keys and signatures.
+
+- [FIX][all] Preserve the previous and new Guardian endpoints in encrypted history so other devices show the Guardian names on switch receipts.
+- [FIX][all] Refresh synced contacts when the Send contacts drawer opens and show a loading state while keeping saved contacts available.
+- [FEAT][all] List device signers in Settings and revoke another device with password or biometric authentication and the recovery key; show the notice after the Guardian verdict and use encrypted history for its transaction link.
+- [DOCS][backend] Define per-entry revisions, sync cursors and salt initialization in the wallet backend architecture proposal.
+- [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
+- [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
+- [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
 
 ## 1.18.1 (2026-11-23)
 

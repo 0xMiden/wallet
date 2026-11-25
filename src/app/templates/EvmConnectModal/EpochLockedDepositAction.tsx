@@ -44,6 +44,7 @@ export interface EpochLockedDepositActionProps {
   /** The deposit as the row shows it, for example `10 USDC`. */
   amountLabel: string;
   className?: string;
+  readOnly?: boolean;
 }
 
 type RecoveryAction = 'retry' | 'withdraw';
@@ -58,7 +59,8 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   lock,
   state,
   amountLabel,
-  className
+  className,
+  readOnly = false
 }) => {
   const { t } = useTranslation();
   const { address, connected } = useEvmWalletConnection();
@@ -67,7 +69,7 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   const [error, setError] = useState<LockedDepositErrorDisplay>();
   // The error line below is a plain alert paragraph, so this component reports it. A withdrawn row shows no error line.
   const shownError = error ?? (pickerError ? { text: pickerError, id: EVM_WALLET_PICKER_ERROR_ID } : undefined);
-  useUserVisibleError(state === 'withdrawn' ? null : shownError?.id, 'inline');
+  useUserVisibleError(readOnly || state === 'withdrawn' ? null : shownError?.id, 'inline');
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
   const withdrawableAt = lock.withdrawableAt;
@@ -135,49 +137,53 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
           {withdrawStatus}
         </p>
       )}
-      {isSponsor ? (
+      {!readOnly && (
         <>
-          <Button
-            accent="receive"
-            title={busy === 'retry' ? t('epochDepositRetrying') : t('epochDepositRetry')}
-            variant={ButtonVariant.Primary}
-            onClick={handleRetry}
-            disabled={busy !== undefined}
-            data-testid="epoch-deposit-retry"
-            className="w-full max-w-none"
-          />
-          <Button
-            title={busy === 'withdraw' ? t('epochDepositWithdrawing') : t('epochDepositWithdraw')}
-            variant={ButtonVariant.Secondary}
-            onClick={handleWithdraw}
-            disabled={busy !== undefined || withdrawWaiting}
-            data-testid="epoch-deposit-withdraw"
-            className="w-full max-w-none"
-          />
+          {isSponsor ? (
+            <>
+              <Button
+                accent="receive"
+                title={busy === 'retry' ? t('epochDepositRetrying') : t('epochDepositRetry')}
+                variant={ButtonVariant.Primary}
+                onClick={handleRetry}
+                disabled={busy !== undefined}
+                data-testid="epoch-deposit-retry"
+                className="w-full max-w-none"
+              />
+              <Button
+                title={busy === 'withdraw' ? t('epochDepositWithdrawing') : t('epochDepositWithdraw')}
+                variant={ButtonVariant.Secondary}
+                onClick={handleWithdraw}
+                disabled={busy !== undefined || withdrawWaiting}
+                data-testid="epoch-deposit-withdraw"
+                className="w-full max-w-none"
+              />
+            </>
+          ) : (
+            <>
+              <p className="text-center text-sm text-muted" data-testid="epoch-deposit-connect-hint">
+                {connected
+                  ? t('epochDepositWrongWallet', { address: sponsor })
+                  : t('epochDepositConnectSponsor', { address: sponsor })}
+              </p>
+              <Button
+                title={connected ? t('switchWallet') : t('connectEvmWallet')}
+                variant={ButtonVariant.Secondary}
+                onClick={openWalletPicker}
+                data-testid="epoch-deposit-connect"
+                className="w-full max-w-none"
+              />
+            </>
+          )}
+          <TextAction className="self-center" onClick={handleOpenLockPage} data-testid="epoch-deposit-open-recovery">
+            {t('recoverFundsOpenLock')}
+          </TextAction>
+          {shownError && (
+            <p role="alert" className="text-center text-sm text-negative-ink wrap-anywhere select-text">
+              {shownError.text}
+            </p>
+          )}
         </>
-      ) : (
-        <>
-          <p className="text-center text-sm text-muted" data-testid="epoch-deposit-connect-hint">
-            {connected
-              ? t('epochDepositWrongWallet', { address: sponsor })
-              : t('epochDepositConnectSponsor', { address: sponsor })}
-          </p>
-          <Button
-            title={connected ? t('switchWallet') : t('connectEvmWallet')}
-            variant={ButtonVariant.Secondary}
-            onClick={openWalletPicker}
-            data-testid="epoch-deposit-connect"
-            className="w-full max-w-none"
-          />
-        </>
-      )}
-      <TextAction className="self-center" onClick={handleOpenLockPage} data-testid="epoch-deposit-open-recovery">
-        {t('recoverFundsOpenLock')}
-      </TextAction>
-      {shownError && (
-        <p role="alert" className="text-center text-sm text-negative-ink wrap-anywhere select-text">
-          {shownError.text}
-        </p>
       )}
     </div>
   );

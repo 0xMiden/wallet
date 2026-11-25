@@ -1,6 +1,7 @@
 /**
- * guardian/account — getSignerDetailsFromAccount reads the first signer
- * commitment out of the multisig storage slot; fetchGuardianCreateKey fetches
+ * guardian/account — getSignerDetailsFromAccount reads a signer commitment by
+ * slot (the fallback), findOwnSignerCommitment and hasSignerCommitment check
+ * signer membership; fetchGuardianCreateKey fetches
  * the guardian's key, createGuardianAccount drives MultisigClient.create +
  * keystore insertion for the 3-key (hot + cold + guardian) layout, and
  * registerGuardianAccount registers the account on its guardian.
@@ -20,9 +21,12 @@ import {
   createGuardianAccount,
   deriveGuardianAccountSeed,
   fetchGuardianCreateKey,
+  findOwnSignerCommitment,
   getGuardianCommitmentFromAccount,
+  getSignerCommitmentsFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
+  hasSignerCommitment,
   insertGuardianAccountMonotonically,
   registerGuardianAccount,
   resolveChosenGuardianEndpoint,
@@ -206,21 +210,30 @@ jest.mock('./native-http');
 const { mockProbeVerdicts, registerGuardianOrigin, resetMockProbes } =
   jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
+// Only the key→commitment derivation is stubbed (it needs a real 33-byte key);
+// `sameCommitment` stays real, so prefix and case handling are exercised.
+const mockCommitmentFromPublicKeyHex = jest.fn(async (publicKeyHex: string) => `commitment-of-${publicKeyHex}`);
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: (publicKeyHex: string) => mockCommitmentFromPublicKeyHex(publicKeyHex)
+}));
+
 describe('getSignerDetailsFromAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  // The inspector returns commitments ordered by signer index.
+  // The inspector returns commitments ordered by signer index. This reader is the
+  // POSITIONAL fallback: the slot order is only the creation convention.
   const withSigners = (commitments: string[]) => mockGetSignerCommitments.mockReturnValue(commitments);
 
-  it('reads the hot signer commitment from index 0', async () => {
+  it('reads the signer at index 0 (the creation slot of the hot key)', async () => {
     withSigners(['0xcommit-hot', '0xcommit-cold']);
 
     expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'commit-hot' });
   });
 
-  it('reads the cold signer commitment from index 1 on a 3-key account', async () => {
+  it('reads the signer at index 1 (the creation slot of the cold key) with getCold', async () => {
     withSigners(['0xcommit-hot', '0xcommit-cold']);
 
     expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-cold' });
@@ -277,6 +290,141 @@ describe('getSignerDetailsFromAccount', () => {
     withSigners(['beefcafe']);
 
     expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'beefcafe' });
+  });
+});
+
+// Membership, not position: the signer set can be `[hot_dev1, cold, hot_dev2, ...]`, and a
+// membership change moves the slots.
+describe('findOwnSignerCommitment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) => `commitment-of-${publicKeyHex}`);
+  });
+
+  it('finds the device key at slot 0, as stored on chain', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xcommitment-of-hot1', '0xcold']);
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xCOMMITMENT-OF-HOT1');
+
+    expect(await findOwnSignerCommitment({} as never, 'hot1')).toBe('0xcommitment-of-hot1');
+  });
+
+  it('finds a second device hot key at slot 2', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11', '0xbb22', 'cc33']);
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xCC33');
+
+    expect(await findOwnSignerCommitment({} as never, 'hot2')).toBe('cc33');
+    expect(mockCommitmentFromPublicKeyHex).toHaveBeenCalledWith('hot2');
+  });
+
+  it('returns undefined when no slot holds the device key (rotated out)', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11', '0xbb22']);
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xdd44');
+
+    expect(await findOwnSignerCommitment({} as never, 'hot')).toBeUndefined();
+  });
+
+  it('returns undefined when the signers cannot be read, without deriving the key', async () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded multisig');
+    });
+
+    expect(await findOwnSignerCommitment({} as never, 'hot')).toBeUndefined();
+    expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('rejects with a trap or pipeline kill from the signer read: %s', async error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    await expect(findOwnSignerCommitment({} as never, 'hot')).rejects.toBe(error);
+    expect(mockCommitmentFromPublicKeyHex).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('rejects with a trap or pipeline kill from key derivation: %s', async error => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11']);
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(error);
+
+    await expect(findOwnSignerCommitment({} as never, 'hot')).rejects.toBe(error);
+  });
+
+  it('returns undefined when the device key does not derive', async () => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11']);
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length'));
+
+    expect(await findOwnSignerCommitment({} as never, 'bad')).toBeUndefined();
+  });
+});
+
+describe('getSignerCommitmentsFromAccount', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('is empty for an unreadable signer set', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded multisig');
+    });
+    expect(getSignerCommitmentsFromAccount({} as never)).toEqual([]);
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('throws a trap or pipeline kill from the signer read: %s', error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    expect(() => getSignerCommitmentsFromAccount({} as never)).toThrow(error);
+  });
+});
+
+describe('hasSignerCommitment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('is true for a commitment in any slot, in any prefix or case', () => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11', '0xbb22', '0xCC33']);
+
+    expect(hasSignerCommitment({} as never, 'cc33')).toBe(true);
+    expect(hasSignerCommitment({} as never, '0xAA11')).toBe(true);
+  });
+
+  it('is false for a commitment in no slot', () => {
+    mockGetSignerCommitments.mockReturnValue(['0xaa11']);
+    expect(hasSignerCommitment({} as never, '0xdd44')).toBe(false);
+  });
+
+  // "Cannot read the set" is not "not a member": the vault would tell the user the key is
+  // not active, or the phrase is wrong, when only the read failed.
+  it('throws, rather than answering false, when the signer set cannot be read', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded multisig');
+    });
+    expect(() => hasSignerCommitment({} as never, '0xaa11')).toThrow('signer set cannot be read');
+  });
+
+  it.each([
+    new WebAssembly.RuntimeError('unreachable'),
+    new WasmClientPoisonedError('watchdog'),
+    new Error('Client terminated')
+  ])('throws a trap or pipeline kill from the signer read: %s', error => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw error;
+    });
+
+    expect(() => hasSignerCommitment({} as never, '0xaa11')).toThrow(error);
   });
 });
 
@@ -557,7 +705,8 @@ describe('createGuardianAccount', () => {
     expect(multisigClientConfig.create).toHaveBeenCalledWith(
       expect.objectContaining({
         threshold: 1,
-        // Hot first, cold second — order is load-bearing for downstream role routing.
+        // Hot first, cold second at creation. Downstream code finds a signer by
+        // membership, not by this order, which a membership change moves.
         signerCommitments: [HOT_COMMITMENT, '0xcommit-s1-2-3-4'],
         guardianCommitment: GUARDIAN_COMMITMENT,
         guardianPublicKey: 'g-pubkey',

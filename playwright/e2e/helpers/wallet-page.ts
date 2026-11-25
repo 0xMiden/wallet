@@ -367,6 +367,23 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * up, and the telemetry consent prompt standing behind it — because the specs
    * on this path drive that rotation themselves. Every one of them must
    * therefore await `completeHotKeyRotation()`, which is what clears both.
+   * Before it resolves, it answers the gate's device-role step with `role`, so
+   * the rotation is queued when it returns.
+   *
+   * `role` is the answer to the gate's device-role step (`ChooseDeviceRole`),
+   * which every seed recovery shows before its rotation starts:
+   *   - `'main'` (default): "Make this device the main one", the replace
+   *     rotation. The signer set becomes `[newHot, cold]` (2 signers), which is
+   *     what every recovery spec written before the step expects.
+   *   - `'add'`: "Add this device". This device's new hot key joins the signer
+   *     set on chain, and the other devices stay.
+   *
+   * `recoveryPhrasePrompt` decides what happens to the "Keep your recovery
+   * phrase?" sheet (`RecoveryPhraseKeepPrompt`) that the role answer arms and
+   * that opens once the rotation lands. `'keep'` (default) answers Keep through
+   * a Playwright locator handler, whenever the sheet appears, because the sheet
+   * cannot be dismissed and blocks every later click. `'leave'` lets the spec
+   * answer it.
    *
    * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
    * account" → 12-word seed grid → submit → (extension: full password step,
@@ -379,10 +396,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    *     MIDEN to pay its fee (#805). The caller funds the address and finishes with
    *     `completeHotKeyRotation({ fundingExpected: true })`.
    */
-  recoverGuardianFromSeed(
-    seed: string,
-    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
-  ): Promise<void>;
+  recoverGuardianFromSeed(seed: string, opts: RecoverGuardianFromSeedOptions): Promise<void>;
   /**
    * Import a Guardian account with its hot and EVM private key pair — the
    * seed-less import path. Drives the real screens: Welcome → Recover (on
@@ -433,9 +447,15 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * fails there, naming the cause, instead of timing out on a gate that never
    * detaches. With `fundingExpected` the funding panel is the path to the cleared
    * gate, and a failed funding claim throws instead. `timeoutMs` bounds the wait
-   * for the gate to clear (default 120 s).
+   * for the gate to clear (default 120 s), counted again from the role answer
+   * when the gate asks for the device role.
+   *
+   * When the gate shows its device-role step (no rotation exists yet, for
+   * example after the forgot-password recovery), this answers it with `role`
+   * (default `'main'`). See `recoverGuardianFromSeed` for `role` and
+   * `recoveryPhrasePrompt`.
    */
-  completeHotKeyRotation(opts?: { fundingExpected?: boolean; timeoutMs?: number }): Promise<void>;
+  completeHotKeyRotation(opts?: CompleteHotKeyRotationOptions): Promise<void>;
   /**
    * Wait for the rotation gate's funding panel (#805) and return the address it
    * shows and why it is up (`data-funding-reason`).
@@ -619,6 +639,55 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   waitForQueueDrained(timeoutMs?: number): Promise<void>;
 }
 
+/**
+ * The answer to the everyday-key gate's device-role step (`ChooseDeviceRole`):
+ * `'main'` is "Make this device the main one" (the replace rotation, signer set
+ * `[newHot, cold]`), `'add'` is "Add this device" (the new hot key joins the set).
+ */
+export type DeviceRole = 'add' | 'main';
+
+/** What the harness does with the "Keep your recovery phrase?" sheet that a role answer arms. */
+export type RecoveryPhrasePromptPolicy = 'keep' | 'leave';
+
+export interface CompleteHotKeyRotationOptions {
+  fundingExpected?: boolean;
+  timeoutMs?: number;
+  /** The device-role answer, when the gate asks for one. Default `'main'`. */
+  role?: DeviceRole;
+  /** Default `'keep'`. */
+  recoveryPhrasePrompt?: RecoveryPhrasePromptPolicy;
+}
+
+export interface RecoverGuardianFromSeedOptions {
+  viaUI: boolean;
+  guardianUrl?: string;
+  rotation?: 'complete' | 'await-funding';
+  /** The device-role answer. Default `'main'`, the replace rotation every older spec expects. */
+  role?: DeviceRole;
+  /** Default `'keep'`. */
+  recoveryPhrasePrompt?: RecoveryPhrasePromptPolicy;
+}
+
+/** The test ids of `ChooseDeviceRole` (src/screens/onboarding/import-wallet-flow/ChooseDeviceRole.tsx). */
+const DEVICE_ROLE_STEP_TESTID = 'choose-device-role';
+const DEVICE_ROLE_CONTINUE_TESTID = 'device-role-continue';
+const DEVICE_ROLE_OPTION_TESTID: Record<DeviceRole, string> = {
+  add: 'device-role-add',
+  main: 'device-role-main'
+};
+
+/** The Keep action of `RecoveryPhraseKeepPrompt` (src/app/templates/RecoveryPhraseKeepPrompt.tsx). */
+const RECOVERY_PHRASE_KEEP_TESTID = 'recovery-phrase-keep-keep';
+
+/**
+ * How long the device-role step can take to show: the gate first reads the transaction rows
+ * to learn that no rotation exists. Matches the funding panel's wait in `waitForHotKeyRotationFunding`.
+ */
+const DEVICE_ROLE_STEP_TIMEOUT_MS = 120_000;
+
+/** The gate shows the role step once per activation. More than this many in one wait is a product loop. */
+const MAX_DEVICE_ROLE_ANSWERS = 3;
+
 export interface GuardianAuthInfo {
   threshold: number;
   signerCommitments: string[];
@@ -671,6 +740,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // this wallet's persistent context on the same userDataDir and returns the
   // fresh page, so the wallet resumes from its on-disk profile.
   private readonly relaunch?: () => Promise<Page>;
+  // What to do with the recovery phrase keep prompt. `null` until a device-role
+  // answer arms the prompt. `reopen()` installs the Keep handler again on its new page.
+  private recoveryPhrasePrompt: RecoveryPhrasePromptPolicy | null = null;
+  // The page that has the Keep locator handler, so the handler is installed once per page.
+  private keepHandlerPage: Page | null = null;
 
   constructor(page: Page, extensionId: string, userDataDir: string = '', relaunch?: () => Promise<Page>) {
     this.currentPage = page;
@@ -1295,11 +1369,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * Recover a Guardian account from its seed phrase. See the interface doc
    * comment (ChromeWalletPageApi) for the `viaUI` split.
    */
-  async recoverGuardianFromSeed(
-    seed: string,
-    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
-  ): Promise<void> {
+  async recoverGuardianFromSeed(seed: string, opts: RecoverGuardianFromSeedOptions): Promise<void> {
     const words = seed.trim().split(/\s+/);
+    const role = opts.role ?? 'main';
+    const recoveryPhrasePrompt = opts.recoveryPhrasePrompt ?? 'keep';
 
     if (!opts.viaUI) {
       await this.createWalletViaBypass({
@@ -1308,6 +1381,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         guardianUrl: opts.guardianUrl,
         seed: words
       });
+      // The gate asks for the device role before it queues a rotation
+      // (`HotKeyRotationGate.tsx`, `roleChoicePending`). The callers of this path
+      // watch or fault the rotation after this returns, so it must be queued now.
+      await this.answerDeviceRoleStep(role, recoveryPhrasePrompt);
       return;
     }
 
@@ -1350,10 +1427,70 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // HotKeyRotationGate.tsx. This also clears the consent prompt the gate was
     // covering, which is why neither recovery branch dismisses it itself.
     if (opts.rotation === 'await-funding') {
+      // The role step comes before the funding panel: the gate shows the funding
+      // panel only for a rotation, and no rotation starts without a role.
+      await this.answerDeviceRoleStep(role, recoveryPhrasePrompt);
       await this.waitForHotKeyRotationFunding();
       return;
     }
-    await this.completeHotKeyRotation();
+    await this.completeHotKeyRotation({ role, recoveryPhrasePrompt });
+  }
+
+  /**
+   * Answer the gate's device-role step (`ChooseDeviceRole`): wait for it, select
+   * `role`, press Continue, and wait until the step leaves. The step leaves at
+   * once on Continue, because the gate keeps the chosen mode and starts the
+   * rotation with it. Then arm the recovery phrase prompt policy, since the
+   * same Continue arms that prompt (`armRecoveryPhraseKeepPrompt`).
+   */
+  private async answerDeviceRoleStep(
+    role: DeviceRole,
+    recoveryPhrasePrompt: RecoveryPhrasePromptPolicy
+  ): Promise<void> {
+    const step = this.page.getByTestId(DEVICE_ROLE_STEP_TESTID);
+    await step.waitFor({ state: 'visible', timeout: DEVICE_ROLE_STEP_TIMEOUT_MS });
+    const option = this.page.getByTestId(DEVICE_ROLE_OPTION_TESTID[role]);
+    await option.click();
+    await expect(option, `device role "${role}" must be selected before Continue`).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    await this.page.getByTestId(DEVICE_ROLE_CONTINUE_TESTID).click();
+    await step.waitFor({ state: 'detached', timeout: 30_000 });
+    await this.applyRecoveryPhrasePromptPolicy(recoveryPhrasePrompt);
+  }
+
+  /**
+   * Record the policy for the recovery phrase keep prompt and apply it to the
+   * current page. `'keep'` installs a locator handler that presses Keep when the
+   * sheet shows. The sheet opens only after the rotation lands and the
+   * pending-note scan ends, which can be in any later step, and it cannot be
+   * dismissed, so a one-time wait cannot catch it. `'leave'` removes the handler.
+   */
+  private async applyRecoveryPhrasePromptPolicy(policy: RecoveryPhrasePromptPolicy): Promise<void> {
+    this.recoveryPhrasePrompt = policy;
+    const keep = this.page.getByTestId(RECOVERY_PHRASE_KEEP_TESTID);
+    switch (policy) {
+      case 'keep':
+        if (this.keepHandlerPage === this.page) return;
+        await this.page.addLocatorHandler(
+          keep,
+          async button => {
+            // The sheet can close by itself before the click lands: a gate takes the account over, or the
+            // page closes. Then nothing blocks the page and there is nothing to press. A sheet that stays
+            // up runs this handler again before the next action.
+            await button.click({ timeout: 5_000 }).catch(() => undefined);
+          },
+          { noWaitAfter: true }
+        );
+        this.keepHandlerPage = this.page;
+        return;
+      case 'leave':
+        if (this.keepHandlerPage !== this.page) return;
+        await this.page.removeLocatorHandler(keep);
+        this.keepHandlerPage = null;
+        return;
+    }
   }
 
   /**
@@ -1435,8 +1572,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * covering. Throws if it instead reaches its terminal-failure surface within
    * the timeout.
    */
-  async completeHotKeyRotation(opts: { fundingExpected?: boolean; timeoutMs?: number } = {}): Promise<void> {
+  async completeHotKeyRotation(opts: CompleteHotKeyRotationOptions = {}): Promise<void> {
     const timeout = opts.timeoutMs ?? 120_000;
+    const role = opts.role ?? 'main';
+    const recoveryPhrasePrompt = opts.recoveryPhrasePrompt ?? this.recoveryPhrasePrompt ?? 'keep';
     const gate = this.page.getByTestId('hot-key-rotation-gate');
     await gate.waitFor({ state: 'visible', timeout: 30_000 });
 
@@ -1458,7 +1597,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     };
     // A surface that ends the wait with an error. Its own timeout never settles, so only
     // the gate's detach wait can time the race out.
-    const failsOn = (selector: string, describe: () => Promise<string>): Promise<void> =>
+    const failsOn = (selector: string, describe: () => Promise<string>): Promise<never> =>
       this.page
         .locator(selector)
         .waitFor({ state: 'visible', timeout })
@@ -1466,28 +1605,54 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           async () => {
             throw new Error(`completeHotKeyRotation: ${await describe()}`);
           },
-          () => new Promise<void>(() => undefined)
+          () => new Promise<never>(() => undefined)
         );
+    // The device-role step. It is not an end of the wait: the answer starts the
+    // rotation, and the wait goes on. Its own timeout never settles, like `failsOn`.
+    const roleStep = this.page.getByTestId(DEVICE_ROLE_STEP_TESTID);
+    const roleStepShows = (): Promise<'role-step'> =>
+      roleStep.waitFor({ state: 'visible', timeout }).then(
+        (): 'role-step' => 'role-step',
+        () => new Promise<never>(() => undefined)
+      );
 
-    await Promise.race([
-      gate.waitFor({ state: 'detached', timeout }),
-      failsOn(
-        '[data-testid="hot-key-rotation-failed"]',
-        async () => `rotation reached its terminal-failure surface${await failedRows()}`
-      ),
-      opts.fundingExpected
-        ? failsOn(
-            '[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]',
-            async () => `the funding claim failed${await failedRows()}`
-          )
-        : failsOn('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]', async () => {
-            const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
-            return (
-              'rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
-              `fundingExpected (address ${address?.trim() ?? '?'})`
-            );
-          })
-    ]);
+    // A gate with no rotation shows the role step first (`HotKeyRotationGate.tsx`,
+    // `roleChoicePending`), and it stays up until the step is answered. A gate that
+    // adopted a rotation on mount, or whose role a caller already answered, never shows it.
+    for (let answers = 0; ; answers++) {
+      const outcome = await Promise.race([
+        gate.waitFor({ state: 'detached', timeout }).then((): 'cleared' => 'cleared'),
+        roleStepShows(),
+        failsOn(
+          '[data-testid="hot-key-rotation-failed"]',
+          async () => `rotation reached its terminal-failure surface${await failedRows()}`
+        ),
+        opts.fundingExpected
+          ? failsOn(
+              '[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]',
+              async () => `the funding claim failed${await failedRows()}`
+            )
+          : failsOn('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]', async () => {
+              const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
+              return (
+                'rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
+                `fundingExpected (address ${address?.trim() ?? '?'})`
+              );
+            })
+      ]);
+      if (outcome === 'cleared') break;
+      if (answers >= MAX_DEVICE_ROLE_ANSWERS) {
+        throw new Error(
+          `completeHotKeyRotation: the gate asked for the device role ${answers + 1} times; ` +
+            'each answer must start a rotation'
+        );
+      }
+      await this.answerDeviceRoleStep(role, recoveryPhrasePrompt);
+    }
+
+    // The rotation landed. A caller that answered no role here (a gate that adopted
+    // its rotation after `reopen()`) still gets the prompt policy on this page.
+    await this.applyRecoveryPhrasePromptPolicy(recoveryPhrasePrompt);
 
     // Every wallet that raises this gate got here by being RECOVERED, and a
     // recovered wallet's route is the one-time consent prompt — which the scrim
@@ -1843,6 +2008,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     };
     const freshPage = await openFreshPage();
     this.currentPage = freshPage;
+    // A locator handler belongs to one page. The recovery phrase keep prompt can
+    // open on this new page, so the policy of the last role answer goes with it.
+    if (this.recoveryPhrasePrompt !== null) await this.applyRecoveryPhrasePromptPolicy(this.recoveryPhrasePrompt);
 
     const home = this.page.getByTestId('command-shell');
     const unlock = this.page.getByTestId('unlock-password');

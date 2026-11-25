@@ -39,6 +39,12 @@ export interface ConsumableNote {
   recallableAtMs?: number;
   /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
   standardPayment?: boolean;
+  /**
+   * The note carries the payback attachment of a PSWAP order that this device did not place (`isPeerSwapPayback`).
+   * Only the device that placed an order claims its paybacks unattended, so that two devices of one account do not
+   * claim the same payback. The user can still accept the note by hand.
+   */
+  peerSwapPayback?: boolean;
   /** Assets beyond the listed one; the queue treats absence as unknown full asset knowledge. */
   carriesMoreAssets?: boolean;
   /** Note inclusion time, in Unix seconds. */

@@ -43,6 +43,9 @@ jest.mock('components/DeadletteredNotesNotice', () => ({ DeadletteredNotesNotice
 jest.mock('app/templates/history/ActivityGroupedHistory', () => ({ ActivityGroupedHistory: () => null }));
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({ ActivityPendingHistory: () => null }));
 jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: 'test-public-key' }) }));
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ refreshBackup: () => Promise.resolve('disabled') })
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.example',
   getEffectiveNetworkName: () => 'testnet'

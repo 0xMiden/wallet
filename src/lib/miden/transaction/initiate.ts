@@ -6,7 +6,8 @@ import {
 } from 'lib/bridge/operation';
 import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
-import type { IOneClickTrackingData } from 'lib/miden/db/types';
+import { getMessage } from 'lib/i18n/core';
+import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -1544,24 +1545,55 @@ export const initiateSwitchGuardianTransaction = async (
  * + secureHotKey facade are only touched once we're actually processing the
  * tx) and persisted to the vault BEFORE submission. Cold-signed; default
  * `update_signers` threshold (1) means cold alone satisfies on-chain.
+ *
+ * `mode` selects the target signer set. `replace` (the default) removes the
+ * other device keys. `add` keeps them and adds the new hot key. The row
+ * records the mode, so a later run of the row uses the same mode.
  */
 export const initiateReplaceHotKeyTransaction = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  mode: HotKeyActivationMode = 'replace',
+  request?: { expected: string | undefined }
 ): Promise<string> => {
   const account = await resolveGuardianWalletAccount(
     accountId,
     guardianProvider,
     'Replace hot key is only supported for Guardian accounts'
   );
+  if (request && (!account.requiresHotKeyRotation || account.hotKeyRotationRequest !== request.expected)) {
+    throw new Error('The wallet activation request changed');
+  }
   const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
   // Record the guardian now: the account's endpoint moves with any later switch, and the history row
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
   // resolves (the account's own, else the network default), as the switch records its previous one.
   const guardianEndpoint = resolveGuardianEndpoint(account);
-  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
+  dbTransaction.extraInputs = {
+    mode,
+    ...(guardianEndpoint && { guardianEndpoint }),
+    ...(account.hotKeyRotationRequest && { rotationRequest: account.hotKeyRotationRequest })
+  };
   return queueRecoveryChange(dbTransaction);
+};
+
+/** Queue removal of one device. The recovery key signs this account update. */
+export const initiateRevokeDeviceTransaction = async (
+  accountId: string,
+  commitment: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!/^0x[0-9a-f]{64}$/i.test(commitment)) throw new Error('Invalid signer commitment');
+  const account = await resolveGuardianWalletAccount(accountId, guardianProvider, 'Guardian account required');
+  const transaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
+  transaction.extraInputs = {
+    revokedSignerCommitment: commitment,
+    guardianEndpoint: resolveGuardianEndpoint(account)
+  };
+  transaction.displayMessage = getMessage('revokeDevice');
+  return queueRecoveryChange(transaction);
 };
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
@@ -1686,6 +1718,12 @@ export const initiateUpdateProcedureThresholdTransaction = async (
   return queueRecoveryChange(dbTransaction);
 };
 
+/** The activation mode of a hot-key rotation row; a revocation and the other recovery changes have none. */
+function activationModeOf(transaction: ITransaction): HotKeyActivationMode | undefined {
+  if (transaction.type !== 'replace-hot-key' || transaction.extraInputs?.revokedSignerCommitment) return undefined;
+  return transaction.extraInputs?.mode ?? 'replace';
+}
+
 async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
   return Repo.db.transaction('rw', Repo.transactions, async () => {
     const existing = await Repo.transactions
@@ -1695,11 +1733,24 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
           row.type === transaction.type &&
           compareAccountIds(row.accountId, transaction.accountId) &&
           (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.revokedSignerCommitment === transaction.extraInputs?.revokedSignerCommitment &&
           row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
           row.extraInputs?.threshold === transaction.extraInputs?.threshold
       )
       .first();
-    if (existing) return existing.id;
+    if (existing) {
+      // One live rotation per account, run in the mode it was queued with: a Replace cuts every other
+      // device off and an Add keeps them, so returning one for the other would let the recovery seed
+      // authorize a change the user did not ask for. A second row would run two rotations against one
+      // signer set, so the other mode is refused until this one ends. A missing mode is a replace.
+      if (
+        activationModeOf(existing) !== activationModeOf(transaction) ||
+        existing.extraInputs?.rotationRequest !== transaction.extraInputs?.rotationRequest
+      ) {
+        throw new Error(getMessage('recoveryActionUnavailable'));
+      }
+      return existing.id;
+    }
     await Repo.transactions.add(transaction);
     return transaction.id;
   });

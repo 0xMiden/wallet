@@ -1,3 +1,4 @@
+import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import {
   AccountBuilder,
   AccountComponent,
@@ -13,12 +14,14 @@ import {
   PublicKey
 } from '@miden-sdk/miden-sdk/lazy';
 import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
+import { v4 as uuid } from 'uuid';
 import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';
 import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
-import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
+import type { BackupMergeRecords } from 'lib/backup/state';
+import { deriveSyncSecretKey, isValidSyncSecretKey, signSyncMessage, syncPublicKeyHex } from 'lib/backup/sync-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -36,7 +39,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { isCurrentRotationRequest, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
 import * as Passworder from 'lib/miden/passworder';
@@ -87,7 +90,7 @@ import {
 import type { CreatedGuardianKeys, GuardianCreateKey, PendingGuardianRegistration } from '../guardian/account';
 import {
   fetchGuardianCreateKey,
-  getSignerDetailsFromAccount,
+  hasSignerCommitment,
   registerGuardianAccount,
   resolveGuardianEndpoint
 } from '../guardian/account';
@@ -198,7 +201,9 @@ enum StorageEntity {
   CurrentAccPubKey = 'curraccpubkey',
   Accounts = 'accounts',
   Settings = 'settings',
-  OwnMnemonic = 'ownmnemonic'
+  OwnMnemonic = 'ownmnemonic',
+  SyncSecretKey = 'syncsecretkey',
+  BackupMerge = 'backupmerge'
 }
 
 const checkStrgKey = createStorageKey(StorageEntity.Check);
@@ -223,6 +228,12 @@ const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey)
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+// The encrypted-backup sync key (lib/backup/sync-key.ts), derived from the phrase on first use and kept under the
+// vault key, so the backup goes on after the phrase is removed from the device.
+const syncSecretKeyStrgKey = createStorageKey(StorageEntity.SyncSecretKey);
+// The backup's plaintext merge records (lib/backup/state.ts): account names and the contacts base. They
+// name the user's contacts, so they live under the vault key like the settings they describe.
+const backupMergeStrgKey = createStorageKey(StorageEntity.BackupMerge);
 
 // Leading byte of a serialized SDK `Signature` for the ECDSA (secp256k1) scheme. Guardian hot
 // keys are always ECDSA, and `signHotDigest`/`signWord` strip this tag; signData re-prepends it so
@@ -408,6 +419,9 @@ export class Vault {
           )
           .count();
         if (pending) throw new PublicError(getMessage('seedRemovalBusy'));
+        // The backup sync key is derived from the phrase. Store it before the phrase
+        // leaves this device, so the backup continues to work after the removal.
+        await this.withSyncSecretKey(() => undefined);
         record = { status: 'removing', recoveryPublicKeys };
         await encryptAndSaveMany([[seedRemovalStrgKey, record]], this.vaultKey);
         onStarted?.();
@@ -519,8 +533,6 @@ export class Vault {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
       assertWasmHoldCurrent(hold, 'in provideRecoverySeed after the account read');
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
-      const { commitment: signerCommitment } = await getSignerDetailsFromAccount(sdkAccount, true);
-      const onChainCommitment = normalizeHex(signerCommitment);
       for (const hdIndex of hdIndices) {
         const seed = deriveColdSeed(hdIndex);
         const key = AuthSecretKey.ecdsaWithRNG(seed);
@@ -531,7 +543,8 @@ export class Vault {
             readWasmHandle(pub.toCommitment(), commitment => {
               const publicKeyHex = Buffer.from(pub.serialize().slice(1)).toString('hex');
               const matchesStoredKey = account.coldPublicKey === undefined || publicKeyHex === account.coldPublicKey;
-              if (matchesStoredKey && onChainCommitment === normalizeHex(commitment.toHex())) {
+              // The derived cold key must be a member of the signer set, in any slot.
+              if (matchesStoredKey && hasSignerCommitment(sdkAccount, commitment.toHex())) {
                 authorizeRecovery(transaction, publicKeyHex, secretKey.serialize());
                 return true;
               }
@@ -1178,6 +1191,7 @@ export class Vault {
           ...(c.recoveredCold && {
             coldPublicKey: c.recoveredCold.coldPublicKey,
             requiresHotKeyRotation: true,
+            hotKeyRotationRequest: uuid(),
             guardianNoteRecoveryPending: true
           })
         })
@@ -1596,12 +1610,12 @@ export class Vault {
               // The phrase has to derive the cold signer the restored account names on chain, else the
               // file and the phrase belong to different wallets and nothing would ever sign.
               if (walletAccount.authScheme !== 'ecdsa') failMismatchedImport('guardian-auth-scheme');
-              const { commitment: onChainCold } = await getSignerDetailsFromAccount(account, true);
-              assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the cold signer read');
+              // The derived cold key must be a member of the signer set. Its slot is not
+              // fixed: a membership change moves the slots.
               const derivedPublicKey = secretKey.publicKey();
               const derivedCommitment = derivedPublicKey.toCommitment();
               const coldPublicKey = Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex');
-              const matchesChain = normalizeHex(derivedCommitment.toHex()) === normalizeHex(onChainCold);
+              const matchesChain = hasSignerCommitment(account, derivedCommitment.toHex());
               derivedCommitment.free();
               derivedPublicKey.free();
               if (
@@ -1687,6 +1701,7 @@ export class Vault {
           evmAddress: evmKey.address,
           coldPublicKey: cold.coldPublicKey,
           requiresHotKeyRotation: true,
+          hotKeyRotationRequest: uuid(),
           guardianNoteRecoveryPending: true
         });
       }
@@ -2034,7 +2049,12 @@ export class Vault {
 
   async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
 
-  async editAccountName(accPublicKey: string, name: string) {
+  /**
+   * Rename an account. `renamedAt` (unix ms) is the time of the rename that gives this name: now for a rename by
+   * the user, or the rename time of a peer's backup entry. It is kept as `nameUpdatedAt`; without it the time of
+   * the new name is unknown, and the account keeps no time.
+   */
+  async editAccountName(accPublicKey: string, name: string, renamedAt?: number) {
     return withError('Failed to edit account name', async () => {
       const allAccounts = await this.fetchAccounts();
       if (!allAccounts.some(acc => acc.publicKey === accPublicKey)) {
@@ -2045,7 +2065,9 @@ export class Vault {
         throw new PublicError('Account with same name already exist');
       }
 
-      const newAllAccounts = allAccounts.map(acc => (acc.publicKey === accPublicKey ? { ...acc, name } : acc));
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accPublicKey ? { ...acc, name, nameUpdatedAt: renamedAt } : acc
+      );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
       const currentAccount = await this.getCurrentAccount();
@@ -2095,6 +2117,7 @@ export class Vault {
       ) {
         throw new PublicError('This account does not need an everyday key');
       }
+      const coldPublicKey = account.coldPublicKey;
       const [{ deserializeHotSecretKey }] = await Promise.all([import('../guardian/hot-key-import'), getWasmOrThrow()]);
       const { hotPublicKey, hotSecretKeyHex } = await withWasmClientLock(async hold => {
         const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
@@ -2116,17 +2139,19 @@ export class Vault {
           publicKey = derivedPublicKey;
           const derivedCommitment = derivedPublicKey.toCommitment();
           commitment = derivedCommitment;
-          const pasted = normalizeHex(derivedCommitment.toHex());
-          const { commitment: hotOnChain } = await getSignerDetailsFromAccount(sdkAccount, false);
-          assertWasmHoldCurrent(hold, 'in importHotKeyPair after the everyday signer read');
-          if (normalizeHex(hotOnChain) !== pasted) {
-            const { commitment: coldOnChain } = await getSignerDetailsFromAccount(sdkAccount, true);
-            throw new PublicError(
-              getMessage(normalizeHex(coldOnChain) === pasted ? 'importHotKeyIsRecoveryKey' : 'importHotKeyNotActive')
-            );
+          const pastedPublicKey = Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex');
+          // The cold key is also a member of the signer set, so check it first: it must never
+          // become the everyday key.
+          if (normalizeHex(pastedPublicKey) === normalizeHex(coldPublicKey)) {
+            throw new PublicError(getMessage('importHotKeyIsRecoveryKey'));
+          }
+          // Accept the key when any slot holds its commitment. The signer set can hold more than
+          // one everyday key, and a membership change moves the slots.
+          if (!hasSignerCommitment(sdkAccount, derivedCommitment.toHex())) {
+            throw new PublicError(getMessage('importHotKeyNotActive'));
           }
           return {
-            hotPublicKey: Buffer.from(derivedPublicKey.serialize().slice(1)).toString('hex'),
+            hotPublicKey: pastedPublicKey,
             hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
           };
         } catch (error) {
@@ -2202,7 +2227,13 @@ export class Vault {
       // one is finished with: this device is the account's main device again.
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey
-          ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false, hotKeyRotatedOut: undefined }
+          ? {
+              ...acc,
+              hotPublicKey: newHotPubKey,
+              requiresHotKeyRotation: false,
+              hotKeyRotationRequest: undefined,
+              hotKeyRotatedOut: undefined
+            }
           : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
@@ -2304,7 +2335,13 @@ export class Vault {
       // write would leave the account pointing at a deleted key.
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey
-          ? { ...acc, hotPublicKey: undefined, requiresHotKeyRotation: true, hotKeyRotatedOut: undefined }
+          ? {
+              ...acc,
+              hotPublicKey: undefined,
+              requiresHotKeyRotation: true,
+              hotKeyRotationRequest: uuid(),
+              hotKeyRotatedOut: undefined
+            }
           : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
@@ -2662,6 +2699,29 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  private async assertRotationProposalCurrent(publicKey: string, transactionId?: string): Promise<void> {
+    const row = transactionId ? await Repo.transactions.get(transactionId) : undefined;
+    if (
+      !row ||
+      row.type !== 'replace-hot-key' ||
+      row.extraInputs?.revokedSignerCommitment ||
+      row.restoredFromBackup ||
+      row.status !== ITransactionStatus.GeneratingTransaction
+    ) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+    const account = (await this.fetchAccounts()).find(candidate =>
+      sameWalletAccountId(candidate.publicKey, row.accountId)
+    );
+    if (
+      !account ||
+      !isCurrentRotationRequest(row.extraInputs?.rotationRequest, account) ||
+      (account.coldPublicKey ?? getAuthorizedRecoveryPublicKey(row)) !== publicKey
+    ) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+  }
+
   /**
    * Sign a word with the key matching `publicKey`. Routes by storage entity:
    * a Guardian account's `coldPublicKey` decrypts the cold blob from
@@ -2672,7 +2732,7 @@ export class Vault {
    * under `accAuthSecretKeyStrgKey` fall through the hot path: the JS
    * fallback's deserialize+sign is identical to the previous implementation.
    */
-  async signWord(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
+  async signWord(publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true): Promise<string> {
     const accounts = await this.fetchAccounts();
     let account = accounts.find(acc => acc.coldPublicKey === publicKey);
     let transaction: ITransaction | undefined;
@@ -2700,6 +2760,7 @@ export class Vault {
       }
       const secret = getRecoveryAuthorization(transaction, publicKey);
       if (!secret) throw new PublicError(getMessage('recoverySeedRequired'));
+      if (rotationProposal === true) await this.assertRotationProposalCurrent(publicKey, transactionId);
       const key = AuthSecretKey.deserialize(secret);
       const word = Word.fromHex(wordHex);
       try {
@@ -2716,11 +2777,14 @@ export class Vault {
     }
     if (isCold) {
       const coldHex = await fetchAndDecryptOne<string>(accColdSecretKeyStrgKey(publicKey), this.vaultKey);
+      // Guardian signing already holds WASM. An account writer may itself be waiting for WASM.
+      if (rotationProposal === true) await this.assertRotationProposalCurrent(publicKey, transactionId);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
       return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
     }
 
+    if (rotationProposal === true) throw new PublicError(getMessage('recoveryActionUnavailable'));
     const hotCiphertext = await fetchAndDecryptOne<string>(accAuthSecretKeyStrgKey(publicKey), this.vaultKey);
     return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }
@@ -2756,6 +2820,62 @@ export class Vault {
           return evmAccount.signMessage({ message: { raw: operation.messageHex } });
       }
     });
+  }
+
+  /**
+   * The compressed public key of the backup sync key, as lowercase hex, or null
+   * when this wallet has no sync key (no stored phrase and no stored sync key).
+   */
+  async syncPublicKey(): Promise<string | null> {
+    return this.withSyncSecretKey(syncPublicKeyHex);
+  }
+
+  /**
+   * Sign `message` with the backup sync key (compact, over SHA-256 of the
+   * message). Returns null when this wallet has no sync key. The key never
+   * leaves this method.
+   */
+  async signWithSyncKey(message: string): Promise<Uint8Array | null> {
+    return this.withSyncSecretKey(secret => signSyncMessage(secret, message));
+  }
+
+  /** The stored backup merge records, as stored (the caller parses them), or undefined when there are none. */
+  async fetchBackupMergeRecords(): Promise<unknown> {
+    return withError('Failed to fetch the backup merge records', async () => {
+      if (!(await isStored(backupMergeStrgKey))) return undefined;
+      return fetchAndDecryptOne<unknown>(backupMergeStrgKey, this.vaultKey);
+    });
+  }
+
+  async saveBackupMergeRecords(records: BackupMergeRecords): Promise<void> {
+    return withError('Failed to save the backup merge records', async () => {
+      await encryptAndSaveMany([[backupMergeStrgKey, records]], this.vaultKey);
+    });
+  }
+
+  /**
+   * Give the sync secret key to `use` and zero it after. The key is read from
+   * its own vault entry. When that entry does not exist and the phrase is
+   * stored, the key is derived from the phrase and saved first.
+   */
+  private async withSyncSecretKey<T>(use: (secret: Uint8Array) => T): Promise<T | null> {
+    let secretHex: string | null = null;
+    if (await isStored(syncSecretKeyStrgKey)) {
+      secretHex = await fetchAndDecryptOne<string>(syncSecretKeyStrgKey, this.vaultKey);
+    } else if ((await this.fetchSeedPhraseStatus()) === 'stored') {
+      const mnemonic = await fetchAndDecryptOne<string>(mnemonicStrgKey, this.vaultKey);
+      const derived = deriveSyncSecretKey(mnemonic);
+      secretHex = bytesToHex(derived);
+      derived.fill(0);
+      await encryptAndSaveMany([[syncSecretKeyStrgKey, secretHex]], this.vaultKey);
+    }
+    if (secretHex === null || !/^[0-9a-f]{64}$/.test(secretHex)) return null;
+    const secret = new Uint8Array(Buffer.from(secretHex, 'hex'));
+    try {
+      return isValidSyncSecretKey(secret) ? use(secret) : null;
+    } finally {
+      secret.fill(0);
+    }
   }
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
