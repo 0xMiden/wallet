@@ -302,8 +302,10 @@ export function createEpochEvmSender(
         // Headroom so a few blocks of base-fee rise cannot leave the signed transaction underpriced and dropped;
         // the cap keeps the worst case inside the remaining budget, and the fresh estimate itself must still fit.
         const affordable = (BigInt(state.evmFeeBudget) - BigInt(state.paidEvmFees)) / gas;
+        // An approval takes at most half of what is left (never less than the estimate) so the deposit keeps room.
+        const ceiling = kind === 'approve' && affordable / 2n >= estimatedMaxFee ? affordable / 2n : affordable;
         const headroom = estimatedMaxFee * EPOCH_EVM_FEE_HEADROOM;
-        const maxFeePerGas = headroom < affordable ? headroom : affordable;
+        const maxFeePerGas = headroom < ceiling ? headroom : ceiling;
         if (maxFeePerGas < estimatedMaxFee) throw new Error('Epoch EVM envelope exceeds the remaining fee budget');
         const maximumFee = gas * maxFeePerGas;
         if (maximumFee > BigInt(state.evmFeeBudget) - BigInt(state.paidEvmFees))
