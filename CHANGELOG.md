@@ -2,6 +2,10 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
+- [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.
+- [CHORE][ci] Fix two TypeScript errors in the mainnet nightly helper and swap-loop spec that failed the type check of every pull request (type-only, no behavior change).
+- [FIX][all] Show the Command balance on the first frame from fresh cached prices, as the Sidebar does, even when another held token has no price yet, instead of a dash until the live feed loads.
 - [FIX][ci] Close the audited first Swap recovery return of 1732 WBTC base units as held when its grant was recorded but never signed or submitted and no solver can fill it, using public and wallet reads only (original payout proved and claimed, vault balances exactly as recorded, no return order, authority or wallet activity), so the mainnet nightly stops failing in Swap recovery on it; the dust stays in the wallet, the full principal and fees count against the loss budget with the dust not credited, every other mismatch stays fail-closed, nothing is quoted, signed or sent, and the loss cap is unchanged.
 - [FIX][ci] Let the first approved mainnet nightly Swap recovery return of already-held stablecoin proceeds be valued up to 5000 micros under the $1 wallet minimum, keeping the original reverse minimum, the aggregate loss cap, and every replacement and fresh-loop minimum unchanged, and refusing the return before its grant when the offered amount is worth under $1 at the live price.
 - [FIX][ci] Make the mainnet nightly swap planner refuse any loop whose legs are under 100000 base units, so an illiquid dust-sized intermediate such as 1728 units of WBTC for about 1 USD, whose return quote timed out at execution, is never chosen.
