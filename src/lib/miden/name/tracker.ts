@@ -178,7 +178,7 @@ async function reconcileRow(row: ITransaction, context: PassContext): Promise<vo
   const inputs = registerNameInputsOf(row);
   if (!inputs) return;
 
-  if (row.status === ITransactionStatus.Failed) {
+  if (row.status === ITransactionStatus.Failed || row.status === ITransactionStatus.Unconfirmed) {
     await reconcileFailedRow(row, inputs, context);
     return;
   }
@@ -200,7 +200,11 @@ async function reconcileRow(row: ITransaction, context: PassContext): Promise<vo
   }
 }
 
-/** Step 1: verify on-chain state before sealing a Failed row, or promote if landed. */
+/**
+ * Step 1: verify on-chain state before sealing a Failed or Unconfirmed row, or
+ * promote if landed. A row whose verdict is still pending is left to the
+ * verdict reconciler.
+ */
 async function reconcileFailedRow(
   row: ITransaction,
   inputs: IRegisterNameExtraInputs,
@@ -227,7 +231,10 @@ async function reconcileFailedRow(
       await sealDiscarded(row.id, inputs.phase, inputs.label, state.lastError ?? row.error);
       return;
     case 'unknown':
-      await sealFailed(row.id, inputs.phase, 'tx-failed', row.error);
+      // The builder may not have seen the note of a submit that crossed yet: wait until it can no longer be consumed.
+      if ((await context.chainTip()) > inputs.reclaimHeight) {
+        await sealFailed(row.id, inputs.phase, 'tx-failed', row.error);
+      }
       return;
   }
 }

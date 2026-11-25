@@ -74,7 +74,12 @@ jest.mock('lib/miden/transaction/complete', () => ({
     let written: IRegisterNameExtraInputs | undefined;
     await Repo.transactions.where({ id }).modify(tx => {
       const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
-      if (tx.type !== 'register-name' || tx.restoredFromBackup || tx.status !== ITransactionStatus.Failed || !inputs) {
+      if (
+        tx.type !== 'register-name' ||
+        tx.restoredFromBackup ||
+        (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) ||
+        !inputs
+      ) {
         return false;
       }
       if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return false;
@@ -233,17 +238,99 @@ beforeEach(async () => {
   );
 });
 
+describe('transition 1b: register row Unconfirmed with no verdict pending', () => {
+  const unconfirmed = (label: string): ITransaction => {
+    const row = registerRow(label, 'requested', ITransactionStatus.Unconfirmed);
+    row.mayHaveSubmitted = true;
+    return row;
+  };
+
+  it('promotes the row when its registration note landed and issued the name', async () => {
+    const row = unconfirmed('alice');
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
+    mockFetchIssued.mockResolvedValue(true);
+    await pass();
+    expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
+    expect((await inputsOf(row.id)).phase).toBe('issued');
+    expect((await Repo.transactions.where({ id: row.id }).first())?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('keeps the row while the note reads unknown before the reclaim height, then seals tx-failed', async () => {
+    const row = unconfirmed('alice');
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockChainTip.mockResolvedValue(1300);
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('requested');
+
+    mockChainTip.mockResolvedValue(1301);
+    await pass();
+    expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed' });
+  });
+
+  it('defers while the row is still awaiting a verdict', async () => {
+    const row = unconfirmed('alice');
+    row.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: ['0xnote-alice'],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    await add(row);
+    await pass();
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect((await inputsOf(row.id)).phase).toBe('requested');
+  });
+});
+
 describe('transition 1: register row Failed', () => {
-  it('marks the registration failed / tx-failed with the row error after verifying unknown on chain', async () => {
+  it('marks a possibly submitted registration failed / tx-failed once unknown holds past the reclaim height', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
     row.mayHaveSubmitted = true;
     row.error = 'boom';
     await add(row);
     mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockChainTip.mockResolvedValue(1301);
     await pass();
     expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
     expect(mockFetchIssued).not.toHaveBeenCalled();
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed', lastError: 'boom' });
+  });
+
+  it('keeps a possibly submitted Failed row until the reclaim height while the note reads unknown', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.mayHaveSubmitted = true;
+    row.error = 'boom';
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockChainTip.mockResolvedValue(1300);
+    await pass();
+    expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
+    expect((await inputsOf(row.id)).phase).toBe('requested');
+
+    mockFetchState.mockResolvedValue({ status: 'pending', attemptCount: 0 });
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('submitted');
+    expect((await Repo.transactions.where({ id: row.id }).first())?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('seals a never submitted Failed row at once without reading the chain', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'rejected before submit';
+    await add(row);
+    await pass();
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed' });
   });
 
   it('defers while the row is still awaiting a verdict', async () => {
@@ -356,6 +443,7 @@ describe('transition 1: register row Failed', () => {
     mockFetchIssued.mockResolvedValue(true);
     mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery-bob'], scannedTo: 1200 });
+    mockChainTip.mockResolvedValue(1301);
     await pass();
     expect(await inputsOf(byOwner.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
     expect(await inputsOf(byDelivery.id)).toMatchObject({

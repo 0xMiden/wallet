@@ -316,6 +316,17 @@ describe('promoteLandedRegisterNameRow', () => {
     expect(signalTransactionCompleted).toHaveBeenCalledTimes(1);
   });
 
+  it('promotes an Unconfirmed row whose note landed to Completed and advances requested to submitted', async () => {
+    const row: ITransaction = registerRow('requested');
+    row.status = ITransactionStatus.Unconfirmed;
+
+    const promoted = await promoteLandedRegisterNameRow(row.id);
+
+    expect(promoted?.phase).toBe('submitted');
+    expect(txStore.find(candidate => candidate.id === row.id)?.status).toBe(ITransactionStatus.Completed);
+    expect(storedPhase(row.id)).toBe('submitted');
+  });
+
   it('applies an explicit target phase in patch and preserves submitted phase when patch is empty', async () => {
     const requested = registerRow('requested');
     requested.status = ITransactionStatus.Failed;
@@ -330,7 +341,7 @@ describe('promoteLandedRegisterNameRow', () => {
     expect(kept?.phaseUpdatedAt).toBe(1);
   });
 
-  it('refuses non-Failed rows, mismatched expectPhase, backups, and other types without reporting', async () => {
+  it('refuses Completed rows, mismatched expectPhase, backups, and other types without reporting', async () => {
     const completed = registerRow('submitted');
     completed.status = ITransactionStatus.Completed;
     await expect(promoteLandedRegisterNameRow(completed.id)).resolves.toBeUndefined();

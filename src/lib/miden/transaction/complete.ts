@@ -1227,8 +1227,8 @@ export const patchRegisterNameExtraInputs = async (
 };
 
 /**
- * Promote a `Failed` `register-name` row whose registration note is proven on
- * chain to `Completed` atomically with advancing its phase (`requested` →
+ * Promote a `Failed` or `Unconfirmed` `register-name` row whose registration
+ * note is proven on chain to `Completed` atomically with advancing its phase (`requested` →
  * `submitted`, or the phase in `patch`). Returns the updated `extraInputs` when
  * written, or `undefined` when declined.
  */
@@ -1240,7 +1240,7 @@ export const promoteLandedRegisterNameRow = async (
   let reconciled: ITransaction | undefined;
   let writtenInputs: IRegisterNameExtraInputs | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return false;
+    if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
     const next = nextRegisterNameExtraInputs(tx, patch, {
       ...options,
       defaultPhase: current => (current === 'requested' ? 'submitted' : current)
