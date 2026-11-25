@@ -3,6 +3,7 @@ import crypto, { createHash, createHmac } from 'node:crypto';
 import fs, { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
 import type { GuardianAwareWalletPage } from '../playwright/e2e/fixtures/two-wallets';
 import type { MainnetEpochCheckpoint } from '../playwright/e2e/helpers/mainnet-epoch-checkpoint';
 import {
@@ -37,7 +38,6 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 }));
 jest.mock('@playwright/test', () => ({ expect: jest.requireActual('@playwright/test').expect }));
 jest.mock('viem', () => ({ ...jest.requireActual('viem'), createPublicClient: () => mockClient }));
-import { TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({ WcCounterparty: jest.fn() }));
 jest.mock('../playwright/e2e/helpers/balance-truth', () => ({
   vaultBalanceByFaucetId: (...args: unknown[]) => mockVault(...args)
@@ -615,5 +615,62 @@ describe('an original deposit that never mined', () => {
     ).rejects.toThrow();
     expect(JSON.parse(readFileSync(path(), 'utf8')).phase).toBe('recovery-required');
     noWrites();
+  });
+  const failsClosed = async (state: MainnetEpochCheckpoint) => {
+    await expect(
+      recoverEpochReturn(actor, state, path(), 'unused-upload', new AbortController().signal)
+    ).rejects.toThrow();
+    expect(JSON.parse(readFileSync(path(), 'utf8')).phase).toBe('recovery-required');
+    noWrites();
+  };
+  it('reads the deposit receipt and both nonces after every other read', async () => {
+    const state = arm();
+    const order: string[] = [];
+    mockIntentStatus.mockImplementation(async () => (order.push('status'), []));
+    mockVault.mockImplementation(async () => (order.push('vault'), 20_000_000n - 1_010_000n - 14n));
+    mockClient.getTransactionReceipt.mockImplementation(async ({ hash: h }: { hash: string }) => {
+      if (h !== depositHash) return {};
+      order.push('receipt');
+      throw new TransactionReceiptNotFoundError({ hash: h as `0x${string}` });
+    });
+    mockClient.getTransactionCount.mockImplementation(async ({ blockTag }: { blockTag: string }) => {
+      order.push(`nonce-${blockTag}`);
+      return 1;
+    });
+    await recoverEpochReturn(actor, state, path(), 'unused-upload', new AbortController().signal);
+    expect(order.slice(-3).sort()).toEqual(['nonce-latest', 'nonce-pending', 'receipt']);
+    expect(order.slice(0, -3)).toEqual(expect.arrayContaining(['vault', 'status']));
+  });
+  it('stays fail-closed when the deposit lands while the provider status is being read', async () => {
+    const state = arm();
+    let landed = false;
+    mockIntentStatus.mockImplementation(async () => ((landed = true), []));
+    mockClient.getTransactionReceipt.mockImplementation(async ({ hash: h }: { hash: string }) => {
+      if (h === depositHash && !landed) throw new TransactionReceiptNotFoundError({ hash: h as `0x${string}` });
+      return {};
+    });
+    await failsClosed(state);
+  });
+  it('stays fail-closed when the approval itself is missing', async () => {
+    const state = arm();
+    mockClient.getTransaction.mockImplementation(async ({ hash: h }: { hash: string }) => {
+      throw new TransactionNotFoundError({ hash: h as `0x${string}` });
+    });
+    await failsClosed(state);
+  });
+  it('stays fail-closed when a deposit that is not the last journal entry is missing', async () => {
+    const state = arm();
+    state.transactions = [...state.transactions!].reverse();
+    await failsClosed(state);
+  });
+  it('stays fail-closed when the provider status cannot be read', async () => {
+    const state = arm();
+    mockIntentStatus.mockRejectedValue(new Error('status unavailable'));
+    await failsClosed(state);
+  });
+  it('stays fail-closed when the deposit has a receipt although its transaction is absent', async () => {
+    const state = arm();
+    mockClient.getTransactionReceipt.mockResolvedValue({ status: 'success' });
+    await failsClosed(state);
   });
 });
