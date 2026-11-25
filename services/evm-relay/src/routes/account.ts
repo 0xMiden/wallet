@@ -1,9 +1,9 @@
 // GET /v1/account: the balances of a deposit address and the values that the wallet needs to sign a batch.
-import type { RelayKind } from '../../../../src/lib/evm-relay/batch';
 import { ChainIntegrityError, RpcUnavailableError, type AccountState } from '../chain';
 import { ConfigError, parseConfig, type ChainConfig, type Hex, type RelayConfig } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json } from '../http';
+import { kindsOf } from '../kinds';
 import { limitReadAddress } from '../rate-limit';
 import { relayerAddress } from '../secrets';
 import type { AccountResponse, RequestContext } from '../types';
@@ -39,14 +39,9 @@ function addressOf(value: string | null, executor: Hex): Hex {
   return address;
 }
 
-/** The relay kinds that the chain supports. */
-function kindsOf(chain: ChainConfig): RelayKind[] {
-  return chain.agglayer === null ? [] : ['agglayer-deposit'];
-}
-
 async function readState(context: RequestContext, chain: ChainConfig, address: Hex): Promise<AccountState> {
   try {
-    return await context.reader.readAccount(chain, address, kindsOf(chain));
+    return await context.reader.readAccount(chain, address, kindsOf(chain.kinds));
   } catch (error) {
     if (error instanceof RpcUnavailableError) {
       throw new ApiError(502, 'rpc_unavailable', 'The chain RPC does not answer.');

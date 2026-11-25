@@ -82,7 +82,7 @@ describe('GET /v1/account', () => {
     expect(body.needsAuthorization).toBe(true);
   });
 
-  it('reads no relay kind on a chain without agglayer', async () => {
+  it('reads no relay kind on a chain without kinds', async () => {
     const harness = harnessFor();
     harness.reader.state = readState({ balances: [1n, 2n] });
     const body = await bodyOf(await send(harness, accountPath('1', ADDRESS)));
