@@ -3,7 +3,7 @@ import { ChainIntegrityError, RpcUnavailableError, type AccountState } from '../
 import { routeConfig, type ChainConfig, type Hex, type RelayConfig } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json } from '../http';
-import { kindsOf } from '../kinds';
+import { kindsOf, publicConfigOf } from '../kinds';
 import { limitReadAddress } from '../rate-limit';
 import { relayerAddress } from '../secrets';
 import type { AccountResponse, RequestContext } from '../types';
@@ -13,7 +13,8 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 /** The browser may keep the answer for 5 seconds. The wallet polls the route. */
 const CACHE_CONTROL = 'private, max-age=5';
 
-function chainOf(config: RelayConfig, value: string | null): ChainConfig {
+/** The chain of a `chainId` query value. GET /v1/relay/{id} uses it too. */
+export function chainOf(config: RelayConfig, value: string | null): ChainConfig {
   const chainId = Number(value);
   if (value === null || !CHAIN_ID.test(value) || !Number.isSafeInteger(chainId)) {
     throw invalidRequest('chainId must be a positive decimal integer.');
@@ -59,7 +60,11 @@ export async function account(context: RequestContext): Promise<Response> {
   // In sponsor mode the relayer pays the gas, so no token fee applies whatever the config holds.
   const sponsored = config.gasMode === 'sponsor';
   const kinds: AccountResponse['kinds'] = {};
-  for (const [kind, sequence] of state.sequences) kinds[kind] = { sequence: sequence.toString() };
+  for (const [kind, sequence] of state.sequences) {
+    const kindConfig = publicConfigOf(kind, chain.kinds);
+    if (kindConfig === null) throw new Error('The reader returned a kind that the chain does not support.');
+    kinds[kind] = { sequence: sequence.toString(), config: kindConfig };
+  }
   const body: AccountResponse = {
     chainId: chain.chainId,
     address,

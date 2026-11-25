@@ -29,4 +29,3 @@ export const invalidRequest = (message: string): ApiError => new ApiError(400, '
 export const tooLarge = (): ApiError => new ApiError(413, 'payload_too_large', 'The request body is too large.');
 export const notFound = (): ApiError => new ApiError(404, 'not_found', 'The route does not exist.');
 export const notConfigured = (): ApiError => new ApiError(503, 'service_unavailable', 'The service is not configured.');
-export const notImplemented = (): ApiError => new ApiError(501, 'not_implemented', 'The route is not implemented yet.');

@@ -11,6 +11,9 @@ import {
   RpcUnavailableError,
   broadcastTransaction,
   createRpcReader,
+  maxFeeOf,
+  readFees,
+  readReceipts,
   type CachedCode,
   type Fetcher,
   type RelayCall
@@ -67,6 +70,8 @@ class FakeNode {
   failWith: Failure | null = null;
   estimateError: RpcError | null = null;
   sendError: RpcError | null = null;
+  /** The `eth_getTransactionReceipt` result of each hash. A missing hash answers null. */
+  readonly receipts = new Map<string, unknown>();
 
   readonly fetcher: Fetcher = async (url, init) => {
     this.urls.push(url);
@@ -96,6 +101,8 @@ class FakeNode {
         return this.estimateError === null
           ? { jsonrpc: '2.0', id, result: '0x30d40' }
           : { jsonrpc: '2.0', id, error: this.estimateError };
+      case 'eth_getTransactionReceipt':
+        return { jsonrpc: '2.0', id, result: this.receipts.get(String(call.params[0])) ?? null };
       case 'eth_sendRawTransaction':
         return this.sendError === null
           ? { jsonrpc: '2.0', id, result: `0x${'77'.repeat(32)}` }
@@ -335,22 +342,93 @@ describe('readRelay', () => {
 describe('broadcastTransaction', () => {
   it('sends the signed bytes and treats "already known" as a success', async () => {
     const node = new FakeNode();
-    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBeUndefined();
+    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBe('accepted');
     node.sendError = { code: -32000, message: 'already known' };
-    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBeUndefined();
-    expect(node.batches).toEqual([
-      [{ method: 'eth_sendRawTransaction', params: [RAW] }],
-      [{ method: 'eth_sendRawTransaction', params: [RAW] }]
-    ]);
+    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBe('accepted');
+    node.sendError = { code: -32010, message: 'AlreadyKnown' };
+    await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBe('accepted');
+    expect(node.batches).toHaveLength(3);
+    expect(node.batches[0]).toEqual([{ method: 'eth_sendRawTransaction', params: [RAW] }]);
   });
+
+  it.each(['nonce too low: next nonce 6, tx nonce 5', 'NONCE_TOO_LOW', 'OldNonce'])(
+    'reads "%s" as a nonce that a mined transaction holds',
+    async message => {
+      const node = new FakeNode();
+      node.sendError = { code: -32000, message };
+      await expect(broadcastTransaction(ENV, 8453, RAW, node.fetcher)).resolves.toBe('nonce_used');
+    }
+  );
 
   it('fails without the URL or the bytes in the error', async () => {
     const node = new FakeNode();
-    node.sendError = { code: -32000, message: `nonce too low ${RAW}` };
+    node.sendError = { code: -32000, message: `insufficient funds for gas ${RAW}` };
     const error = await broadcastTransaction(ENV, 8453, RAW, node.fetcher).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(RpcUnavailableError);
     expect(String(error)).not.toContain('secret');
     expect(String(error)).not.toContain(RAW);
     await expect(broadcastTransaction({}, 8453, RAW, node.fetcher)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+});
+
+describe('readReceipts', () => {
+  const MINED: Hex = `0x${'01'.repeat(32)}`;
+  const REVERTED: Hex = `0x${'02'.repeat(32)}`;
+  const WAITING: Hex = `0x${'03'.repeat(32)}`;
+
+  it('reads every hash in one batch, in hash order', async () => {
+    const node = new FakeNode();
+    node.receipts.set(MINED, { transactionHash: MINED, status: '0x1' });
+    node.receipts.set(REVERTED, { transactionHash: REVERTED, status: '0x0' });
+    await expect(readReceipts(ENV, 8453, [MINED, WAITING, REVERTED], node.fetcher)).resolves.toEqual([
+      'success',
+      null,
+      'reverted'
+    ]);
+    expect(node.batches).toEqual([
+      [MINED, WAITING, REVERTED].map(hash => ({ method: 'eth_getTransactionReceipt', params: [hash] }))
+    ]);
+  });
+
+  it('sends nothing for no hash', async () => {
+    const node = new FakeNode();
+    await expect(readReceipts(ENV, 8453, [], node.fetcher)).resolves.toEqual([]);
+    expect(node.batches).toEqual([]);
+  });
+
+  it.each<[string, unknown]>([
+    ['a receipt without a status', { transactionHash: MINED }],
+    ['a receipt that is not an object', '0x1']
+  ])('reads %s as an RPC failure', async (_name, receipt) => {
+    const node = new FakeNode();
+    node.receipts.set(MINED, receipt);
+    await expect(readReceipts(ENV, 8453, [MINED], node.fetcher)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+
+  it.each(FAILURES)('maps an RPC failure (%s) to RpcUnavailableError', async failWith => {
+    const node = new FakeNode();
+    node.failWith = failWith;
+    await expect(readReceipts(ENV, 8453, [MINED], node.fetcher)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+});
+
+describe('readFees', () => {
+  it('reads the next base fee and the priority fee in one batch', async () => {
+    const node = new FakeNode();
+    await expect(readFees(ENV, 8453, node.fetcher)).resolves.toEqual({
+      baseFee: 2_000_000_000n,
+      priorityFee: 100_000_000n
+    });
+    expect(node.batches).toEqual([
+      [
+        { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
+        { method: 'eth_maxPriorityFeePerGas', params: [] }
+      ]
+    ]);
+    expect(maxFeeOf({ baseFee: 2n, priorityFee: 1n })).toBe(5n);
+  });
+
+  it('fails when the chain has no RPC URL', async () => {
+    await expect(readFees({}, 8453, new FakeNode().fetcher)).rejects.toBeInstanceOf(RpcUnavailableError);
   });
 });

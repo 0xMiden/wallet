@@ -8,7 +8,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { CALIBUR_ADDRESS, TEST_EXECUTOR, transactionSigner } from './harness';
 import { memoryDatabase, type MemoryDatabase } from './sqlite';
 import type { RelayAuthorization } from '../src/chain';
-import { RelaySender, type RelayTransaction, type SubmitJob } from '../src/sender';
+import { RelaySender, type RelayTransaction, type SenderDeps, type SubmitJob } from '../src/sender';
 
 const RELAYER = privateKeyToAccount(`0x${'11'.repeat(32)}`);
 const USER = privateKeyToAccount(`0x${'22'.repeat(32)}`);
@@ -52,13 +52,28 @@ interface SetupOptions {
   broadcastError?: Error;
 }
 
+/** Dependencies with a quiet chain and no timer, over the database. */
+function quietDeps(db: MemoryDatabase): SenderDeps {
+  return {
+    sql: db,
+    relayer: () => TEST_EXECUTOR,
+    sign: transaction => RELAYER.signTransaction(transaction),
+    broadcast: async () => 'accepted',
+    receipts: async (_chainId, hashes) => hashes.map(() => null),
+    fees: async () => ({ baseFee: 1n, priorityFee: 1n }),
+    alarmAt: async () => null,
+    schedule: async () => undefined,
+    now: () => NOW
+  };
+}
+
 function setup(options: SetupOptions = {}): Setup {
   const db = memoryDatabase();
   const rowsAtSign: number[] = [];
   const broadcasts: { raw: Hex; rows: number }[] = [];
   const count = (): number => db.run('SELECT id FROM inflight').length;
   const sender = new RelaySender({
-    sql: db,
+    ...quietDeps(db),
     sign: async (transaction: RelayTransaction) => {
       rowsAtSign.push(count());
       if (options.signDelayMs !== undefined) await new Promise(resolve => setTimeout(resolve, options.signDelayMs));
@@ -68,8 +83,8 @@ function setup(options: SetupOptions = {}): Setup {
     broadcast: async (_chainId, raw) => {
       broadcasts.push({ raw, rows: count() });
       if (options.broadcastError !== undefined) throw options.broadcastError;
-    },
-    now: () => NOW
+      return 'accepted';
+    }
   });
   return { db, sender, rowsAtSign, broadcasts };
 }
@@ -100,7 +115,9 @@ describe('RelaySender', () => {
     expect(row).toEqual({
       id: idOf('01'),
       evm_address: ADDRESS_A,
+      relayer: TEST_EXECUTOR,
       tx_hash: keccak256(raw),
+      sent_hashes: JSON.stringify([keccak256(raw)]),
       raw_tx: raw,
       request: JSON.stringify({ to: ADDRESS_A, data: '0xdeadbeef', gas: '240000', authorization: null }),
       nonce: 5,
@@ -109,7 +126,9 @@ describe('RelaySender', () => {
       deadline: 1_900_000_000,
       state: 'pending',
       attempts: 1,
+      nonce_used: 0,
       created_at: NOW,
+      signed_at: NOW,
       updated_at: NOW
     });
     expect(nextNonce(db)).toBe('6');
@@ -199,12 +218,7 @@ describe('RelaySender', () => {
 
     const { db, sender } = setup();
     await sender.submit(job());
-    const second = new RelaySender({
-      sql: db,
-      sign: () => Promise.reject(new Error('signer down')),
-      broadcast: () => Promise.resolve(),
-      now: () => NOW
-    });
+    const second = new RelaySender({ ...quietDeps(db), sign: () => Promise.reject(new Error('signer down')) });
     await expect(second.submit(job({ id: idOf('02'), evmAddress: ADDRESS_B }))).rejects.toThrow('signer down');
     expect(nextNonce(db)).toBe('6');
     await sender.submit(job({ id: idOf('03'), evmAddress: ADDRESS_C, chainNonce: 0 }));
@@ -228,21 +242,32 @@ describe('RelaySender', () => {
     expect(rows(db)).toHaveLength(1);
   });
 
-  it('refuses a second pending row of one nonce or one address in SQL', async () => {
+  it('refuses a second pending row of one relayer nonce or one address in SQL', async () => {
     const { db, sender } = setup();
     await sender.submit(job());
-    const insert = (id: Hex, address: Hex, nonce: number): void => {
+    const insert = (id: Hex, address: Hex, nonce: number, relayer: Hex = TEST_EXECUTOR): void => {
       db.run(
-        `INSERT INTO inflight (id, evm_address, tx_hash, raw_tx, request, nonce, max_fee, max_priority_fee, deadline,
-          state, attempts, created_at, updated_at) VALUES (?, ?, '0x', '0x', '{}', ?, '1', '1', 1, 'pending', 1, 1, 1)`,
+        `INSERT INTO inflight (id, evm_address, relayer, tx_hash, sent_hashes, raw_tx, request, nonce, max_fee,
+          max_priority_fee, deadline, state, attempts, created_at, signed_at, updated_at)
+          VALUES (?, ?, ?, '0x', '[]', '0x', '{}', ?, '1', '1', 1, 'pending', 1, 1, 1, 1)`,
         id,
         address,
+        relayer,
         nonce
       );
     };
     expect(() => insert(idOf('02'), ADDRESS_B, 5)).toThrow(/UNIQUE/);
     expect(() => insert(idOf('03'), ADDRESS_A, 6)).toThrow(/UNIQUE/);
+    // Another relayer account has its own nonces.
+    expect(() => insert(idOf('05'), ADDRESS_C, 5, `0x${'99'.repeat(20)}`)).not.toThrow();
     db.run("UPDATE inflight SET state = 'succeeded'");
     expect(() => insert(idOf('04'), ADDRESS_A, 5)).not.toThrow();
+  });
+
+  it('refuses a pending row without signed bytes in SQL', async () => {
+    const { db, sender } = setup();
+    await sender.submit(job());
+    expect(() => db.run('UPDATE inflight SET raw_tx = NULL')).toThrow(/CHECK/);
+    expect(() => db.run("UPDATE inflight SET state = 'succeeded', raw_tx = NULL, request = NULL")).not.toThrow();
   });
 });

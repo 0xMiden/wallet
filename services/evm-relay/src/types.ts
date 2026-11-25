@@ -1,6 +1,7 @@
 // Types of the bindings, the request context and the wire shapes. The config types are in config.ts.
 import type { ChainReader } from './chain';
 import type { GasMode, Hex } from './config';
+import type { PublicKindConfig } from './kinds';
 import type { SenderDirectory } from './sender';
 import type { RelaySenderObject } from './sender-object';
 import type { RelayKind } from '../../../src/lib/evm-relay/batch';
@@ -24,7 +25,6 @@ export type ErrorCode =
   | 'not_found'
   | 'method_not_allowed'
   | 'payload_too_large'
-  | 'not_implemented'
   | 'service_unavailable'
   | 'internal_error';
 
@@ -90,6 +90,7 @@ export interface AccountResponse {
   needsAuthorization: boolean;
   authorizationNonce: number;
   salt: Hex;
-  kinds: Partial<Record<RelayKind, { sequence: string }>>;
+  /** The Calibur sequence of each kind, and the public values of the kind's config on the chain. */
+  kinds: Partial<Record<RelayKind, { sequence: string; config: PublicKindConfig }>>;
   balances: AccountBalance[];
 }
