@@ -1,5 +1,7 @@
+import type { ChainReader } from './chain';
 import { ApiError, notFound, notImplemented } from './errors';
 import { limitRead, limitRelay } from './rate-limit';
+import { account } from './routes/account';
 import { healthz } from './routes/health';
 import type { Env, Handler, RequestContext } from './types';
 
@@ -53,7 +55,7 @@ function handlerFor(route: Route): Handler {
     case 'healthz':
       return healthz;
     case 'account':
-      return limited(limitRead, stub);
+      return limited(limitRead, account);
     case 'relay':
       return limited(limitRelay, stub);
     case 'relayStatus':
@@ -62,12 +64,12 @@ function handlerFor(route: Route): Handler {
 }
 
 /** Match the route, check the method, and run the handler. */
-export async function dispatch(request: Request, env: Env): Promise<Response> {
+export async function dispatch(request: Request, env: Env, reader: ChainReader): Promise<Response> {
   const url = new URL(request.url);
   const route = matchRoute(url.pathname);
   const allow = ALLOWED_METHODS[route.name];
   if (request.method !== allow) {
     throw new ApiError(405, 'method_not_allowed', `The route allows only: ${allow}.`, {}, { Allow: allow });
   }
-  return handlerFor(route)({ request, env, url });
+  return handlerFor(route)({ request, env, url, reader });
 }

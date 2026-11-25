@@ -21,7 +21,7 @@
     "GAS_MODE": "sponsor",
     "RELAY_CONFIG": "{\"chains\":{}}"
   },
-  // Secrets of later PRs. Set them with `wrangler secret put`. Do not put them in vars.
+  // Secrets. Set them with `wrangler secret put`. Do not put them in vars.
   // RELAYER_PRIVATE_KEY: the key of the relayer account that executes the batches and pays the gas.
   // RPC_URL_<chainId>: the JSON-RPC URL of each chain in RELAY_CONFIG, for example RPC_URL_8453.
   "ratelimits": [

@@ -6,16 +6,16 @@ This Worker is separate from `services/wallet-api`. The wallet-api Worker stores
 
 ## State of this service
 
-This is the base of the service (PR B0). It contains the config parse, the router, CORS, the error bodies, the rate limits and `/healthz`. It contains no chain code, it does not use a signing key, and it has no Durable Object and no deploy workflow.
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz` and the account read. It derives the relayer address from its key but does not sign. It has no Durable Object and no deploy workflow.
 
 | Route | State |
 | --- | --- |
 | `GET /healthz` | Implemented |
-| `GET /v1/account` | Registered and rate limited. Answers `501 not_implemented` |
+| `GET /v1/account` | Implemented |
 | `POST /v1/relay` | Registered and rate limited. Answers `501 not_implemented` |
 | `GET /v1/relay/{id}` | Registered and rate limited. Answers `501 not_implemented`, or `404 not_found` when `{id}` is not `0x` and 64 hex characters |
 
-Later PRs implement the three `/v1` routes to the contract below.
+Later PRs implement the two relay routes to the contract below.
 
 ## Source layout
 
@@ -24,8 +24,11 @@ Later PRs implement the three `/v1` routes to the contract below.
 | `src/index.ts` | The entry: CORS gate, `handleRequest`, the default `fetch` |
 | `src/router.ts` | Typed route match, the method check, the rate limit and the dispatch |
 | `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig` |
-| `src/rate-limit.ts` | The read and relay rate limits per caller IP |
+| `src/rate-limit.ts` | The read and relay rate limits per caller IP, and the read limit per address |
+| `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
+| `src/chain.ts` | The chain reader: the reads of one account in JSON-RPC batches |
 | `src/routes/health.ts` | `/healthz` |
+| `src/routes/account.ts` | `GET /v1/account` |
 | `src/http.ts` | Responses, body read with the 64 KiB cap, CORS |
 | `src/errors.ts` | `ApiError` and its helpers |
 | `src/types.ts` | `Env`, `RequestContext`, `ErrorCode` and the wire shapes |
@@ -40,10 +43,10 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
 | `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each token pays a fixed fee to `feeRecipient` |
 | `RELAY_CONFIG` | Worker variable | JSON of the chains, below |
-| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}` |
+| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
 | `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay` |
-| `RELAYER_PRIVATE_KEY` | Worker secret (later PR) | The key of the relayer account that executes the batches and pays the gas |
-| `RPC_URL_<chainId>` | Worker secret (later PR) | The JSON-RPC URL of each chain in `RELAY_CONFIG`, for example `RPC_URL_8453` |
+| `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. Today the Worker only derives the `executor` address from it. The Worker never logs it |
+| `RPC_URL_<chainId>` | Worker secret | The HTTP(S) JSON-RPC URL of each chain in `RELAY_CONFIG`, for example `RPC_URL_8453`. It is a paid URL: the Worker sends it only the reads of `GET /v1/account` and never forwards a caller's RPC request |
 
 The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `DEPLOYMENT_REVISION` is `unknown`, `GAS_MODE` is `sponsor` and `RELAY_CONFIG` has no chains. The rate limits use the namespace ids 189405 and 189406; 189401 to 189404 belong to the other Workers of the account.
 
@@ -68,9 +71,20 @@ The parse is strict. It refuses an unknown field and a missing field, and it low
 - `feeRecipient` and `agglayer` are optional. When `GAS_MODE` is `deduct`, every chain needs `feeRecipient`, and every token needs a `fee` above 0 and a `minAmount` above its `fee`.
 - An empty `chains` object is valid.
 
-`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse and both rate limit bindings are present, else `503` with `ok: false`. It never puts a variable or a secret in its body.
+`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
-The Worker writes logs, with invocation logs off. Later PRs write one line when the relayer account has no funds. The Worker never logs a request body.
+The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. Later PRs write one line when the relayer account has no funds. The Worker never logs a request body.
+
+## Account read
+
+`GET /v1/account` charges the caller IP, checks the query, then charges the address. Then it reads the chain in two JSON-RPC batches, with one time budget of 8 seconds for both:
+
+1. The code of the address, its pending transaction count, the balance of each configured token (`eth_getBalance` for the native coin, `balanceOf` for an ERC-20) and, when the memory cache has none, the code at the Calibur address. The Worker checks that the keccak256 of the Calibur code is `runtimeHash`, and keeps the verified code in isolate memory for 5 minutes per chain.
+2. `getSeq(nonceKeyOf(kind))` for each relay kind of the chain and `eip712Domain()`, both on the address. When the address does not delegate to the pinned Calibur, both calls send a state override that puts the Calibur code on the address, because the storage of an earlier delegation stays. The Worker checks that the domain has the configured name and version, the chain id, the address as verifying contract, and the Calibur address in the last 20 bytes of the salt.
+
+One call thus makes two HTTP requests to the RPC, cold or warm. A failed request, an RPC error in the batch or a time-out gives `502 rpc_unavailable`. A wrong Calibur code or domain gives `503 service_unavailable`.
+
+The 200 response has `Cache-Control: private, max-age=5`, so the browser of the caller can reuse it for 5 seconds. The Worker keeps no shared cache of the response: the Cloudflare documentation does not confirm that the Cache API works on a `workers.dev` hostname ("Workers deployed to custom domains have access to functional `cache` operations").
 
 ## Local run
 
@@ -88,7 +102,7 @@ Local state goes to `.wrangler/`, and local secrets go to `.dev.vars`. Git ignor
 
 ## API contract
 
-This section is the reference for the wallet client. Later PRs implement it; this PR implements only `/healthz`.
+This section is the reference for the wallet client. `GET /v1/account` implements it; later PRs implement the two relay routes.
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
 
@@ -105,6 +119,11 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
       kinds: { "agglayer-deposit": { sequence: "<decimal>" } },
       balances: [ { token, balance, minAmount, fee } ] }
 ```
+
+- `kinds["agglayer-deposit"]` is present only when the chain has an `agglayer` config.
+- `balances` lists every configured token of the chain in config order.
+- In `sponsor` mode every `fee` is `"0"` and `feeRecipient` is `null`, whatever the config holds. In `deduct` mode they are the configured values.
+- Errors: `invalid_request` for a bad `chainId` or `address`, or for the relayer's own address; `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.
 
 `POST /v1/relay` with
 
