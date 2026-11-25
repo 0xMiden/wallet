@@ -925,33 +925,44 @@ export async function recoverEpochReturn(
   };
   const closeUnminedDeposit = async (approvals: EpochEvmRecoveryEvidence[], depositHash: Hex): Promise<boolean> => {
     const journal = state.transactions ?? [];
-    const receipt = await client.getTransactionReceipt({ hash: depositHash }).catch(error => {
-      if (isAbsent(error, TransactionReceiptNotFoundError)) return undefined;
-      throw error;
-    });
     // Approvals must still reconcile against the original authority, exactly as in a normal recovery.
     const approved = { ...state, transactions: journal.slice(0, -1) };
     reconcileEpochEvmReceipts(approved, approvals);
     const account = getAddress(state.evm.account);
     const provider = epochReadOnlyProvider(state.allocatorUrl, state.virtualChainId, account);
     await wallet.refreshBalancesLanded(90_000);
+    const tokenBalance = await client.readContract({
+      address: getAddress(state.evm.token),
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [account]
+    });
+    const nativeBalance = await client.getBalance({ address: account });
+    const nativeVault = await vaultBalanceByFaucetId(wallet.page, state.native.faucetId);
+    const reverseStatus = await provider.sdk.getIntentStatus(provider.config, account, state.reverseNonce ?? '');
+    // Last reads before the decision: a deposit mined during the reads above must be seen here.
+    const depositTransaction = await client.getTransaction({ hash: depositHash }).catch(error => {
+      if (isAbsent(error, TransactionNotFoundError)) return undefined;
+      throw error;
+    });
+    const depositReceipt = await client.getTransactionReceipt({ hash: depositHash }).catch(error => {
+      if (isAbsent(error, TransactionReceiptNotFoundError)) return undefined;
+      throw error;
+    });
+    const latestNonce = await client.getTransactionCount({ address: account, blockTag: 'latest' });
+    const pendingNonce = await client.getTransactionCount({ address: account, blockTag: 'pending' });
     return closeEpochUnminedDeposit(
       state,
       { transactions: approved.transactions, paidEvmFees: approved.paidEvmFees },
       {
-        depositTransaction: undefined,
-        depositReceipt: receipt,
-        latestNonce: await client.getTransactionCount({ address: account, blockTag: 'latest' }),
-        pendingNonce: await client.getTransactionCount({ address: account, blockTag: 'pending' }),
-        tokenBalance: await client.readContract({
-          address: getAddress(state.evm.token),
-          abi: erc20Abi,
-          functionName: 'balanceOf',
-          args: [account]
-        }),
-        nativeBalance: await client.getBalance({ address: account }),
-        nativeVault: await vaultBalanceByFaucetId(wallet.page, state.native.faucetId),
-        reverseStatus: await provider.sdk.getIntentStatus(provider.config, account, state.reverseNonce ?? '')
+        depositTransaction,
+        depositReceipt,
+        latestNonce,
+        pendingNonce,
+        tokenBalance,
+        nativeBalance,
+        nativeVault,
+        reverseStatus
       }
     );
   };
