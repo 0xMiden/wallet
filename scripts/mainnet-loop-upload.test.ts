@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import YAML from 'yaml';
 import { isRecord } from '../src/lib/update/guards';
 import { snapshotMainnetLoopAuthorization, releaseMainnetLoopUpload } from './mainnet-loop-upload.mjs';
+import { logTailReport } from './mainnet-log-tail.mjs';
 
 let directory: string;
 beforeEach(() => {
@@ -122,6 +123,31 @@ it('does not wait or release when the held request process is already gone', () 
   const result = runAction(input, { PID_FILE: pid });
   expect(result.status).not.toBe(0);
   expect(existsSync(input.gate)).toBe(false);
+});
+it('names the exited process and prints a sanitized log tail before failing', () => {
+  const input = fixture();
+  rmSync(`${input.gate}.ready`);
+  const pid = join(directory, 'near-recover.pid');
+  writeFileSync(pid, '2147483647\n');
+  writeFileSync(join(directory, 'near-recover.exit'), '1\n');
+  writeFileSync(
+    join(directory, 'near-recover.log'),
+    `Error: Original native NEAR principal is unresolved\nkey=${'ab'.repeat(32)} phrase hunter2-secret-value\n`
+  );
+  const result = runAction(input, { PID_FILE: pid, E2E_MAINNET_PLAIN_SEED: 'hunter2-secret-value' });
+  expect(result.status).toBe(1);
+  expect(result.stdout).toContain('::error::near-recover exited (code 1) before');
+  expect(result.stdout).toContain('Original native NEAR principal is unresolved');
+  expect(result.stdout).not.toContain('hunter2-secret-value');
+  expect(result.stdout).not.toContain('ab'.repeat(32));
+});
+it('bounds the log tail and reports a missing log', () => {
+  const log = join(directory, 'big.log');
+  writeFileSync(log, Array.from({ length: 500 }, (_, i) => `line ${i}`).join('\n'));
+  const report = logTailReport([log, join(directory, 'absent.log')], {});
+  expect(report).toContain('line 499');
+  expect(report).not.toContain('line 100\n');
+  expect(report).toContain('No log was written.');
 });
 function runDownload(input: ReturnType<typeof fixture>, failedEndpoint: string, permanent = false) {
   const bin = join(directory, 'bin');
