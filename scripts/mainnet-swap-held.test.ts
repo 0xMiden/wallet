@@ -102,6 +102,12 @@ it.each<[string, () => MainnetSwapCheckpoint, Partial<SwapHeldLive>?]>([
     'a reverse request authority was recorded',
     mutate(s => void (s.reverseRequestAuthority = { ...s.forwardRequestAuthority!, orderId: '77' }))
   ],
+  ['a reverse claim authority was recorded', mutate(s => void (s.reverseClaimAuthority = {} as never))],
+  ['a recovery replacement was recorded', mutate(s => void (s.recoveryReturnReplacement = {} as never))],
+  ['a recovery native baseline was recorded', mutate(s => void (s.recoveryClaimNativeBefore = '1'))],
+  ['the forward order differs from its authority', mutate(s => void (s.forwardOrderId = '5'))],
+  ['the forward request authority is missing', mutate(s => void delete s.forwardRequestAuthority)],
+  ['the authorization run is empty', mutate(s => void (s.authorizationRunId = ''))],
   ['the paid fees exceed the fee budget', mutate(s => void (s.paidFees = '1261'))],
   ['the return baseline is missing', mutate(s => void delete s.returnBaseline)],
   ['the grant has not expired yet', swapHeldFixture as never, { now: Date.parse('2026-11-25T15:09:00.000Z') }],
