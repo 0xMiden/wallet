@@ -21,7 +21,7 @@ import {
   type EpochForwardAuthority
 } from './mainnet-epoch-checkpoint';
 import { epochReadOnlyProvider } from './mainnet-epoch-provider';
-import { observeEpochSolveFailure } from './mainnet-epoch-diagnostics';
+import { observeEpochSolveFailure, unresolvedSubmissionError } from './mainnet-epoch-diagnostics';
 import {
   inspectEpochCollateralRequest,
   inspectEpochForwardQuote,
@@ -641,12 +641,10 @@ export async function runEpochReverse(
           });
         }
         return await sender.send(transaction, activeSignal);
-      } catch {
+      } catch (error) {
         failed = true;
-        // RPC errors can include serialized signed bytes; retain only the public journal for diagnosis.
-        throw new Error(
-          'Epoch EVM submission is unresolved; reconcile the saved signed hashes before any further signing'
-        );
+        // RPC errors can include serialized signed bytes; keep only the sanitized one-line cause and the public journal.
+        throw unresolvedSubmissionError(error);
       }
     }
   });

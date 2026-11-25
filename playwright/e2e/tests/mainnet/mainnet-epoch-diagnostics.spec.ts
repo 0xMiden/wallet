@@ -7,7 +7,7 @@ import { observeEpochSolveFailure } from '../../helpers/mainnet-epoch-diagnostic
 
 test.use({ headless: true });
 
-test('non-funded Epoch diagnostic reads real browser Error handles without exporting their message', async ({ page }) => {
+test('non-funded Epoch diagnostic reads real browser Error handles and export only the sanitized cause', async ({ page }) => {
   const directory = mkdtempSync(join(tmpdir(), 'epoch-browser-diagnostic-'));
   const checkpoint = join(directory, 'roundtrip.json');
   const target = `${checkpoint}.return-solve-failure.json`;
@@ -25,8 +25,8 @@ test('non-funded Epoch diagnostic reads real browser Error handles without expor
     expect(result.site).toBe('evm-to-miden-solve');
     expect(result.httpStatus).toBe(409);
     expect(result.errorSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(Object.keys(result).sort()).toEqual(['errorSha256', 'httpStatus', 'kind', 'observedAt', 'site']);
-    expect(text).not.toContain('synthetic-private-browser-message');
+    expect(Object.keys(result).sort()).toEqual(['cause', 'errorSha256', 'httpStatus', 'kind', 'observedAt', 'site']);
+    expect(result.cause).toBe('APIError: synthetic-private-browser-message');
     expect(existsSync(checkpoint)).toBe(false);
   } finally {
     stop();
