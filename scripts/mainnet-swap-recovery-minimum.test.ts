@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import {
+  assertRecoveryOfferMeetsWalletMinimum,
   authorizeMainnetSwapRecoveryReturn,
   authorizeMainnetSwapReturnReplacement
 } from '../playwright/e2e/helpers/mainnet-swap-claim';
@@ -122,5 +123,19 @@ describe('first swap recovery return near the wallet minimum', () => {
     expect(() =>
       authorizeMainnetSwapReturnReplacement(state, v.evidence, v.balances, '789', '2026-11-13T16:10:00.000Z', absence)
     ).toThrow(/wallet minimum/);
+  });
+});
+
+describe('recovery offer against the wallet minimum', () => {
+  const wbtc = (usdMicros: bigint) => ({ faucetId: 'mm1b', symbol: 'WBTC', decimals: 8, balance: 1732n, usdMicros });
+  // 1732 units at a live price of 57737 USD is 1.000 USD; the wallet refuses an offer worth under 1 USD.
+  it('accepts an offer worth exactly 1 USD at the live price', () => {
+    expect(() => assertRecoveryOfferMeetsWalletMinimum(wbtc(57737_000000n), 1732n)).not.toThrow();
+  });
+
+  it('refuses before the grant when the live price puts the offer under 1 USD', () => {
+    expect(() => assertRecoveryOfferMeetsWalletMinimum(wbtc(57736_000000n), 1732n)).toThrow(
+      /offered amount is below the wallet minimum/
+    );
   });
 });
