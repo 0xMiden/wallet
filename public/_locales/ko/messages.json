@@ -4877,6 +4877,10 @@
     "message": "Agglayer를 통해",
     "englishSource": "Via Agglayer"
   },
+  "bridgeRouteViaOneClick": {
+    "message": "1Click을 통해",
+    "englishSource": "Via 1Click"
+  },
   "bridgeSpeedFast": {
     "message": "빠름",
     "englishSource": "Fast"

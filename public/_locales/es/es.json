@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "Volver a los fondos bloqueados",
   "bridgeRouteViaEpoch": "A través de Epoch",
   "bridgeRouteViaAgglayer": "A través de Agglayer",
+  "bridgeRouteViaOneClick": "A través de 1Click",
   "bridgeSpeedFast": "Rápida",
   "bridgeSpeedSlow": "Lenta",
   "swapOrderCreated": "¡Orden de intercambio creada!",

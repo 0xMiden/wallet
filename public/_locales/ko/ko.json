@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "잠긴 자금으로 돌아가기",
   "bridgeRouteViaEpoch": "Epoch를 통해",
   "bridgeRouteViaAgglayer": "Agglayer를 통해",
+  "bridgeRouteViaOneClick": "1Click을 통해",
   "bridgeSpeedFast": "빠름",
   "bridgeSpeedSlow": "느림",
   "swapOrderCreated": "스왑 주문이 생성되었습니다!",

@@ -1079,6 +1079,7 @@
   "returnToLockedFunds": "返回锁定资金页面",
   "bridgeRouteViaEpoch": "来源：Epoch",
   "bridgeRouteViaAgglayer": "来源：Agglayer",
+  "bridgeRouteViaOneClick": "通过 1Click",
   "bridgeSpeedFast": "快",
   "bridgeSpeedSlow": "慢",
   "swapOrderCreated": "掉期订单已创建！",
