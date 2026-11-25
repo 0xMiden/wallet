@@ -147,7 +147,7 @@ export function assertWithdrawalReviewContext(quote: EarnWithdrawalQuote): void 
     throw new Error('earnWithdrawRefresh');
 }
 
-// The steps after the smart-account setup (the allocator's execution, a balance check of up to 15 s) need this long.
+// Leave time to prepare the withdrawal and check the balance after smart-account setup.
 const REVIEW_MIN_REMAINING_MS = 30_000;
 
 /**
@@ -186,7 +186,8 @@ export async function assertWithdrawalReviewCurrent(quote: EarnWithdrawalQuote):
   const fresh = await fetchEarnPositions({
     accountId: quote.accountId,
     owners: [quote.position.owner],
-    markets: [quote.position.marketUid]
+    markets: [quote.position.marketUid],
+    retryUntil: quote.expiresAt
   });
   if (fresh.errors.length) throw new Error('earnPositionsUnavailable');
   const position = fresh.positions.find(
