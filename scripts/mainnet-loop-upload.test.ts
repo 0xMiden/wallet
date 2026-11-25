@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import YAML from 'yaml';
 import { isRecord } from '../src/lib/update/guards';
 import { snapshotMainnetLoopAuthorization, releaseMainnetLoopUpload } from './mainnet-loop-upload.mjs';
-import { logTailReport } from './mainnet-log-tail.mjs';
+import { logTailReport, sanitizedTail } from './mainnet-log-tail.mjs';
 
 let directory: string;
 beforeEach(() => {
@@ -148,6 +148,126 @@ it('bounds the log tail and reports a missing log', () => {
   expect(report).toContain('line 499');
   expect(report).not.toContain('line 100\n');
   expect(report).toContain('No log was written.');
+});
+const words = 'abandon ability able about above absent absorb abstract absurd abuse access accident';
+const keyPair = JSON.stringify({ publicKey: 'pk-abcdef12', secretKey: 'sk-ghijkl34mnop' });
+describe('sanitizedTail redaction', () => {
+  it.each([
+    ['a bearer token', 'Authorization: Bearer abc123tokenvalue', 'abc123tokenvalue', {}],
+    ['a basic credential', 'authorization=Basic dXNlcjpwYXNzd29yZA==', 'dXNlcjpwYXNzd29yZA', {}],
+    ['a bare bearer token', 'sent Bearer eyJhbGciOi.payload.sig', 'eyJhbGciOi', {}],
+    ['an underscored label', 'access_token=zzTopSecret99', 'zzTopSecret99', {}],
+    ['hex after an underscore', `acct_${'ab'.repeat(32)}`, 'ab'.repeat(32), {}],
+    ['hex before an underscore', `${'cd'.repeat(32)}_acct`, 'cd'.repeat(32), {}],
+    [
+      'a base58 address',
+      'to DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK now',
+      'DYw8jCTfwHNRJhhmFcbXvVDTqWMEVFBX6ZKUmG5CNSKK',
+      {}
+    ],
+    [
+      'a bech32 address',
+      'pay bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq',
+      'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq',
+      {}
+    ],
+    ['a named NEAR account', 'deposit to deposit-xyz9.near please', 'deposit-xyz9', {}],
+    ['an unlabeled mnemonic', `phrase ${words}`, 'absorb', {}],
+    ['a mnemonic with doubled spaces', `x ${words.replace(/ /g, '  ')}`, 'absorb', { E2E_MAINNET_MNEMONIC: words }],
+    ['a mnemonic wrapped across lines', `x ${words.replace(/ /g, '\n')}`, 'absorb', { E2E_MAINNET_MNEMONIC: words }],
+    [
+      'a padded secret',
+      'value padded-secret-value end',
+      'padded-secret-value',
+      { E2E_MAINNET_X: ' padded-secret-value\n' }
+    ],
+    [
+      'a JSON-escaped key pair',
+      `bad ${JSON.stringify(keyPair)}`,
+      'sk-ghijkl34mnop',
+      { E2E_MAINNET_GUARDIAN_KEY_PAIR: keyPair }
+    ],
+    [
+      'a URL-encoded secret',
+      `GET /?k=${encodeURIComponent('pass phrase&v=9/xyz')}`,
+      'phrase',
+      { E2E_MAINNET_X: 'pass phrase&v=9/xyz' }
+    ],
+    [
+      'a form-encoded secret',
+      `k=${encodeURIComponent('pass phrase&v=9/xyz').replace(/%20/g, '+')}`,
+      'phrase',
+      { E2E_MAINNET_X: 'pass phrase&v=9/xyz' }
+    ],
+    ['a stack frame argument', '    at transfer (to=0xabc key=hunter2value)', 'hunter2value', {}],
+    ['a stack frame argument before trailing text', '    at async send (key=hunter2value) extra', 'hunter2value', {}],
+    [
+      'a pretty-printed key pair',
+      JSON.stringify(JSON.parse(keyPair), null, 2),
+      'sk-ghijkl34mnop',
+      { E2E_MAINNET_GUARDIAN_KEY_PAIR: keyPair }
+    ],
+    ['a comma-joined mnemonic', `x ${words.replace(/ /g, ',')}`, 'absorb', { E2E_MAINNET_MNEMONIC: words }],
+    [
+      'a JSON array mnemonic',
+      `x ${JSON.stringify(words.split(' '))}`,
+      'absorb',
+      { E2E_MAINNET_MNEMONIC: words }
+    ],
+    ['an uppercased mnemonic', `x ${words.toUpperCase()}`, 'ABSORB', { E2E_MAINNET_MNEMONIC: words }],
+    [
+      'a mnemonic split by log prefixes',
+      `x ${words.replace(/ /g, '\n[log] ')}`,
+      'absorb',
+      { E2E_MAINNET_MNEMONIC: words }
+    ],
+    ['a comma-joined unlabeled mnemonic', `x ${words.replace(/ /g, ', ')}`, 'absorb', {}],
+    ['a camelCase secretKey label', '"secretKey": "shortval1"', 'shortval1', {}],
+    ['a privateKey label', 'privateKey=shortval2', 'shortval2', {}],
+    ['a private_key label', 'private_key: shortval3', 'shortval3', {}],
+    ['a password with no colon', 'password hunter2', 'hunter2', {}],
+    ['a session label', 'Cookie: session=shortval4', 'shortval4', {}]
+  ])('removes %s', (_name, line, secret, env) => {
+    const report = logTailReport([writeLog(`KeptLine\n${line}\n`)], env);
+    expect(report).not.toContain(secret);
+    expect(report).toContain('KeptLine');
+  });
+  it('keeps ordinary error text and stack frames with a location', () => {
+    const text = 'Error: Native NEAR return blocked\n    at send (/app/helper.ts:12:5)\n    at async <anonymous>';
+    expect(sanitizedTail(text, [])).toBe(text);
+  });
+  it('stays fast on a long dotted line', () => {
+    const start = Date.now();
+    sanitizedTail('a.'.repeat(32_768), []);
+    expect(Date.now() - start).toBeLessThan(500);
+  });
+  it('ignores an empty or short env value', () => {
+    expect(sanitizedTail('plain text', ['', 'short'])).toBe('plain text');
+  });
+});
+function writeLog(text: string) {
+  const path = join(directory, 'redact.log');
+  writeFileSync(path, text);
+  return path;
+}
+describe('action log tail scope', () => {
+  const dead = (name: string) => {
+    const input = fixture();
+    rmSync(`${input.gate}.ready`);
+    writeFileSync(join(directory, `${name}.pid`), '2147483647\n');
+    writeFileSync(join(directory, `${name}.exit`), '1\n');
+    writeFileSync(join(directory, `${name}.log`), 'private process line\n');
+    return runAction(input, { PID_FILE: join(directory, `${name}.pid`) });
+  };
+  it.each(['swap-forward', 'epoch-reverse'])('does not print the private log of %s', name => {
+    const result = dead(name);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain(`${name} exited (code 1)`);
+    expect(result.stdout).not.toContain('private process line');
+  });
+  it('prints the sanitized tail of a native NEAR process', () => {
+    expect(dead('near-forward').stdout).toContain('private process line');
+  });
 });
 function runDownload(input: ReturnType<typeof fixture>, failedEndpoint: string, permanent = false) {
   const bin = join(directory, 'bin');
