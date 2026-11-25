@@ -772,19 +772,26 @@ export interface IRegisterNameExtraInputs {
   deliveryNoteId?: string;
   /** Id of the consume row that claims the delivery note. */
   claimTxId?: string;
+  /** How many failed claim attempts this registration has made. */
+  claimAttempts?: number;
   /** First block of the next delivery scan. */
   deliveryScanFrom?: number;
   /** Wall-clock time (ms since epoch) of the last phase change. */
   phaseUpdatedAt: number;
 }
 
+/** Link from a consume row (or one of its batched notes) to a `register-name` row. */
+export interface IMidenNameClaimLink {
+  label: string;
+  /** Id of the `register-name` row. */
+  registerTxId: string;
+}
+
 /** `extraInputs` shape for a consume row that claims a Miden Name delivery note. */
 export interface IConsumeMidenNameExtraInputs {
-  midenNameClaim: {
-    label: string;
-    /** Id of the `register-name` row. */
-    registerTxId: string;
-  };
+  midenNameClaim?: IMidenNameClaimLink;
+  /** Per-note claim links for batch consume rows (`noteIds`), keyed by lowercased note id. */
+  midenNameClaims?: Record<string, IMidenNameClaimLink>;
 }
 
 /**
@@ -950,7 +957,8 @@ export interface IConsumeGcPurchaseExtraInputs {
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
   Partial<IConsumeSwapSettleExtraInputs> &
-  Partial<IConsumeGcPurchaseExtraInputs>;
+  Partial<IConsumeGcPurchaseExtraInputs> &
+  Partial<IConsumeMidenNameExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or

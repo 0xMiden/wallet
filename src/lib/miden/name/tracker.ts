@@ -22,9 +22,13 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
   IConsumeMidenNameExtraInputs,
+  IMidenNameClaimLink,
   IRegisterNameExtraInputs,
+  isLiveTransaction,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  MidenNameFailure,
+  MidenNamePhase
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { patchRegisterNameExtraInputs, promoteLandedRegisterNameRow } from 'lib/miden/transaction/complete';
@@ -41,10 +45,11 @@ import {
   findRegistryDeliveryNoteIds,
   getChainTip
 } from './reads';
-import { isLiveRegistrationRow, registerNameInputsOf } from './registrations';
+import { isLiveRegistrationRow, phaseOf, registerNameInputsOf } from './registrations';
 import { fetchDomainRecordAccount } from './resolver';
 
 const LOG_PREFIX = '[miden-name]';
+const MAX_CLAIM_ATTEMPTS = 3;
 
 export interface MidenNameTrackerDeps {
   /** Start the transaction loop after the tracker queued a claim consume. */
@@ -117,12 +122,56 @@ export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps
   }
 }
 
-async function isNameOwnedOrDelivered(row: ITransaction, inputs: IRegisterNameExtraInputs): Promise<boolean> {
-  const owner = await fetchDomainRecordAccount(inputs.label);
-  if (owner !== null) return compareAccountIds(owner, row.accountId);
-  const fromBlock = inputs.deliveryScanFrom ?? inputs.builtAtBlock;
-  const scan = await findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock, label: inputs.label });
-  return scan.noteIds.length > 0;
+async function sealFailed(
+  rowId: string,
+  expectPhase: MidenNamePhase,
+  failure: MidenNameFailure,
+  lastError?: string
+): Promise<void> {
+  await patchRegisterNameExtraInputs(
+    rowId,
+    { phase: 'failed', failure, ...(lastError !== undefined ? { lastError } : {}) },
+    { expectPhase }
+  );
+}
+
+async function sealDiscarded(
+  rowId: string,
+  expectPhase: MidenNamePhase,
+  label: string,
+  lastError?: string
+): Promise<void> {
+  const taken = await fetchMidenNameIssued(label);
+  await sealFailed(rowId, expectPhase, taken ? 'taken' : 'discarded', lastError);
+}
+
+async function sealExpiredIfPastReclaim(
+  rowId: string,
+  expectPhase: MidenNamePhase,
+  inputs: IRegisterNameExtraInputs,
+  context: PassContext,
+  lastError?: string,
+  checkTaken = true
+): Promise<void> {
+  const tip = await context.chainTip();
+  if (tip <= inputs.reclaimHeight) return;
+  const taken = checkTaken ? await fetchMidenNameIssued(inputs.label) : false;
+  await sealFailed(rowId, expectPhase, taken ? 'taken' : 'expired', lastError);
+}
+
+async function hasSiblingClaimOrOwner(row: ITransaction, inputs: IRegisterNameExtraInputs): Promise<boolean> {
+  const siblings = await Repo.transactions
+    .where('type')
+    .equals('register-name')
+    .filter(other => {
+      if (other.id === row.id || !isLiveRegistrationRow(other, inputs.network)) return false;
+      const otherInputs = registerNameInputsOf(other);
+      if (!otherInputs || otherInputs.label !== inputs.label) return false;
+      const phase = phaseOf(other);
+      return phase === 'issued' || phase === 'claiming' || phase === 'owned';
+    })
+    .toArray();
+  return siblings.length > 0;
 }
 
 async function reconcileRow(row: ITransaction, context: PassContext): Promise<void> {
@@ -158,12 +207,9 @@ async function reconcileFailedRow(
   context: PassContext
 ): Promise<void> {
   if (awaitingVerdict(row)) return;
-  if (row.neverCommittedAt !== undefined) {
-    await patchRegisterNameExtraInputs(
-      row.id,
-      { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
-      { expectPhase: inputs.phase }
-    );
+  const neverSubmitted = !row.mayHaveSubmitted && !row.submitEvidence?.length && row.transactionId === undefined;
+  if (row.neverCommittedAt !== undefined || neverSubmitted) {
+    await sealFailed(row.id, inputs.phase, 'tx-failed', row.error);
     return;
   }
 
@@ -177,36 +223,12 @@ async function reconcileFailedRow(
       await checkRegisterNote(row, promoted, context, state);
       return;
     }
-    case 'discarded': {
-      const taken = await fetchMidenNameIssued(inputs.label);
-      if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
-        await promoteLandedRegisterNameRow(row.id, { phase: 'issued' }, { expectPhase: inputs.phase });
-        return;
-      }
-      const lastError = state.lastError ?? row.error;
-      await patchRegisterNameExtraInputs(
-        row.id,
-        {
-          phase: 'failed',
-          failure: taken ? 'taken' : 'discarded',
-          ...(lastError !== undefined ? { lastError } : {})
-        },
-        { expectPhase: inputs.phase }
-      );
+    case 'discarded':
+      await sealDiscarded(row.id, inputs.phase, inputs.label, state.lastError ?? row.error);
       return;
-    }
-    case 'unknown': {
-      if ((await fetchMidenNameIssued(inputs.label)) && (await isNameOwnedOrDelivered(row, inputs))) {
-        await promoteLandedRegisterNameRow(row.id, { phase: 'issued' }, { expectPhase: inputs.phase });
-        return;
-      }
-      await patchRegisterNameExtraInputs(
-        row.id,
-        { phase: 'failed', failure: 'tx-failed', ...(row.error ? { lastError: row.error } : {}) },
-        { expectPhase: inputs.phase }
-      );
+    case 'unknown':
+      await sealFailed(row.id, inputs.phase, 'tx-failed', row.error);
       return;
-    }
   }
 }
 
@@ -221,77 +243,71 @@ async function checkRegisterNote(
   const state = prefetchedState ?? (await fetchRegistrationNoteState(inputs.registrationNoteId));
   switch (state.status) {
     case 'consumed': {
-      // The registry consumed the note. Wait until the issued status is visible.
       if (await fetchMidenNameIssued(inputs.label)) {
-        await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
-      }
-      return;
-    }
-    case 'discarded': {
-      const taken = await fetchMidenNameIssued(inputs.label);
-      if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
+        const owner = await fetchDomainRecordAccount(inputs.label);
+        if (
+          (owner !== null && !compareAccountIds(owner, row.accountId)) ||
+          (await hasSiblingClaimOrOwner(row, inputs))
+        ) {
+          await sealFailed(row.id, expectPhase, 'taken', state.lastError);
+          return;
+        }
         await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
         return;
       }
-      await patchRegisterNameExtraInputs(
-        row.id,
-        {
-          phase: 'failed',
-          failure: taken ? 'taken' : 'discarded',
-          ...(state.lastError !== undefined ? { lastError: state.lastError } : {})
-        },
-        { expectPhase }
-      );
+      await sealExpiredIfPastReclaim(row.id, expectPhase, inputs, context, state.lastError, false);
       return;
     }
-    case 'unknown': {
-      if ((await fetchMidenNameIssued(inputs.label)) && (await isNameOwnedOrDelivered(row, inputs))) {
-        await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
-      }
+    case 'discarded':
+      await sealDiscarded(row.id, expectPhase, inputs.label, state.lastError);
       return;
-    }
+    case 'unknown':
+      return;
     case 'pending':
-    case 'inflight': {
-      const tip = await context.chainTip();
-      if (tip > inputs.reclaimHeight) {
-        const taken = await fetchMidenNameIssued(inputs.label);
-        if (taken && (await isNameOwnedOrDelivered(row, inputs))) {
-          await patchRegisterNameExtraInputs(row.id, { phase: 'issued' }, { expectPhase });
-          return;
-        }
-        await patchRegisterNameExtraInputs(
-          row.id,
-          {
-            phase: 'failed',
-            failure: taken ? 'taken' : 'expired',
-            ...(state.lastError !== undefined ? { lastError: state.lastError } : {})
-          },
-          { expectPhase }
-        );
-      }
+    case 'inflight':
+      await sealExpiredIfPastReclaim(row.id, expectPhase, inputs, context, state.lastError);
       return;
-    }
   }
+}
+
+function normalizeNoteId(noteId: string): string {
+  return noteId.toLowerCase();
 }
 
 /** The consume rows of this account that include a note. */
 async function consumeRowsForNote(accountId: string, noteId: string): Promise<ITransaction[]> {
-  const byScalar = await Repo.transactions.where('noteId').equals(noteId).toArray();
-  const byBatch = await Repo.transactions.where('noteIds').equals(noteId).toArray();
-  const rows = new Map([...byScalar, ...byBatch].map(row => [row.id, row]));
+  const normalized = normalizeNoteId(noteId);
+  const lookupIds = normalized === noteId ? [noteId] : [noteId, normalized];
+  const matched: ITransaction[] = [];
+  for (const key of lookupIds) {
+    matched.push(...(await Repo.transactions.where('noteId').equals(key).toArray()));
+    matched.push(...(await Repo.transactions.where('noteIds').equals(key).toArray()));
+  }
+  const rows = new Map(matched.map(row => [row.id, row]));
   return [...rows.values()].filter(
     row => row.type === 'consume' && row.restoredFromBackup !== true && compareAccountIds(row.accountId, accountId)
   );
 }
 
-function claimOf(row: ITransaction): IConsumeMidenNameExtraInputs['midenNameClaim'] | undefined {
+function claimForNote(row: ITransaction, noteId: string): IMidenNameClaimLink | undefined {
   const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = row.extraInputs;
-  return inputs?.midenNameClaim;
+  const normalized = normalizeNoteId(noteId);
+  const byNote = inputs?.midenNameClaims?.[normalized];
+  if (byNote) return byNote;
+  if ((row.noteIds?.length ?? 0) <= 1) return inputs?.midenNameClaim;
+  if (inputs?.midenNameClaim && row.noteId !== undefined && normalizeNoteId(row.noteId) === normalized) {
+    return inputs.midenNameClaim;
+  }
+  return undefined;
 }
 
-/** The id of the register row that a tagged consume row belongs to. */
-function linkedRowIdOf(row: ITransaction): string | undefined {
-  return claimOf(row)?.registerTxId;
+/** The id of the register row that a tagged consume row belongs to for `noteId`. */
+function linkedRowIdOf(row: ITransaction, noteId: string): string | undefined {
+  return claimForNote(row, noteId)?.registerTxId;
+}
+
+function isClaimRowLive(row: ITransaction): boolean {
+  return isLiveTransaction(row) || row.status === ITransactionStatus.Completed || awaitingVerdict(row);
 }
 
 /**
@@ -308,19 +324,19 @@ type DeliveryNoteState =
   | { kind: 'untagged'; claimTxId: string; completed: boolean }
   /** A live consume row of an other register row has it. */
   | { kind: 'settled' }
-  /** No live consume row has it (Failed rows do not count). */
+  /** No live consume row has it (dead Failed rows do not count). */
   | { kind: 'free' };
 
-function deliveryNoteState(ownerRowId: string, consumeRows: ITransaction[]): DeliveryNoteState {
-  const live = consumeRows.filter(row => row.status !== ITransactionStatus.Failed);
-  const oursRows = live.filter(row => linkedRowIdOf(row) === ownerRowId);
+function deliveryNoteState(ownerRowId: string, consumeRows: ITransaction[], noteId: string): DeliveryNoteState {
+  const live = consumeRows.filter(isClaimRowLive);
+  const oursRows = live.filter(row => linkedRowIdOf(row, noteId) === ownerRowId);
   // Prefer a Completed row: the name is already in the account.
   const ours = oursRows.find(row => row.status === ITransactionStatus.Completed) ?? oursRows[0];
   if (ours) {
     return { kind: 'ours', claimTxId: ours.id, completed: ours.status === ITransactionStatus.Completed };
   }
   if (live.length === 0) return { kind: 'free' };
-  if (live.some(row => linkedRowIdOf(row) !== undefined)) return { kind: 'settled' };
+  if (live.some(row => linkedRowIdOf(row, noteId) !== undefined)) return { kind: 'settled' };
   // Prefer a Completed row: the name is already in the account.
   const untagged = live.find(row => row.status === ITransactionStatus.Completed) ?? live[0];
   if (!untagged) return { kind: 'free' };
@@ -359,10 +375,42 @@ async function markClaimOrOwned(
   await markClaiming(row, deliveryNoteId, claimTxId, context);
 }
 
+type ClaimAttemptOutcome = 'done' | 'settled' | 'retry';
+
+async function tryClaimNote(
+  row: ITransaction,
+  inputs: IRegisterNameExtraInputs,
+  noteId: string,
+  context: PassContext
+): Promise<ClaimAttemptOutcome> {
+  const state = deliveryNoteState(row.id, await consumeRowsForNote(row.accountId, noteId), noteId);
+  switch (state.kind) {
+    case 'ours':
+      // A claim was queued, but the phase write did not occur (for example the realm closed).
+      await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
+      return 'done';
+    case 'untagged':
+      // A consume of this name's note lost its tag. Adopt it: with no tag the
+      // consume completion cannot move this row, and the scan would pass the note.
+      if (!(await tagConsumeAsMidenNameClaim(state.claimTxId, inputs.label, row.id, noteId))) {
+        return 'retry';
+      }
+      await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
+      return 'done';
+    case 'settled':
+      return 'settled';
+    case 'free':
+      return (await startClaim(row, inputs, noteId, context)) ? 'done' : 'retry';
+  }
+}
+
 /**
  * Step 3: find the note with which the registry delivers the name, and queue a
  * consume of it. The scan is filtered by the label of the row: the registry
  * can deliver the notes of two names in any order.
+ *
+ * When `deliveryNoteId` is already persisted on the row (for instance on a
+ * retry after a failed claim), reuse it without scanning RPC blocks again.
  *
  * `deliveryScanFrom` moves forward only when the scan found no note that can
  * still need a claim. Else the next pass scans the same blocks again, so a
@@ -373,30 +421,19 @@ async function claimDeliveryNote(
   inputs: IRegisterNameExtraInputs,
   context: PassContext
 ): Promise<void> {
+  if (inputs.deliveryNoteId !== undefined) {
+    const outcome = await tryClaimNote(row, inputs, inputs.deliveryNoteId, context);
+    if (outcome !== 'settled') return;
+  }
+
   const fromBlock = inputs.deliveryScanFrom ?? inputs.builtAtBlock;
   const scan = await findRegistryDeliveryNoteIds({ accountId: row.accountId, fromBlock, label: inputs.label });
 
   let canAdvance = true;
   for (const noteId of scan.noteIds) {
-    const state = deliveryNoteState(row.id, await consumeRowsForNote(row.accountId, noteId));
-    switch (state.kind) {
-      case 'ours':
-        // A claim was queued, but the phase write did not occur (for example the realm closed).
-        await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
-        return;
-      case 'untagged':
-        // A consume of this name's note lost its tag. Adopt it: with no tag the
-        // consume completion cannot move this row, and the scan would pass the note.
-        await tagConsumeAsMidenNameClaim(state.claimTxId, inputs.label, row.id);
-        await markClaimOrOwned(row, noteId, state.claimTxId, state.completed, context);
-        return;
-      case 'settled':
-        continue;
-      case 'free':
-        canAdvance = false;
-        if (await startClaim(row, inputs, noteId, context)) return;
-        continue;
-    }
+    const outcome = await tryClaimNote(row, inputs, noteId, context);
+    if (outcome === 'done') return;
+    if (outcome === 'retry') canAdvance = false;
   }
 
   if (canAdvance && scan.scannedTo + 1 > fromBlock) {
@@ -406,7 +443,7 @@ async function claimDeliveryNote(
 
 /**
  * Queue a consume of one delivery note. Returns true when the registration
- * moved to `claiming`.
+ * moved to `claiming` or `owned`.
  */
 async function startClaim(
   row: ITransaction,
@@ -416,7 +453,15 @@ async function startClaim(
 ): Promise<boolean> {
   let claimTxId: string;
   try {
-    claimTxId = await initiateConsumeTransactionFromId(row.accountId, noteId, isDelegateProofEnabled(), false);
+    claimTxId = await initiateConsumeTransactionFromId(
+      row.accountId,
+      noteId,
+      isDelegateProofEnabled(),
+      false,
+      undefined,
+      undefined,
+      { label: inputs.label, registerTxId: row.id }
+    );
   } catch (error) {
     // "not found": the local store did not import the note yet. The next pass tries again.
     const message = errorMessage(error);
@@ -429,40 +474,46 @@ async function startClaim(
   }
 
   // The consume queue can give the id of an earlier Failed row (retry backoff).
-  // Do not link a Failed row: the next pass tries again.
+  // Do not link a dead Failed row: the next pass tries again.
   const claimRow = await Repo.transactions.where({ id: claimTxId }).first();
-  if (!claimRow || claimRow.status === ITransactionStatus.Failed) return false;
-  const existingClaim = claimOf(claimRow);
+  if (!claimRow || claimRow.type !== 'consume') return false;
+  if (claimRow.status === ITransactionStatus.Failed && !awaitingVerdict(claimRow)) return false;
+  const existingClaim = claimForNote(claimRow, noteId);
   if (existingClaim && existingClaim.registerTxId !== row.id) return false;
+  if (!existingClaim && !(await tagConsumeAsMidenNameClaim(claimTxId, inputs.label, row.id, noteId))) {
+    return false;
+  }
 
-  await tagConsumeAsMidenNameClaim(claimTxId, inputs.label, row.id);
-  await markClaiming(row, noteId, claimTxId, context);
+  await markClaimOrOwned(row, noteId, claimTxId, claimRow.status === ITransactionStatus.Completed, context);
   return true;
+}
+
+async function handleClaimFailure(rowId: string, inputs: IRegisterNameExtraInputs, lastError: string): Promise<void> {
+  const claimAttempts = (inputs.claimAttempts ?? 0) + 1;
+  if (claimAttempts >= MAX_CLAIM_ATTEMPTS) {
+    await patchRegisterNameExtraInputs(
+      rowId,
+      { phase: 'failed', failure: 'claim-failed', claimAttempts, lastError },
+      { expectPhase: 'claiming' }
+    );
+    return;
+  }
+  await patchRegisterNameExtraInputs(rowId, { phase: 'issued', claimAttempts, lastError }, { expectPhase: 'claiming' });
 }
 
 /** Step 4: follow the claim consume row. */
 async function checkClaim(row: ITransaction, inputs: IRegisterNameExtraInputs): Promise<void> {
   const claimRow = inputs.claimTxId ? await Repo.transactions.where({ id: inputs.claimTxId }).first() : undefined;
   if (!claimRow) {
-    await patchRegisterNameExtraInputs(
-      row.id,
-      { phase: 'issued', lastError: 'The claim transaction is missing' },
-      { expectPhase: 'claiming' }
-    );
+    await handleClaimFailure(row.id, inputs, 'The claim transaction is missing');
     return;
   }
-  switch (claimRow.status) {
-    case ITransactionStatus.Completed:
-      await patchRegisterNameExtraInputs(row.id, { phase: 'owned' }, { expectPhase: 'claiming' });
-      return;
-    case ITransactionStatus.Failed:
-      await patchRegisterNameExtraInputs(
-        row.id,
-        { phase: 'issued', lastError: claimRow.error ?? 'The claim transaction failed' },
-        { expectPhase: 'claiming' }
-      );
-      return;
-    default:
-      return;
+  if (claimRow.status === ITransactionStatus.Completed) {
+    await patchRegisterNameExtraInputs(row.id, { phase: 'owned' }, { expectPhase: 'claiming' });
+    return;
   }
+  if (isLiveTransaction(claimRow) || awaitingVerdict(claimRow)) {
+    return;
+  }
+  await handleClaimFailure(row.id, inputs, claimRow.error ?? 'The claim transaction failed');
 }

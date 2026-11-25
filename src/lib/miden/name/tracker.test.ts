@@ -1,5 +1,6 @@
 import {
   IConsumeMidenNameExtraInputs,
+  IMidenNameClaimLink,
   IRegisterNameExtraInputs,
   ITransaction,
   ITransactionStatus,
@@ -95,19 +96,61 @@ jest.mock('lib/miden/transaction/complete', () => ({
   }
 }));
 
-const mockInitiateFromId = jest.fn<Promise<string>, [string, string, boolean | undefined, boolean | undefined]>();
+const mockInitiateFromId = jest.fn<
+  Promise<string>,
+  [
+    string,
+    string,
+    boolean | undefined,
+    boolean | undefined,
+    string | undefined,
+    string | undefined,
+    IMidenNameClaimLink | undefined
+  ]
+>();
 jest.mock('lib/miden/transaction/initiate', () => ({
   initiateConsumeTransactionFromId: (
     accountId: string,
     noteId: string,
     delegate: boolean | undefined,
-    manualRetry: boolean | undefined
-  ) => mockInitiateFromId(accountId, noteId, delegate, manualRetry),
-  tagConsumeAsMidenNameClaim: async (txId: string, label: string, registerTxId: string) => {
-    const claim: IConsumeMidenNameExtraInputs = { midenNameClaim: { label, registerTxId } };
+    manualRetry: boolean | undefined,
+    dappOrigin?: string,
+    entryPoint?: string,
+    midenNameClaim?: IMidenNameClaimLink
+  ) => mockInitiateFromId(accountId, noteId, delegate, manualRetry, dappOrigin, entryPoint, midenNameClaim),
+  tagConsumeAsMidenNameClaim: async (
+    txId: string,
+    label: string,
+    registerTxId: string,
+    noteId?: string
+  ): Promise<boolean> => {
+    const link: IMidenNameClaimLink = { label, registerTxId };
+    let tagged = false;
     await Repo.transactions.where({ id: txId }).modify(tx => {
-      tx.extraInputs = { ...(tx.extraInputs ?? {}), ...claim };
+      if (tx.type !== 'consume' || tx.restoredFromBackup) return false;
+      const current: Partial<IConsumeMidenNameExtraInputs> & Record<string, unknown> = tx.extraInputs ?? {};
+      if (noteId === undefined) {
+        tx.extraInputs = { ...current, midenNameClaim: link };
+        tagged = true;
+        return undefined;
+      }
+      const normalized = noteId.toLowerCase();
+      const existingClaims = current.midenNameClaims ?? {};
+      if (existingClaims[normalized] && existingClaims[normalized]!.registerTxId !== registerTxId) return false;
+      const isBatch = (tx.noteIds?.length ?? 0) > 1;
+      if (isBatch) {
+        tx.extraInputs = { ...current, midenNameClaims: { ...existingClaims, [normalized]: link } };
+      } else {
+        tx.extraInputs = {
+          ...current,
+          midenNameClaim: link,
+          midenNameClaims: { ...existingClaims, [normalized]: link }
+        };
+      }
+      tagged = true;
+      return undefined;
     });
+    return tagged;
   }
 }));
 
@@ -177,23 +220,29 @@ beforeEach(async () => {
   mockFetchState.mockResolvedValue({ status: 'pending', attemptCount: 0 });
   mockFetchDomainRecordAccount.mockResolvedValue(null);
   mockFindDelivery.mockImplementation(async ({ fromBlock }) => ({ noteIds: [], scannedTo: Math.max(fromBlock, 1200) }));
-  mockInitiateFromId.mockImplementation(async (_accountId, noteId) => {
-    consumeSeq += 1;
-    const id = `consume-${consumeSeq}`;
-    await Repo.transactions.add(consumeRow(id, noteId, ITransactionStatus.Queued));
-    return id;
-  });
+  mockInitiateFromId.mockImplementation(
+    async (_accountId, noteId, _delegate, _manualRetry, _dappOrigin, _entryPoint, midenNameClaim) => {
+      consumeSeq += 1;
+      const id = `consume-${consumeSeq}`;
+      const extraInputs = midenNameClaim
+        ? { midenNameClaim, midenNameClaims: { [noteId.toLowerCase()]: midenNameClaim } }
+        : undefined;
+      await Repo.transactions.add(consumeRow(id, noteId, ITransactionStatus.Queued, extraInputs));
+      return id;
+    }
+  );
 });
 
 describe('transition 1: register row Failed', () => {
   it('marks the registration failed / tx-failed with the row error after verifying unknown on chain', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.mayHaveSubmitted = true;
     row.error = 'boom';
     await add(row);
     mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
     await pass();
     expect(mockFetchState).toHaveBeenCalledWith('0xnote-alice');
-    expect(mockFetchIssued).toHaveBeenCalledWith('alice');
+    expect(mockFetchIssued).not.toHaveBeenCalled();
     expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'tx-failed', lastError: 'boom' });
   });
 
@@ -241,6 +290,7 @@ describe('transition 1: register row Failed', () => {
 
   it('promotes a Failed row whose registration note was consumed and issued on chain', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.mayHaveSubmitted = true;
     row.error = 'offscreen abort';
     await add(row);
     mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
@@ -253,6 +303,7 @@ describe('transition 1: register row Failed', () => {
 
   it('promotes a Failed row whose registration note is pending on chain to Completed + submitted', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.mayHaveSubmitted = true;
     row.error = 'offscreen abort';
     await add(row);
     mockFetchState.mockResolvedValue({ status: 'pending', attemptCount: 0 });
@@ -265,21 +316,24 @@ describe('transition 1: register row Failed', () => {
     expect(stored?.error).toBeUndefined();
   });
 
-  it('promotes a Failed row whose note is inflight past reclaimHeight and already issued/owned', async () => {
+  it('seals failed / taken for a Failed row whose note is inflight past reclaimHeight even if already owned', async () => {
     const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.mayHaveSubmitted = true;
     await add(row);
     mockFetchState.mockResolvedValue({ status: 'inflight', attemptCount: 1 });
     mockChainTip.mockResolvedValue(1301);
     mockFetchIssued.mockResolvedValue(true);
     mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
     await pass();
-    expect((await inputsOf(row.id)).phase).toBe('issued');
+    expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
     expect((await Repo.transactions.where({ id: row.id }).first())?.status).toBe(ITransactionStatus.Completed);
   });
 
   it('seals discarded or taken on a Failed row with discarded note when not owned', async () => {
     const discarded = registerRow('alice', 'requested', ITransactionStatus.Failed);
     const taken = registerRow('bob', 'requested', ITransactionStatus.Failed);
+    discarded.mayHaveSubmitted = true;
+    taken.mayHaveSubmitted = true;
     await add(discarded, taken);
     mockFetchState.mockResolvedValue({ status: 'discarded', attemptCount: 2, lastError: 'bad' });
     mockFetchIssued.mockImplementation(async label => label === 'bob');
@@ -289,24 +343,27 @@ describe('transition 1: register row Failed', () => {
     expect(await inputsOf(taken.id)).toMatchObject({ phase: 'failed', failure: 'taken', lastError: 'bad' });
   });
 
-  it('promotes a Failed row when note is discarded or unknown if the name is delivered or owned by this account', async () => {
+  it('never promotes a Failed row when note is discarded or unknown even if the name is delivered or owned', async () => {
     const byOwner = registerRow('alice', 'requested', ITransactionStatus.Failed);
     const byDelivery = registerRow('bob', 'requested', ITransactionStatus.Failed);
+    byOwner.mayHaveSubmitted = true;
+    byDelivery.mayHaveSubmitted = true;
+    byDelivery.error = 'unknown note';
     await add(byOwner, byDelivery);
     mockFetchState.mockImplementation(async noteId =>
       noteId === '0xnote-alice' ? { status: 'discarded', attemptCount: 1 } : { status: 'unknown', attemptCount: 0 }
     );
     mockFetchIssued.mockResolvedValue(true);
-    mockFetchDomainRecordAccount.mockImplementation(async label => (label === 'alice' ? ACCOUNT : null));
-    mockFindDelivery.mockImplementation(async ({ label }) => ({
-      noteIds: label === 'bob' ? ['0xdelivery-bob'] : [],
-      scannedTo: 1200
-    }));
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery-bob'], scannedTo: 1200 });
     await pass();
-    expect((await inputsOf(byOwner.id)).phase).toBe('issued');
-    expect((await Repo.transactions.where({ id: byOwner.id }).first())?.status).toBe(ITransactionStatus.Completed);
-    expect((await inputsOf(byDelivery.id)).phase).toBe('issued');
-    expect((await Repo.transactions.where({ id: byDelivery.id }).first())?.status).toBe(ITransactionStatus.Completed);
+    expect(await inputsOf(byOwner.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+    expect(await inputsOf(byDelivery.id)).toMatchObject({
+      phase: 'failed',
+      failure: 'tx-failed',
+      lastError: 'unknown note'
+    });
+    expect(mockFindDelivery).not.toHaveBeenCalled();
   });
 });
 
@@ -377,7 +434,7 @@ describe('transition 2: register note state', () => {
   );
 
   it.each(['pending', 'inflight'] as const)(
-    '%s after the reclaim height and delivered to this account → issued',
+    '%s after the reclaim height and issued seals failed / taken even if delivered to this account',
     async status => {
       const row = registerRow('alice', 'submitted');
       await add(row);
@@ -386,7 +443,8 @@ describe('transition 2: register note state', () => {
       mockFetchIssued.mockResolvedValue(true);
       mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
       await pass();
-      expect((await inputsOf(row.id)).phase).toBe('issued');
+      expect(await inputsOf(row.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+      expect(mockFindDelivery).not.toHaveBeenCalled();
     }
   );
 
@@ -400,20 +458,20 @@ describe('transition 2: register note state', () => {
     expect(mockChainTip).not.toHaveBeenCalled();
   });
 
-  it('unknown advances to issued when delivered or owned by this account', async () => {
+  it('unknown never promotes via ownership or delivery scan', async () => {
     const byOwner = registerRow('alice', 'submitted');
     const byDelivery = registerRow('bob', 'submitted');
     await add(byOwner, byDelivery);
     mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
     mockFetchIssued.mockResolvedValue(true);
-    mockFetchDomainRecordAccount.mockImplementation(async label => (label === 'alice' ? ACCOUNT : null));
-    mockFindDelivery.mockImplementation(async ({ label }) => ({
-      noteIds: label === 'bob' ? ['0xdelivery-bob'] : [],
-      scannedTo: 1200
-    }));
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery-bob'], scannedTo: 1200 });
     await pass();
-    expect((await inputsOf(byOwner.id)).phase).toBe('issued');
-    expect((await inputsOf(byDelivery.id)).phase).toBe('issued');
+    expect((await inputsOf(byOwner.id)).phase).toBe('submitted');
+    expect((await inputsOf(byDelivery.id)).phase).toBe('submitted');
+    expect(mockFetchIssued).not.toHaveBeenCalled();
+    expect(mockFetchDomainRecordAccount).not.toHaveBeenCalled();
+    expect(mockFindDelivery).not.toHaveBeenCalled();
   });
 
   it('pending at the reclaim height → waits', async () => {
@@ -453,13 +511,19 @@ describe('transition 3: issued → claiming', () => {
     await pass();
 
     expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'alice' });
-    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xdelivery', true, false);
+    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xdelivery', true, false, undefined, undefined, {
+      label: 'alice',
+      registerTxId: row.id
+    });
     const inputs = await inputsOf(row.id);
     expect(inputs).toMatchObject({ phase: 'claiming', deliveryNoteId: '0xdelivery', claimTxId: 'consume-1' });
     // The scan cursor does not move past a note that the tracker claims.
     expect(inputs.deliveryScanFrom).toBeUndefined();
     const claim = await Repo.transactions.where({ id: 'consume-1' }).first();
-    expect(claim?.extraInputs).toEqual({ midenNameClaim: { label: 'alice', registerTxId: row.id } });
+    expect(claim?.extraInputs).toEqual({
+      midenNameClaim: { label: 'alice', registerTxId: row.id },
+      midenNameClaims: { '0xdelivery': { label: 'alice', registerTxId: row.id } }
+    });
     expect(startProcessing).toHaveBeenCalledTimes(1);
   });
 
@@ -512,7 +576,10 @@ describe('transition 3: issued → claiming', () => {
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xold', '0xbob', '0xnew'], scannedTo: 1200 });
     await pass();
     expect(mockInitiateFromId).toHaveBeenCalledTimes(1);
-    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xnew', true, false);
+    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xnew', true, false, undefined, undefined, {
+      label: 'alice',
+      registerTxId: row.id
+    });
   });
 
   it('does not count a Failed consume row as a claim', async () => {
@@ -520,7 +587,10 @@ describe('transition 3: issued → claiming', () => {
     await add(row, consumeRow('failed-1', '0xdelivery', ITransactionStatus.Failed));
     mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
     await pass();
-    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xdelivery', true, false);
+    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xdelivery', true, false, undefined, undefined, {
+      label: 'alice',
+      registerTxId: row.id
+    });
     expect((await inputsOf(row.id)).claimTxId).toBe('consume-1');
   });
 
@@ -617,7 +687,10 @@ describe('transition 3: issued → claiming', () => {
       claimTxId: 'manual'
     });
     const claim = await Repo.transactions.where({ id: 'manual' }).first();
-    expect(claim?.extraInputs).toEqual({ midenNameClaim: { label: 'alice', registerTxId: row.id } });
+    expect(claim?.extraInputs).toEqual({
+      midenNameClaim: { label: 'alice', registerTxId: row.id },
+      midenNameClaims: { '0xdelivery': { label: 'alice', registerTxId: row.id } }
+    });
     expect(startProcessing).toHaveBeenCalledTimes(1);
   });
 
@@ -634,7 +707,10 @@ describe('transition 3: issued → claiming', () => {
       claimTxId: 'lost-tag'
     });
     const claim = await Repo.transactions.where({ id: 'lost-tag' }).first();
-    expect(claim?.extraInputs).toEqual({ midenNameClaim: { label: 'alice', registerTxId: row.id } });
+    expect(claim?.extraInputs).toEqual({
+      midenNameClaim: { label: 'alice', registerTxId: row.id },
+      midenNameClaims: { '0xdelivery': { label: 'alice', registerTxId: row.id } }
+    });
   });
 
   it('prefers the Completed untagged consume over a live one of the same note', async () => {
@@ -765,5 +841,242 @@ describe('row selection and isolation', () => {
     expect((await inputsOf(good.id)).phase).toBe('issued');
     expect(warn).toHaveBeenCalledWith('[miden-name] tracker step failed', expect.objectContaining({ txId: bad.id }));
     warn.mockRestore();
+  });
+});
+
+describe('C-2 regression guards', () => {
+  it('seals a pre-submit Failed row as tx-failed without querying chain state or promoting', async () => {
+    const row = registerRow('alice', 'requested', ITransactionStatus.Failed);
+    row.error = 'MidenNameTakenError';
+    await add(row);
+    mockFetchState.mockResolvedValue({ status: 'unknown', attemptCount: 0 });
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    await pass();
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'failed',
+      failure: 'tx-failed',
+      lastError: 'MidenNameTakenError'
+    });
+  });
+
+  it('never promotes a discarded or expired registration even when the account owns the name', async () => {
+    const discarded = registerRow('alice', 'submitted');
+    const expired = registerRow('bob', 'submitted');
+    await add(discarded, expired);
+    mockFetchState.mockImplementation(async noteId =>
+      noteId === '0xnote-alice' ? { status: 'discarded', attemptCount: 1 } : { status: 'pending', attemptCount: 0 }
+    );
+    mockChainTip.mockResolvedValue(1301);
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    await pass();
+    expect(await inputsOf(discarded.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+    expect(await inputsOf(expired.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+  });
+
+  it('checkRegisterNote consumed fails taken on foreign owner and expired when unissued past reclaimHeight', async () => {
+    const taken = registerRow('alice', 'submitted');
+    const expired = registerRow('bob', 'submitted');
+    await add(taken, expired);
+    mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
+    mockFetchIssued.mockImplementation(async label => label === 'alice');
+    mockFetchDomainRecordAccount.mockResolvedValue('mtst1someoneelse');
+    mockChainTip.mockResolvedValue(1301);
+    await pass();
+    expect(await inputsOf(taken.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+    expect(await inputsOf(expired.id)).toMatchObject({ phase: 'failed', failure: 'expired' });
+  });
+
+  it('defers claiming while a Failed consume row is still awaiting a node verdict', async () => {
+    const row = registerRow('alice', 'claiming', ITransactionStatus.Completed, {
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'c-verdict'
+    });
+    const claim = consumeRow('c-verdict', '0xdelivery', ITransactionStatus.Failed);
+    claim.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: [],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    await add(row, claim);
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('claiming');
+  });
+
+  it('caps repeated claim failures and settles to failed / claim-failed', async () => {
+    const row = registerRow('alice', 'claiming', ITransactionStatus.Completed, {
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'c1'
+    });
+    const c1 = consumeRow('c1', '0xdelivery', ITransactionStatus.Failed);
+    c1.error = 'prover down';
+    await add(row, c1);
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('issued');
+
+    await pass();
+    expect((await inputsOf(row.id)).phase).toBe('claiming');
+    await Repo.transactions.where({ id: 'consume-1' }).modify(tx => {
+      tx.status = ITransactionStatus.Failed;
+      tx.error = 'prover down 2';
+    });
+    await pass();
+    await pass();
+    await Repo.transactions.where({ id: 'consume-2' }).modify(tx => {
+      tx.status = ITransactionStatus.Failed;
+      tx.error = 'prover down 3';
+    });
+    await pass();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'failed',
+      failure: 'claim-failed',
+      claimAttempts: 3,
+      lastError: 'prover down 3'
+    });
+  });
+
+  it('seals consumed registration as failed / taken when a sibling row already owns or claims the label', async () => {
+    const sibling = registerRow('alice', 'claiming');
+    const duplicate = registerRow('alice', 'submitted');
+    await add(sibling, duplicate);
+    mockFetchState.mockResolvedValue({ status: 'consumed', attemptCount: 1 });
+    mockFetchIssued.mockResolvedValue(true);
+    mockFetchDomainRecordAccount.mockResolvedValue(ACCOUNT);
+    await pass();
+    expect(await inputsOf(duplicate.id)).toMatchObject({ phase: 'failed', failure: 'taken' });
+  });
+
+  it('adopts multiple delivery notes inside one batch consume row via midenNameClaims', async () => {
+    const alice = registerRow('alice', 'issued');
+    const bob = registerRow('bob', 'issued');
+    const batch: ITransaction = {
+      id: 'batch-1',
+      type: 'consume',
+      accountId: ACCOUNT,
+      noteId: '0xD-Alice',
+      noteIds: ['0xD-Alice', '0xD-Bob'],
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'RECEIVE'
+    };
+    await add(alice, bob, batch);
+    mockFindDelivery.mockImplementation(async ({ label }) => ({
+      noteIds: [label === 'alice' ? '0xD-Alice' : '0xD-Bob'],
+      scannedTo: 1200
+    }));
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(await inputsOf(alice.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xD-Alice',
+      claimTxId: 'batch-1'
+    });
+    expect(await inputsOf(bob.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xD-Bob',
+      claimTxId: 'batch-1'
+    });
+    const storedBatch = await Repo.transactions.where({ id: 'batch-1' }).first();
+    expect(storedBatch?.extraInputs).toEqual({
+      midenNameClaims: {
+        '0xd-alice': { label: 'alice', registerTxId: alice.id },
+        '0xd-bob': { label: 'bob', registerTxId: bob.id }
+      }
+    });
+  });
+
+  it('shortcuts straight to owned when startClaim encounters an already-Completed consume row', async () => {
+    const row = registerRow('alice', 'issued');
+    await add(row);
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    mockInitiateFromId.mockImplementationOnce(async (_acc, noteId, _del, _manual, _origin, _ep, claim) => {
+      await Repo.transactions.add(
+        consumeRow('done-claim', noteId, ITransactionStatus.Completed, {
+          midenNameClaim: claim,
+          midenNameClaims: { [noteId.toLowerCase()]: claim }
+        })
+      );
+      return 'done-claim';
+    });
+    await pass();
+    expect(startProcessing).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'owned',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'done-claim'
+    });
+  });
+
+  it('treats a Failed consume row awaiting verdict as live in deliveryNoteState', async () => {
+    const row = registerRow('alice', 'issued');
+    const claim = consumeRow('c-verdict', '0xdelivery', ITransactionStatus.Failed);
+    claim.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: [],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    await add(row, claim);
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xdelivery'], scannedTo: 1200 });
+    await pass();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(await inputsOf(row.id)).toMatchObject({
+      phase: 'claiming',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'c-verdict'
+    });
+  });
+
+  it('reuses persisted deliveryNoteId without rescanning and falls back to scan if settled by another row', async () => {
+    const reused = registerRow('alice', 'issued', ITransactionStatus.Completed, {
+      deliveryNoteId: '0xknown-delivery'
+    });
+    await add(reused);
+    await pass();
+    expect(mockFindDelivery).not.toHaveBeenCalled();
+    expect(mockInitiateFromId).toHaveBeenCalledWith(ACCOUNT, '0xknown-delivery', true, false, undefined, undefined, {
+      label: 'alice',
+      registerTxId: reused.id
+    });
+
+    const settledRow = registerRow('bob', 'issued', ITransactionStatus.Completed, {
+      deliveryNoteId: '0xsettled-note'
+    });
+    await add(
+      settledRow,
+      consumeRow('other-claim', '0xsettled-note', ITransactionStatus.Queued, {
+        midenNameClaim: { label: 'bob', registerTxId: 'other-reg' }
+      })
+    );
+    mockFindDelivery.mockResolvedValue({ noteIds: ['0xsettled-note', '0xfresh-bob'], scannedTo: 1200 });
+    await pass();
+    expect(mockFindDelivery).toHaveBeenCalledWith({ accountId: ACCOUNT, fromBlock: 1000, label: 'bob' });
+    expect(await inputsOf(settledRow.id)).toMatchObject({
+      phase: 'claiming',
+      deliveryNoteId: '0xfresh-bob'
+    });
   });
 });

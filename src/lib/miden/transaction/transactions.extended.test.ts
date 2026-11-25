@@ -1117,6 +1117,46 @@ describe('completeConsumeTransaction', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.displayMessage).toBe('Name received');
   });
+
+  it('labels a batch Miden Name claim "Name received" and moves every linked register row in midenNameClaims to owned', async () => {
+    txStore.push(
+      {
+        id: 'reg-1',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'reg-2',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 91,
+        extraInputs: { label: 'bob', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-batch',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xa',
+        noteIds: ['0xa', '0xb'],
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: {
+          midenNameClaims: {
+            '0xa': { label: 'alice', registerTxId: 'reg-1' },
+            '0xb': { label: 'bob', registerTxId: 'reg-2' }
+          }
+        }
+      }
+    );
+    await completeConsumeTransaction('tx-batch', nonFungibleResult());
+    expect(txStore.find(row => row.id === 'tx-batch')?.displayMessage).toBe('Name received');
+    expect(txStore.find(row => row.id === 'reg-1')?.extraInputs.phase).toBe('owned');
+    expect(txStore.find(row => row.id === 'reg-2')?.extraInputs.phase).toBe('owned');
+  });
 });
 
 describe('cancelTransaction error variants', () => {
@@ -2216,6 +2256,63 @@ describe('initiateConsumeTransactionFromId', () => {
     );
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;
+  });
+
+  it('queues and tags midenNameClaim atomically inside queueConsumeRows and adopts untagged existing claims', async () => {
+    const summary = jest.spyOn(midenClientProxy, 'getInputNoteSummary').mockResolvedValue({
+      noteType: 0,
+      assets: null
+    });
+    try {
+      const id = await initiateConsumeTransactionFromId('acc-1', '0xNameNote', false, false, undefined, undefined, {
+        label: 'alice',
+        registerTxId: 'reg-1'
+      });
+      const inserted = txStore.find(row => row.id === id);
+      expect(inserted?.extraInputs).toEqual({
+        midenNameClaim: { label: 'alice', registerTxId: 'reg-1' },
+        midenNameClaims: { '0xnamenote': { label: 'alice', registerTxId: 'reg-1' } }
+      });
+
+      txStore.push({
+        id: 'existing-untagged',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xExisting',
+        noteIds: ['0xExisting', '0xOther'],
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1
+      });
+      const reusedId = await initiateConsumeTransactionFromId(
+        'acc-1',
+        '0xExisting',
+        false,
+        false,
+        undefined,
+        undefined,
+        { label: 'bob', registerTxId: 'reg-2' }
+      );
+      expect(reusedId).toBe('existing-untagged');
+      expect(txStore.find(row => row.id === 'existing-untagged')?.extraInputs).toEqual({
+        midenNameClaims: { '0xexisting': { label: 'bob', registerTxId: 'reg-2' } }
+      });
+
+      const conflictId = await initiateConsumeTransactionFromId(
+        'acc-1',
+        '0xExisting',
+        false,
+        false,
+        undefined,
+        undefined,
+        { label: 'mallory', registerTxId: 'reg-other' }
+      );
+      expect(conflictId).toBe('existing-untagged');
+      expect(txStore.find(row => row.id === 'existing-untagged')?.extraInputs).toEqual({
+        midenNameClaims: { '0xexisting': { label: 'bob', registerTxId: 'reg-2' } }
+      });
+    } finally {
+      summary.mockRestore();
+    }
   });
 });
 

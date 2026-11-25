@@ -84,6 +84,7 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   IConsumeMidenNameExtraInputs,
+  IMidenNameClaimLink,
   INoteDeliveryState,
   IRegisterNameExtraInputs,
   isOpenSettlementClaim,
@@ -261,6 +262,21 @@ const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
     .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
     .count()) > 0;
 
+const midenNameClaimLinksOf = (
+  extraInputs: Partial<IConsumeMidenNameExtraInputs> | undefined
+): IMidenNameClaimLink[] => {
+  const byRegisterTxId = new Map<string, IMidenNameClaimLink>();
+  if (extraInputs?.midenNameClaim) {
+    byRegisterTxId.set(extraInputs.midenNameClaim.registerTxId, extraInputs.midenNameClaim);
+  }
+  if (extraInputs?.midenNameClaims) {
+    for (const link of Object.values(extraInputs.midenNameClaims)) {
+      byRegisterTxId.set(link.registerTxId, link);
+    }
+  }
+  return [...byRegisterTxId.values()];
+};
+
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
   // The tail's read when it ran, else one now; each part rethrows in the step where it always surfaced.
   const read = consumeCompletionRead(id, result);
@@ -269,12 +285,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
   const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  // A consume that claims a Miden Name delivery note carries a link to its
-  // `register-name` row. That note holds a non-fungible asset only.
+  // A consume that claims one or more Miden Name delivery notes carries links
+  // to their `register-name` rows. Those notes hold non-fungible assets only.
   const nameClaimInputs: Partial<IConsumeMidenNameExtraInputs> | undefined = dbTransaction?.extraInputs;
-  const midenNameClaim = nameClaimInputs?.midenNameClaim;
+  const midenNameClaims = midenNameClaimLinksOf(nameClaimInputs);
   let displayMessage = reclaimed ? 'Reclaimed' : 'Received';
-  if (midenNameClaim) displayMessage = 'Name received';
+  if (midenNameClaims.length > 0) displayMessage = 'Name received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const { resultBytes, deliveries } = await withCompletionStep('result_serialize', async () => keptOrThrow(bytes));
   // A GC purchase consumed the whole sale note, but received only what its fill bought; the rest went back out as
@@ -342,12 +358,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
   }
 
-  // Miden Name claim: the name is now in the account, so move the linked
+  // Miden Name claim: the name is now in the account, so move each linked
   // `register-name` row to `owned`. The tracker also gets `owned` from this
   // consume row, so a failure here must not fail the consume.
-  if (midenNameClaim) {
+  for (const claim of midenNameClaims) {
     try {
-      await patchRegisterNameExtraInputs(midenNameClaim.registerTxId, { phase: 'owned' });
+      await patchRegisterNameExtraInputs(claim.registerTxId, { phase: 'owned' });
     } catch (err) {
       console.warn('[miden-name] owned patch failed (non-fatal)', err);
     }
@@ -1160,7 +1176,7 @@ export const canMoveMidenNamePhase = (current: MidenNamePhase, next: MidenNamePh
 export type RegisterNameExtraInputsPatch = Partial<
   Pick<
     IRegisterNameExtraInputs,
-    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'deliveryScanFrom'
+    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'claimAttempts' | 'deliveryScanFrom'
   >
 >;
 

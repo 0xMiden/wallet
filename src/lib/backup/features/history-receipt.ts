@@ -96,6 +96,7 @@ const receiptFields: Record<ITransactionType, Shape> = {
     // are its only exact record of the fill (multi-device).
     swapPaybackAmounts: byNoteId('decimal'),
     midenNameClaim: fields({ label: 'string', registerTxId: 'string' }, ['label', 'registerTxId']),
+    midenNameClaims: byNoteId(fields({ label: 'string', registerTxId: 'string' }, ['label', 'registerTxId'])),
     bridgeIn: fields(
       {
         provider: 'string',
@@ -211,6 +212,7 @@ const receiptFields: Record<ITransactionType, Shape> = {
     lastError: 'string',
     deliveryNoteId: 'string',
     claimTxId: 'string',
+    claimAttempts: 'number',
     deliveryScanFrom: 'number',
     phaseUpdatedAt: 'number'
   }

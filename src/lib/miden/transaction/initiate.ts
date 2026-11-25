@@ -31,6 +31,7 @@ import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import type { ConsumeEntryPoint } from 'lib/telemetry/transaction-failure';
+import { isRecord } from 'lib/update/guards';
 import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
@@ -56,6 +57,7 @@ import {
   IConsumedAssetTotal,
   IConsumeMidenNameExtraInputs,
   IConsumeSwapSettleExtraInputs,
+  IMidenNameClaimLink,
   isLiveTransaction,
   ITransaction,
   ITransactionStatus,
@@ -209,7 +211,9 @@ export const initiateConsumeTransactionFromId = async (
   // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
   // it. The wallet's own callers pass none and link the user to the holder instead.
   dappOrigin?: string,
-  entryPoint?: ConsumeEntryPoint
+  entryPoint?: ConsumeEntryPoint,
+  // Miden Name delivery claim link: persisted atomically when the row is queued or adopted inside `queueConsumeRows`.
+  midenNameClaim?: IMidenNameClaimLink
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -241,11 +245,19 @@ export const initiateConsumeTransactionFromId = async (
     undefined,
     undefined,
     dappOrigin,
-    undefined,
+    midenNameClaim
+      ? row => {
+          const result = applyMidenNameClaimToExtraInputs(row, midenNameClaim, noteId);
+          if (result.kind === 'update') row.extraInputs = result.extraInputs;
+        }
+      : undefined,
     entryPoint,
     undefined,
     undefined,
-    new Map([[noteId, feeNotes]])
+    new Map([[noteId, feeNotes]]),
+    undefined,
+    undefined,
+    midenNameClaim
   );
   if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
   return committedId;
@@ -703,7 +715,8 @@ const queueConsumeRows = async (
   // with the same coverage and held-note reads as the per-note loop. One member backing off or held by a dApp
   // transaction, and not covered by a live or completed claim, writes nothing and throws `ClaimCohortRefusedError`.
   // A covered member does not block. Omitted, each note is skipped on its own.
-  cohortNoteIds?: readonly string[]
+  cohortNoteIds?: readonly string[],
+  midenNameClaim?: IMidenNameClaimLink
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -711,7 +724,7 @@ const queueConsumeRows = async (
   // A claim from the claim list takes only this account's notes, whatever list the
   // caller read: a stale or older list can still name another trader's PSWAP order,
   // and consuming it fills that order from this account's balance (#2118).
-  if (requiresOwnClaimableNotes(entryPoint)) {
+  if (midenNameClaim === undefined && requiresOwnClaimableNotes(entryPoint)) {
     const foreign = notes.filter(note => !isOwnClaimableNote(note)).map(note => note.id);
     if (foreign.length > 0) throw new ForeignNoteClaimRefusedError(foreign);
   }
@@ -787,6 +800,14 @@ const queueConsumeRows = async (
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
         coveringTxIdByNoteId.set(note.id, liveOrCompleted.id);
+        if (midenNameClaim) {
+          await Repo.transactions.where({ id: liveOrCompleted.id }).modify((dbTx: ITransaction) => {
+            const applied = applyMidenNameClaimToExtraInputs(dbTx, midenNameClaim, note.id);
+            if (applied.kind !== 'update') return false;
+            dbTx.extraInputs = applied.extraInputs;
+            return undefined;
+          });
+        }
         // An explicit user retry must take effect NOW, even when the blocking row
         // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
         // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
@@ -1384,17 +1405,107 @@ export const initiateRegisterNameTransaction = async (args: InitiateRegisterName
   return dbTransaction.id;
 };
 
+type MidenNameClaimApplyResult =
+  | { kind: 'update'; extraInputs: Record<string, unknown> }
+  | { kind: 'already-tagged' }
+  | { kind: 'declined' };
+
+function sameMidenNameClaimLink(a: IMidenNameClaimLink | undefined, b: IMidenNameClaimLink): boolean {
+  return a !== undefined && a.label === b.label && a.registerTxId === b.registerTxId;
+}
+
+function applyMidenNameClaimToExtraInputs(
+  tx: ITransaction,
+  link: IMidenNameClaimLink,
+  noteId?: string
+): MidenNameClaimApplyResult {
+  if (tx.type !== 'consume' || tx.restoredFromBackup === true) return { kind: 'declined' };
+  const current: Partial<IConsumeMidenNameExtraInputs> & Record<string, unknown> = isRecord(tx.extraInputs)
+    ? tx.extraInputs
+    : {};
+
+  if (noteId === undefined) {
+    if ((tx.noteIds?.length ?? 0) > 1) return { kind: 'declined' };
+    if (current.midenNameClaim && current.midenNameClaim.registerTxId !== link.registerTxId) {
+      return { kind: 'declined' };
+    }
+    const singleNoteId = tx.noteIds?.[0] ?? tx.noteId;
+    if (singleNoteId === undefined) {
+      if (sameMidenNameClaimLink(current.midenNameClaim, link)) return { kind: 'already-tagged' };
+      return { kind: 'update', extraInputs: { ...current, midenNameClaim: link } };
+    }
+    const normalized = singleNoteId.toLowerCase();
+    const existingForNote = current.midenNameClaims?.[normalized];
+    if (existingForNote && existingForNote.registerTxId !== link.registerTxId) return { kind: 'declined' };
+    if (sameMidenNameClaimLink(current.midenNameClaim, link) && sameMidenNameClaimLink(existingForNote, link)) {
+      return { kind: 'already-tagged' };
+    }
+    return {
+      kind: 'update',
+      extraInputs: {
+        ...current,
+        midenNameClaim: link,
+        midenNameClaims: { ...(current.midenNameClaims ?? {}), [normalized]: link }
+      }
+    };
+  }
+
+  const normalized = noteId.toLowerCase();
+  const noteIds = tx.noteIds ?? (tx.noteId !== undefined ? [tx.noteId] : undefined);
+  if (noteIds && !noteIds.some(id => id.toLowerCase() === normalized)) return { kind: 'declined' };
+  const existingClaims = current.midenNameClaims ?? {};
+  const existingForNote = existingClaims[normalized];
+  if (existingForNote && existingForNote.registerTxId !== link.registerTxId) return { kind: 'declined' };
+  const isBatch = (noteIds?.length ?? 0) > 1;
+  if (!isBatch && current.midenNameClaim && current.midenNameClaim.registerTxId !== link.registerTxId) {
+    return { kind: 'declined' };
+  }
+  if (isBatch) {
+    if (sameMidenNameClaimLink(existingForNote, link)) return { kind: 'already-tagged' };
+    return {
+      kind: 'update',
+      extraInputs: { ...current, midenNameClaims: { ...existingClaims, [normalized]: link } }
+    };
+  }
+  if (sameMidenNameClaimLink(current.midenNameClaim, link) && sameMidenNameClaimLink(existingForNote, link)) {
+    return { kind: 'already-tagged' };
+  }
+  return {
+    kind: 'update',
+    extraInputs: {
+      ...current,
+      midenNameClaim: link,
+      midenNameClaims: { ...existingClaims, [normalized]: link }
+    }
+  };
+}
+
 /**
- * Mark a consume row as the claim of a Miden Name delivery note. When the
- * consume completes, `completeConsumeTransaction` labels it "Name received" and
- * moves the `register-name` row to `owned`.
+ * Mark a consume row (or one note of a batch consume row) as the claim of a
+ * Miden Name delivery note. When the consume completes,
+ * `completeConsumeTransaction` labels it "Name received" and moves each linked
+ * `register-name` row to `owned`.
  */
-export const tagConsumeAsMidenNameClaim = async (txId: string, label: string, registerTxId: string): Promise<void> => {
-  const claim: IConsumeMidenNameExtraInputs = { midenNameClaim: { label, registerTxId } };
+export const tagConsumeAsMidenNameClaim = async (
+  txId: string,
+  label: string,
+  registerTxId: string,
+  noteId?: string
+): Promise<boolean> => {
+  let tagged = false;
   await Repo.transactions.where({ id: txId }).modify(tx => {
-    if (tx.type !== 'consume') return;
-    tx.extraInputs = { ...(tx.extraInputs ?? {}), ...claim };
+    const applied = applyMidenNameClaimToExtraInputs(tx, { label, registerTxId }, noteId);
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+    if (applied.kind === 'declined') return false;
+    if (applied.kind === 'already-tagged') {
+      tagged = true;
+      return false;
+    }
+    tx.extraInputs = applied.extraInputs;
+    tagged = true;
+    return undefined;
   });
+  return tagged;
 };
 
 /**
