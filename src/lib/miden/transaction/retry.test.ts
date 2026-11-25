@@ -1,3 +1,4 @@
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
@@ -600,6 +601,18 @@ describe('requeueFailedTransaction - ambiguous post-submit failures are not repl
     ).toBe(true);
   });
 
+  it('refuses to requeue a legacy send row carrying outbound NEAR Intents tracking', async () => {
+    const legacyNearIntents = failedRow({
+      type: 'send',
+      extraInputs: { oneClick: paymentTracking({ direction: 'miden-to-evm' }) }
+    });
+    wireRow(legacyNearIntents);
+
+    const refusal = await requeueFailedTransaction('tx-1').catch(error => error);
+    expect(refusal).toBeInstanceOf(Error);
+    expect(snapshotPendingRetry(refusal)).toBe('not_retryable');
+  });
+
   it('refuses at the model layer even when a transactionId exists but the node has no record', async () => {
     // The affordance IS shown for a row that carries an id (the node check can
     // still reconcile it to Completed), so the resubmit path needs its own
@@ -769,6 +782,13 @@ describe('isRequeueableTransaction', () => {
   it('excludes a NEAR Intents bridged-send, Failed or Unconfirmed: its quote is bound to the old attempt', () => {
     for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]) {
       expect(isRequeueableTransaction({ status, type: 'bridged-send', bridgeProvider: 'near-intents' })).toBe(false);
+    }
+  });
+
+  it('excludes a legacy send row carrying outbound NEAR Intents tracking, Failed or Unconfirmed', () => {
+    const oneClick = paymentTracking({ direction: 'miden-to-evm' });
+    for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]) {
+      expect(isRequeueableTransaction({ status, type: 'send', extraInputs: { oneClick } })).toBe(false);
     }
   });
 

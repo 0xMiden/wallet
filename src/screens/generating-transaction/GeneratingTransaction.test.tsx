@@ -2031,8 +2031,11 @@ describe('NEAR Intents send steps', () => {
     mockWalletStoreState.lastCompletedTxHash = null;
     safeGenerateTransactionsLoopMock.mockReset();
     safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    // Real predicate: a NEAR Intents row must be rejected by `isRequeueableTransaction` itself, not by a mock.
     isRequeueableTransactionMock.mockReset();
-    isRequeueableTransactionMock.mockReturnValue(false);
+    isRequeueableTransactionMock.mockImplementation(
+      jest.requireActual('lib/miden/transaction/retry').isRequeueableTransaction
+    );
   });
 
   afterEach(() => {

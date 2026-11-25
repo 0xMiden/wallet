@@ -58,6 +58,7 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
+  nearIntentsSendTrackingOf,
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
@@ -178,6 +179,7 @@ export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
+  extraInputs?: ITransaction['extraInputs'];
   restoredFromBackup?: boolean;
   proposalEffectRefused?: boolean;
 }): boolean => {
@@ -185,6 +187,8 @@ export const isRequeueableTransaction = (tx: {
   if (tx.restoredFromBackup || tx.proposalEffectRefused) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && !isRequeueableBridgeProvider(tx.bridgeProvider)) return false;
+  // Both `bridged-send` (provider: 'near-intents') and legacy `send` NEAR Intents rows bind to a single-use 1Click quote.
+  if (nearIntentsSendTrackingOf({ type: tx.type, extraInputs: tx.extraInputs }) !== undefined) return false;
   return true;
 };
 

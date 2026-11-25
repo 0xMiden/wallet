@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, renderHook, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
@@ -32,6 +32,7 @@ import {
 } from 'lib/miden/transaction/constants';
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
@@ -43,6 +44,7 @@ import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { getHistoryDetailsSectionPolicy, HistoryDetails } from './HistoryDetails';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
+import { useTransactionActions } from './useTransactionActions';
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/usdcx/destination-transaction', () => ({ findUsdcxDestinationTransaction: jest.fn() }));
@@ -4409,6 +4411,27 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.queryByTestId('history-retry-button')).toBeNull();
+    });
+
+    it('withholds Retry for a legacy send row with outbound NEAR Intents tracking (with or without loaded row)', async () => {
+      const { isRequeueableTransaction } = jest.requireActual('lib/miden/transaction/retry');
+      mockIsRequeueableTransaction.mockImplementation(isRequeueableTransaction);
+      const outboundTracking = paymentTracking({ direction: 'miden-to-evm' });
+      setMockRow(failedSendTx({ extraInputs: { oneClick: outboundTracking } }));
+      await renderAndLoad();
+      expect(screen.queryByTestId('history-retry-button')).toBeNull();
+
+      const projectedEntry: IHistoryEntry = {
+        key: 'failed-legacy-1click',
+        address: 'acct-A',
+        timestamp: 0,
+        type: HistoryEntryType.CompletedTransaction,
+        txType: 'send',
+        status: STATUS_FAILED,
+        oneClickTracking: outboundTracking
+      };
+      const { result } = renderHook(() => useTransactionActions('tx-1', projectedEntry, undefined));
+      expect(result.current.canRetry).toBe(false);
     });
 
     it('withholds Retry for a row the user cancelled by hand', async () => {
