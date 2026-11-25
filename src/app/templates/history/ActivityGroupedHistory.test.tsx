@@ -7,6 +7,7 @@ import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { getUncompletedTransactions, supersededFailedConsumeIds, suppressedLinkedConsumeIds } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { CompletedTransactionsPageRequest } from 'lib/miden/transaction/get';
+import { markActivityRead } from 'lib/settings/activity-read';
 
 import { ActivityGroupedHistory } from './ActivityGroupedHistory';
 import {
@@ -15,6 +16,7 @@ import {
   ACTIVITY_COUNTERPARTY_PUBLIC_KEY,
   mockActivityCounterpartyDecode
 } from './activityGroupTestFixtures';
+import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 
@@ -392,6 +394,37 @@ describe('ActivityGroupedHistory', () => {
     const sender = screen.getByRole('link', { name: /mtst1sender/ });
     expect(sender).toHaveAttribute('href', '/activity/group/address/mtst1sender');
     expect(within(sender).getByText('1 waiting')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['claim-only', false],
+    ['mixed', true]
+  ])('keeps a %s group unread until its incoming transfer is read', async (kind, includesHistory) => {
+    mockRealGroupList = true;
+    const noteId = `${kind}-unread-note`;
+    mockClaims.items = [claim(noteId, 'pending')];
+    const historyEntry = entry({
+      key: `${kind}-unread-history`,
+      secondaryAddress: 'mtst1sender',
+      timestamp: Math.floor(Date.now() / 1000) + 60
+    });
+    if (includesHistory) loaded.push(historyEntry);
+
+    render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);
+
+    const sender = screen.getByRole('link', { name: /mtst1sender/ });
+    expect(screen.getByTestId('pending-activity-unread')).toBeInTheDocument();
+    expect(within(sender).queryAllByTestId('list-row-unread').length).toBeGreaterThanOrEqual(Number(includesHistory));
+    if (includesHistory) act(() => markActivityRead(historyEntryUnreadKey(historyEntry), historyEntry.timestamp));
+    expect(within(sender).getByTestId('list-row-unread')).toBeInTheDocument();
+
+    mockHide.mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole('button', { name: 'activityRejectTransfer' }));
+    await waitFor(() => {
+      expect(mockHide).toHaveBeenCalledWith(noteId);
+      expect(screen.queryByTestId('pending-activity-unread')).toBeNull();
+      expect(within(sender).queryByTestId('list-row-unread')).toBeNull();
+    });
   });
 
   it('keeps the sender group when search matches its waiting transfer token', () => {
