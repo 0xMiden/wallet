@@ -1,3 +1,5 @@
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { type AiCompilerOutput, parseAiCompilerOutput } from './schema';
 
 export const COMMAND_AI_PROXY_STORAGE_KEY = 'bread_command_ai_proxy_url';
@@ -48,12 +50,15 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
 export function resolveCommandAiEndpoint(override?: string): string | null {
+  const remoteWalletApiUrl = getBridgeConfigSnapshot().config?.backup?.baseUrl;
   const candidates = [
     override,
     typeof globalThis.localStorage !== 'undefined'
       ? globalThis.localStorage.getItem(COMMAND_AI_PROXY_STORAGE_KEY)
       : null,
-    process.env.COMMAND_AI_PROXY_URL
+    process.env.COMMAND_AI_PROXY_URL,
+    process.env.MIDEN_WALLET_API_URL,
+    remoteWalletApiUrl
   ];
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') continue;

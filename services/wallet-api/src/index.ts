@@ -6,8 +6,11 @@ export interface Service {
   fetch(request: Request, env: Env): Promise<Response>;
 }
 
-/** Create the service. Tests can give their own clock. */
-export function createService({ now = Date.now }: { now?: () => number } = {}): Service {
+/** Create the service. Tests can give their own clock and fetch implementation. */
+export function createService({
+  now = Date.now,
+  fetchImpl = globalThis.fetch
+}: { now?: () => number; fetchImpl?: typeof fetch } = {}): Service {
   return {
     async fetch(request, env) {
       let origins: Set<string>;
@@ -24,7 +27,7 @@ export function createService({ now = Date.now }: { now?: () => number } = {}): 
       if (request.method === 'OPTIONS') return withHeaders(preflight(request), headers);
       let response: Response;
       try {
-        response = await dispatch(request, env, now);
+        response = await dispatch(request, env, now, fetchImpl);
       } catch (error) {
         response = errorResponse(error);
       }

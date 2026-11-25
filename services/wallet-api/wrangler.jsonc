@@ -14,7 +14,7 @@
     "ALLOWED_ORIGINS": "[]",
     "DEPLOYMENT_REVISION": "unknown"
   },
-  // JWT_SIGNING_KEY is a secret. Set it with `wrangler secret put JWT_SIGNING_KEY`. Do not put it in vars.
+  // JWT_SIGNING_KEY and GROQ_API_KEY are secrets. Set them with `wrangler secret put`. Do not put them in vars.
   "d1_databases": [
     {
       "binding": "DB",
@@ -32,6 +32,8 @@
     // Limits every authenticated route per profile. Reads and writes count on separate keys
     // (`read:<profileId>`, `write:<profileId>`); a batch write costs one unit per 10 entries.
     // Placeholder namespace_id, as above.
-    { "name": "STORAGE_RATE_LIMIT", "namespace_id": "189404", "simple": { "limit": 120, "period": 60 } }
+    { "name": "STORAGE_RATE_LIMIT", "namespace_id": "189404", "simple": { "limit": 120, "period": 60 } },
+    // Limits POST /v1/compile per caller address.
+    { "name": "COMMAND_AI_RATE_LIMIT", "namespace_id": "189405", "simple": { "limit": 30, "period": 60 } }
   ]
 }

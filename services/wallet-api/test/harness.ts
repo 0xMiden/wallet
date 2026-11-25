@@ -28,9 +28,12 @@ export interface EnvOptions {
   db?: boolean;
   authLimit?: boolean;
   storageLimit?: boolean;
+  commandAiLimit?: boolean;
   signingKey?: string | null;
+  groqApiKey?: string | null;
   allowedOrigins?: string;
   revision?: string | null;
+  fetchImpl?: typeof fetch;
 }
 
 export interface Harness {
@@ -39,6 +42,7 @@ export interface Harness {
   db: FakeD1;
   authLimit: FakeRateLimit;
   storageLimit: FakeRateLimit;
+  commandAiLimit: FakeRateLimit;
   /** The Worker clock. */
   clock: Clock;
   /** The database clock of the julianday expression. */
@@ -51,16 +55,23 @@ export function createHarness(options: EnvOptions = {}): Harness {
   const db = new FakeD1(() => dbClock.now);
   const authLimit = new FakeRateLimit();
   const storageLimit = new FakeRateLimit();
+  const commandAiLimit = new FakeRateLimit();
   const env: Env = { ALLOWED_ORIGINS: options.allowedOrigins ?? JSON.stringify([ORIGIN]) };
   if (options.db !== false) env.DB = db;
   if (options.authLimit !== false) env.AUTH_RATE_LIMIT = authLimit;
   if (options.storageLimit !== false) env.STORAGE_RATE_LIMIT = storageLimit;
+  if (options.commandAiLimit !== false) env.COMMAND_AI_RATE_LIMIT = commandAiLimit;
   const signingKey = options.signingKey === undefined ? SIGNING_KEY : options.signingKey;
   if (signingKey !== null) env.JWT_SIGNING_KEY = signingKey;
+  const groqApiKey = options.groqApiKey === undefined ? 'test-groq-api-key' : options.groqApiKey;
+  if (groqApiKey !== null) env.GROQ_API_KEY = groqApiKey;
   const revision = options.revision === undefined ? 'test-revision' : options.revision;
   if (revision !== null) env.DEPLOYMENT_REVISION = revision;
-  const service = createService({ now: () => clock.now });
-  return { service, env, db, authLimit, storageLimit, clock, dbClock };
+  const service = createService({
+    now: () => clock.now,
+    ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {})
+  });
+  return { service, env, db, authLimit, storageLimit, commandAiLimit, clock, dbClock };
 }
 
 export interface RequestOptions {
