@@ -35,8 +35,8 @@ const FAILURES: Failure[] = ['reject', 'status', 'item'];
 
 const DOMAIN: Domain = { name: 'Calibur', version: '1.0.0', chainId: 8453n, verifyingContract: ADDRESS, salt: SALT };
 
-function chainOf(agglayer = true): ChainConfig {
-  const chain = parseChains(JSON.stringify({ chains: { '8453': chainEntry(agglayer) } }), 'sponsor').get(8453);
+function chainOf(withKinds = true): ChainConfig {
+  const chain = parseChains(JSON.stringify({ chains: { '8453': chainEntry(withKinds) } }), 'sponsor').get(8453);
   if (chain === undefined) throw new Error('The test chain did not parse');
   return chain;
 }

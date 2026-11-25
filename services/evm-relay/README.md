@@ -24,6 +24,8 @@ Later PRs implement the two relay routes to the contract below.
 | `src/index.ts` | The entry: CORS gate, `handleRequest`, the default `fetch` |
 | `src/router.ts` | Typed route match, the method check, the rate limit and the dispatch |
 | `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig` |
+| `src/kinds.ts` | The relay kind registry: one handler per kind (below) |
+| `src/parse.ts` | The strict parse helpers of the config and the request bodies |
 | `src/rate-limit.ts` | The read and relay rate limits per caller IP, and the read limit per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
 | `src/chain.ts` | The chain reader: the reads of one account in JSON-RPC batches |
@@ -56,7 +58,7 @@ The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `D
 { "chains": { "<chainId as decimal string>": {
     "calibur": { "address": "0x<40 hex>", "runtimeHash": "0x<64 hex>", "domainName": "Calibur", "domainVersion": "1.0.0" },
     "feeRecipient": "0x<40 hex>",
-    "agglayer": { "bridgeAddress": "0x<40 hex>", "midenNetworkId": 1, "forceUpdateGlobalExitRoot": true },
+    "kinds": { "agglayer-deposit": { "bridgeAddress": "0x<40 hex>", "midenNetworkId": 1, "forceUpdateGlobalExitRoot": true } },
     "tokens": { "0x<token address, zero address = native coin>": { "minAmount": "<positive decimal integer>", "fee": "<non-negative decimal integer>" } }
 } } }
 ```
@@ -66,10 +68,14 @@ The parse is strict. It refuses an unknown field and a missing field, and it low
 - A chain id is a positive safe integer.
 - An address is 20 bytes of hex. Only a token key can be the zero address, which means the native coin.
 - A hash is 32 bytes of hex. `domainName` and `domainVersion` are non-empty strings.
-- `midenNetworkId` is an integer from 0 to 2^32-1. `forceUpdateGlobalExitRoot` is a boolean.
+- `kinds` maps a relay kind to its config. It is required and can be empty. The registry parses each entry and refuses a kind that it does not know. For `agglayer-deposit`: `midenNetworkId` is an integer from 0 to 2^32-1 and `forceUpdateGlobalExitRoot` is a boolean.
 - `minAmount` and `fee` are decimal strings below 2^256. `minAmount` is above 0.
-- `feeRecipient` and `agglayer` are optional. When `GAS_MODE` is `deduct`, every chain needs `feeRecipient`, and every token needs a `fee` above 0 and a `minAmount` above its `fee`.
+- `feeRecipient` is optional. When `GAS_MODE` is `deduct`, every chain needs `feeRecipient`, and every token needs a `fee` above 0 and a `minAmount` above its `fee`.
 - An empty `chains` object is valid.
+
+### Relay kinds
+
+`src/kinds.ts` holds one handler per relay kind (`RelayKind` of the shared batch module). A handler parses the config of its kind, parses the `params` of a relay request, gives the token, the fee and the deposit total (`amount + fee`) of the parsed params, and builds the calls of the batch from the config, the params and the fee recipient. The routes use only the registry, so a new bridge is one entry in the registry and one kind in the batch module.
 
 `/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
@@ -120,7 +126,7 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
       balances: [ { token, balance, minAmount, fee } ] }
 ```
 
-- `kinds["agglayer-deposit"]` is present only when the chain has an `agglayer` config.
+- `kinds` has one entry for each kind in the chain's `kinds` config.
 - `balances` lists every configured token of the chain in config order.
 - In `sponsor` mode every `fee` is `"0"` and `feeRecipient` is `null`, whatever the config holds. In `deduct` mode they are the configured values.
 - Errors: `invalid_request` for a bad `chainId` or `address`, or for the relayer's own address; `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.

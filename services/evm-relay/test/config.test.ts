@@ -17,12 +17,17 @@ const AGGLAYER = { bridgeAddress: `0x${'2A'.repeat(20)}`, midenNetworkId: 1, for
 const USDC = `0x${'Aa'.repeat(20)}`;
 const FEE_RECIPIENT = `0x${'Fe'.repeat(20)}`;
 
+/** The kinds of a chain with an Agglayer deposit config that has the overrides. */
+function agglayer(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { 'agglayer-deposit': { ...AGGLAYER, ...overrides } };
+}
+
 /** A chain with one ERC-20 and the native coin, valid in both gas modes. */
 function chain(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     calibur: CALIBUR,
     feeRecipient: FEE_RECIPIENT,
-    agglayer: AGGLAYER,
+    kinds: agglayer(),
     tokens: { [USDC]: { minAmount: '2000000', fee: '100000' }, [ZERO]: { minAmount: '1000', fee: '10' } },
     ...overrides
   };
@@ -58,7 +63,7 @@ describe('parseConfig', () => {
       chainId: 8453,
       calibur: { ...CALIBUR, address: `0x${'ab'.repeat(20)}`, runtimeHash: `0x${'cd'.repeat(32)}` },
       feeRecipient: `0x${'fe'.repeat(20)}`,
-      agglayer: { ...AGGLAYER, bridgeAddress: `0x${'2a'.repeat(20)}` },
+      kinds: { 'agglayer-deposit': { ...AGGLAYER, bridgeAddress: `0x${'2a'.repeat(20)}` } },
       tokens: new Map([
         [`0x${'aa'.repeat(20)}`, { minAmount: 2_000_000n, fee: 100_000n }],
         [ZERO, { minAmount: 1000n, fee: 10n }]
@@ -66,17 +71,14 @@ describe('parseConfig', () => {
     });
   });
 
-  it('accepts a sponsor chain without feeRecipient and agglayer, and a fee of 0', () => {
-    const {
-      feeRecipient: _feeRecipient,
-      agglayer: _agglayer,
-      ...bare
-    } = chain({
+  it('accepts a sponsor chain without feeRecipient, with no kinds and a fee of 0', () => {
+    const { feeRecipient: _feeRecipient, ...bare } = chain({
+      kinds: {},
       tokens: { [USDC]: { minAmount: '1', fee: '0' } }
     });
     const parsed = parseConfig(env({ '1': bare })).chains.get(1);
     expect(parsed?.feeRecipient).toBeNull();
-    expect(parsed?.agglayer).toBeNull();
+    expect(parsed?.kinds).toEqual({});
     expect(parsed?.tokens.get(`0x${'aa'.repeat(20)}`)).toEqual({ minAmount: 1n, fee: 0n });
   });
 
@@ -84,15 +86,13 @@ describe('parseConfig', () => {
     const max = (2n ** 256n - 1n).toString();
     const value = env({
       '1': chain({
-        agglayer: { ...AGGLAYER, midenNetworkId: 2 ** 32 - 1 },
+        kinds: agglayer({ midenNetworkId: 2 ** 32 - 1 }),
         tokens: { [USDC]: { minAmount: max, fee: '0' } }
       })
     });
-    expect(
-      parseConfig(value)
-        .chains.get(1)
-        ?.tokens.get(`0x${'aa'.repeat(20)}`)?.minAmount
-    ).toBe(2n ** 256n - 1n);
+    const parsed = parseConfig(value).chains.get(1);
+    expect(parsed?.tokens.get(`0x${'aa'.repeat(20)}`)?.minAmount).toBe(2n ** 256n - 1n);
+    expect(parsed?.kinds['agglayer-deposit']?.midenNetworkId).toBe(2 ** 32 - 1);
   });
 
   it.each([
@@ -172,35 +172,48 @@ describe('parseConfig', () => {
     ],
     ['a zero feeRecipient', chain({ feeRecipient: ZERO }), `${at}.feeRecipient must not be the zero address.`],
     ['a null feeRecipient', chain({ feeRecipient: null }), `${at}.feeRecipient must be a 20-byte hex address.`],
+    ['a missing kinds', chain({ kinds: undefined }), `${at}.kinds is missing.`],
+    ['kinds an array', chain({ kinds: [] }), `${at}.kinds must be an object.`],
+    [
+      'an unknown kind',
+      chain({ kinds: { ...agglayer(), 'cctp-deposit': {} } }),
+      `${at}.kinds.cctp-deposit is not a known relay kind.`
+    ],
+    ['the old agglayer field', chain({ agglayer: AGGLAYER }), `${at}.agglayer is not a known field.`],
     [
       'a zero bridgeAddress',
-      chain({ agglayer: { ...AGGLAYER, bridgeAddress: ZERO } }),
-      `${at}.agglayer.bridgeAddress must not be the zero address.`
+      chain({ kinds: agglayer({ bridgeAddress: ZERO }) }),
+      `${at}.kinds.agglayer-deposit.bridgeAddress must not be the zero address.`
+    ],
+    [
+      'an unknown Agglayer field',
+      chain({ kinds: agglayer({ fee: '1' }) }),
+      `${at}.kinds.agglayer-deposit.fee is not a known field.`
     ],
     [
       'a fractional midenNetworkId',
-      chain({ agglayer: { ...AGGLAYER, midenNetworkId: 1.5 } }),
-      `${at}.agglayer.midenNetworkId must be an integer.`
+      chain({ kinds: agglayer({ midenNetworkId: 1.5 }) }),
+      `${at}.kinds.agglayer-deposit.midenNetworkId must be an integer.`
     ],
     [
       'a string midenNetworkId',
-      chain({ agglayer: { ...AGGLAYER, midenNetworkId: '1' } }),
-      `${at}.agglayer.midenNetworkId must be an integer.`
+      chain({ kinds: agglayer({ midenNetworkId: '1' }) }),
+      `${at}.kinds.agglayer-deposit.midenNetworkId must be an integer.`
     ],
     [
       'a negative midenNetworkId',
-      chain({ agglayer: { ...AGGLAYER, midenNetworkId: -1 } }),
-      `${at}.agglayer.midenNetworkId must be in 0..2^32-1.`
+      chain({ kinds: agglayer({ midenNetworkId: -1 }) }),
+      `${at}.kinds.agglayer-deposit.midenNetworkId must be in 0..2^32-1.`
     ],
     [
       'a midenNetworkId of 2^32',
-      chain({ agglayer: { ...AGGLAYER, midenNetworkId: 2 ** 32 } }),
-      `${at}.agglayer.midenNetworkId must be in 0..2^32-1.`
+      chain({ kinds: agglayer({ midenNetworkId: 2 ** 32 }) }),
+      `${at}.kinds.agglayer-deposit.midenNetworkId must be in 0..2^32-1.`
     ],
     [
       'a string forceUpdateGlobalExitRoot',
-      chain({ agglayer: { ...AGGLAYER, forceUpdateGlobalExitRoot: 'true' } }),
-      `${at}.agglayer.forceUpdateGlobalExitRoot must be a boolean.`
+      chain({ kinds: agglayer({ forceUpdateGlobalExitRoot: 'true' }) }),
+      `${at}.kinds.agglayer-deposit.forceUpdateGlobalExitRoot must be a boolean.`
     ],
     ['tokens an array', chain({ tokens: [] }), `${at}.tokens must be an object.`],
     [

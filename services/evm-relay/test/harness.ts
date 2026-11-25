@@ -24,9 +24,12 @@ export const NATIVE: Hex = `0x${'0'.repeat(40)}`;
 export const FEE_RECIPIENT: Hex = `0x${'fe'.repeat(20)}`;
 export const BRIDGE: Hex = `0x${'2a'.repeat(20)}`;
 
+/** The Agglayer deposit config of the test chains. */
+export const AGGLAYER_DEPOSIT = { bridgeAddress: BRIDGE, midenNetworkId: 1, forceUpdateGlobalExitRoot: true };
+
 /** A chain entry of RELAY_CONFIG with USDC and the native coin, valid in both gas modes. */
-export function chainEntry(agglayer = true): Record<string, unknown> {
-  const entry: Record<string, unknown> = {
+export function chainEntry(withKinds = true): Record<string, unknown> {
+  return {
     calibur: {
       address: CALIBUR_ADDRESS,
       runtimeHash: keccak256(IMPLEMENTATION_CODE),
@@ -34,10 +37,9 @@ export function chainEntry(agglayer = true): Record<string, unknown> {
       domainVersion: '1.0.0'
     },
     feeRecipient: FEE_RECIPIENT,
+    kinds: withKinds ? { 'agglayer-deposit': AGGLAYER_DEPOSIT } : {},
     tokens: { [USDC]: { minAmount: '2000000', fee: '100000' }, [NATIVE]: { minAmount: '1000', fee: '10' } }
   };
-  if (agglayer) entry.agglayer = { bridgeAddress: BRIDGE, midenNetworkId: 1, forceUpdateGlobalExitRoot: true };
-  return entry;
 }
 
 /** RELAY_CONFIG with the chain 8453 only. */
