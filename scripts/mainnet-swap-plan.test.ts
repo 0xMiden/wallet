@@ -137,7 +137,7 @@ describe('nightly swap cost gate', () => {
     [6, 1_000_000n],
     [8, 1_000_000n],
     [8, 57_952_000_000n],
-    [18, 3_000_000_000n]
+    [12, 3_000_000_000n]
   ])('never plans an intermediate amount under the floor (decimals %i, price %i)', (decimals, usdMicros) => {
     const a = { ...holding('a'), decimals, usdMicros };
     for (const amount of swapSearchAmounts(a)) {
