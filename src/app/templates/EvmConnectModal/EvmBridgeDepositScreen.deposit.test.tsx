@@ -632,20 +632,26 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 jest.mock('screens/send-flow/Route', () => ({
   Route: ({
     notice,
+    route,
     payouts,
+    fastFeeUsd,
     confirmDisabled,
     onRouteChange,
     onConfirm
   }: {
     notice?: React.ReactNode;
+    route: string;
     payouts?: unknown;
+    fastFeeUsd?: number;
     confirmDisabled?: boolean;
     onRouteChange: (route: string) => void;
     onConfirm: () => void;
   }) => (
     <div>
       <span data-testid="route-notice">{notice}</span>
+      <span data-testid="selected-route">{route}</span>
       <span data-testid="receive-route-payouts">{JSON.stringify(payouts ?? {})}</span>
+      <span data-testid="receive-fast-fee">{fastFeeUsd}</span>
       <button data-testid="pick-slow" onClick={() => onRouteChange('agglayer')}>
         slow
       </button>
@@ -827,7 +833,16 @@ const quoteFast = (
     status: 'quoted',
     flow: 'evm-to-miden',
     quote: {
-      params: { minTokenOut: '1505000', ...params },
+      params: {
+        sourceChainId: 11155111,
+        destinationChainId: 1,
+        evmTokenAddress: '0x00000000000000000000000000000000000000c0',
+        evmSourceAddress: EVM_ADDRESS,
+        midenRecipientId: midenAccount.publicKey,
+        midenFaucetId: '0x00000000000000000000000000e2e0',
+        minTokenOut: '1505000',
+        ...params
+      },
       quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000', resourceLockRequired, transactions }
     }
   });
@@ -1222,15 +1237,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('shows a Receive payout only for a quote matching the current wallet and amount', async () => {
-    const params = {
-      sourceChainId: 11155111,
-      destinationChainId: 1,
-      evmTokenAddress: '0x00000000000000000000000000000000000000c0',
-      evmSourceAddress: EVM_ADDRESS,
-      midenRecipientId: midenAccount.publicKey,
-      midenFaucetId: '0x00000000000000000000000000e2e0'
-    };
-    quoteFast(true, [], params);
+    quoteFast();
     const view = renderScreen();
 
     fireEvent.click(screen.getByTestId('set-amount-padded'));
@@ -1240,14 +1247,38 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     const payout = () => JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
     expect(payout().epoch).toMatchObject({ amount: '10', symbol: 'USDC' });
+    expect(screen.getByTestId('receive-fast-fee')).toHaveTextContent('0.65');
 
-    quoteFast(true, [], { ...params, minTokenOut: '1500000' });
+    quoteFast(true, [], { minTokenOut: '1500000' });
     view.rerender(depositScreen());
     expect(payout().epoch).toBeUndefined();
+    expect(screen.getByTestId('receive-fast-fee')).toBeEmptyDOMElement();
 
-    quoteFast(true, [], params);
+    quoteFast();
     view.rerender(depositScreen(undefined, '0x00000000000000000000000000000000000000f1'));
     expect(screen.queryByText(/"amount":"10"/)).not.toBeInTheDocument();
+  });
+
+  it('keeps an eligible Epoch quote for comparison when AggLayer is selected and the amount changes', async () => {
+    quoteFast();
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+
+    epochState.reset.mockClear();
+    fireEvent.click(await screen.findByTestId('pick-slow'));
+    expect(epochState.reset).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('page-back'));
+    fireEvent.click(await screen.findByTestId('set-amount'));
+    await settle();
+
+    expect(epochState.quoteEVMToMiden).toHaveBeenLastCalledWith(
+      expect.objectContaining({ minTokenOut: '1500000' }),
+      EVM_ADDRESS
+    );
   });
 
   it('quotes the Fast route for the USDC pair the config names', async () => {
@@ -1430,6 +1461,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     await change();
     expect(epochState.reset).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('selected-route')?.textContent ?? null).toBe(_change === 'route' ? 'epoch' : null);
 
     row.release();
     await settle();
@@ -1463,11 +1495,9 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     jest.mocked(initiateBridgedReceiveTransaction).mockRejectedValue(new Error('row failed'));
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
-    jest.mocked(epochState.reset).mockClear();
-
     await changeRoute();
 
-    expect(epochState.reset).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('selected-route')).toHaveTextContent('agglayer');
   });
 
   // The confirmed deposit carries the amount, token and wallet on screen at the tap; none of them may move under it.
@@ -2262,6 +2292,14 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     mockNativeReown = false;
   });
 
+  const quoteForWallet = () => {
+    const token = mockEpochTokens?.[0];
+    return quoteFast(true, [], {
+      evmSourceAddress: EVM_WALLET,
+      ...(token ? { evmTokenAddress: token.address } : {})
+    });
+  };
+
   const renderWallet = async () => {
     render(depositScreen(undefined, EVM_WALLET));
     await settle();
@@ -2532,7 +2570,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   );
 
   it('keeps the Fast route from Review while its quoted deposit is above the balance', async () => {
-    quoteFast();
+    quoteForWallet();
     // Covers the 1.505 typed, not the quote's 10.6512.
     answerBalance(FAST_DEPOSIT - 1n);
     await renderWallet();
@@ -2558,7 +2596,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   };
 
   it('says why Confirm is held while the Fast deposit is above a balance the typed amount fits', async () => {
-    quoteFast();
+    quoteForWallet();
     answerBalance(FAST_DEPOSIT - 1n);
     await renderWallet();
 
@@ -2569,7 +2607,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   });
 
   it('shows no balance notice for a Fast quote the balance covers', async () => {
-    quoteFast();
+    quoteForWallet();
     answerBalance(FAST_DEPOSIT);
     await renderWallet();
 
@@ -2584,7 +2622,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     // 1.5 asks for 1500000 faucet units; the quote is for 1505000.
     ['for another amount', () => undefined, 'set-amount']
   ])('shows no balance notice for a Fast quote %s', async (_case, stale, amountButton) => {
-    quoteFast();
+    quoteForWallet();
     stale();
     answerBalance(FAST_DEPOSIT - 1n);
     await renderWallet();
@@ -2599,7 +2637,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     ['is pending', () => (global.fetch = jest.fn(() => new Promise(() => undefined)) as never), 'loading'],
     ['failed', () => answerBalance(null), 'rpc down']
   ])('says on the Fast route step why Confirm is held while the USDC balance read %s', async (_case, read, notice) => {
-    quoteFast();
+    quoteForWallet();
     answerBalance(FAST_DEPOSIT - 1n);
     const { rerender } = render(depositScreen(undefined, EVM_WALLET));
     await settle();
@@ -2619,7 +2657,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     'starts no Fast deposit and fails the row with no answer when the balance falls under its quote before Confirm (native=%s)',
     async native => {
       mockNativeReown = native;
-      quoteFast();
+      quoteForWallet();
       await renderWallet();
       await reachFastReview();
       answerBalance(FAST_DEPOSIT - 1n);
@@ -2639,7 +2677,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   );
 
   it('starts a Fast deposit whose quote equals the balance', async () => {
-    quoteFast();
+    quoteForWallet();
     answerBalance(FAST_DEPOSIT);
     await renderWallet();
     await reachFastReview();
@@ -2656,7 +2694,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     async ({ native, quantity }) => {
       useEpochNativeEth();
       mockNativeReown = native;
-      quoteFast();
+      quoteForWallet();
       answerBalance(FUNDED);
       await renderWallet();
       act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2684,7 +2722,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   it.each([false, true])('keeps valid zero as a Fast-native insufficient balance (native=%s)', async native => {
     useEpochNativeEth();
     mockNativeReown = native;
-    quoteFast();
+    quoteForWallet();
     answerBalance(FUNDED);
     await renderWallet();
     act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2709,7 +2747,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     async quantity => {
       mockAgglayerChainId = 11155111;
       setEpochNativeEth();
-      quoteFast();
+      quoteForWallet();
       answerEthQuantity(quantity);
       await renderWallet();
       act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2726,7 +2764,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   it('keeps a valid zero as a known balance on the shared ETH-plus-Epoch Fast route', async () => {
     mockAgglayerChainId = 11155111;
     setEpochNativeEth();
-    quoteFast();
+    quoteForWallet();
     answerEthQuantity('0x0');
     await renderWallet();
     act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2746,7 +2784,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       mockAgglayerChainId = 11155111;
       setEpochNativeEth();
       mockNativeReown = native;
-      quoteFast();
+      quoteForWallet();
       answerBalance(FUNDED);
       await renderWallet();
       act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2777,7 +2815,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
       mockAgglayerChainId = 11155111;
       setEpochNativeEth();
       mockNativeReown = native;
-      quoteFast();
+      quoteForWallet();
       answerBalance(FUNDED);
       await renderWallet();
       act(() => mockLastTokenSelect({ kind: 'epoch', key: 'ETH' }));
@@ -2875,7 +2913,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     );
 
     it.each<{ route: string; token: 'USDC' | 'ETH'; setup: () => void; reach: () => Promise<void>; reads: number }>([
-      { route: 'Fast', token: 'USDC' as const, setup: quoteFast, reach: () => reachFastReview(), reads: 2 },
+      { route: 'Fast', token: 'USDC' as const, setup: quoteForWallet, reach: () => reachFastReview(), reads: 2 },
       { route: 'Slow', token: 'ETH' as const, setup: () => undefined, reach: () => reachReview(), reads: 1 },
       { route: 'Slow', token: 'USDC' as const, setup: () => undefined, reach: () => reachSlowUsdcReview(), reads: 2 }
     ])(
@@ -2975,7 +3013,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
   it('fails a Fast deposit with the reconnect message and never starts the Epoch SDK', async () => {
     refuseSepolia();
-    quoteFast();
+    quoteFast(true, [], { evmSourceAddress: EVM_WALLET });
     render(depositScreen(undefined, EVM_WALLET));
 
     await reachFastReview();
@@ -2993,7 +3031,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
   });
 
   it('starts the Fast deposit once the session approved Sepolia', async () => {
-    quoteFast();
+    quoteFast(true, [], { evmSourceAddress: EVM_WALLET });
     render(depositScreen(undefined, EVM_WALLET));
 
     await reachFastReview();
@@ -3028,7 +3066,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
   it('checks the chain the config names for the Fast USDC before a Fast deposit', async () => {
     mockSnapshot = { ...READY_SNAPSHOT, config: updateMockConfig(READY_SNAPSHOT.config!, { chainId: BASE_SEPOLIA }) };
-    quoteFast();
+    quoteFast(true, [], { evmSourceAddress: EVM_WALLET, sourceChainId: BASE_SEPOLIA });
     render(depositScreen(undefined, EVM_WALLET));
 
     await reachFastReview();

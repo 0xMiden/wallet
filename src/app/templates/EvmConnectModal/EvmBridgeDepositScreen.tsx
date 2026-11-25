@@ -1049,11 +1049,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxQuotedFeeUnits === undefined
       ? undefined
       : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' });
-  // Only an Epoch token on the Fast route is quoted; Slow (AggLayer) and Circle need no quote.
-  const [debouncedAmount] = useDebounce(
-    fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
-    500
-  );
+  const canQuoteEpoch = fastKey !== null && fastAvailability.state === 'available';
+  const [debouncedAmount] = useDebounce(canQuoteEpoch && isValidAmount(amount) ? amount.trim() : '', 500);
 
   useMobileBackHandler(() => {
     if (usdcxSubmissionPending) return true;
@@ -1286,7 +1283,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
-    if (route !== 'epoch' || fastKey === null) return;
+    if (!canQuoteEpoch) return;
     // A quote resets the store's deposit state, stopping its status poll, so nothing quotes over a deposit that has
     // started. Read, not subscribed: a status change alone must never quote, or a landed quote starts another and a
     // deposit that fails is re-quoted over its error.
@@ -1296,7 +1293,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
     const quoting = requote();
     if (quoting === undefined) resetEpoch();
-  }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, fastKey]);
+  }, [allocatorUrl, canQuoteEpoch, confirmSettled, requote, resetEpoch]);
 
   useEffect(() => {
     if (compactWatchClosed || epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
@@ -1389,9 +1386,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setRoute(next);
       setSlowStatus('idle');
       setSlowError(null);
-      resetEpoch();
     },
-    [resetEpoch, route]
+    [route]
   );
 
   const readBalanceOrFail = useCallback(
@@ -2036,18 +2032,33 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const capHoldErrorId = capHoldError?.id;
   const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
 
+  const fastParams = epochQuote?.params;
+  const minTokenOut = midenUsdc && evmToMidenMinTokenOut(amount, midenUsdc.decimals);
+  const currentFastQuote =
+    canQuoteEpoch &&
+    epochFlow === 'evm-to-miden' &&
+    epochStatus === 'quoted' &&
+    fastParams &&
+    'sourceChainId' in fastParams &&
+    evmUsdc &&
+    midenUsdc &&
+    minTokenOut &&
+    fastParams.sourceChainId === evmUsdc.chainId &&
+    fastParams.destinationChainId === MIDEN_DESTINATION_CHAIN_ID &&
+    fastParams.evmSourceAddress.toLowerCase() === evmAddress.toLowerCase() &&
+    fastParams.evmTokenAddress.toLowerCase() === evmUsdc.address.toLowerCase() &&
+    fastParams.midenRecipientId === midenAccount.publicKey &&
+    fastParams.midenFaucetId === midenUsdc.faucetId &&
+    fastParams.minTokenOut === minTokenOut
+      ? epochQuote
+      : undefined;
+
   // Fast (Epoch) bridges the picked Epoch token. The quote must be for the amount on screen: it lags the input by the
   // debounce, and an amount that rounds to zero faucet units is never quoted. Its deposit, not the typed amount, is
   // what the balance has to cover.
   const fastReady =
     route === 'epoch' &&
-    fastAvailability.state === 'available' &&
-    fastKey !== null &&
-    epochFlow === 'evm-to-miden' &&
-    epochStatus === 'quoted' &&
-    !!epochQuote &&
-    !!midenUsdc &&
-    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals) &&
+    !!currentFastQuote &&
     quotedTokenIn !== null &&
     usdcBalance.value !== null &&
     quotedTokenIn <= usdcBalance.value;
@@ -2153,8 +2164,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       ? 1
       : quotedPrice(usdPrices, priceSymbolFor(midenUsdc.faucetId, midenUsdc.symbol))?.price;
   const fastFeeUsd = useMemo(() => {
-    const rawIn = epochQuote?.quoteResult.tokenIn;
-    const rawOut = epochQuote?.quoteResult.tokenOut;
+    const rawIn = currentFastQuote?.quoteResult.tokenIn;
+    const rawOut = currentFastQuote?.quoteResult.tokenOut;
     if (!rawIn || !rawOut || !midenUsdc || fastInputPrice === undefined || fastOutputPrice === undefined) {
       return undefined;
     }
@@ -2166,42 +2177,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     } catch {
       return undefined;
     }
-  }, [
-    epochQuote?.quoteResult.tokenIn,
-    epochQuote?.quoteResult.tokenOut,
-    midenUsdc,
-    usdcDecimals,
-    fastInputPrice,
-    fastOutputPrice
-  ]);
+  }, [currentFastQuote, midenUsdc, usdcDecimals, fastInputPrice, fastOutputPrice]);
   const fastPayout = useMemo(() => {
-    const params = epochQuote?.params;
-    const minTokenOut = midenUsdc && evmToMidenMinTokenOut(amount, midenUsdc.decimals);
-    const raw = String(epochQuote?.quoteResult.tokenOut ?? '');
-    if (
-      epochFlow !== 'evm-to-miden' ||
-      epochStatus !== 'quoted' ||
-      !params ||
-      !('sourceChainId' in params) ||
-      !evmUsdc ||
-      !midenUsdc ||
-      !minTokenOut ||
-      params.sourceChainId !== evmUsdc.chainId ||
-      params.destinationChainId !== MIDEN_DESTINATION_CHAIN_ID ||
-      params.evmSourceAddress.toLowerCase() !== evmAddress.toLowerCase() ||
-      params.evmTokenAddress.toLowerCase() !== evmUsdc.address.toLowerCase() ||
-      params.midenRecipientId !== midenAccount.publicKey ||
-      params.midenFaucetId !== midenUsdc.faucetId ||
-      params.minTokenOut !== minTokenOut ||
-      !/^[1-9]\d*$/.test(raw)
-    )
-      return undefined;
+    const raw = String(currentFastQuote?.quoteResult.tokenOut ?? '');
+    if (!midenUsdc || !/^[1-9]\d*$/.test(raw)) return undefined;
     return {
       assetId: midenUsdc.faucetId,
       amount: formatUnits(BigInt(raw), midenUsdc.decimals),
       symbol: midenUsdc.symbol
     };
-  }, [amount, epochFlow, epochQuote, epochStatus, evmAddress, evmUsdc, midenAccount.publicKey, midenUsdc]);
+  }, [currentFastQuote, midenUsdc]);
   const slowPayout = useMemo(() => {
     if (slowAvailability.state !== 'available' || !isValidAmount(amount)) return undefined;
     const delivery =
@@ -2296,14 +2281,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const routeNotice = (() => {
     if (balanceHoldNotice) return balanceHoldNotice;
     const balance = usdcBalance.value;
-    const quoteForAmount =
-      route === 'epoch' &&
-      epochFlow === 'evm-to-miden' &&
-      epochStatus === 'quoted' &&
-      !!epochQuote &&
-      !!midenUsdc &&
-      epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals);
-    if (!quoteForAmount || quotedTokenIn === null || balance === null || quotedTokenIn <= balance) return undefined;
+    if (
+      route !== 'epoch' ||
+      !currentFastQuote ||
+      quotedTokenIn === null ||
+      balance === null ||
+      quotedTokenIn <= balance
+    ) {
+      return undefined;
+    }
     // The deposit as the Review shows it, rounded up, and the balance rounded down, so the two never read as equal.
     return t('fastQuoteAboveBalanceNotice', {
       deposit: reviewAmount,
@@ -2549,7 +2535,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                         onSelect: () => handleRouteChange('epoch'),
                         availability: configuredFastAvailability,
                         feeUsd: fastFeeUsd,
-                        loading: route === 'epoch' && epochStatus === 'quoting',
+                        loading: epochFlow === 'evm-to-miden' && epochStatus === 'quoting',
                         notice: route === 'epoch' ? routeNotice : undefined
                       }
                     : undefined
@@ -2576,7 +2562,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
               payouts={{ epoch: fastPayout, agglayer: slowPayout }}
-              fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
+              fastQuoteLoading={canQuoteEpoch && epochFlow === 'evm-to-miden' && epochStatus === 'quoting'}
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
@@ -2652,6 +2638,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       errorId,
       evmAddress,
       midenAccount.name,
+      canQuoteEpoch,
+      epochFlow,
       epochStatus,
       fastAvailability,
       sharedFastToken,
