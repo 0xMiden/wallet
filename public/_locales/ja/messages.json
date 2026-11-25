@@ -10457,5 +10457,29 @@
   "commandAiPlanPreviousOutput": {
     "message": "Previous output",
     "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "Send 10 USDCx to John",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "Bridge in 1 ETH and swap it to USDCx",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "Summarize my last week activity",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "Make 10 USDCx earn in the most efficient way",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "How much USDCx did I send this month?",
+    "englishSource": "(untranslated)"
   }
 }

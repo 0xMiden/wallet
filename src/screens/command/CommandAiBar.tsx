@@ -1,5 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -158,6 +159,59 @@ function AnswerCardShell({
   );
 }
 
+type TypingPhase = 'typing' | 'holding' | 'erasing' | 'pausing';
+
+function useTypingPlaceholder(phrases: readonly string[], active: boolean, fallback: string): string {
+  const reducedMotion = useReducedMotion();
+  const [cursor, setCursor] = useState<{ phraseIndex: number; charCount: number; phase: TypingPhase }>({
+    phraseIndex: 0,
+    charCount: 0,
+    phase: 'typing'
+  });
+
+  useEffect(() => {
+    if (!active || reducedMotion || phrases.length === 0) return;
+
+    const delay =
+      cursor.phase === 'typing' ? 48 : cursor.phase === 'holding' ? 2_200 : cursor.phase === 'erasing' ? 24 : 450;
+
+    const timer = window.setTimeout(() => {
+      setCursor(prev => {
+        const text = phrases[prev.phraseIndex % phrases.length] ?? '';
+        if (prev.phase === 'typing') {
+          const nextChars = prev.charCount + 1;
+          if (nextChars >= text.length) {
+            return { ...prev, charCount: text.length, phase: 'holding' };
+          }
+          return { ...prev, charCount: nextChars };
+        }
+        if (prev.phase === 'holding') {
+          return { ...prev, phase: 'erasing' };
+        }
+        if (prev.phase === 'erasing') {
+          const nextChars = prev.charCount - 1;
+          if (nextChars <= 0) {
+            return {
+              phraseIndex: (prev.phraseIndex + 1) % phrases.length,
+              charCount: 0,
+              phase: 'pausing'
+            };
+          }
+          return { ...prev, charCount: nextChars };
+        }
+        return { ...prev, phase: 'typing' };
+      });
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [active, cursor, phrases, reducedMotion]);
+
+  if (!active || reducedMotion || phrases.length === 0) return fallback;
+  const activePhrase = phrases[cursor.phraseIndex % phrases.length] ?? '';
+  const visibleText = activePhrase.slice(0, cursor.charCount);
+  return visibleText ? `${visibleText}|` : '';
+}
+
 export function CommandAiBar({
   scope,
   assets,
@@ -168,6 +222,17 @@ export function CommandAiBar({
   tokenPrices: TokenPrices;
 }): React.ReactElement {
   const { t } = useTranslation();
+  const samplePrompts = useMemo(
+    () => [
+      t('commandAiSamplePrompt1'),
+      t('commandAiSamplePrompt2'),
+      t('commandAiSamplePrompt3'),
+      t('commandAiSamplePrompt4'),
+      t('commandAiSamplePrompt5'),
+      t('commandAiSamplePrompt6')
+    ],
+    [t]
+  );
   const drafts = useOptionalCommandDrafts();
   const planCtx = useOptionalCommandAiPlan();
   const { contacts, heldNicheTickers, getWalletContext, loadEarnPositions } = useCommandAiWalletData(
@@ -395,6 +460,11 @@ export function CommandAiBar({
   const activeRedactedKinds = state.kind === 'idle' ? [] : state.redactedKinds;
   const busy = state.kind === 'compiling';
   const activePlan = state.kind === 'idle' ? planCtx?.plan : null;
+  const animatedPlaceholder = useTypingPlaceholder(
+    samplePrompts,
+    input.length === 0 && !busy,
+    t('commandAiPlaceholder')
+  );
 
   return (
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
@@ -439,7 +509,7 @@ export function CommandAiBar({
                   void handleSubmit();
                 }
               }}
-              placeholder={t('commandAiPlaceholder')}
+              placeholder={animatedPlaceholder}
               className="min-h-28 min-w-0 flex-1 resize-y bg-transparent py-2 text-xl leading-relaxed text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           ) : (
@@ -449,7 +519,7 @@ export function CommandAiBar({
               aria-label={t('commandAiBarLabel')}
               value={input}
               onChange={event => setInput(event.target.value)}
-              placeholder={t('commandAiPlaceholder')}
+              placeholder={animatedPlaceholder}
               className="h-18 min-w-0 flex-1 bg-transparent text-xl text-ink outline-none placeholder:text-muted sm:text-2xl"
             />
           )}

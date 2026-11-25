@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { compileCommandPrompt } from 'lib/command-ai/client';
 import { executeLocalLedgerQuery } from 'lib/command-ai/local-query';
@@ -497,6 +497,44 @@ describe('CommandAiBar', () => {
       expect(screen.queryByTestId('command-ai-plan-banner')).not.toBeInTheDocument();
     } finally {
       _setSwapTokensForTest(undefined);
+    }
+  });
+
+  it('cycles animated sample prompt placeholders while empty and stops when typing', () => {
+    jest.useFakeTimers();
+    try {
+      const { rerender } = render(<CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />);
+      const input = () => screen.getByTestId('command-ai-input') as HTMLInputElement;
+      const step = (ms: number, times = 1) => {
+        for (let i = 0; i < times; i += 1) {
+          act(() => {
+            jest.advanceTimersByTime(ms);
+          });
+        }
+      };
+      expect(input().placeholder).toBe('');
+
+      step(48, 5);
+      expect(input().placeholder).toBe('comma|');
+
+      step(48, 17);
+      expect(input().placeholder).toBe('commandAiSamplePrompt1|');
+
+      step(2200);
+      step(24, 22);
+      expect(input().placeholder).toBe('');
+
+      step(450);
+      step(48, 22);
+      expect(input().placeholder).toBe('commandAiSamplePrompt2|');
+
+      fireEvent.change(input(), { target: { value: 'hello' } });
+      expect(input().placeholder).toBe('commandAiPlaceholder');
+      rerender(<CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />);
+      step(48, 5);
+      expect(input().placeholder).toBe('commandAiPlaceholder');
+    } finally {
+      jest.useRealTimers();
     }
   });
 });
