@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][ci] Write the Command portfolio chart labels and the AI plan card blur as plain backdrop-filter values with their WebKit twin instead of Tailwind backdrop-blur utilities, which the composed-filters guard rejects, so the unit tests pass on main again.
 - [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
 - [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.
 - [CHORE][ci] Fix two TypeScript errors in the mainnet nightly helper and swap-loop spec that failed the type check of every pull request (type-only, no behavior change).
