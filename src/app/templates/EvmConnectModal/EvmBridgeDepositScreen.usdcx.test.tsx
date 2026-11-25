@@ -157,7 +157,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetId: async () => 'mtst1usdcxnative'
+  getNativeAssetId: async () => 'mtst1usdcxnative',
+  getNativeAssetIdSync: () => 'mtst1usdcxnative'
 }));
 
 jest.mock('lib/usdcx/deposit', () => ({
@@ -452,6 +453,7 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     confirmDisabled,
     onConfirm,
     fee,
+    payout,
     notice,
     sourceChainId,
     fast
@@ -459,12 +461,14 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     confirmDisabled?: boolean;
     onConfirm: () => void;
     fee?: string;
+    payout?: { amount: string };
     notice?: string;
     sourceChainId: number;
     fast?: { onSelect: () => void };
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      {payout && <span data-testid="usdcx-route-payout">{payout.amount}</span>}
       <span data-testid="usdcx-route-notice">{notice}</span>
       <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       {fast && (
@@ -1181,6 +1185,47 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
     await settle();
     expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
+  });
+
+  it('retains the current Circle executor fee when switching to an eligible Epoch route', async () => {
+    const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const config = snapshot.config!;
+    const chain = config.supportedEvmChains['base-sepolia']!;
+    const token = chain.bridges.usdcx!.tokens.USDC!;
+    const epoch = config.supportedEvmChains.sepolia!.bridges.epoch!;
+    const derived = snapshot.derived!;
+    const epochReads = derived.chains[11155111]!.epoch;
+    mockBridgeSnapshot = {
+      ...snapshot,
+      config: {
+        ...config,
+        supportedEvmChains: {
+          ...config.supportedEvmChains,
+          'base-sepolia': {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              epoch: {
+                ...epoch,
+                tokens: { USDC: { ...epoch.tokens.USDC!, contractAddress: token.contractAddress } }
+              }
+            }
+          }
+        }
+      },
+      derived: { ...derived, chains: { ...derived.chains, 84532: { ...derived.chains[84532]!, epoch: epochReads } } }
+    };
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('0.031908');
+
+    fireEvent.click(screen.getByTestId('circle-fast'));
+    await settle();
+
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('0.031908');
+    expect(screen.getByTestId('usdcx-route-payout')).toHaveTextContent(/^1\.5$/);
+    expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
   });
 
   // A burst of keystrokes asks Circle once, for the amount the user settled on; a fee quoted for another amount

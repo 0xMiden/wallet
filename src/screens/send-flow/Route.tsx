@@ -26,7 +26,29 @@ import { BridgeRoute } from './types';
 import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
-type RoutePayout = { assetId: string; amount: string; symbol: string };
+export type RoutePayout = { assetId: string; amount: string; symbol: string };
+export type RouteSortOrder = Extract<BridgeRouteRanking, 'best-value' | 'fastest'>;
+
+export const RouteSort: React.FC<{
+  value: RouteSortOrder;
+  onChange: (value: RouteSortOrder) => void;
+  accent: FlowAccent;
+}> = ({ value, onChange, accent }) => {
+  const { t } = useTranslation();
+  return (
+    <SegmentedControl
+      items={[
+        { id: 'best-value', label: t('bridgeRankBestValue') },
+        { id: 'fastest', label: t('bridgeRankFastest') }
+      ]}
+      value={value}
+      onChange={onChange}
+      layout="fill"
+      accent={accent}
+      aria-label={t('bridgeRouteSort')}
+    />
+  );
+};
 
 export interface RouteStepProps {
   payouts?: Partial<Record<'epoch' | 'agglayer', RoutePayout>>;
@@ -251,7 +273,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   showSlowRoute = true
 }) => {
   const { t } = useTranslation();
-  const [ranking, setRanking] = useState<Extract<BridgeRouteRanking, 'best-value' | 'fastest'>>('best-value');
+  const [ranking, setRanking] = useState<RouteSortOrder>('best-value');
   const slowAllowed = slowStatus === 'allowed';
   const fastSelectable = showFastRoute && !isFeatureBlocked(fastAvailability);
   const slowSelectable = showSlowRoute && slowAllowed && !isFeatureBlocked(slowAvailability);
@@ -397,19 +419,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 
   return (
     <div className="mt-4 flex flex-col gap-4">
-      {routes.length > 1 && (
-        <SegmentedControl
-          items={[
-            { id: 'best-value', label: t('bridgeRankBestValue') },
-            { id: 'fastest', label: t('bridgeRankFastest') }
-          ]}
-          value={ranking}
-          onChange={setRanking}
-          layout="fill"
-          accent={accent}
-          aria-label={t('bridgeRouteSort')}
-        />
-      )}
+      {routes.length > 1 && <RouteSort value={ranking} onChange={setRanking} accent={accent} />}
       {rankBridgeRoutes(routes, ranking).map(({ id, card }) => (
         <React.Fragment key={id}>{card}</React.Fragment>
       ))}

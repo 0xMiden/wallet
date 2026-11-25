@@ -34,7 +34,7 @@ import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'li
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { quotedPrice } from 'lib/prices/binance';
@@ -732,10 +732,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   // Circle's source on the picked chain, when that chain is one.
   const usdcxSource = usdcxSources.get(sourceChainId);
-  // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
-  // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
-  // was quoted for, so a fee for an earlier amount is never shown.
-  const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
+  // The burn fetches its own signed quote immediately before signing.
+  const [usdcxQuote, setUsdcxQuote] = useState<{
+    source: UsdcxSourceChain;
+    sender: string;
+    recipient: string;
+    amount: string;
+    fee?: bigint | 'unavailable';
+  }>();
   const [amount, setAmount] = useState('');
   const [epochBalanceSlot, setEpochBalanceSlot] = useState<StampedBalanceMap<EpochBalancesIdentity> | null>(null);
   const [circleBalanceSlot, setCircleBalanceSlot] = useState<StampedBalance<CircleBalanceIdentity> | null>(null);
@@ -1043,8 +1047,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   const balanceUnreadable = !selectedBalance.loading && selectedBalance.value === null;
   // Circle's display quote follows the amount the user settled on, not every keystroke.
-  const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
-  const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
+  const canQuoteUsdcx = token === 'CIRCLE_USDC' && usdcxAvailable && usdcxSource?.route === 'cctp-executor';
+  const [debouncedUsdcxAmount] = useDebounce(canQuoteUsdcx && isValidAmount(amount) ? amount.trim() : '', 500);
+  const currentUsdcxQuote =
+    canQuoteUsdcx &&
+    usdcxQuote?.source === usdcxSource &&
+    usdcxQuote.sender === evmAddress &&
+    usdcxQuote.recipient === midenAccount.publicKey &&
+    usdcxQuote.amount === amount.trim()
+      ? usdcxQuote
+      : undefined;
+  const usdcxQuotedFeeUnits = typeof currentUsdcxQuote?.fee === 'bigint' ? currentUsdcxQuote.fee : undefined;
   const usdcxQuotedFee =
     usdcxQuotedFeeUnits === undefined
       ? undefined
@@ -1329,38 +1342,42 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, []);
 
   useEffect(() => {
-    setUsdcxQuote(undefined);
     if (
-      route !== 'usdcx' ||
+      !canQuoteUsdcx ||
       !usdcxSource ||
       usdcxSource.route !== 'cctp-executor' ||
       !debouncedUsdcxAmount ||
-      !isAddress(evmAddress)
+      !isAddress(evmAddress) ||
+      confirming.current
     ) {
       return;
     }
     const source = usdcxSource;
-    const quotedAmount = debouncedUsdcxAmount;
+    const scope = {
+      source,
+      sender: evmAddress,
+      recipient: midenAccount.publicKey,
+      amount: debouncedUsdcxAmount
+    };
+    setUsdcxQuote(scope);
     let cancelled = false;
     (async () => {
       try {
-        const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
+        const recipient = usdcxRemoteRecipientFor(scope.recipient);
         const quote = await quoteExecutorBurn(
           source,
-          buildExecutorBurnIntent(quotedAmount, source, recipient, evmAddress)
+          buildExecutorBurnIntent(scope.amount, source, recipient, scope.sender)
         );
-        if (!cancelled) {
-          setUsdcxQuote({ amount: quotedAmount, fee: quote.feeTotalAmount });
-        }
+        if (!cancelled) setUsdcxQuote({ ...scope, fee: quote.feeTotalAmount });
       } catch (err) {
-        // No quote on the card: the burn tries again and falls back to the manual execute if Circle refuses.
+        if (!cancelled) setUsdcxQuote({ ...scope, fee: 'unavailable' });
         console.warn('[EvmBridgeDepositScreen] USDCx fee quote failed', err);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [route, usdcxSource, debouncedUsdcxAmount, evmAddress, midenAccount.publicKey]);
+  }, [canQuoteUsdcx, confirmSettled, usdcxSource, debouncedUsdcxAmount, evmAddress, midenAccount.publicKey]);
 
   const handleOpenNetworkDrawer = useCallback(() => {
     if (confirming.current) return;
@@ -2215,6 +2232,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     slowSourceDecimals,
     usdcSymbol
   ]);
+  const usdcxAssetId = getNativeAssetIdSync();
+  const usdcxPayout = useMemo(() => {
+    if (
+      token !== 'CIRCLE_USDC' ||
+      !usdcxAvailable ||
+      !usdcxSource ||
+      !usdcxAssetId ||
+      (usdcxSource.route === 'cctp-executor' && usdcxQuotedFeeUnits === undefined) ||
+      amountExceedsTokenDecimals(amount, USDCX_DECIMALS)
+    )
+      return undefined;
+    const units = toBaseUnits(amount, USDCX_DECIMALS);
+    if (!units || units <= 0n) return undefined;
+    return { assetId: usdcxAssetId, amount: formatUnits(units, USDCX_DECIMALS), symbol: USDCX_SYMBOL };
+  }, [amount, token, usdcxAssetId, usdcxAvailable, usdcxQuotedFeeUnits, usdcxSource]);
+  const usdcxQuotePending = canQuoteUsdcx && currentUsdcxQuote?.fee === undefined;
+  const usdcxQuoteUnavailable = currentUsdcxQuote?.fee === 'unavailable';
   const displayedError: DepositError | null =
     route === 'epoch' && epochFlow === 'evm-to-miden'
       ? epochError == null
@@ -2535,6 +2569,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                         onSelect: () => handleRouteChange('epoch'),
                         availability: configuredFastAvailability,
                         feeUsd: fastFeeUsd,
+                        payout: fastPayout,
                         loading: epochFlow === 'evm-to-miden' && epochStatus === 'quoting',
                         notice: route === 'epoch' ? routeNotice : undefined
                       }
@@ -2542,6 +2577,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                 }
                 sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
+                payout={usdcxPayout}
+                availability={usdcxAvailability}
+                feePending={usdcxQuotePending}
+                feeUnavailable={usdcxQuoteUnavailable}
                 notice={
                   balanceHoldNotice ??
                   usdcxFeeHoldNotice ??
@@ -2662,6 +2701,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       routeNotice,
       usdcxFeeHoldNotice,
       usdcxQuotedFee,
+      usdcxPayout,
+      usdcxAvailability,
+      usdcxQuotePending,
+      usdcxQuoteUnavailable,
       canConfirmRoute,
       outputAmount,
       networkName,
