@@ -168,23 +168,23 @@ describe('EarnIntentWatcher local reconciliation', () => {
     const heldKey = earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-restored');
     own(heldKey);
 
-    const read = jest.spyOn(transactions, 'filter');
-    render(<EarnIntentWatcher />);
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    // A later row that the same reconciliation fails shows that a full pass ran over the restored row.
+    // Seed a sentinel whose primary key sorts after `'restored'` before mount so `reconcileEarnWithdrawals`
+    // processes `'restored'` first and reaching `'failed'` on the sentinel proves the same pass finished it.
     await transactions.add(
-      withdrawal('late-expired', {
+      withdrawal('z-late-expired', {
         attemptStartedAt: EXPIRED_SECONDS,
         withdrawIntentNonce: undefined,
         submissionState: 'preparing'
       })
     );
-    own(earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-late-expired'));
+    expect(await transactions.toCollection().primaryKeys()).toEqual(['restored', 'z-late-expired']);
+
+    render(<EarnIntentWatcher />);
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(15_000);
+      await jest.advanceTimersByTimeAsync(100);
     });
     await waitFor(async () => {
-      const late = await transactions.get('late-expired');
+      const late = await transactions.get('z-late-expired');
       const lateInputs: IEarnWithdrawExtraInputs | undefined = late?.extraInputs;
       expect(lateInputs?.phase).toBe('failed');
     });
