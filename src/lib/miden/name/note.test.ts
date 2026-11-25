@@ -300,12 +300,13 @@ describe('buildRegisterNameRequest', () => {
 
     await buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n });
     expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(FAKE_CLIENT, SENDER_HEX, SALT);
-    expect(mockAssertHold).toHaveBeenCalledTimes(2);
+    expect(mockAssertHold).toHaveBeenCalledTimes(3);
     expect(builtNote().builder).toBe(customBuilder);
 
     const evictedScript = { script: 'register-domain', free: jest.fn() };
     mockLoadScript.mockResolvedValueOnce(evictedScript);
     mockAssertHold
+      .mockImplementationOnce(() => undefined)
       .mockImplementationOnce(() => undefined)
       .mockImplementationOnce(() => {
         throw new Error('hold evicted during feeAwareRequestBuilder');
@@ -367,6 +368,32 @@ describe('buildRegisterNameRequest', () => {
     await expect(
       buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n })
     ).rejects.toBeInstanceOf(MidenNameAbortedError);
+  });
+
+  it('rechecks lock hold after getMidenClient before invoking feeAwareRequestBuilder', async () => {
+    const mockLoadScript = jest.requireMock<{
+      loadRegisterDomainScript: jest.Mock<Promise<{ script: string; free: jest.Mock }>, []>;
+    }>('./script').loadRegisterDomainScript;
+    const script = { script: 'register-domain', free: jest.fn() };
+    mockLoadScript.mockResolvedValueOnce(script);
+
+    let resolveClient!: (value: { client: object }) => void;
+    const clientPromise = new Promise<{ client: object }>(resolve => {
+      resolveClient = resolve;
+    });
+    mockGetMidenClient.mockReturnValueOnce(clientPromise);
+    mockAssertHold
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('hold evicted during getMidenClient');
+      });
+
+    const pendingBuild = buildRegisterNameRequest({ senderAccountId: SENDER_HEX, label: 'alice', priceBaseUnits: 1n });
+    resolveClient({ client: FAKE_CLIENT });
+
+    await expect(pendingBuild).rejects.toThrow('hold evicted during getMidenClient');
+    expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
+    expect(script.free).toHaveBeenCalledTimes(1);
   });
 });
 

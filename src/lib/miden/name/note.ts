@@ -167,9 +167,9 @@ export async function buildRegisterNameRequest(args: RegisterNameRequestArgs): P
           const inputs = registerNoteInputs(idParts(registry), domainWord, reclaimHeight);
           const storage = new NoteStorage(new FeltArray(inputs.map(value => new Felt(value))));
           // Declared at build time: multisig Guardian accounts resolve bound fee auth args on the builder.
-          const builder = await awaitScoped(scope, async () =>
-            feeAwareRequestBuilder((await awaitScoped(scope, () => getMidenClient())).client, senderId, feeSalt)
-          );
+          const { client } = await awaitScoped(scope, () => getMidenClient());
+          assertWasmHoldCurrent(hold, 'miden-name-register-build: after getting the client');
+          const builder = await awaitScoped(scope, () => feeAwareRequestBuilder(client, senderId, feeSalt));
           assertWasmHoldCurrent(hold, 'miden-name-register-build: after the fee-aware request builder');
           // The recipient takes the script: from here the note owns it.
           scriptOwned = false;
