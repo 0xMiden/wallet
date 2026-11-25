@@ -48,9 +48,41 @@ const AMOUNT_SCHEMA = {
       required: ['kind'],
       properties: { kind: { type: 'string', enum: ['max'] } }
     },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: { kind: { type: 'string', enum: ['previous_output'] } }
+    },
     { type: 'null' }
   ]
 };
+
+const INTENT_SLOT_PROPERTIES = {
+  action: { type: 'string', enum: ['send', 'swap', 'bridge', 'earn', 'receive'] },
+  amount: AMOUNT_SCHEMA,
+  asset: { type: ['string', 'null'] },
+  to_asset: { type: ['string', 'null'] },
+  from_chain: { type: ['string', 'null'] },
+  to_chain: { type: ['string', 'null'] },
+  recipient_ref: { type: ['string', 'null'] },
+  provider: { type: ['string', 'null'] },
+  note_type: { type: ['string', 'null'], enum: ['private', 'public', null] },
+  earn_op: { type: ['string', 'null'], enum: ['deposit', 'withdraw', null] }
+};
+
+const INTENT_SLOT_REQUIRED = [
+  'action',
+  'amount',
+  'asset',
+  'to_asset',
+  'from_chain',
+  'to_chain',
+  'recipient_ref',
+  'provider',
+  'note_type',
+  'earn_op'
+];
 
 export const COMMAND_AI_JSON_SCHEMA = {
   type: 'object',
@@ -87,6 +119,23 @@ export const COMMAND_AI_JSON_SCHEMA = {
             provider: { type: ['string', 'null'] },
             note_type: { type: ['string', 'null'], enum: ['private', 'public', null] },
             earn_op: { type: ['string', 'null'], enum: ['deposit', 'withdraw', null] }
+          }
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['op', 'steps'],
+          properties: {
+            op: { type: 'string', enum: ['set_plan'] },
+            steps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: INTENT_SLOT_REQUIRED,
+                properties: INTENT_SLOT_PROPERTIES
+              }
+            }
           }
         },
         {
@@ -172,11 +221,12 @@ Intent Rules:
 - "set_intent":
   - action="send": transfer tokens to a Miden or cross-chain recipient.
   - action="swap": swap asset -> to_asset on Miden DEX.
-  - action="bridge": move asset across chains (from_chain/to_chain/provider e.g. "epoch", "agglayer", "xreserve", "across", "cctp").
+  - action="bridge": move asset across chains (from_chain/to_chain/provider e.g. "epoch", "agglayer", "xreserve", "across", "cctp"). For "bridge ... in" / deposits to Miden, set to_chain="miden"; for "bridge ... out" / withdrawals from Miden, set from_chain="miden".
   - action="earn": earn_op="deposit" or "withdraw".
   - action="receive": receive or view deposit address.
   - Fractions: "half" -> {kind:"fraction", numerator:1, denominator:2}; "50%" -> {kind:"fraction", numerator:1, denominator:2}; "quarter" -> 1/4; "all"/"max"/"everything" -> {kind:"max"}.
   - note_type: "private" or "public" ONLY when user explicitly asks; otherwise null.
+- "set_plan": when the user asks to chain 2 to 4 sequential actions (e.g. "bridge <FIAT_AMT_1> ETH in, then swap it for USDCX", "swap <AMT_1> MIDEN to USDCX and send it to <CONTACT_1>"), return ordered steps (each a full intent-slot object). When a later step refers to "it", "that", "them", or "the output" from the previous step, set that step's amount to {kind:"previous_output"}.
 - "patch_slots": when a clarification snapshot is provided and the user answers or tweaks fields, return ONLY changed non-null fields in patch (keep unchanged fields null).
 - "query_ledger": read-only questions about user's balance ("balance"), total spent/received ("tx_sum"), or history ("tx_list").
 - "cancel": user aborts ("never mind", "cancel", "stop").

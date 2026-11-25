@@ -73,6 +73,7 @@ export interface HydratedIntentDraft {
   fiatUsdAmount?: string;
   amountFraction?: { numerator: number; denominator: number };
   amountIsMax?: boolean;
+  amountFromPrevious?: boolean;
   assetQuery?: string;
   tokenId?: string;
   toAssetQuery?: string;
@@ -131,6 +132,7 @@ export type CommandPrefillHandoff =
 
 export type OrchestratorResolution =
   | { kind: 'handoff'; handoff: CommandPrefillHandoff }
+  | { kind: 'plan'; steps: HydratedIntentDraft[]; map: RedactionMap }
   | {
       kind: 'clarifying';
       slot: string;
@@ -260,12 +262,37 @@ function spendableBaseUnits(
 function resolveSymbolicAmount(
   draft: HydratedIntentDraft,
   balance: TokenBalanceData | undefined,
-  ctx: OrchestratorWalletContext
+  ctx: OrchestratorWalletContext,
+  fallbackSymbol?: string
 ): { amount?: string; errorKey?: string } {
   if (draft.amount !== undefined) return { amount: draft.amount };
+
+  const decimals = balance && hasKnownScale(balance.metadata) ? balance.metadata.decimals : 6;
+  if (draft.fiatUsdAmount) {
+    const symbol = balance?.metadata.symbol ?? fallbackSymbol ?? draft.assetQuery ?? '';
+    const verifiedQuote = balance?.tokenId ? tokenQuote(ctx.tokenPrices, balance.tokenId, symbol) : undefined;
+    const upperSym = symbol.trim().toUpperCase();
+    const feedQuote =
+      verifiedQuote ?? (upperSym ? (ctx.tokenPrices[upperSym] ?? ctx.tokenPrices[symbol.trim()]) : undefined);
+    const unitUsd =
+      feedQuote && feedQuote.kind !== 'nominal' && Number.isFinite(feedQuote.price) && feedQuote.price > 0
+        ? feedQuote.price
+        : balance && Number.isFinite(balance.fiatPrice) && balance.fiatPrice > 0
+          ? balance.fiatPrice
+          : null;
+    if (unitUsd === null) {
+      return { errorKey: 'commandAiFiatPriceUnavailable' };
+    }
+    const usd = Number(draft.fiatUsdAmount);
+    if (!Number.isFinite(usd) || usd <= 0) return {};
+    const tokenQty = usd / unitUsd;
+    const scale = Math.min(decimals, 6);
+    const rounded = tokenQty.toFixed(scale).replace(/\.?0+$/, '');
+    return { amount: rounded || '0' };
+  }
+
   if (!balance || !hasKnownScale(balance.metadata)) return {};
 
-  const decimals = balance.metadata.decimals;
   const spendable = spendableBaseUnits(balance, ctx.nativeFaucetId, ctx.verificationBaseFee);
 
   if (draft.amountIsMax) {
@@ -279,18 +306,6 @@ function resolveSymbolicAmount(
     if (part <= 0n) return { errorKey: 'amountMustBeLessThanBalance' };
     return { amount: formatBigInt(part, decimals) };
   }
-  if (draft.fiatUsdAmount) {
-    const quote = tokenQuote(ctx.tokenPrices, balance.tokenId, balance.metadata.symbol);
-    if (!quote || quote.kind === 'nominal' || !Number.isFinite(quote.price) || quote.price <= 0) {
-      return { errorKey: 'commandAiFiatPriceUnavailable' };
-    }
-    const usd = Number(draft.fiatUsdAmount);
-    if (!Number.isFinite(usd) || usd <= 0) return {};
-    const tokenQty = usd / quote.price;
-    const scale = Math.min(decimals, 6);
-    const rounded = tokenQty.toFixed(scale).replace(/\.?0+$/, '');
-    return { amount: rounded || '0' };
-  }
   return {};
 }
 
@@ -300,6 +315,7 @@ function applyAmountExpr(amount: AmountExpr | null, map: RedactionMap, target: H
   target.fiatUsdAmount = undefined;
   target.amountFraction = undefined;
   target.amountIsMax = undefined;
+  target.amountFromPrevious = undefined;
 
   switch (amount.kind) {
     case 'exact_ref': {
@@ -317,6 +333,9 @@ function applyAmountExpr(amount: AmountExpr | null, map: RedactionMap, target: H
       break;
     case 'max':
       target.amountIsMax = true;
+      break;
+    case 'previous_output':
+      target.amountFromPrevious = true;
       break;
   }
 }
@@ -788,7 +807,7 @@ function resolveBridgeFlow(
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
   const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, draft.tokenId, ctx.balances);
-  const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx);
+  const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
   if (!amount) {
     const chips: ClarificationChip[] = [
@@ -1056,6 +1075,82 @@ export function applyChipSelection(
   return resolveDraftToAction(updated, clarifying.map, ctx);
 }
 
+export function hydratePlanSteps(steps: readonly IntentSlots[], map: RedactionMap): HydratedIntentDraft[] {
+  return steps.map(step => hydrateSlots(step, map));
+}
+
+export function carryForwardAmount(
+  nextDraft: HydratedIntentDraft,
+  prevDraft: HydratedIntentDraft | undefined
+): HydratedIntentDraft {
+  if (!nextDraft.amountFromPrevious || !prevDraft) return nextDraft;
+  const { amountFromPrevious: _ignored, ...rest } = nextDraft;
+  if (prevDraft.amount) return { ...rest, amount: prevDraft.amount };
+  if (prevDraft.fiatUsdAmount) return { ...rest, fiatUsdAmount: prevDraft.fiatUsdAmount };
+  return rest;
+}
+
+export function formatPlanStepSummary(draft: HydratedIntentDraft): {
+  action: CommandAiAction;
+  title: string;
+  detail: string;
+} {
+  const amt = draft.amount
+    ? draft.amount
+    : draft.fiatUsdAmount
+      ? `$${draft.fiatUsdAmount}`
+      : draft.amountIsMax
+        ? 'Max'
+        : draft.amountFromPrevious
+          ? 'Previous output'
+          : '';
+  const asset = draft.assetQuery ? draft.assetQuery.toUpperCase() : '';
+  const qty = [amt, asset].filter(Boolean).join(' ');
+
+  switch (draft.action) {
+    case 'bridge': {
+      const targetChain = draft.toChain ?? (draft.fromChain ? 'Miden' : '');
+      const dirLabel =
+        draft.fromChain && !isMidenChain(draft.fromChain)
+          ? `${draft.fromChain} → Miden`
+          : targetChain
+            ? `→ ${targetChain}`
+            : '';
+      return {
+        action: 'bridge',
+        title: `Bridge ${qty || 'tokens'}`.trim(),
+        detail: [dirLabel, draft.provider].filter(Boolean).join(' · ')
+      };
+    }
+    case 'swap': {
+      const toAsset = draft.toAssetQuery ? draft.toAssetQuery.toUpperCase() : '';
+      return {
+        action: 'swap',
+        title: `Swap ${qty || asset || 'tokens'}${toAsset ? ` → ${toAsset}` : ''}`.trim(),
+        detail: draft.provider ?? ''
+      };
+    }
+    case 'send':
+      return {
+        action: 'send',
+        title: `Send ${qty || 'tokens'}`.trim(),
+        detail: draft.recipientLabel ?? (draft.recipient ? shortAddr(draft.recipient) : '')
+      };
+    case 'earn':
+      return {
+        action: 'earn',
+        title: `${draft.earnOp === 'withdraw' ? 'Withdraw' : 'Deposit'} ${qty || 'Earn'}`.trim(),
+        detail: ''
+      };
+    case 'receive':
+      return {
+        action: 'receive',
+        title: `Receive ${asset || 'tokens'}`.trim(),
+        detail: ''
+      };
+  }
+}
+
 export function compileOutputToResolution(
   output: AiCompilerOutput,
   map: RedactionMap,
@@ -1080,6 +1175,8 @@ export function compileOutputToResolution(
       };
     case 'set_intent':
       return resolveDraftToAction(hydrateSlots(output, map), map, ctx);
+    case 'set_plan':
+      return { kind: 'plan', steps: hydratePlanSteps(output.steps, map), map };
     case 'patch_slots':
       if (!existingDraft) {
         return { kind: 'error', messageKey: 'commandAiNoActiveDraft' };

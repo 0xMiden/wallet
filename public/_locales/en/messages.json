@@ -10380,5 +10380,82 @@
   "commandAiRecentTurns": {
     "message": "Conversation",
     "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiPlanTitle": {
+    "message": "Action plan",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "Step $current$ of $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "Step $num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "Active",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "Up next",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "Done",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "Confirm this step in the dialog below, then advance.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "Step submitted! Ready for the next step.",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "All steps completed",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "Next step",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "Continue",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "Finish plan",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "Stop",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "Previous output",
+    "englishSource": "Previous output"
   }
 }

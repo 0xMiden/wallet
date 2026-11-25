@@ -4,7 +4,8 @@ export type AmountExpr =
   | { kind: 'exact_ref'; ref: string }
   | { kind: 'fiat_ref'; ref: string; currency: 'USD' }
   | { kind: 'fraction'; numerator: number; denominator: number }
-  | { kind: 'max' };
+  | { kind: 'max' }
+  | { kind: 'previous_output' };
 
 export interface IntentSlots {
   action: CommandAiAction;
@@ -38,6 +39,7 @@ export type LedgerTimeWindow = 'today' | 'last_7d' | 'this_month' | 'prev_month'
 
 export type AiCompilerOutput =
   | ({ op: 'set_intent' } & IntentSlots)
+  | { op: 'set_plan'; steps: IntentSlots[] }
   | { op: 'patch_slots'; patch: PatchIntentSlots }
   | {
       op: 'query_ledger';
@@ -96,6 +98,14 @@ const AMOUNT_EXPR_VARIANTS = [
     properties: {
       kind: { type: 'string', enum: ['max'] }
     }
+  },
+  {
+    type: 'object',
+    additionalProperties: false,
+    required: ['kind'],
+    properties: {
+      kind: { type: 'string', enum: ['previous_output'] }
+    }
   }
 ];
 
@@ -131,6 +141,48 @@ const SET_INTENT_SCHEMA = {
     provider: NULLABLE_STRING,
     note_type: { type: ['string', 'null'], enum: [...NOTE_TYPE_ENUM, null] },
     earn_op: { type: ['string', 'null'], enum: [...EARN_OP_ENUM, null] }
+  }
+};
+
+const INTENT_SLOT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'action',
+    'amount',
+    'asset',
+    'to_asset',
+    'from_chain',
+    'to_chain',
+    'recipient_ref',
+    'provider',
+    'note_type',
+    'earn_op'
+  ],
+  properties: {
+    action: { type: 'string', enum: [...ACTION_ENUM] },
+    amount: NULLABLE_AMOUNT_SCHEMA,
+    asset: NULLABLE_STRING,
+    to_asset: NULLABLE_STRING,
+    from_chain: NULLABLE_STRING,
+    to_chain: NULLABLE_STRING,
+    recipient_ref: NULLABLE_STRING,
+    provider: NULLABLE_STRING,
+    note_type: { type: ['string', 'null'], enum: [...NOTE_TYPE_ENUM, null] },
+    earn_op: { type: ['string', 'null'], enum: [...EARN_OP_ENUM, null] }
+  }
+};
+
+const SET_PLAN_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['op', 'steps'],
+  properties: {
+    op: { type: 'string', enum: ['set_plan'] },
+    steps: {
+      type: 'array',
+      items: INTENT_SLOT_SCHEMA
+    }
   }
 };
 
@@ -216,7 +268,14 @@ export const COMMAND_AI_JSON_SCHEMA = {
   required: ['result'],
   properties: {
     result: {
-      anyOf: [SET_INTENT_SCHEMA, PATCH_SLOTS_SCHEMA, QUERY_LEDGER_SCHEMA, CANCEL_SCHEMA, UNSUPPORTED_SCHEMA]
+      anyOf: [
+        SET_INTENT_SCHEMA,
+        SET_PLAN_SCHEMA,
+        PATCH_SLOTS_SCHEMA,
+        QUERY_LEDGER_SCHEMA,
+        CANCEL_SCHEMA,
+        UNSUPPORTED_SCHEMA
+      ]
     }
   }
 } as const;
@@ -260,6 +319,8 @@ function parseAmountExpr(value: unknown): AmountExpr | null | undefined {
     }
     case 'max':
       return { kind: 'max' };
+    case 'previous_output':
+      return { kind: 'previous_output' };
     default:
       return undefined;
   }
@@ -319,6 +380,19 @@ export function parseAiCompilerOutput(raw: unknown): AiCompilerOutput | null {
       const slots = parseSlotFields(candidate, true);
       if (!slots || slots.action === null) return null;
       return { op: 'set_intent', ...(slots as IntentSlots) };
+    }
+    case 'set_plan': {
+      if (!Array.isArray(candidate.steps) || candidate.steps.length < 2 || candidate.steps.length > 4) {
+        return null;
+      }
+      const steps: IntentSlots[] = [];
+      for (const rawStep of candidate.steps) {
+        if (!isRecord(rawStep)) return null;
+        const parsed = parseSlotFields(rawStep, true);
+        if (!parsed || parsed.action === null) return null;
+        steps.push(parsed as IntentSlots);
+      }
+      return { op: 'set_plan', steps };
     }
     case 'patch_slots': {
       if (!isRecord(candidate.patch)) return null;

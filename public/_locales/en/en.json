@@ -2261,5 +2261,21 @@
   "commandAiQueryHistoryTitle": "Matching activity",
   "commandAiQueryEmpty": "No matching entries found.",
   "commandAiLocalOnlyNote": "Computed locally on this device",
-  "commandAiRecentTurns": "Conversation"
+  "commandAiRecentTurns": "Conversation",
+  "commandAiAssistantName": "Bread Assistant",
+  "commandAiPlanTitle": "Action plan",
+  "commandAiPlanProgress": "Step $current$ of $total$",
+  "commandAiPlanStepLabel": "Step $num$",
+  "commandAiPlanStatusActive": "Active",
+  "commandAiPlanStatusPending": "Up next",
+  "commandAiPlanStatusDone": "Done",
+  "commandAiPlanConfirmStep": "Confirm this step in the dialog below, then advance.",
+  "commandAiPlanStepSubmitted": "Step submitted! Ready for the next step.",
+  "commandAiPlanCompletedTitle": "All steps completed",
+  "commandAiPlanNextStep": "Next step",
+  "commandAiPlanContinue": "Continue",
+  "commandAiPlanFinish": "Finish plan",
+  "commandAiPlanStop": "Stop",
+  "commandAiPlanMaxAmount": "Max",
+  "commandAiPlanPreviousOutput": "Previous output"
 }

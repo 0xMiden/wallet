@@ -5,12 +5,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { compileCommandPrompt } from 'lib/command-ai/client';
 import { executeLocalLedgerQuery } from 'lib/command-ai/local-query';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
+import { CommandAiPlanBanner, CommandAiPlanProvider } from './command-ai-plan';
 import { CommandDraftProvider, useCommandDrafts } from './command-drafts';
+import type { CommandRoute } from './command-routes';
 import { CommandAiBar } from './CommandAiBar';
 import { CommandPortfolio } from './CommandPortfolio';
 
@@ -169,15 +172,22 @@ beforeEach(() => {
   });
 });
 
-function renderBar() {
+function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
   let readDraft!: ReturnType<typeof useCommandDrafts>['readDraft'];
   function Probe() {
     readDraft = useCommandDrafts().readDraft;
-    return <CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />;
+    return (
+      <>
+        <CommandAiPlanBanner scope={scope} route={route} />
+        <CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />
+      </>
+    );
   }
   const view = render(
     <CommandDraftProvider scope={scope}>
-      <Probe />
+      <CommandAiPlanProvider scope={scope}>
+        <Probe />
+      </CommandAiPlanProvider>
     </CommandDraftProvider>
   );
   return { ...view, readDraft: () => readDraft };
@@ -408,5 +418,85 @@ describe('CommandAiBar', () => {
     const alert = await screen.findByTestId('command-ai-error');
     expect(alert.textContent).toContain('commandAiInvalidModelOutput');
     expect(executeLocalLedgerQuery).not.toHaveBeenCalled();
+  });
+
+  it('shows multi-step plan card with animated Bread mascot, steps through Bridge -> Swap, and supports Stop', async () => {
+    _setSwapTokensForTest([
+      { symbol: 'USDCx', faucetId: 'faucet-usdcx', decimals: 6 },
+      { symbol: 'MIDEN', faucetId: 'faucet-miden', decimals: 6 }
+    ]);
+    try {
+      jest.mocked(compileCommandPrompt).mockResolvedValue({
+        op: 'set_plan',
+        steps: [
+          {
+            action: 'bridge',
+            amount: { kind: 'exact_ref', ref: 'AMT_1' },
+            asset: 'USDC',
+            to_asset: null,
+            from_chain: null,
+            to_chain: 'miden',
+            recipient_ref: null,
+            provider: null,
+            note_type: null,
+            earn_op: null
+          },
+          {
+            action: 'swap',
+            amount: { kind: 'previous_output' },
+            asset: 'USDCx',
+            to_asset: 'MIDEN',
+            from_chain: null,
+            to_chain: null,
+            recipient_ref: null,
+            provider: null,
+            note_type: null,
+            earn_op: null
+          }
+        ]
+      });
+
+      const view = renderBar();
+      fireEvent.change(screen.getByTestId('command-ai-input'), {
+        target: { value: 'bridge 50 usdc in, then swap it for MIDEN' }
+      });
+      fireEvent.submit(screen.getByTestId('command-ai-input').closest('form')!);
+
+      await screen.findByTestId('command-ai-plan-card');
+      expect(screen.getByTestId('bread-mascot')).toBeInTheDocument();
+      expect(screen.getByTestId('command-ai-plan-step-0')).toBeInTheDocument();
+      expect(screen.getByTestId('command-ai-plan-step-1')).toBeInTheDocument();
+
+      // Click bridge route chip -> navigates to Step 1 workbench and updates draft.
+      fireEvent.click(screen.getByTestId('command-ai-chip-testnet:agglayer:usdc:faucet-usdcx:receive'));
+      expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+      expect(view.readDraft()('bridge')).toMatchObject({ amount: '50', direction: 'in' });
+
+      // Simulate active workbench route -> persistent banner appears with Next step & Stop.
+      view.rerender(
+        <CommandDraftProvider scope={scope}>
+          <CommandAiPlanProvider scope={scope}>
+            <CommandAiPlanBanner scope={scope} route={{ kind: 'flow', action: 'bridge' }} />
+            <CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />
+          </CommandAiPlanProvider>
+        </CommandDraftProvider>
+      );
+
+      // Advance to Step 2 -> opens Swap prefilled with carried amount 50.
+      fireEvent.click(screen.getByTestId('command-ai-plan-banner-next'));
+      expect(navigate).toHaveBeenCalledWith('/swap');
+      expect(view.readDraft()('swap')).toMatchObject({
+        payAmount: '50',
+        payTokenId: 'faucet-usdcx',
+        receiveTokenId: 'faucet-miden'
+      });
+
+      // Stop cancels plan cleanly and returns to '/'.
+      fireEvent.click(screen.getByTestId('command-ai-plan-banner-stop'));
+      expect(navigate).toHaveBeenLastCalledWith('/');
+      expect(screen.queryByTestId('command-ai-plan-banner')).not.toBeInTheDocument();
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
   });
 });

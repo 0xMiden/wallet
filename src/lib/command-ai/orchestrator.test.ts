@@ -1,4 +1,10 @@
-import { applyChipSelection, compileOutputToResolution, type OrchestratorWalletContext } from './orchestrator';
+import {
+  applyChipSelection,
+  carryForwardAmount,
+  compileOutputToResolution,
+  resolveDraftToAction,
+  type OrchestratorWalletContext
+} from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
 
 const VALID_MIDEN_ALICE = 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62';
@@ -426,5 +432,95 @@ describe('command-ai orchestrator', () => {
     expect(handoff.handoff.draft.direction).toBe('out');
     expect(handoff.handoff.draft.route).toBe('testnet:xreserve:usdcx:sepolia:send');
     expect(handoff.handoff.draft.amount).toBe('10');
+  });
+
+  it('compiles chained set_plan outputs and carries resolved output amount into the next step', () => {
+    const baseCtx = createContext();
+    const ctx: OrchestratorWalletContext = {
+      ...baseCtx,
+      balances: [
+        ...baseCtx.balances,
+        {
+          tokenId: 'faucet-eth',
+          tokenSlug: 'ETH',
+          balance: 1,
+          balanceBaseUnits: '1000000000000000000',
+          fiatPrice: 2000,
+          change24h: 0,
+          metadata: { symbol: 'ETH', name: 'Ethereum', decimals: 18 }
+        }
+      ],
+      tokenPrices: { ETH: { price: 2000, observedAt: Date.now(), kind: 'market' as const } as never },
+      swapTokens: [
+        { symbol: 'ETH', faucetId: 'faucet-eth', decimals: 18 },
+        { symbol: 'USDCx', faucetId: 'faucet-usdcx', decimals: 6 }
+      ],
+      bridgeRoutes: [
+        {
+          id: 'testnet:agglayer:eth:faucet-eth:receive',
+          provider: 'agglayer',
+          mode: 'receive',
+          sourceSymbol: 'ETH',
+          sourceNetwork: 'sepolia',
+          destinationSymbol: 'ETH',
+          destinationNetwork: 'miden-testnet'
+        }
+      ]
+    };
+
+    const { map } = redactPrompt('bridge $10 ETH in, then swap it for USDCX', { contacts: ctx.contacts });
+    const planRes = compileOutputToResolution(
+      {
+        op: 'set_plan',
+        steps: [
+          {
+            action: 'bridge',
+            amount: { kind: 'fiat_ref', ref: 'FIAT_AMT_1', currency: 'USD' },
+            asset: 'ETH',
+            to_asset: null,
+            from_chain: null,
+            to_chain: 'miden',
+            recipient_ref: null,
+            provider: null,
+            note_type: null,
+            earn_op: null
+          },
+          {
+            action: 'swap',
+            amount: { kind: 'previous_output' },
+            asset: 'ETH',
+            to_asset: 'USDCX',
+            from_chain: null,
+            to_chain: null,
+            recipient_ref: null,
+            provider: null,
+            note_type: null,
+            earn_op: null
+          }
+        ]
+      },
+      map,
+      ctx
+    );
+
+    expect(planRes.kind).toBe('plan');
+    if (planRes.kind !== 'plan') return;
+    expect(planRes.steps).toHaveLength(2);
+
+    const step1Handoff = resolveDraftToAction(planRes.steps[0]!, planRes.map, ctx);
+    expect(step1Handoff.kind).toBe('handoff');
+    if (step1Handoff.kind !== 'handoff' || step1Handoff.handoff.action !== 'bridge') return;
+    expect(step1Handoff.handoff.draft.amount).toBe('0.005');
+
+    const carriedStep2 = carryForwardAmount(planRes.steps[1]!, {
+      ...planRes.steps[0]!,
+      amount: step1Handoff.handoff.draft.amount
+    });
+    const step2Handoff = resolveDraftToAction(carriedStep2, planRes.map, ctx);
+    expect(step2Handoff.kind).toBe('handoff');
+    if (step2Handoff.kind !== 'handoff' || step2Handoff.handoff.action !== 'swap') return;
+    expect(step2Handoff.handoff.draft.payAmount).toBe('0.005');
+    expect(step2Handoff.handoff.draft.payTokenId).toBe('faucet-eth');
+    expect(step2Handoff.handoff.draft.receiveTokenId).toBe('faucet-usdcx');
   });
 });

@@ -1,42 +1,36 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { WaveDots } from 'components/ui';
-import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { CommandAiClientError, compileCommandPrompt, type CommandAiErrorCode } from 'lib/command-ai/client';
 import { executeLocalLedgerQuery, type LocalQueryResult } from 'lib/command-ai/local-query';
 import {
   applyChipSelection,
   compileOutputToResolution,
   createClarificationSnapshot,
-  type BridgeRouteSummary,
+  resolveDraftToAction,
   type ClarificationChip,
   type EarnSubjectSummary,
   type HydratedIntentDraft,
-  type OrchestratorResolution,
-  type OrchestratorWalletContext
+  type OrchestratorResolution
 } from 'lib/command-ai/orchestrator';
 import {
-  DEFAULT_LIQUID_TICKERS,
   mergeRedactionMaps,
   redactPrompt,
   verifyProvenance,
   type RedactedKind,
-  type RedactionContact,
   type RedactionMap
 } from 'lib/command-ai/redactor';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
-import { getSwapTokens } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
-import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 import type { TokenPrices } from 'lib/prices';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectEarnVaultCatalog, selectEarnVaults, selectMidenUsdcFaucetId } from 'lib/remote-config/values';
-import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 
+import { BreadMascot, type BreadMascotMood } from './BreadMascot';
+import { useCommandAiWalletData } from './command-ai-context';
+import { stepDisplayLabels, useOptionalCommandAiPlan } from './command-ai-plan';
 import { useOptionalCommandDrafts } from './command-drafts';
 import type { CommandAction } from './command-routes';
 import { COMMAND_DESTINATIONS } from './CommandDock';
@@ -83,6 +77,87 @@ function clientErrorToMessageKey(code: CommandAiErrorCode): string {
   }
 }
 
+function AnswerCardShell({
+  testId,
+  role,
+  ariaLabel,
+  mood,
+  eyebrow,
+  title,
+  redactedKinds,
+  onDismiss,
+  tone = 'default',
+  children
+}: {
+  testId: string;
+  role: 'region' | 'status' | 'alert';
+  ariaLabel?: string;
+  mood: BreadMascotMood;
+  eyebrow: string;
+  title: string;
+  redactedKinds?: RedactedKind[];
+  onDismiss: () => void;
+  tone?: 'default' | 'accent' | 'error';
+  children: React.ReactNode;
+}): React.ReactElement {
+  const { t } = useTranslation();
+  const borderClass =
+    tone === 'error'
+      ? 'border-negative-tint-ink/35'
+      : tone === 'accent'
+        ? 'border-accent-tint-ink/35'
+        : 'border-hairline';
+
+  return (
+    <div
+      data-testid={testId}
+      role={role}
+      aria-label={ariaLabel}
+      className={`relative mt-3 overflow-hidden rounded-3xl border ${borderClass} bg-linear-to-b from-fill/95 via-fill/85 to-page p-5 shadow-lg`}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(251,146,60,0.12),transparent_58%)]"
+      />
+      <div className="relative flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="grid size-13 shrink-0 place-items-center rounded-2xl border border-hairline bg-page/70 shadow-xs">
+              <BreadMascot mood={mood} size="md" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-caption font-semibold uppercase tracking-wider text-accent-tint-ink">{eyebrow}</p>
+              <h3 className="text-body-lg font-semibold leading-snug text-ink">{title}</h3>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {redactedKinds && redactedKinds.length > 0 && (
+              <span
+                data-testid="command-ai-answer-privacy"
+                className="hidden items-center gap-1 rounded-xl border border-hairline bg-page/75 px-2.5 py-1 text-caption text-muted sm:inline-flex"
+              >
+                <Icon name={IconName.ShieldCheck} size="xs" className="text-accent-receive-ink" aria-hidden="true" />
+                {t('commandAiRedactedBadge', { kinds: redactedKinds.join(', ') })}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label={t('close')}
+              className="grid size-8 shrink-0 place-items-center rounded-full border border-hairline bg-page/70 text-muted transition-colors hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
+            >
+              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function CommandAiBar({
   scope,
   assets,
@@ -94,9 +169,12 @@ export function CommandAiBar({
 }): React.ReactElement {
   const { t } = useTranslation();
   const drafts = useOptionalCommandDrafts();
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-  const settingsContacts = useWalletStore(state => state.settings?.contacts);
-  const accounts = useWalletStore(state => state.accounts);
+  const planCtx = useOptionalCommandAiPlan();
+  const { contacts, heldNicheTickers, getWalletContext, loadEarnPositions } = useCommandAiWalletData(
+    scope,
+    assets,
+    tokenPrices
+  );
 
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -104,77 +182,25 @@ export function CommandAiBar({
   const [turns, setTurns] = useState<BarTurn[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
 
-  const contacts = useMemo<RedactionContact[]>(() => {
-    const seen = new Set<string>();
-    const list: RedactionContact[] = [];
-    for (const c of settingsContacts ?? []) {
-      if (!c.address || !c.name) continue;
-      seen.add(c.address.toLowerCase());
-      list.push({ id: `contact:${c.address}`, name: c.name, address: c.address, network: c.network });
-    }
-    for (const acc of accounts ?? []) {
-      if (!acc.publicKey || !acc.name || seen.has(acc.publicKey.toLowerCase())) continue;
-      list.push({ id: `account:${acc.publicKey}`, name: acc.name, address: acc.publicKey });
-    }
-    return list;
-  }, [settingsContacts, accounts]);
-
-  const heldNicheTickers = useMemo(
-    () =>
-      assets
-        .filter(a => a.metadata.symbol && !DEFAULT_LIQUID_TICKERS.has(a.metadata.symbol.trim().toUpperCase()))
-        .map(a => ({ symbol: a.metadata.symbol, tokenId: a.tokenId })),
-    [assets]
-  );
-
-  const getWalletContext = useCallback(
-    (earnPositions: EarnSubjectSummary[] = []): OrchestratorWalletContext => {
-      const bridgeRoutes: BridgeRouteSummary[] = deriveBridgeRoutes(bridgeConfig)
-        .filter(r => !(r.provider === 'epoch' && r.mode === 'receive'))
-        .map(r => ({
-          id: r.id,
-          provider: r.provider,
-          mode: r.mode,
-          sourceSymbol: r.source.symbol,
-          sourceNetwork: r.source.network,
-          destinationSymbol: r.destination.symbol,
-          destinationNetwork: r.destination.network
-        }));
-      const catalog = selectEarnVaultCatalog(bridgeConfig);
-      const earnCollateralId = selectMidenUsdcFaucetId(bridgeConfig);
-      const earnVaults: EarnSubjectSummary[] = catalog
-        ? catalog.map(v => ({
-            id: v.listing.id,
-            name: v.listing.name,
-            symbol: v.underlying.symbol,
-            ...(earnCollateralId ? { collateralFaucetId: earnCollateralId } : {})
-          }))
-        : selectEarnVaults(bridgeConfig).map(v => ({
-            id: v.id,
-            name: v.name,
-            symbol: 'USDCx',
-            ...(earnCollateralId ? { collateralFaucetId: earnCollateralId } : {})
-          }));
-
-      return {
-        accountPublicKey: scope.accountId,
-        networkName: scope.network,
-        balances: assets,
-        tokenPrices,
-        contacts,
-        swapTokens: getSwapTokens(),
-        bridgeRoutes,
-        earnVaults,
-        earnPositions,
-        nativeFaucetId: getNativeAssetIdSync(),
-        verificationBaseFee: getVerificationBaseFeeSync()
-      };
-    },
-    [scope.accountId, scope.network, assets, tokenPrices, contacts, bridgeConfig]
-  );
-
   const applyResolution = useCallback(
-    (resolution: OrchestratorResolution, redactedKinds: RedactedKind[]) => {
+    (resolution: OrchestratorResolution, redactedKinds: RedactedKind[], earnPositions: EarnSubjectSummary[] = []) => {
+      if (resolution.kind === 'plan') {
+        setState({ kind: 'idle' });
+        setInput('');
+        if (planCtx) {
+          planCtx.startPlan(resolution.steps, resolution.map, redactedKinds, getWalletContext(earnPositions));
+          return;
+        }
+        const firstStep = resolution.steps[0];
+        if (firstStep) {
+          applyResolution(
+            resolveDraftToAction(firstStep, resolution.map, getWalletContext(earnPositions)),
+            redactedKinds
+          );
+        }
+        return;
+      }
+
       if (resolution.kind === 'handoff') {
         const { handoff } = resolution;
         if (handoff.action === 'send') {
@@ -213,6 +239,7 @@ export function CommandAiBar({
       }
 
       if (resolution.kind === 'cancelled') {
+        planCtx?.dismissPlan();
         setState({ kind: 'idle' });
         setInput('');
         return;
@@ -230,7 +257,7 @@ export function CommandAiBar({
         });
       }
     },
-    [drafts, t]
+    [drafts, getWalletContext, planCtx, t]
   );
 
   const dismiss = useCallback(() => {
@@ -303,6 +330,7 @@ export function CommandAiBar({
             });
             return;
           }
+          planCtx?.dismissPlan();
           const result = await executeLocalLedgerQuery(output, {
             accountId: scope.accountId,
             balances: assets,
@@ -316,33 +344,17 @@ export function CommandAiBar({
           return;
         }
 
-        let earnPositions: EarnSubjectSummary[] = [];
         const isEarnWithdraw =
           (output.op === 'set_intent' && output.action === 'earn' && output.earn_op === 'withdraw') ||
+          (output.op === 'set_plan' && output.steps.some(s => s.action === 'earn' && s.earn_op === 'withdraw')) ||
           (output.op === 'patch_slots' &&
             (output.patch.earn_op === 'withdraw' || previousClarifying?.draft.earnOp === 'withdraw') &&
             (output.patch.action === 'earn' || previousClarifying?.draft.action === 'earn'));
-        if (isEarnWithdraw) {
-          try {
-            const [{ fetchEarnPositions }, { mapEarnPosition }] = await Promise.all([
-              import('lib/epoch'),
-              import('screens/earn-flow/earn-mapping')
-            ]);
-            const res = await fetchEarnPositions({ owners: [scope.accountId] });
-            if (controller.signal.aborted) return;
-            const listed = selectEarnVaults(bridgeConfig);
-            earnPositions = res.positions
-              .map(pos => mapEarnPosition(pos, listed))
-              .map(mapped => ({
-                id: mapped.id,
-                name: mapped.name ?? mapped.protocol,
-                symbol: mapped.asset,
-                withdrawable: mapped.withdrawable,
-                decimals: mapped.decimals
-              }));
-          } catch {
-            earnPositions = [];
-          }
+        const earnPositions = isEarnWithdraw ? await loadEarnPositions() : [];
+        if (controller.signal.aborted) return;
+
+        if (output.op !== 'set_plan') {
+          planCtx?.dismissPlan();
         }
 
         const effectiveMap = output.op === 'patch_slots' ? activeMap : redaction.map;
@@ -352,7 +364,7 @@ export function CommandAiBar({
           getWalletContext(earnPositions),
           output.op === 'patch_slots' ? previousClarifying?.draft : undefined
         );
-        applyResolution(resolution, redactedKinds);
+        applyResolution(resolution, redactedKinds, earnPositions);
       } catch (error) {
         if (controller.signal.aborted) return;
         const messageKey =
@@ -373,7 +385,8 @@ export function CommandAiBar({
       scope.accountId,
       assets,
       tokenPrices,
-      bridgeConfig,
+      loadEarnPositions,
+      planCtx,
       getWalletContext,
       applyResolution
     ]
@@ -381,6 +394,7 @@ export function CommandAiBar({
 
   const activeRedactedKinds = state.kind === 'idle' ? [] : state.redactedKinds;
   const busy = state.kind === 'compiling';
+  const activePlan = state.kind === 'idle' ? planCtx?.plan : null;
 
   return (
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
@@ -480,24 +494,150 @@ export function CommandAiBar({
         </div>
       </form>
 
-      {state.kind === 'clarifying' && (
-        <div
-          data-testid="command-ai-clarification"
+      {activePlan && planCtx && (
+        <AnswerCardShell
+          testId="command-ai-plan-card"
           role="region"
-          aria-label={t(state.questionKey, state.questionParams)}
-          className="mt-2.5 flex flex-col gap-2.5 rounded-2xl border border-accent-tint-ink/25 bg-fill/85 px-4 py-3"
+          ariaLabel={t('commandAiPlanTitle')}
+          mood={
+            activePlan.status === 'completed'
+              ? 'happy'
+              : activePlan.status === 'clarifying'
+                ? 'clarifying'
+                : activePlan.status === 'error'
+                  ? 'oops'
+                  : 'working'
+          }
+          eyebrow={t('commandAiPlanTitle')}
+          title={
+            activePlan.status === 'completed'
+              ? t('commandAiPlanCompletedTitle')
+              : activePlan.status === 'clarifying' && activePlan.clarifying
+                ? t(activePlan.clarifying.questionKey, activePlan.clarifying.questionParams)
+                : activePlan.status === 'error' && activePlan.error
+                  ? t(activePlan.error.messageKey, activePlan.error.messageParams)
+                  : t('commandAiPlanProgress', {
+                      current: String(activePlan.currentIndex + 1),
+                      total: String(activePlan.steps.length)
+                    })
+          }
+          redactedKinds={activePlan.redactedKinds}
+          onDismiss={activePlan.status === 'completed' ? planCtx.dismissPlan : planCtx.stopPlan}
+          tone={activePlan.status === 'error' ? 'error' : activePlan.status === 'clarifying' ? 'accent' : 'default'}
         >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-body-sm font-medium text-ink">{t(state.questionKey, state.questionParams)}</p>
-            <button
-              type="button"
-              onClick={dismiss}
-              aria-label={t('close')}
-              className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-fill-pressed hover:text-ink"
-            >
-              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
-            </button>
-          </div>
+          <ol className="flex flex-col gap-2">
+            {activePlan.steps.map(step => {
+              const labels = stepDisplayLabels(step.draft, t);
+              const isActive = step.status === 'active';
+              const isDone = step.status === 'done';
+              return (
+                <li
+                  key={step.index}
+                  data-testid={`command-ai-plan-step-${step.index}`}
+                  className={`flex items-center justify-between gap-3 rounded-2xl border px-3.5 py-2.5 ${
+                    isActive
+                      ? 'border-accent-primary/60 bg-accent-tint/55'
+                      : isDone
+                        ? 'border-accent-receive-ink/30 bg-page/65'
+                        : 'border-hairline bg-page/55'
+                  }`}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className={`grid size-7 shrink-0 place-items-center rounded-full text-caption font-bold ${
+                        isActive
+                          ? 'bg-accent-primary text-page'
+                          : isDone
+                            ? 'bg-accent-receive-ink text-page'
+                            : 'border border-hairline bg-fill text-muted'
+                      }`}
+                    >
+                      {step.index + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-body-sm font-semibold text-ink">{labels.summary}</p>
+                      {labels.detail && <p className="truncate text-caption text-muted">{labels.detail}</p>}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-lg px-2 py-0.5 text-caption font-medium ${
+                      isActive ? 'bg-page/80 text-accent-tint-ink' : isDone ? 'text-accent-receive-ink' : 'text-muted'
+                    }`}
+                  >
+                    {t(
+                      isDone
+                        ? 'commandAiPlanStatusDone'
+                        : isActive
+                          ? 'commandAiPlanStatusActive'
+                          : 'commandAiPlanStatusPending'
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+
+          {activePlan.status === 'clarifying' && activePlan.clarifying && (
+            <div className="flex flex-wrap gap-2">
+              {activePlan.clarifying.chips.map(chip => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  data-testid={`command-ai-chip-${chip.id}`}
+                  onClick={() => planCtx.selectPlanChip(chip, getWalletContext())}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
+                >
+                  <span className="font-semibold">{chip.label}</span>
+                  {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activePlan.status !== 'completed' && (
+            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+              <button
+                type="button"
+                data-testid="command-ai-plan-stop"
+                onClick={planCtx.stopPlan}
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-negative-tint-ink/35 bg-page/75 px-3.5 text-body-sm font-medium text-negative-tint-ink transition-colors hover:bg-negative-tint/15 focus-visible:outline-2 focus-visible:outline-accent-primary"
+              >
+                {t('commandAiPlanStop')}
+              </button>
+              {activePlan.status === 'executing' && (
+                <button
+                  type="button"
+                  data-testid="command-ai-plan-continue"
+                  onClick={() => planCtx.advanceToNextStep(getWalletContext())}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent-primary px-4 text-body-sm font-medium text-page transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent-primary"
+                >
+                  <span>
+                    {t(
+                      activePlan.currentIndex >= activePlan.steps.length - 1
+                        ? 'commandAiPlanFinish'
+                        : 'commandAiPlanNextStep'
+                    )}
+                  </span>
+                  <Icon name={IconName.ArrowRight} size="xs" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          )}
+        </AnswerCardShell>
+      )}
+
+      {state.kind === 'clarifying' && (
+        <AnswerCardShell
+          testId="command-ai-clarification"
+          role="region"
+          ariaLabel={t(state.questionKey, state.questionParams)}
+          mood="clarifying"
+          eyebrow={t('commandAiAssistantName')}
+          title={t(state.questionKey, state.questionParams)}
+          redactedKinds={state.redactedKinds}
+          onDismiss={dismiss}
+          tone="accent"
+        >
           <div className="flex flex-wrap gap-2">
             {state.chips.map(chip => (
               <button
@@ -505,43 +645,39 @@ export function CommandAiBar({
                 type="button"
                 data-testid={`command-ai-chip-${chip.id}`}
                 onClick={() => handleChipClick(chip)}
-                className="inline-flex items-center gap-2 rounded-xl border border-hairline bg-page px-3 py-1.5 text-body-sm text-ink transition-colors hover:border-accent-primary/60 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
+                className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
-                <span className="font-medium">{chip.label}</span>
+                <span className="font-semibold">{chip.label}</span>
                 {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
               </button>
             ))}
           </div>
-        </div>
+        </AnswerCardShell>
       )}
 
       {state.kind === 'query_result' && (
-        <div
-          data-testid="command-ai-query-result"
+        <AnswerCardShell
+          testId="command-ai-query-result"
           role="status"
-          className="mt-2.5 flex flex-col gap-2 rounded-2xl border border-hairline bg-fill/85 px-4 py-3"
+          mood="happy"
+          eyebrow={t('commandAiAssistantName')}
+          title={t(state.result.titleKey)}
+          redactedKinds={state.redactedKinds}
+          onDismiss={dismiss}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-label text-muted">{t(state.result.titleKey)}</p>
-              <p className="text-title-tab font-semibold text-ink tabular-nums">
-                {state.result.empty ? t('commandAiQueryEmpty') : state.result.summaryText}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={dismiss}
-              aria-label={t('close')}
-              className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-fill-pressed hover:text-ink"
-            >
-              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
-            </button>
+          <div className="rounded-2xl border border-hairline bg-page/80 px-4 py-3.5 shadow-xs">
+            <p className="text-xl font-semibold text-ink tabular-nums">
+              {state.result.empty ? t('commandAiQueryEmpty') : state.result.summaryText}
+            </p>
           </div>
           {state.result.rows.length > 0 && (
-            <ul className="flex flex-col gap-1 border-t border-hairline pt-2">
+            <ul className="flex flex-col gap-1.5">
               {state.result.rows.map(row => (
-                <li key={row.id} className="flex items-center justify-between gap-3 text-body-sm">
-                  <span className="truncate text-ink">{row.primaryText}</span>
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-hairline/70 bg-page/55 px-3.5 py-2 text-body-sm"
+                >
+                  <span className="truncate font-medium text-ink">{row.primaryText}</span>
                   {row.secondaryText && (
                     <span className="shrink-0 text-caption text-muted tabular-nums">{row.secondaryText}</span>
                   )}
@@ -549,38 +685,38 @@ export function CommandAiBar({
               ))}
             </ul>
           )}
-          <p className="text-caption text-muted">{t('commandAiLocalOnlyNote')}</p>
-        </div>
+          <div className="flex items-center gap-1.5 text-caption text-muted">
+            <Icon name={IconName.ShieldCheck} size="xs" className="text-accent-receive-ink" aria-hidden="true" />
+            <span>{t('commandAiLocalOnlyNote')}</span>
+          </div>
+        </AnswerCardShell>
       )}
 
       {state.kind === 'error' && (
-        <div
-          data-testid="command-ai-error"
+        <AnswerCardShell
+          testId="command-ai-error"
           role="alert"
-          className="mt-2.5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-negative-tint-ink/30 bg-fill/85 px-4 py-3"
+          mood="oops"
+          eyebrow={t('commandAiAssistantName')}
+          title={t(state.messageKey, state.messageParams)}
+          redactedKinds={state.redactedKinds}
+          onDismiss={dismiss}
+          tone="error"
         >
-          <p className="text-body-sm text-ink">{t(state.messageKey, state.messageParams)}</p>
-          <div className="flex items-center gap-2">
-            {state.fallbackAction && (
+          {state.fallbackAction && (
+            <div className="flex justify-end">
               <button
                 type="button"
                 data-testid="command-ai-fallback-open"
                 onClick={() => navigate(COMMAND_DESTINATIONS[state.fallbackAction!])}
-                className="rounded-xl border border-hairline bg-page px-3 py-1.5 text-body-sm font-medium text-ink hover:bg-fill-pressed focus-visible:outline-2 focus-visible:outline-accent-primary"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-hairline bg-page/85 px-3.5 text-body-sm font-medium text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
-                {t('commandAiOpenNativeForm')}
+                <span>{t('commandAiOpenNativeForm')}</span>
+                <Icon name={IconName.ArrowRight} size="xs" aria-hidden="true" />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={dismiss}
-              aria-label={t('close')}
-              className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:bg-fill-pressed hover:text-ink"
-            >
-              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+            </div>
+          )}
+        </AnswerCardShell>
       )}
     </section>
   );

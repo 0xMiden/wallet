@@ -349,6 +349,14 @@ export function verifyProvenance(output: AiCompilerOutput, map: RedactionMap): b
         verifyTokenRef(output.asset, map) &&
         verifyTokenRef(output.to_asset, map)
       );
+    case 'set_plan':
+      return output.steps.every(
+        step =>
+          verifyAmountRef(step.amount, map) &&
+          verifyRecipientRef(step.recipient_ref, map) &&
+          verifyTokenRef(step.asset, map) &&
+          verifyTokenRef(step.to_asset, map)
+      );
     case 'patch_slots':
       return (
         verifyAmountRef(output.patch.amount, map) &&

@@ -10384,5 +10384,82 @@
   "commandAiRecentTurns": {
     "message": "Conversation",
     "englishSource": "(untranslated)"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanTitle": {
+    "message": "Action plan",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanProgress": {
+    "message": "Step $current$ of $total$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "Step $num$",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "Active",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "Up next",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "Done",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "Confirm this step in the dialog below, then advance.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "Step submitted! Ready for the next step.",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "All steps completed",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanNextStep": {
+    "message": "Next step",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanContinue": {
+    "message": "Continue",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanFinish": {
+    "message": "Finish plan",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanStop": {
+    "message": "Stop",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "(untranslated)"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "Previous output",
+    "englishSource": "(untranslated)"
   }
 }
