@@ -1,5 +1,5 @@
 import type { TestInfo } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
@@ -18,6 +18,7 @@ import {
   saveMainnetNearCheckpoint,
   type MainnetNearCheckpoint
 } from './mainnet-near-checkpoint';
+import { sanitizedTail } from '../../../scripts/mainnet-log-tail.mjs';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
 import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
 import { armRecallBlocks } from './recall';
@@ -101,6 +102,34 @@ const auditedUnspentNearNonce = new Map([
   ['45072272341', 87],
   ['45092013711', 87]
 ]);
+
+const STAGE_FILE = 'test-results/mainnet-near-forward-stage.json';
+
+// Keeps the discarded cause of a blocked stage in the public stage file and the process log; the caller still throws its own generic error.
+export function recordNearStageCause(error: unknown): void {
+  try {
+    const secrets = Object.entries(process.env)
+      .filter(([key]) => key.startsWith('E2E_MAINNET_'))
+      .map(([, value]) => value ?? '');
+    const raw = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    const cause = sanitizedTail(raw, secrets)
+      .replace(/https?:\/\/\S+/gi, '[url]')
+      .replace(/\?\S+/g, '?[query]')
+      .replace(/\s+/g, ' ')
+      .slice(0, 300);
+    let existing = {};
+    try {
+      existing = JSON.parse(readFileSync(STAGE_FILE, 'utf8'));
+    } catch {
+      // No earlier stage record.
+    }
+    mkdirSync('test-results', { recursive: true });
+    writeFileSync(STAGE_FILE, JSON.stringify({ ...existing, cause }), { mode: 0o600 });
+    console.error(`Native NEAR stage cause: ${cause}`);
+  } catch {
+    // Diagnostics cannot change the funding gate or the original error.
+  }
+}
 
 export async function runMainnetNearStage(
   wallet: GuardianAwareWalletPage,
@@ -202,7 +231,8 @@ export async function runMainnetNearStage(
           AbortSignal.timeout(1_100_000),
           keyPair
         );
-      } catch {
+      } catch (error) {
+        recordNearStageCause(error);
         throw new Error(
           'Original native NEAR recovery blocked; retain its original public checkpoint, never renew uncertain authority'
         );
@@ -274,7 +304,8 @@ export async function runMainnetNearStage(
         }
       );
       observe({ outcome: 'bridge_completion_asserted' });
-    } catch {
+    } catch (error) {
+      recordNearStageCause(error);
       throw new Error(
         'Native NEAR stage blocked; retain original public authority and never retry uncertain submissions'
       );
@@ -1169,8 +1200,9 @@ export async function runMainnetNearReverse(
     returnStage = 'sender-entered';
     try {
       await sender.send(buildMainnetEvmTransfer(evm, quote.quote.depositAddress, quote.quote.amountIn), activeSignal);
-    } catch {
+    } catch (error) {
       senderRejected = true;
+      recordNearStageCause(error);
       throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
     }
     // The page's own status is evidence only: the transfer is already broadcast, so a slow row never fails the leg.
