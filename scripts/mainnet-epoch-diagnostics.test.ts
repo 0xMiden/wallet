@@ -267,7 +267,7 @@ describe('unresolvedSubmissionError', () => {
     expect(error.message).toMatch(/^Epoch EVM submission is unresolved; reconcile the saved signed hashes/);
     const cause = error.cause as Error;
     expect(cause.name).toBe('TransactionExecutionError');
-    expect(cause.message).toBe('replacement transaction underpriced [url]');
+    expect(cause.message).toBe('replacement transaction underpriced [url] [redacted]');
     expect(cause.message).not.toContain('second line');
   });
 

@@ -66,6 +66,26 @@ function publicCause(raw: string): string {
     .slice(0, 300);
 }
 
+// Keeps the generic unresolved message but carries a sanitized name and first message line as its cause.
+export function unresolvedSubmissionError(raw: unknown): Error {
+  let name = 'Error';
+  let text = '';
+  try {
+    const record = typeof raw === 'object' && raw !== null ? raw : undefined;
+    const rawName = record && Object.getOwnPropertyDescriptor(record, 'name')?.value;
+    const rawMessage = record ? Object.getOwnPropertyDescriptor(record, 'message')?.value : raw;
+    if (typeof rawName === 'string') name = publicCause(rawName.slice(0, 80));
+    if (typeof rawMessage === 'string') text = publicCause(rawMessage.split('\n')[0].slice(0, 400));
+  } catch {
+    // A hostile error object must not replace the unresolved-submission failure.
+  }
+  const cause = new Error(text);
+  cause.name = name;
+  return new Error('Epoch EVM submission is unresolved; reconcile the saved signed hashes before any further signing', {
+    cause
+  });
+}
+
 export function observeEpochSolveFailure(source: ConsoleSource, checkpointPath: string): () => void {
   let key: Buffer;
   try {
