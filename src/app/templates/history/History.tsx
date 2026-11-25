@@ -22,7 +22,6 @@ import {
   IBridgeInInfo,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
-  ISendExtraInputs,
   ITransaction,
   ITransactionStatus,
   ISwitchGuardianExtraInputs,
@@ -56,7 +55,9 @@ import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
   earnWithdrawAmountFields,
+  historySecondaryAddressOf,
   labelHistoryEntry,
+  loadedActivityOneClickTracking,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -801,18 +802,6 @@ async function readLoadedActivityStatus(ids: readonly string[]): Promise<Map<str
   }
 }
 
-const loadedActivityOneClickTracking = (tx: ITransaction): IBridgedReceiveExtraInputs['oneClick'] => {
-  if (tx.type === 'bridged-receive') return (tx.extraInputs as IBridgedReceiveExtraInputs | undefined)?.oneClick;
-  if (tx.type === 'bridged-send') {
-    const extra = tx.extraInputs as IBridgedSendExtraInputs | undefined;
-    return extra?.provider === 'near-intents' ? extra.oneClick : undefined;
-  }
-  if (tx.type === 'send') {
-    return (tx.extraInputs as ISendExtraInputs | undefined)?.oneClick;
-  }
-  return undefined;
-};
-
 const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> => {
   const isCancelled = isUserCancelledTransaction(tx.error);
   const isUnconfirmed = readsAsNotConfirmed(tx);
@@ -1080,10 +1069,7 @@ async function fetchTransactionsAsHistoryEntries(
       ...(swapProgress.get(tx.id) ?? {}),
       paybackClaimStuck: stuckPaybackClaim(paybackStates.get(tx.id)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress:
-        bridge?.destinationAddress ??
-        (nearIntents?.direction === 'miden-to-evm' ? nearIntents.request?.recipient : undefined) ??
-        tx.secondaryAccountId,
+      secondaryAddress: historySecondaryAddressOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -1257,10 +1243,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress:
-        bridge?.destinationAddress ??
-        (nearIntents?.direction === 'miden-to-evm' ? nearIntents.request?.recipient : undefined) ??
-        tx.secondaryAccountId,
+      secondaryAddress: historySecondaryAddressOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,

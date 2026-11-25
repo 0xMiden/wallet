@@ -178,6 +178,8 @@ jest.mock('./transactionUtils', () => ({
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
   // The real naming, so a label assertion runs the rule the list renders with.
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
+  historySecondaryAddressOf: jest.requireActual('./transactionUtils').historySecondaryAddressOf,
+  loadedActivityOneClickTracking: jest.requireActual('./transactionUtils').loadedActivityOneClickTracking,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 

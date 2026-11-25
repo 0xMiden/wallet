@@ -1,12 +1,11 @@
 import { toLocalFormat } from 'lib/i18n/numbers';
-import type {
-  IBridgedSendExtraInputs,
-  IOneClickPhase,
-  IOneClickTrackingData,
-  ISendExtraInputs,
-  ITransaction,
-  ITransactionStage,
-  ITransactionType
+import {
+  type IOneClickPhase,
+  type IOneClickTrackingData,
+  type ITransaction,
+  type ITransactionStage,
+  type ITransactionType,
+  nearIntentsSendTrackingOf
 } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { isPrivateNoteType } from 'lib/miden/helpers';
@@ -132,28 +131,6 @@ export const waitsToDeliverNote = (tx: ITransaction | undefined): boolean => {
   return DELIVERY_STAGES.some(stage => tx.stage === stage || tx.stageTimestamps?.[stage] !== undefined);
 };
 
-/** The 1Click tracking on a row, read through the `extraInputs` type of the row's own type. */
-const oneClickOfRow = (tx: ITransaction): IOneClickTrackingData | undefined => {
-  switch (tx.type) {
-    // A row that an older build stored.
-    case 'send': {
-      const inputs: ISendExtraInputs | undefined = tx.extraInputs;
-      return inputs?.oneClick;
-    }
-    case 'bridged-send': {
-      const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
-      switch (inputs?.provider) {
-        case 'near-intents':
-          return inputs.oneClick;
-        default:
-          return undefined;
-      }
-    }
-    default:
-      return undefined;
-  }
-};
-
 /**
  * The 1Click tracking of a NEAR Intents send from Miden: a `bridged-send` row with provider `near-intents`, or a
  * `send` row that an older build stored, whose `extraInputs.oneClick` goes from Miden to another chain. A row
@@ -161,7 +138,7 @@ const oneClickOfRow = (tx: ITransaction): IOneClickTrackingData | undefined => {
  */
 export const nearIntentsSendTracking = (tx: ITransaction | undefined): IOneClickTrackingData | undefined => {
   if (!tx || tx.restoredFromBackup) return undefined;
-  const tracking = oneClickOfRow(tx);
+  const tracking = nearIntentsSendTrackingOf(tx);
   return tracking?.direction === 'miden-to-evm' ? tracking : undefined;
 };
 

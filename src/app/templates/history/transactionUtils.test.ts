@@ -33,11 +33,13 @@ import {
   formatDate,
   formatMoneyAmount,
   hasOwnBridgeBadge,
+  historySecondaryAddressOf,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
+  loadedActivityOneClickTracking,
   networkHasFaucetClaims,
   isReceiveEntry,
   labelHistoryEntry,
@@ -1184,6 +1186,61 @@ describe('bridgeRowDisplay', () => {
     expect(xReserve.outAmount).toBe('10');
     expect(xReserve.outLabel).toBe('USDC');
     expect('amountLabel' in xReserve).toBe(false);
+  });
+});
+
+describe('loadedActivityOneClickTracking & historySecondaryAddressOf', () => {
+  it('reads 1Click tracking and destination recipient consistently across bridged-send, legacy send, and bridged-receive', () => {
+    const baseOutbound = paymentTracking({ direction: 'miden-to-evm' });
+    const outbound = paymentTracking({
+      direction: 'miden-to-evm',
+      request: {
+        ...baseOutbound.request,
+        recipient: 'So1anaRecipient11111111111111111111111111111'
+      }
+    });
+    const inbound = paymentTracking({ direction: 'evm-to-miden' });
+
+    const legacySend = {
+      id: 'legacy-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { oneClick: outbound }
+    } as ITransaction;
+    const nearBridged = {
+      id: 'near-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1deposit',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0xdest', oneClick: outbound }
+    } as ITransaction;
+    const epochBridged = {
+      id: 'epoch-1',
+      type: 'bridged-send',
+      secondaryAccountId: 'mtst1alloc',
+      extraInputs: { provider: 'epoch', destinationAddress: '0xepochdest', oneClick: outbound }
+    } as ITransaction;
+    const receive = {
+      id: 'recv-1',
+      type: 'bridged-receive',
+      secondaryAccountId: 'mtst1sender',
+      extraInputs: { oneClick: inbound }
+    } as ITransaction;
+    const plain = {
+      id: 'plain-1',
+      type: 'send',
+      secondaryAccountId: 'mtst1friend'
+    } as ITransaction;
+
+    expect(loadedActivityOneClickTracking(legacySend)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(nearBridged)).toBe(outbound);
+    expect(loadedActivityOneClickTracking(epochBridged)).toBeUndefined();
+    expect(loadedActivityOneClickTracking(receive)).toBe(inbound);
+    expect(loadedActivityOneClickTracking(plain)).toBeUndefined();
+
+    expect(historySecondaryAddressOf(legacySend)).toBe('So1anaRecipient11111111111111111111111111111');
+    expect(historySecondaryAddressOf(nearBridged)).toBe('0xdest');
+    expect(historySecondaryAddressOf(epochBridged)).toBe('0xepochdest');
+    expect(historySecondaryAddressOf(plain)).toBe('mtst1friend');
   });
 });
 

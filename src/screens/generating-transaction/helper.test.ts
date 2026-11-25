@@ -673,7 +673,9 @@ describe('NEAR Intents delivery', () => {
 
   it('titles a NEAR Intents send row that an older build stored as a payment', () => {
     const legacy = sendRow(tracking('processing'));
-    expect(getProcessingTitleKey('send', legacy)).toBe('transactionTitleSend');
+    const plainSend = new SendTransaction('mm1refund', 20_000_000n, 'mm1dest', '0xfaucet', NoteTypeEnum.Public);
+    expect(getProcessingTitleKey(undefined, legacy)).toBe('transactionTitleSend');
+    expect(getProcessingTitleKey(undefined, plainSend)).toBe('generatingTransaction');
   });
 
   it.each<[boolean, boolean, boolean, string]>([

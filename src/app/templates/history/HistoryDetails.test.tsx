@@ -662,6 +662,7 @@ describe('HistoryDetails', () => {
     bridgeProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
     bridgeInProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
     hasOneClick?: boolean;
+    oneClickDirection?: 'evm-to-miden' | 'miden-to-evm';
     isCancelled?: boolean;
     isUnconfirmed?: boolean;
     guardianRecovered?: boolean;
@@ -854,6 +855,21 @@ describe('HistoryDetails', () => {
       isCancelled: true,
       isUnconfirmed: true,
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'send with outbound 1Click tracking',
+      type: 'send',
+      hasOneClick: true,
+      oneClickDirection: 'miden-to-evm',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'none' }
+    },
+    {
+      label: 'bridged-send (near-intents with outbound 1Click)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      oneClickDirection: 'miden-to-evm',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'none' }
     }
   ])(
     'selects explicit sections and address roles for $label',
@@ -862,6 +878,7 @@ describe('HistoryDetails', () => {
       bridgeProvider,
       bridgeInProvider,
       hasOneClick,
+      oneClickDirection,
       isCancelled,
       isUnconfirmed,
       guardianRecovered,
@@ -878,7 +895,11 @@ describe('HistoryDetails', () => {
         isCancelled,
         isUnconfirmed,
         guardianRecovered,
-        oneClickTracking: hasOneClick ? policyOneClickTracking : undefined
+        oneClickTracking: hasOneClick
+          ? oneClickDirection === 'miden-to-evm'
+            ? { ...policyOneClickTracking, direction: 'miden-to-evm' }
+            : policyOneClickTracking
+          : undefined
       };
 
       expect(getHistoryDetailsSectionPolicy(entry)).toEqual(expected);
@@ -1350,6 +1371,166 @@ describe('HistoryDetails', () => {
     const toRow = rowByLabel('to');
     expect(toRow).toBeDefined();
     expect(toRow).toHaveTextContent('So1ana');
+    expect(toRow!.querySelector('a')).toBeNull();
+  });
+
+  it('renders a legacy send near-intents row with a single destination To row and no deposit address', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'one-click-legacy-send',
+      type: 'send',
+      secondaryAccountId: 'mtst1depositaddr',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: 'miden-usdc',
+            destinationAsset: 'sol-usdc',
+            refundTo: 'acct-A',
+            recipient: 'So1anaRecipient11111111111111111111111111111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaRecipient11111111111111111111111111111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'processing',
+          depositAddress: 'mtst1depositaddr',
+          providerStatus: 'PROCESSING',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'one-click-legacy-send' });
+
+    const toRows = Array.from(document.querySelectorAll('[data-testid="detail-row"]')).filter(
+      el => el.getAttribute('data-label') === 'to'
+    );
+    expect(toRows).toHaveLength(1);
+    expect(toRows[0]).toHaveTextContent('So1ana');
+    expect(toRows[0]).not.toHaveTextContent('mtst1depositaddr');
+    expect(toRows[0]!.querySelector('a')).toBeNull();
+  });
+
+  it('shows the 1Click destination recipient in To when a legacy send near-intents row is cancelled', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'cancelled-legacy-near-intents',
+      type: 'send',
+      status: STATUS_FAILED,
+      error: USER_CANCELLED_TRANSACTION_REASON,
+      secondaryAccountId: 'mtst1depositaddr',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: 'miden-usdc',
+            destinationAsset: 'sol-usdc',
+            refundTo: 'acct-A',
+            recipient: 'So1anaRecipient11111111111111111111111111111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaRecipient11111111111111111111111111111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'processing',
+          depositAddress: 'mtst1depositaddr',
+          providerStatus: 'PROCESSING',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'cancelled-legacy-near-intents' });
+
+    const toRow = rowByLabel('to');
+    expect(toRow).toBeDefined();
+    expect(toRow).toHaveTextContent('So1ana');
+    expect(toRow).not.toHaveTextContent('mtst1depositaddr');
     expect(toRow!.querySelector('a')).toBeNull();
   });
 

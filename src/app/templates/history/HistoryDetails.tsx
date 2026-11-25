@@ -102,9 +102,11 @@ import {
   earnWithdrawShowsSource,
   formatDate,
   formatMoneyAmount,
+  historySecondaryAddressOf,
   isBridgeInEntry,
   isReceiveEntry,
   labelHistoryEntry,
+  loadedActivityOneClickTracking,
   lockedDepositStateOf,
   swapSettlementOf
 } from './transactionUtils';
@@ -311,7 +313,11 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
         inboundBridge: false,
         oneClick: entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
         from: 'account',
-        to: 'secondary'
+        // The 1Click section shows the recipient, so `To` appears once.
+        to:
+          entry.oneClickTracking?.direction === 'miden-to-evm' && allowOutboundBridgeDetails(entry)
+            ? 'none'
+            : 'secondary'
       };
     case 'earn-deposit':
       return {
@@ -333,7 +339,11 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
         inboundBridge: false,
         oneClick: isNearIntents && entry.oneClickTracking !== undefined && allowOutbound,
         from: 'account',
-        to: bridgeClaim ? 'none' : 'secondary'
+        // The 1Click section shows the recipient, so `To` appears once.
+        to:
+          bridgeClaim || (isNearIntents && entry.oneClickTracking?.direction === 'miden-to-evm' && allowOutbound)
+            ? 'none'
+            : 'secondary'
       };
     }
     case 'consume':
@@ -491,12 +501,12 @@ const isOutboundBridgeHero = (
   (entry?.txType === 'bridged-send' && entry.bridgeProvider === 'near-intents' && allowOutboundBridgeDetails(entry));
 
 const ToDetailValue: FC<{
-  bridgeProvider: IHistoryEntry['bridgeProvider'];
+  isExternalDestination: boolean;
   address: string;
   account: WalletAccount;
   allAccounts: WalletAccount[];
-}> = memo(({ bridgeProvider, address, account, allAccounts }) =>
-  bridgeProvider === 'near-intents' ? (
+}> = memo(({ isExternalDestination, address, account, allAccounts }) =>
+  isExternalDestination ? (
     <HashChip hash={address} trimHash className="ml-2" />
   ) : (
     <ExternalLinkValue
@@ -678,7 +688,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
-        const oneClickTracking: IOneClickTrackingData | undefined = tx.extraInputs?.oneClick;
+        const oneClickTracking: IOneClickTrackingData | undefined = loadedActivityOneClickTracking(tx);
         const oneClickAmount = oneClickTracking ? oneClickEntryAmount(oneClickTracking) : undefined;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
@@ -721,9 +731,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
           secondaryAddress:
-            bridge?.provider === 'near-intents'
-              ? (bridge.destinationAddress ?? tx.secondaryAccountId)
-              : tx.secondaryAccountId,
+            bridge !== undefined && bridge.provider !== 'near-intents'
+              ? tx.secondaryAccountId
+              : historySecondaryAddressOf(tx),
           processingStartedAt: tx.processingStartedAt,
           txId: tx.id,
           noteType: tx.noteType,
@@ -1258,7 +1268,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   {toAddress && (
                     <DetailRow label={t('to')} data-testid="history-detail-to">
                       <ToDetailValue
-                        bridgeProvider={entry?.bridgeProvider}
+                        isExternalDestination={
+                          entry?.bridgeProvider === 'near-intents' ||
+                          entry?.oneClickTracking?.direction === 'miden-to-evm'
+                        }
                         address={toAddress}
                         account={account}
                         allAccounts={allAccounts}
