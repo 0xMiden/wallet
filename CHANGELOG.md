@@ -3,6 +3,7 @@
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
 - [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.
 - [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
 - [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.

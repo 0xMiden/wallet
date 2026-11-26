@@ -7242,6 +7242,10 @@
     "message": "Permitir la opción \"Sin tutor\" en la incorporación",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Botón de pantalla completa",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Valor de los tokens sin cotizar: 1 $ (solo redes de prueba)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
