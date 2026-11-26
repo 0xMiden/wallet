@@ -153,7 +153,7 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
         onClose={onDone}
         footer={
           <div className="flex w-full flex-col gap-2.5">
-            <ErrorLine className="text-center" errorId="midenNameClaimFailed">
+            <ErrorLine className="text-center" errorId="raw_miden_name_claim_failed">
               {retryError}
             </ErrorLine>
             {needsRetry && (
@@ -202,7 +202,7 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
           </ListGroup>
 
           {failureKey && (
-            <Notice tone="negative" errorId="midenNameRegistrationFailed" data-testid="miden-name-failure">
+            <Notice tone="negative" errorId="raw_miden_name_registration_failed" data-testid="miden-name-failure">
               {t(failureKey)}
             </Notice>
           )}

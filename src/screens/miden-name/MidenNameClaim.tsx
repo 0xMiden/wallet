@@ -271,7 +271,7 @@ export const MidenNameClaim: FC = () => {
                 {t('midenNameInsufficientBalance', { amount: formatMiden(total) })}
               </p>
             )}
-            <ErrorLine className="text-center" errorId="midenNameRegistrationFailed" data-testid="miden-name-error">
+            <ErrorLine className="text-center" errorId="raw_miden_name_registration_failed" data-testid="miden-name-error">
               {submitError}
             </ErrorLine>
             <Button
@@ -299,7 +299,7 @@ export const MidenNameClaim: FC = () => {
             enterKeyHint="done"
             hint={t('midenNameRules')}
             error={fieldError}
-            errorId="midenNameInvalidLabel"
+            errorId="raw_miden_name_invalid_label"
             trailing={<span className="text-body text-muted">{MIDEN_NAME_SUFFIX}</span>}
             data-testid="miden-name-input"
             errorTestId="miden-name-input-error"
