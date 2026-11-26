@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
+
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.

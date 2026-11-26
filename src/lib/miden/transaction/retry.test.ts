@@ -703,6 +703,27 @@ describe('requeueFailedTransaction - a pinned-bytes send, swap or bridge send th
     }
   );
 
+  it('clears requestBytes and keeps mayHaveSubmitted unset when an offscreen recallable send ends unsent at sending or submitting (#2325)', async () => {
+    for (const stage of ['sending', 'submitting'] as const) {
+      for (const error of [STALE_PROOF_ERROR, PROOF_FRESHNESS_UNKNOWN_ERROR]) {
+        const row = pinned({
+          type: 'send',
+          stage,
+          error,
+          mayHaveSubmitted: undefined,
+          submitEvidence: [{ attemptId: 'a1', capturedAt: 1000, source: 'pin', raisedFlag: true, preSubmitEnd: true }]
+        });
+        wireRow(row);
+
+        await requeueFailedTransaction('tx-1');
+
+        expect(row.status).toBe(ITransactionStatus.Queued);
+        expect(row.requestBytes).toBeUndefined();
+        expect(row.mayHaveSubmitted).toBeUndefined();
+      }
+    }
+  });
+
   it('a consume and a nullifier-listing execute still requeue with no refusal', async () => {
     const consume = failedRow({ type: 'consume' });
     wireRow(consume);

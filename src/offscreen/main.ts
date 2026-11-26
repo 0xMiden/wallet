@@ -487,19 +487,39 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
 // pre-submit step.
+async function sendSubmitGate(request: OffscreenSubmitGateRequest, refusalLabel: string): Promise<void> {
+  const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
+  if (resp?.ok !== true) {
+    throw new Error(`${refusalLabel}: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+  }
+}
+
 async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
   const { op_id } = context;
   if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
-  const request: OffscreenSubmitGateRequest = {
-    target: SW_TARGET,
-    type: OFFSCREEN_SUBMIT_GATE,
-    op_id,
-    ...(evidence === undefined ? {} : { evidence })
-  };
-  const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
-  if (resp?.ok !== true) {
-    throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
-  }
+  await sendSubmitGate(
+    {
+      target: SW_TARGET,
+      type: OFFSCREEN_SUBMIT_GATE,
+      op_id,
+      ...(evidence === undefined ? {} : { evidence })
+    },
+    'offscreen submit gate refused'
+  );
+}
+
+async function retractSubmitGate(context: DispatchContext): Promise<void> {
+  const { op_id } = context;
+  if (!op_id || context.settled) throw new Error('offscreen submit gate retract: no live op to retract');
+  await sendSubmitGate(
+    {
+      target: SW_TARGET,
+      type: OFFSCREEN_SUBMIT_GATE,
+      op_id,
+      action: 'retract'
+    },
+    'offscreen submit gate retract refused'
+  );
 }
 
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
@@ -1216,12 +1236,15 @@ const DISPATCH: Record<string, DispatchFn> = {
           expirationBlockOf: proven => proven.evidence.expirationBlock,
           readTip: readChainTip,
           assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip'),
-          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+          commitSubmitGate: async proven => {
+            // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+            await passSubmitGate(context, proven.evidence);
+            // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+            assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+          },
+          retractSubmitGate: () => retractSubmitGate(context)
         });
-        // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-        await passSubmitGate(context, attempt.evidence);
-        // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
         if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
       } catch (preSubmitError) {
         // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its

@@ -5547,6 +5547,205 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(submits[1]).toHaveBeenCalledTimes(1);
       expect(mockProveTransport.prove).not.toHaveBeenCalled();
     });
+
+    it('re-executes and submits only the fresh proof when the chain passes expiry during a delayed submit gate (#2325)', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_025], 1_000);
+      let chainTip = 1_000;
+      G.__off.readChainTip = jest.fn(async () => chainTip);
+      let delayedFirstGate = false;
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          if (m.action === 'retract') {
+            events.push('gate:retract');
+            return { ok: true };
+          }
+          events.push('gate');
+          if (!delayedFirstGate) {
+            delayedFirstGate = true;
+            // Simulate a slow IndexedDB/submission-gate update while the chain moves past proof 0's expiry (1_020).
+            await new Promise<void>(resolve => setTimeout(resolve, 10));
+            chainTip = 1_025;
+          }
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(2);
+      expect(mockProveTransport.prove).toHaveBeenCalledTimes(2);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract', 'execute', 'gate', 'submit']);
+      expect(gates).toHaveLength(3);
+      expect(gates[0]).toMatchObject({ evidence: { refBlock: 1_000, expirationBlock: 1_020 } });
+      expect(gates[1]).toMatchObject({ action: 'retract' });
+      expect(gates[2]).toMatchObject({ evidence: { refBlock: 1_025, expirationBlock: 1_045 } });
+      expect(G.__off.guardianSubmitProven).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalledWith(proofs[0], expect.anything());
+      expect(G.__off.guardianSubmitProven.mock.calls[0][0]).toBe(proofs[1]);
+    });
+
+    it('re-executes a delegated write when the chain passes expiry during a delayed submit gate and submits only the fresh proof (#2325)', async () => {
+      const { events, gates, proofs } = await arrange([1_000, 1_025], 1_000);
+      let chainTip = 1_000;
+      G.__off.readChainTip = jest.fn(async () => chainTip);
+      let delayedFirstGate = false;
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          if (m.action === 'retract') {
+            events.push('gate:retract');
+            return { ok: true };
+          }
+          events.push('gate');
+          if (!delayedFirstGate) {
+            delayedFirstGate = true;
+            await new Promise<void>(resolve => setTimeout(resolve, 10));
+            chainTip = 1_025;
+          }
+          return { ok: true };
+        }
+        return undefined;
+      });
+      const executeRequest = G.__off.guardianExecuteRequest;
+      const submits: jest.Mock[] = [];
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => {
+        const proof = proofs[submits.length];
+        const submit = jest.fn(async () => {
+          events.push('submit');
+          return { apply: jest.fn(async () => {}) };
+        });
+        submits.push(submit);
+        return { ...(await executeRequest(...args)), prove: jest.fn(async () => ({ proof, submit })) };
+      });
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([7, 7])), encodeArg(true)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract', 'execute', 'gate', 'submit']);
+      expect(gates[1]).toMatchObject({ action: 'retract' });
+      expect(gates[2]).toMatchObject({ evidence: { refBlock: 1_025, expirationBlock: 1_045 } });
+      expect(submits[0]).not.toHaveBeenCalled();
+      expect(submits[1]).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts before broadcast and retracts the gate when a delayed submit gate leaves the proof stale and retries cannot catch up (#2325)', async () => {
+      const { events, gates } = await arrange([1_000], 1_000);
+      let chainTip = 1_000;
+      G.__off.readChainTip = jest.fn(async () => chainTip);
+      let delayedFirstGate = false;
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          if (m.action === 'retract') {
+            events.push('gate:retract');
+            return { ok: true };
+          }
+          events.push('gate');
+          if (!delayedFirstGate) {
+            delayedFirstGate = true;
+            await new Promise<void>(resolve => setTimeout(resolve, 10));
+            chainTip = 1_025;
+          }
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract', 'execute', 'execute']);
+      expect(gates.filter(g => g.action === 'retract')).toHaveLength(1);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it('aborts before broadcast and retracts the gate when the post-gate chain tip read fails (#2325)', async () => {
+      const { events, gates } = await arrange([1_000], 1_000);
+      G.__off.readChainTip = jest
+        .fn()
+        .mockResolvedValueOnce(1_000)
+        .mockRejectedValue(new Error('node down after gate'));
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          events.push(m.action === 'retract' ? 'gate:retract' : 'gate');
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'ProofFreshnessUnknownError',
+        errorBeforeSubmit: true
+      });
+      expect(sendResponse.mock.calls[0][0].error).toContain('node down after gate');
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract']);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
+
+    it('aborts before broadcast with StaleProofError when retracting a stale post-gate crossing is refused (#2325)', async () => {
+      const { events } = await arrange([1_000, 1_025], 1_000);
+      let chainTip = 1_000;
+      G.__off.readChainTip = jest.fn(async () => chainTip);
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          if (m.action === 'retract') {
+            events.push('gate:retract-refused');
+            return { ok: false, error: 'retract failed' };
+          }
+          events.push('gate');
+          chainTip = 1_025;
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      const sendResponse = jest.fn();
+      callGuardianPipeline(sendResponse);
+      await waitForReply(sendResponse);
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({
+        ok: false,
+        errorName: 'StaleProofError',
+        errorBeforeSubmit: true
+      });
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract-refused']);
+      expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
+      expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    });
   });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {

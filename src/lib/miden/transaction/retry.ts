@@ -390,6 +390,7 @@ interface RequeuePlan {
   failedStage: ITransactionStage | undefined;
   clearFlags: boolean;
   proven: boolean;
+  endedUnsent: boolean;
   /** The entries' evidence as Retry judged and wrote them, never re-read. */
   baseline: string;
 }
@@ -521,8 +522,9 @@ const planRequeue = async (
     pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
     ((tx.type === 'execute' || tx.type === 'swap' || tx.type === 'bridged-send') && latestEndMayStillRun(tx));
   const guarded = RESUBMIT_GUARDED_TYPES.includes(tx.type) && tx.transactionId === undefined;
+  const unsentProof = endedUnsent(tx);
   const resubmitInDoubt =
-    guarded && (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !endedUnsent(tx)));
+    guarded && (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !unsentProof));
   const executeInDoubt = tx.type === 'execute' && !listsNullifier(tx) && (proven || executeMayHaveSubmitted(tx));
 
   // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
@@ -556,7 +558,7 @@ const planRequeue = async (
     return undefined;
   }
   // Read off the pre-reset row: the requeue write clears `stage`.
-  return { failedStage: tx.stage, clearFlags, proven, baseline };
+  return { failedStage: tx.stage, clearFlags, proven, endedUnsent: unsentProof, baseline };
 };
 
 type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
@@ -668,6 +670,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         result = 'evidence-changed';
         return false;
       }
+      const dbEndedUnsent = plan.endedUnsent && endedUnsent(dbTx);
       // Cleared first, so the send branch below reads them as it always has. An acknowledgement keeps the crossing
       // that pins a send's bytes; only a proven row's attempts are dead enough to rebuild them.
       if (plan.clearFlags) {
@@ -725,9 +728,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         const { landedOrder: _deadAttempt, ...extraInputs } = dbTx.extraInputs;
         dbTx.extraInputs = extraInputs;
       }
-      // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
+      // A proven row's attempts are all dead, and an unsent freshness stop never reached submit, so its send bytes
+      // may be rebuilt like a pre-submit failure's.
       const failedPreSubmit =
-        plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
+        plan.proven || dbEndedUnsent || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
       // A `send` row's cached bytes only exist for a GUARDIAN recallable send
       // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
       // rebuilds its request on every call and never reads `requestBytes`. Those

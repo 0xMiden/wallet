@@ -3588,6 +3588,92 @@ describe('guardian offscreen submit gate (#1644)', () => {
     const stored = txStore.find(r => r.id === 'gate-late') as Record<string, unknown>;
     expect(stored.stage).not.toBe('submitting');
   });
+
+  it('retracts a stale crossing, restores stage to sending, and records fresh evidence on retry (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const staleTx = `0x${'a'.repeat(64)}`;
+    const freshTx = `0x${'b'.repeat(64)}`;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    let stageAfterFirstGate: unknown;
+    let stageAfterRetract: unknown;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: staleTx, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      stageAfterFirstGate = txStore.find(r => r.id === 'gate-retract-recover')?.stage;
+      expect(await gate.retract?.()).toBe(true);
+      stageAfterRetract = txStore.find(r => r.id === 'gate-retract-recover')?.stage;
+      expect(await gate({ transactionId: freshTx, refBlock: 1025, expirationBlock: 1045 })).toBe(true);
+      return makeResult();
+    });
+    const { service } = arrange('gate-retract-recover', sendRow);
+
+    await generateTransaction(
+      buildTx('gate-retract-recover', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(stageAfterFirstGate).toBe('submitting');
+    expect(stageAfterRetract).toBe('sending');
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    const stored = txStore.find(r => r.id === 'gate-retract-recover') as unknown as ITransaction;
+    expect(stored.submitEvidence).toEqual([
+      expect.objectContaining({
+        source: 'stage',
+        transactionId: freshTx,
+        refBlock: 1025,
+        expirationBlock: 1045
+      })
+    ]);
+  });
+
+  it('retracting a pinned-bytes recallable send before StaleProofError clears requestBytes and keeps Retry open (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const staleTx = `0x${'c'.repeat(64)}`;
+    const pinnedRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([4, 4])
+    };
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: staleTx, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      expect(await gate.retract?.()).toBe(true);
+      throw new StaleProofError();
+    });
+    const { service } = arrange('gate-retract-pinned-stale', pinnedRow);
+
+    await generateTransaction(
+      buildTx('gate-retract-pinned-stale', pinnedRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const stored = txStore.find(r => r.id === 'gate-retract-pinned-stale') as unknown as ITransaction;
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending', error: STALE_PROOF_ERROR });
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+    expect(stored.submitEvidence).toEqual([
+      expect.objectContaining({ source: 'pin', raisedFlag: true, preSubmitEnd: true })
+    ]);
+    expect(stored.submitEvidence?.[0]?.transactionId).toBeUndefined();
+
+    const restoreLocks = installNavigatorLocks();
+    try {
+      await requeueFailedTransaction('gate-retract-pinned-stale');
+    } finally {
+      restoreLocks();
+    }
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored.requestBytes).toBeUndefined();
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+  });
 });
 
 describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {

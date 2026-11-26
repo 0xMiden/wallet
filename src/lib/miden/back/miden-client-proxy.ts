@@ -448,7 +448,9 @@ const opStageCallbacks = new Map<string, StageCallback>();
  * writes since #1081, and a reviewed bridge source), and says whether it may: false once the leaf has settled. A throw
  * refuses the gate too, since a crossing that cannot be recorded must not happen.
  */
-export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+export type SubmitGate = ((evidence?: SubmitEvidenceFields) => Promise<boolean>) & {
+  retract?: () => Promise<boolean>;
+};
 
 /** op_id → that write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
@@ -926,6 +928,16 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   const { op_id } = msg;
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
+  if (msg.action === 'retract') {
+    try {
+      if (gate.retract && !(await gate.retract())) {
+        return { ok: false, error: `op ${op_id} has already settled` };
+      }
+    } catch (err) {
+      return { ok: false, error: `op ${op_id} could not retract its submit: ${String(err)}` };
+    }
+    return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while retracting its submit` };
+  }
   try {
     if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
   } catch (err) {

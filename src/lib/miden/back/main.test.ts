@@ -1795,6 +1795,38 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE' }, ownSender, jest.fn())).toBe(false);
   });
 
+  it('routes OFFSCREEN_SUBMIT_GATE retract actions and rejects invalid gate actions (#2325)', async () => {
+    const retractReply = jest.fn();
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', action: 'retract' },
+        ownSender,
+        retractReply
+      )
+    ).toBe(true);
+    await flushStorage();
+    expect(proxyMock.handleOffscreenSubmitGate).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: 'op-gate',
+      action: 'retract',
+      evidence: undefined
+    });
+    expect(retractReply).toHaveBeenCalledWith({ ok: true });
+
+    proxyMock.handleOffscreenSubmitGate.mockClear();
+    const badReply = jest.fn();
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', action: 'bogus' },
+        ownSender,
+        badReply
+      )
+    ).toBe(true);
+    expect(badReply).toHaveBeenCalledWith({ ok: false, error: 'Invalid submit gate action' });
+    expect(proxyMock.handleOffscreenSubmitGate).not.toHaveBeenCalled();
+  });
+
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {
     expect(
       signListener()({ target: 'sw', type: 'OFFSCREEN_STAGE_EVENT', stage: 'proving' }, ownSender, jest.fn())

@@ -4573,6 +4573,63 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     );
     expect(submitGate).not.toHaveBeenCalled();
   });
+
+  it('retracts an open submit gate for an in-flight op and refuses retract failures (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const retract = jest.fn(async () => true);
+    const submitGate = Object.assign(
+      jest.fn(async () => true),
+      { retract }
+    );
+    const answers: unknown[] = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      retract.mockResolvedValueOnce(false);
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      retract.mockRejectedValueOnce(new Error('IndexedDB failed'));
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(retract).toHaveBeenCalledTimes(3);
+    expect(answers).toEqual([
+      { ok: true },
+      expect.objectContaining({ ok: false, error: expect.stringContaining('already settled') }),
+      expect.objectContaining({ ok: false, error: expect.stringContaining('IndexedDB failed') })
+    ]);
+  });
 });
 
 // The single-key send, swap and custom writes take the same gate (#1081): the call names it, so the offscreen leaf asks

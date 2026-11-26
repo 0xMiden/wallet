@@ -6,6 +6,8 @@ import {
   recordKeptCandidate,
   recordLeafEnd,
   recordSubmitCrossing,
+  retractSubmitCrossing,
+  setTransactionStage,
   updateTransactionStatus
 } from './helper';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -168,5 +170,63 @@ describe('recordKeptCandidate (#1081)', () => {
     ).resolves.toBeUndefined();
     where.mockRestore();
     warn.mockRestore();
+  });
+});
+
+describe('retractSubmitCrossing (#2325)', () => {
+  it('removes a stage entry, clears raised mayHaveSubmitted, reverts stage, and drops submitting timestamp', async () => {
+    await Repo.transactions.put(generating({ stage: 'proving', stageTimestamps: { proving: 100 } }));
+    await recordSubmitCrossing('tx-1', { transactionId: hex(1), refBlock: 10, expirationBlock: 30 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+    expect(row?.submitEvidence).toBeUndefined();
+    expect(row?.stage).toBe('proving');
+    expect(row?.stageTimestamps).toEqual({ proving: 100 });
+  });
+
+  it('strips proof fields from a pin entry while preserving pin metadata and preSubmitEnd', async () => {
+    await Repo.transactions.put(generating({ stage: 'sending' }));
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 4 });
+    await recordSubmitCrossing('tx-1', { transactionId: hex(1), refBlock: 10, expirationBlock: 30 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'sending');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: 'a1',
+        source: 'pin',
+        raisedFlag: true,
+        guardianProposalNonce: 4,
+        preSubmitEnd: true
+      })
+    ]);
+    expect(row?.submitEvidence?.[0]?.transactionId).toBeUndefined();
+    expect(row?.stage).toBe('sending');
+  });
+
+  it('does not revert stage or timestamps belonging to a newer attemptId', async () => {
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a2',
+        stage: 'submitting',
+        stageTimestamps: { submitting: 200 },
+        submitEvidence: [{ attemptId: 'a1', capturedAt: 100, source: 'stage', transactionId: hex(1) }]
+      })
+    );
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+
+    const row = await read();
+    expect(row?.stage).toBe('submitting');
+    expect(row?.stageTimestamps).toEqual({ submitting: 200 });
+    expect(row?.submitEvidence).toBeUndefined();
   });
 });

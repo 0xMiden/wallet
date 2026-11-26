@@ -197,12 +197,21 @@ interface FreshProofSteps<T> {
   assertLive: () => void;
   /** Running time the leaf's passes may reach before the limit that watches it. */
   budgetMs: number;
+  /**
+   * Runs once a proof passes its pre-gate freshness check to record the crossing / 'submitting' stage before broadcast.
+   * When present, freshness is checked again immediately after it returns so a slow DB update or gate round trip
+   * never submits an expired proof (#2325).
+   */
+  commitSubmitGate?: (proven: T) => Promise<void>;
+  /** Retracts a crossing committed by `commitSubmitGate` when the post-gate freshness check rejects the proof. */
+  retractSubmitGate?: (proven: T) => Promise<void>;
 }
 
 /**
  * Drive one attempt's execute and prove until its proof can still be accepted, before the attempt records a crossing,
- * so a proof that went stale never counts as sent. A later execution reference block is a later tip, and the
- * co-signatures bind the proposal's own block rather than that one, so the same approval executes again (#2060).
+ * and verify freshness again immediately after the submission gate / 'submitting' write before broadcast (#2060, #2325).
+ * A later execution reference block is a later tip, and the co-signatures bind the proposal's own block rather than
+ * that one, so the same approval executes again.
  *
  * An unreadable tip fails before submit: reconciliation cannot establish whether an unchecked proof was accepted.
  * The tip is read every time: a stall can hide in the client's lagging sync height, which no clock here can see.
@@ -219,7 +228,9 @@ export async function withFreshProof<T>({
   expirationBlockOf,
   readTip,
   assertLive,
-  budgetMs
+  budgetMs,
+  commitSubmitGate,
+  retractSubmitGate
 }: FreshProofSteps<T>): Promise<T> {
   const startedAt = runningNow();
   let proveLocally = false;
@@ -228,21 +239,81 @@ export async function withFreshProof<T>({
     proveLocally = true;
     paceFrom = runningNow();
   };
+  const readFreshTip = async (): Promise<TipReadOutcome> => {
+    const tipRead = await readTipInTime(readTip);
+    assertLive();
+    return tipRead;
+  };
+  const retractBestEffort = async (proven: T): Promise<void> => {
+    if (!retractSubmitGate) return;
+    try {
+      await retractSubmitGate(proven);
+    } catch (retractError) {
+      console.warn('[Guardian] failed to retract submit gate after freshness check', retractError);
+    }
+  };
+  const advanceOrThrowStale = async (
+    reexecutions: number,
+    provePace: number,
+    expirationBlock: number,
+    tip: number,
+    afterGate: boolean,
+    proven: T
+  ): Promise<void> => {
+    const now = runningNow();
+    const elapsed = now - startedAt;
+    const pace = now - paceFrom;
+    if (reexecutions === MAX_PROOF_REEXECUTIONS || elapsed + pace > budgetMs) {
+      if (afterGate) await retractBestEffort(proven);
+      throw new StaleProofError();
+    }
+    if (afterGate && retractSubmitGate) {
+      try {
+        await retractSubmitGate(proven);
+      } catch (retractError) {
+        assertLive();
+        console.warn('[Guardian] failed to retract stale submit gate; stopping before retry', retractError);
+        throw new StaleProofError();
+      }
+      assertLive();
+    }
+    if (provePace >= MAINNET_PROOF_WINDOW_MS || elapsed + DELEGATED_PROVE_TIMEOUT_MS + pace > budgetMs) {
+      proveLocally = true;
+    }
+    console.warn(
+      afterGate
+        ? `[Guardian] proof expires at block ${expirationBlock} with the tip at ${tip} after the submit gate; executing again`
+        : `[Guardian] proof expires at block ${expirationBlock} with the tip at ${tip}; executing again`
+    );
+  };
+
   for (let reexecutions = 0; ; reexecutions++) {
     paceFrom = runningNow();
     const proven = await executeAndProve({ reexecuting: reexecutions > 0, proveLocally, delegatedProveFailed });
     const expirationBlock = expirationBlockOf(proven);
-    if (expirationBlock === undefined) return proven;
-    const tipRead = await readTipInTime(readTip);
-    assertLive();
+    if (expirationBlock === undefined) {
+      if (commitSubmitGate) {
+        await commitSubmitGate(proven);
+        assertLive();
+      }
+      return proven;
+    }
+    const tipRead = await readFreshTip();
     if (!tipRead.ok) throw markErrorBeforeSubmit(buildProofFreshnessUnknownError(tipRead));
-    const tip = tipRead.tip;
-    if (!isProofStale(expirationBlock, tip)) return proven;
-    const now = runningNow();
-    const elapsed = now - startedAt;
-    const pace = now - paceFrom;
-    if (reexecutions === MAX_PROOF_REEXECUTIONS || elapsed + pace > budgetMs) throw new StaleProofError();
-    if (pace >= MAINNET_PROOF_WINDOW_MS || elapsed + DELEGATED_PROVE_TIMEOUT_MS + pace > budgetMs) proveLocally = true;
-    console.warn(`[Guardian] proof expires at block ${expirationBlock} with the tip at ${tip}; executing again`);
+    const provePace = runningNow() - paceFrom;
+    if (isProofStale(expirationBlock, tipRead.tip)) {
+      await advanceOrThrowStale(reexecutions, provePace, expirationBlock, tipRead.tip, false, proven);
+      continue;
+    }
+    if (!commitSubmitGate) return proven;
+    await commitSubmitGate(proven);
+    assertLive();
+    const postTipRead = await readFreshTip();
+    if (!postTipRead.ok) {
+      await retractBestEffort(proven);
+      throw markErrorBeforeSubmit(buildProofFreshnessUnknownError(postTipRead));
+    }
+    if (!isProofStale(expirationBlock, postTipRead.tip)) return proven;
+    await advanceOrThrowStale(reexecutions, provePace, expirationBlock, postTipRead.tip, true, proven);
   }
 }

@@ -7258,6 +7258,144 @@ describe('generateTransaction - Guardian routing', () => {
       expect(stored.nextEligibleAt).toBeUndefined();
       expect(stored.mayHaveSubmitted).toBeUndefined();
     });
+
+    it('re-executes and submits only the fresh proof when the chain passes expiry during a slow submitting DB update (#2325)', async () => {
+      const txId = 'send-guardian-slow-submitting-db-recovers';
+      let chainTip = REF_BLOCK;
+      mockReadChainTip.mockImplementation(async () => chainTip);
+      const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+      const results = ['0xstale', '0xfresh'].map(hash => {
+        const result = makeResult();
+        const executed = result.executedTransaction();
+        return {
+          ...result,
+          executedTransaction: () => ({
+            ...executed,
+            id: () => ({ toHex: () => hash }),
+            accountId: () => 'guardian-acc',
+            initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => `${hash}-initial` }) })
+          })
+        };
+      });
+      const proofs = [proofOnRefBlock(REF_BLOCK), proofOnRefBlock(REF_BLOCK + 25)];
+      const observedStages: unknown[] = [];
+      let executions = 0;
+      client.transactions.executeRequest.mockImplementation(async () => {
+        observedStages.push(txStore.find(row => row.id === txId)?.stage);
+        const index = executions++;
+        const [result, proof] = [results[index]!, proofs[index]!];
+        return {
+          id: result.executedTransaction().id(),
+          result,
+          prove: async () => ({
+            proof,
+            result,
+            submit: async () => ({
+              ...(await client.transactions.submitProven(proof, result)),
+              result,
+              apply: async () => {}
+            })
+          })
+        } as never;
+      });
+      const accounts = { get: jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xfresh-initial' }) })) };
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: Object.assign(client, { accounts })
+      });
+
+      // Delay the first 'submitting' DB update and advance the chain past proof 0's expiry (REF_BLOCK + 20)
+      // before that DB update finishes.
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      let delayedFirstSubmittingWrite = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+        return {
+          ...handle,
+          modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+            const row = txStore.find(r => r.id === query.id);
+            const probe = row ? { ...row } : {};
+            fn(probe);
+            if (!delayedFirstSubmittingWrite && probe.stage === 'submitting' && row?.stage !== 'submitting') {
+              delayedFirstSubmittingWrite = true;
+              await new Promise<void>(resolve => setTimeout(resolve, 10));
+              chainTip = REF_BLOCK + 25;
+            }
+            return handle.modify(fn);
+          }
+        };
+      });
+
+      try {
+        await run(tx);
+      } finally {
+        repo.transactions.where.mockImplementation(realWhere);
+      }
+
+      expect(observedStages).toEqual(['executing', 'proving']);
+      expect(client.transactions.submitProven).not.toHaveBeenCalledWith(proofs[0], expect.anything());
+      expect(client.transactions.submitProven).toHaveBeenCalledTimes(1);
+      expect(client.transactions.submitProven).toHaveBeenCalledWith(proofs[1], results[1]);
+      expect(abandonCandidate).not.toHaveBeenCalled();
+
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored).toMatchObject({ status: ITransactionStatus.Completed, transactionId: '0xfresh' });
+      expect(stored.submitEvidence).toEqual([
+        expect.objectContaining({
+          transactionId: '0xfresh',
+          refBlock: REF_BLOCK + 25,
+          expirationBlock: REF_BLOCK + 25 + FEE_POLICY_WINDOW_BLOCKS
+        })
+      ]);
+    });
+
+    it('aborts before broadcast, retracts submitting state, and leaves Retry open when the chain stays past expiry after a slow submitting DB update (#2325)', async () => {
+      const txId = 'send-guardian-slow-submitting-db-stale';
+      let chainTip = REF_BLOCK;
+      mockReadChainTip.mockImplementation(async () => chainTip);
+      const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      let delayedFirstSubmittingWrite = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+        return {
+          ...handle,
+          modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+            const row = txStore.find(r => r.id === query.id);
+            const probe = row ? { ...row } : {};
+            fn(probe);
+            if (!delayedFirstSubmittingWrite && probe.stage === 'submitting' && row?.stage !== 'submitting') {
+              delayedFirstSubmittingWrite = true;
+              await new Promise<void>(resolve => setTimeout(resolve, 10));
+              chainTip = PAST_THE_WINDOW;
+            }
+            return handle.modify(fn);
+          }
+        };
+      });
+
+      try {
+        await run(tx);
+      } finally {
+        repo.transactions.where.mockImplementation(realWhere);
+      }
+
+      expect(client.transactions.executeRequest).toHaveBeenCalledTimes(1 + MAX_PROOF_REEXECUTIONS);
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'proving', error: STALE_PROOF_ERROR });
+      expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+      expect(stored.mayHaveSubmitted).toBeUndefined();
+      expect(stored.submitEvidence ?? []).toEqual([]);
+
+      await withNavigatorLocks(() => requeueFailedTransaction(txId));
+      expect(stored.status).toBe(ITransactionStatus.Queued);
+    });
   });
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
