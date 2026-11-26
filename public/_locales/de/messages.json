@@ -10938,6 +10938,10 @@
     "message": "Epoche",
     "englishSource": "Epoch"
   },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
+  },
   "depositFlowArrivesAgglayer": {
     "message": "Etwa 30 Minuten",
     "englishSource": "About 30 minutes"

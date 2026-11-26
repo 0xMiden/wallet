@@ -2367,6 +2367,7 @@
   "depositFlowConnectWalletInstead": "Вместо этого подключите кошелек",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Эпоха",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Около 30 минут",
   "depositFlowArrivesEpoch": "Около 2 минут",
   "depositFlowStartFailedTitle": "Мост не запустился",

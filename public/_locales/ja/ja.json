@@ -2371,6 +2371,7 @@
   "depositFlowConnectWalletInstead": "代わりにウォレットを接続してください",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "エポック",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "約30分",
   "depositFlowArrivesEpoch": "約2分",
   "depositFlowStartFailedTitle": "ブリッジは開始されませんでした",

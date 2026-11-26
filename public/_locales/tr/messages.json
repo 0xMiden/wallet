@@ -10676,6 +10676,18 @@
     "message": "Para yatırma adresini göstermek için kaydırın",
     "englishSource": "Slide to show deposit address"
   },
+  "depositFlowYouSendFrom": {
+    "message": "$amount$ tutarındaki <b>'yi $network$ ağından </b> adresine gönderirsiniz.",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
   "depositFlowHighFeeTitle": {
     "message": "Ücret, bu depozitonun $percent$'si kadardır.",
     "englishSource": "The fee is $percent$% of this deposit",
@@ -10917,6 +10929,10 @@
   "depositFlowRouteEpoch": {
     "message": "Epoch",
     "englishSource": "Epoch"
+  },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
   },
   "depositFlowArrivesAgglayer": {
     "message": "Yaklaşık 30 dakika",

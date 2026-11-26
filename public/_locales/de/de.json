@@ -2361,6 +2361,7 @@
   "depositFlowConnectWalletInstead": "Stattdessen eine Wallet verbinden",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Epoche",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Etwa 30 Minuten",
   "depositFlowArrivesEpoch": "Etwa 2 Minuten",
   "depositFlowStartFailedTitle": "Die Brücke wurde nicht gestartet",

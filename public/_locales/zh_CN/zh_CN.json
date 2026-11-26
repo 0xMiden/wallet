@@ -2371,6 +2371,7 @@
   "depositFlowConnectWalletInstead": "请连接钱包",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "纪元",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "约 30 分钟",
   "depositFlowArrivesEpoch": "约 2 分钟",
   "depositFlowStartFailedTitle": "该桥接尚未启动",

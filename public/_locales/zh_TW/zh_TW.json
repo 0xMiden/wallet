@@ -2370,6 +2370,7 @@
   "depositFlowConnectWalletInstead": "請改為連接錢包",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Epoch",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "約 30 分鐘",
   "depositFlowArrivesEpoch": "約 2 分鐘",
   "depositFlowStartFailedTitle": "該橋接服務並未啟動",
