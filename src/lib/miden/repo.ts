@@ -925,11 +925,12 @@ export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
     const rawTransactions = await transactions.toArray();
-    // `dappOrigins` stays out: a backup must not record which dApps the user used (#1416).
+    // dApp origins stay out because a backup must not record which dApps the user used (#1416).
     const serializableTransactions = rawTransactions.map(
       ({
         amount,
         dappOrigins: _dappOrigins,
+        initiatingDappOrigin: _initiatingDappOrigin,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
         ...rest
@@ -976,10 +977,11 @@ export async function importDb(dump: string): Promise<void> {
 
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
-      // A dump's `dappOrigins` is dropped too: no restored row is ever waitable by a dApp.
+      // Ignore dApp origins supplied by a backup, which cannot establish local attribution or access.
       const {
         amount,
         dappOrigins: _dappOrigins,
+        initiatingDappOrigin: _initiatingDappOrigin,
         recoveredBadgeNetwork: _recoveredBadgeNetwork,
         badgeEvidenceRevision: _badgeEvidenceRevision,
         extraInputs,

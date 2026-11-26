@@ -9,9 +9,10 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-import type { IApprovedCustomEffects } from '../db/types';
-import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
+import type { IApprovedCustomEffects } from '../db/types';
+import { queueOutgoingTransaction, queueUnattributableCustomTransaction } from '../spending-limits/queue';
+import { NoteTypeEnum } from '../types';
 
 let mockBadgeOverride: EndpointOverride | null = null;
 let mockBadgeNetwork = 'testnet';
@@ -51,7 +52,6 @@ jest.mock('lib/platform', () => ({ isExtension: () => true }));
 const ORIGIN = 'https://dapp.example';
 const REQUEST_BYTES = Buffer.from('custom-request').toString('base64');
 const SPENT = [{ faucetId: 'faucet-a', amount: 1n }];
-const listsNoOrigin = () => expect.not.objectContaining({ dappOrigins: expect.anything() });
 const insertedRow = () => mockAdd.mock.calls[0]?.[0];
 
 const send = (dappOrigin?: string) =>
@@ -105,30 +105,57 @@ describe('the origin a dApp row is created for', () => {
   it('is on a dApp send from its insert', async () => {
     await send(ORIGIN);
     expect(mockAdd).toHaveBeenCalledTimes(1);
-    expect(insertedRow()).toEqual(expect.objectContaining({ type: 'send', dappOrigins: [ORIGIN] }));
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({ type: 'send', dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
+    );
   });
 
   it("is absent from the wallet's own send", async () => {
     await send();
-    expect(insertedRow()).toEqual(listsNoOrigin());
+    expect(insertedRow()).not.toEqual(expect.objectContaining({ dappOrigins: expect.anything() }));
+    expect(insertedRow()).not.toEqual(expect.objectContaining({ initiatingDappOrigin: expect.anything() }));
     expect(insertedRow()).toEqual(expect.objectContaining({ badgeNetwork: getEffectiveNetworkName() }));
   });
 
   it('is on a dApp custom request that moves nothing, inserted directly', async () => {
+    await custom([], ORIGIN);
+    expect(queueOutgoingTransaction).not.toHaveBeenCalled();
+    expect(queueUnattributableCustomTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({ type: 'execute', dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
+    );
+  });
+
+  it('is on a dApp custom request with unattributed spends, inserted through its queue', async () => {
     await custom(undefined, ORIGIN);
-    expect(insertedRow()).toEqual(expect.objectContaining({ type: 'execute', dappOrigins: [ORIGIN] }));
+    expect(queueUnattributableCustomTransaction).toHaveBeenCalledWith(insertedRow(), undefined);
+    expect(queueOutgoingTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({ type: 'execute', dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
+    );
   });
 
   it('is on a dApp custom request that moves value, inserted through the spending-limit chokepoint', async () => {
     await custom(SPENT, ORIGIN);
+    expect(queueOutgoingTransaction).toHaveBeenCalledWith(insertedRow(), SPENT, undefined);
+    expect(queueUnattributableCustomTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     expect(insertedRow()).toEqual(
-      expect.objectContaining({ type: 'execute', spentAssetTotals: SPENT, dappOrigins: [ORIGIN] })
+      expect.objectContaining({
+        type: 'execute',
+        spentAssetTotals: SPENT,
+        dappOrigins: [ORIGIN],
+        initiatingDappOrigin: ORIGIN
+      })
     );
   });
 
   it('is absent from a custom row created without one', async () => {
     await custom();
-    expect(insertedRow()).toEqual(listsNoOrigin());
+    expect(insertedRow()).not.toEqual(expect.objectContaining({ dappOrigins: expect.anything() }));
+    expect(insertedRow()).not.toEqual(expect.objectContaining({ initiatingDappOrigin: expect.anything() }));
   });
 });
 

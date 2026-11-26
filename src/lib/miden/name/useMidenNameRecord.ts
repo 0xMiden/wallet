@@ -13,7 +13,11 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { getEffectiveNetworkName, subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
 import { isMidenNameAbortedError } from './errors';
@@ -31,11 +35,13 @@ export type MidenNameRecordState =
 
 export const MIDEN_NAME_RECORD_POLL_MS = 15_000;
 
+const getRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), getEffectiveRpcUrl()]);
+
 interface RecordSnapshot {
   accountId: string | undefined;
   label: string | undefined;
   refreshKey: string;
-  network: string;
+  scope: string;
   supported: boolean;
   state: MidenNameRecordState;
 }
@@ -54,14 +60,14 @@ function sameQuery(
   accountId: string | undefined,
   label: string | undefined,
   refreshKey: string,
-  network: string,
+  scope: string,
   supported: boolean
 ): boolean {
   return (
     snapshot.accountId === accountId &&
     snapshot.label === label &&
     snapshot.refreshKey === refreshKey &&
-    snapshot.network === network &&
+    snapshot.scope === scope &&
     snapshot.supported === supported
   );
 }
@@ -76,23 +82,23 @@ export function useMidenNameRecord(
   refreshKey: string = ''
 ): MidenNameRecordState {
   const active = usePageActive();
-  const network = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveNetworkName, getEffectiveNetworkName);
+  const scope = useSyncExternalStore(subscribeEffectiveEndpoints, getRegistryScope, getRegistryScope);
   const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
   const fallbackState = defaultRecordState(accountId, label, supported);
   const [snapshot, setSnapshot] = useState<RecordSnapshot>(() => ({
     accountId,
     label,
     refreshKey,
-    network,
+    scope,
     supported,
     state: fallbackState
   }));
 
   useEffect(() => {
     setSnapshot(prev =>
-      sameQuery(prev, accountId, label, refreshKey, network, supported)
+      sameQuery(prev, accountId, label, refreshKey, scope, supported)
         ? prev
-        : { accountId, label, refreshKey, network, supported, state: fallbackState }
+        : { accountId, label, refreshKey, scope, supported, state: fallbackState }
     );
 
     if (!accountId || label === undefined || !supported || !active) {
@@ -118,12 +124,12 @@ export function useMidenNameRecord(
           if (cancelled || seq !== requestSeq) return;
           const nextState: MidenNameRecordState =
             record === null ? 'none' : compareAccountIds(record, accountId) ? 'here' : 'elsewhere';
-          setSnapshot({ accountId, label, refreshKey, network, supported, state: nextState });
+          setSnapshot({ accountId, label, refreshKey, scope, supported, state: nextState });
         })
         .catch(error => {
           if (cancelled || seq !== requestSeq || isMidenNameAbortedError(error)) return;
           console.warn('[miden-name] Record read failed:', error);
-          setSnapshot({ accountId, label, refreshKey, network, supported, state: 'checking' });
+          setSnapshot({ accountId, label, refreshKey, scope, supported, state: 'checking' });
         })
         .finally(() => {
           inFlight = false;
@@ -137,7 +143,7 @@ export function useMidenNameRecord(
       requestSeq += 1;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [accountId, label, refreshKey, network, supported, active, fallbackState]);
+  }, [accountId, label, refreshKey, scope, supported, active, fallbackState]);
 
-  return sameQuery(snapshot, accountId, label, refreshKey, network, supported) ? snapshot.state : fallbackState;
+  return sameQuery(snapshot, accountId, label, refreshKey, scope, supported) ? snapshot.state : fallbackState;
 }

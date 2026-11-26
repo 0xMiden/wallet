@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -43,6 +43,10 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { CalendarRecallReviewRequiredError, MAX_RECALL_BLOCKS, parseCalendarRecallTarget } from 'lib/miden/helpers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { isMidenNameSupported } from 'lib/miden/name/config';
+import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
+import { isMidenNameAbortedError } from 'lib/miden/name/errors';
+import { resolveMidenName } from 'lib/miden/name/resolver';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -50,7 +54,11 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from 'lib/one-click/address';
 import { useNearIntentsConfig } from 'lib/one-click/config';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
@@ -152,6 +160,58 @@ export function nearIntentsSendFailureId(
 }
 
 /**
+ * Return the formatted Miden Name (`alice.miden`) of the `name` URL value when
+ * a new lookup of it gives `to`. Return undefined while the lookup runs, when
+ * the network has no Miden Name deployment, or when the name does not resolve
+ * to `to`. A name that is dropped is logged.
+ */
+function useVerifiedMidenName(nameParam: string, to: string): string | undefined {
+  const network = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveNetworkName);
+  const rpcUrl = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveRpcUrl);
+  const [verified, setVerified] = useState<{
+    nameParam: string;
+    to: string;
+    name: string;
+    network: string;
+    rpcUrl: string;
+  }>();
+
+  useEffect(() => {
+    setVerified(undefined);
+    if (!nameParam) return;
+    if (!isMidenNameSupported() || !looksLikeMidenName(nameParam)) {
+      console.warn('Review: dropped the recipient name because name lookup is not available for it');
+      return;
+    }
+    const label = normalizeMidenNameInput(nameParam);
+    const controller = new AbortController();
+    const verify = async () => {
+      try {
+        const address = await resolveMidenName(label, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (address !== null && address === to) {
+          setVerified({ nameParam, to, name: formatMidenName(label), network, rpcUrl });
+          return;
+        }
+        console.warn('Review: dropped the recipient name because it does not resolve to the recipient address');
+      } catch (error) {
+        if (controller.signal.aborted || isMidenNameAbortedError(error)) return;
+        console.warn('Review: dropped the recipient name because the name lookup failed', error);
+      }
+    };
+    verify();
+    return () => controller.abort();
+  }, [nameParam, to, network, rpcUrl]);
+
+  return verified?.nameParam === nameParam &&
+    verified.to === to &&
+    verified.network === network &&
+    verified.rpcUrl === rpcUrl
+    ? verified.name
+    : undefined;
+}
+
+/**
  * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
  *
  * Owns the whole transaction-creation pipeline: the send form at `/send` only
@@ -210,12 +270,13 @@ export const ReviewTransaction: React.FC = () => {
   const { signTransaction } = useMidenContext();
 
   // A NEAR Intents network can come from the bridge config, so the id is kept as it is and read on each render.
-  const { amount, to, tokenId, network, route, commandReviewId } = useMemo<{
+  const { amount, to, tokenId, network, route, nameParam, commandReviewId } = useMemo<{
     amount: string;
     to: string;
     tokenId: string;
     network?: SendNetworkId;
     route?: BridgeRoute;
+    nameParam: string;
     commandReviewId?: string;
   }>(() => {
     const params = new URLSearchParams(search);
@@ -225,11 +286,18 @@ export const ReviewTransaction: React.FC = () => {
       tokenId: params.get('tokenId') ?? '',
       commandReviewId: params.get('commandReviewId') ?? undefined,
       network: params.get('network') ?? undefined,
-      route: parseBridgeRoute(params.get('route'))
+      route: parseBridgeRoute(params.get('route')),
+      nameParam: params.get('name') ?? ''
     };
   }, [search]);
   const sendIntent = JSON.stringify([commandReviewId ?? null, amount, to, tokenId, network, route]);
   const sendAdmission = command ? commandDrafts?.readSendAdmission() : undefined;
+
+  // The Miden Name of the recipient, for display only. The URL is not trusted:
+  // the name shows only when the network has a Miden Name deployment and a new
+  // lookup of the name gives the same address as `to`. Else the name is dropped. The send always signs
+  // `to`, never the name.
+  const verifiedName = useVerifiedMidenName(nameParam, to);
 
   // A recipient on another chain (EVM, Solana, Bitcoin, NEAR) leaves Miden instead of a same-chain send.
   const isBridge = !!to && detectAddressChain(to) !== 'miden';
@@ -726,7 +794,17 @@ export const ReviewTransaction: React.FC = () => {
           isDelegateProofEnabled()
         ] as const;
         if (command && approvedCalendarTarget !== undefined) {
-          txId = await initiateSendTransaction(...commonArguments, authorization, undefined, approvedCalendarTarget);
+          txId = verifiedName
+            ? await initiateSendTransaction(
+                ...commonArguments,
+                authorization,
+                undefined,
+                approvedCalendarTarget,
+                verifiedName
+              )
+            : await initiateSendTransaction(...commonArguments, authorization, undefined, approvedCalendarTarget);
+        } else if (verifiedName) {
+          txId = await initiateSendTransaction(...commonArguments, authorization, undefined, undefined, verifiedName);
         } else {
           txId =
             authorization === undefined
@@ -789,6 +867,7 @@ export const ReviewTransaction: React.FC = () => {
       recallBlocks,
       reviewRevision,
       sharePrivately,
+      verifiedName,
       to,
       token,
       sendIntent,
@@ -1436,7 +1515,16 @@ export const ReviewTransaction: React.FC = () => {
                 ) : undefined
               }
             >
-              <span className="min-w-0 text-[11px] break-all">{to}</span>
+              {verifiedName ? (
+                <div className="flex min-w-0 flex-col items-end text-right">
+                  <span data-testid="review-recipient-name" className="block font-semibold text-ink">
+                    {verifiedName}
+                  </span>
+                  <span className="min-w-0 text-[11px] break-all">{to}</span>
+                </div>
+              ) : (
+                <span className="min-w-0 text-[11px] break-all">{to}</span>
+              )}
             </DetailRow>
             {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
             <DetailRow label={t('network')}>

@@ -143,6 +143,49 @@ for (const wrapped of [true, false]) {
   );
 }
 
+test('reports only the provider status for an upstream 502 translation', async context => {
+  mockProviderKey(context);
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'pending'));
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response('private provider body', { status: 503 })
+  );
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.modelFailures, 1);
+  assert.deepEqual(summary.errors, ['[MODEL ERR] pending: Worker returned 502 (provider HTTP 503)']);
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
+test('reports the upstream HTTP status when the provider returns a null JSON body', async context => {
+  mockProviderKey(context);
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'pending'));
+  const fetch = context.mock.method(globalThis, 'fetch', async () => Response.json(null, { status: 503 }));
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.modelFailures, 1);
+  assert.deepEqual(summary.errors, ['[MODEL ERR] pending: Worker returned 502 (provider HTTP 503)']);
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
+test('does not attribute an upstream fetch failure to a previous retry response', async context => {
+  mockProviderKey(context);
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'pending'));
+  const setTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) =>
+    setTimeout(callback, delay === 60000 ? 0 : delay, ...args)
+  );
+  let attempts = 0;
+  context.mock.method(globalThis, 'fetch', async () => {
+    attempts += 1;
+    if (attempts === 1) return new Response(null, { status: 429 });
+    throw new Error('private provider exception');
+  });
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.modelFailures, 1);
+  assert.deepEqual(summary.errors, ['[MODEL ERR] pending: Worker returned 502']);
+  assert.equal(attempts, 2);
+});
+
 test('preserves a safe caution that lists multiple credentials', async context => {
   const answer =
     'Never share your recovery phrase. If someone asks you to share your recovery phrase or private key, stop and contact official support.';

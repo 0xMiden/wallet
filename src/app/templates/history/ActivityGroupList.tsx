@@ -20,8 +20,10 @@ import {
   ACTIVITY_GROUP_LABELS,
   ActivityCounterpartyName,
   ActivityGroup,
+  activityDappCounterpartyName,
   activityGroupPath,
-  groupActivityEntries
+  groupActivityEntries,
+  usableTimestamp
 } from './activityGroups';
 import { isActivityGroupUnread } from './activityUnread';
 import { historyEntryActionTitle } from './guardianHistoryLabels';
@@ -34,6 +36,7 @@ import { activityClaimMatchesSearch } from './useActivityClaimList';
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
+  if (group.kind === 'dapp') return group.id;
   if (group.kind !== 'address') return t(ACTIVITY_GROUP_LABELS[group.kind]);
   // A counterparty the address book (or one of the user's own accounts) knows shows its name;
   // anything else shows the address, ellipsised the way every activity row shows one.
@@ -46,10 +49,18 @@ export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
  * The event half is deliberately the same text the feed's own row shows for that entry, so the
  * two views never describe one transaction differently.
  */
-export function activityGroupSubtitle(group: ActivityGroup, t: Translate): string {
+export function activityGroupSubtitle(group: ActivityGroup, t: Translate, nameOf?: ActivityCounterpartyName): string {
   const event = latestEvent(group, t);
-  const when = relativeTime(group.latestTimestamp);
-  return when ? `${event} · ${when}` : event;
+  const latestClaim =
+    group.kind === 'dapp' && group.claims.find(item => usableTimestamp(item.note.receivedAt) === group.latestTimestamp);
+  const contact = group.latest
+    ? activityDappCounterpartyName(group.latest, nameOf)
+    : latestClaim &&
+      activityDappCounterpartyName(
+        { initiatingDappOrigin: latestClaim.initiatingDappOrigin, secondaryAddress: latestClaim.note.senderAddress },
+        nameOf
+      );
+  return [event, contact, relativeTime(group.latestTimestamp)].filter(Boolean).join(' · ');
 }
 
 function latestEvent(group: ActivityGroup, t: Translate): string {
@@ -113,13 +124,14 @@ function groupMatchesSearch(
   group: ActivityGroup,
   query: string,
   t: Translate,
-  bridgeConfig: BridgeConfigSnapshot
+  bridgeConfig: BridgeConfigSnapshot,
+  nameOf: ActivityCounterpartyName
 ): boolean {
   const addresses = group.kind === 'address' ? [group.id, shortAddr(group.id)] : [];
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
-  if (group.entries.some(entry => historyEntryMatchesSearch(entry, query, t))) return true;
-  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig));
+  if (group.entries.some(entry => historyEntryMatchesSearch(entry, query, t, nameOf))) return true;
+  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig, nameOf));
 }
 
 /**
@@ -159,7 +171,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
     const activityKeys = storedKeys.current.keys;
     const groups = useMemo(() => {
       const all = groupActivityEntries(entries, nameOf, claims, activityKeys);
-      return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig)) : all;
+      return query ? all.filter(group => groupMatchesSearch(group, query, t, bridgeConfig, nameOf)) : all;
     }, [entries, claims, nameOf, query, t, bridgeConfig, activityKeys]);
 
     const noGroups = groups.length === 0;
@@ -209,7 +221,7 @@ export const ActivityGroupList = memo<ActivityGroupListProps>(
               unread={isActivityGroupUnread(readState, group)}
               unreadLabel={t('activityUnread')}
               title={activityGroupTitle(group, t)}
-              subtitle={activityGroupSubtitle(group, t)}
+              subtitle={activityGroupSubtitle(group, t, nameOf)}
               trailing={
                 <span className="flex items-center gap-2">
                   {/* In flight rows stay visible as a badge on the group rather than dropping out

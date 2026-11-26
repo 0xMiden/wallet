@@ -204,6 +204,7 @@ jest.mock('components/ui', () => ({
   BalanceCard: ({
     accountNumber,
     accountId,
+    accountAlias,
     amount,
     onMore,
     state,
@@ -211,6 +212,7 @@ jest.mock('components/ui', () => ({
   }: {
     accountNumber: string;
     accountId: string;
+    accountAlias?: string;
     amount: React.ReactNode;
     onMore: () => void;
     state?: string;
@@ -221,6 +223,7 @@ jest.mock('components/ui', () => ({
     <div data-testid="balance-card" data-state={state} data-delta={delta === undefined ? 'none' : 'passed'}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
+      <span data-testid="balance-account-alias">{accountAlias ?? 'none'}</span>
       <span data-testid="balance-amount">{amount}</span>
       <button data-testid="balance-more" onClick={onMore}>
         more
@@ -307,6 +310,12 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { name: 'zustand-provider' }
 }));
 
+// The owned Miden Name reads Dexie; a test sets the label directly.
+let mockOwnedMidenName: string | undefined;
+jest.mock('lib/miden/name/registrations', () => ({
+  useOwnedMidenName: () => mockOwnedMidenName
+}));
+
 // `lib/settings/helpers` is mocked without the haptic setting, so the real haptics would throw.
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 const mockHapticLight = jest.mocked(hapticLight);
@@ -386,6 +395,7 @@ describe('Explore', () => {
     document.documentElement.classList.remove('dark');
     mockFaucetId = 'faucet-native';
     mockAccount = { publicKey: 'mtst1account' };
+    mockOwnedMidenName = undefined;
     mockAllBalances = [];
     mockPortfolioTotal = new BigNumber(0);
     mockBalanceChange = null;
@@ -533,6 +543,17 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+      // No owned Miden Name: the card shows the address alone.
+      expect(screen.getByTestId('balance-account-alias')).toHaveTextContent('none');
+    });
+
+    it('passes the owned Miden Name to the balance card as the account alias', async () => {
+      mockOwnedMidenName = 'alice';
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-account-alias')).toHaveTextContent('alice.miden');
+      // The copy target stays the full address.
+      expect(screen.getByTestId('balance-account-id')).toHaveTextContent('mtst1account');
     });
 
     it("formats the balance card with the active locale's number symbols", async () => {
