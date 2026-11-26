@@ -197,6 +197,76 @@ function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
 }
 
 describe('CommandAiBar', () => {
+  it('answers Bread questions locally without disturbing a pending clarification', async () => {
+    jest.mocked(compileCommandPrompt).mockResolvedValue({
+      op: 'set_intent',
+      action: 'bridge',
+      amount: { kind: 'exact_ref', ref: 'AMT_1' },
+      asset: 'USDC',
+      to_asset: null,
+      from_chain: null,
+      to_chain: 'miden',
+      recipient_ref: null,
+      provider: null,
+      note_type: null,
+      earn_op: null
+    });
+    renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    const submit = (value: string) => {
+      fireEvent.change(input, { target: { value } });
+      fireEvent.submit(input.closest('form')!);
+    };
+    submit('bridge 500 usdc to miden');
+    const clarification = await screen.findByTestId('command-ai-clarification');
+    submit('How private is it?');
+    const answer = await screen.findByTestId('command-ai-help-answer');
+    expect(answer).toHaveTextContent('commandAiHelpPrivacyTitle');
+    expect(screen.getByTestId('command-ai-clarification')).toBe(clarification);
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
+    expect(executeLocalLedgerQuery).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    submit('What can people see?');
+    expect(answer).toHaveTextContent('commandAiHelpPrivacyTitle');
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the prior answer and submit controls mounted while the next question is pending', async () => {
+    jest
+      .mocked(compileCommandPrompt)
+      .mockResolvedValueOnce({
+        op: 'query_ledger',
+        query: 'balance',
+        asset: null,
+        counterparty_ref: null,
+        direction: null,
+        window: 'all_time'
+      })
+      .mockImplementationOnce(() => new Promise(() => {}));
+    jest.mocked(executeLocalLedgerQuery).mockResolvedValue({
+      query: 'balance',
+      titleKey: 'commandAiQueryBalanceTitle',
+      summaryText: '25 MIDEN',
+      empty: false,
+      rows: []
+    });
+    renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    const button = screen.getByTestId('command-ai-submit');
+    const label = screen.getByText('commandAiSendButton');
+    const form = input.closest('form')!;
+    fireEvent.change(input, { target: { value: 'What is my balance?' } });
+    fireEvent.submit(form);
+    const answer = await screen.findByTestId('command-ai-query-result');
+    fireEvent.change(input, { target: { value: 'How much did I send?' } });
+    fireEvent.submit(form);
+    expect(screen.getByTestId('command-ai-query-result')).toBe(answer);
+    expect(screen.getByTestId('command-ai-input')).toBe(input);
+    expect(screen.getByTestId('command-ai-submit')).toBe(button);
+    expect(screen.getByText('commandAiSendButton')).toBe(label);
+    expect(button).toBeDisabled();
+  });
+
   it('renders full-width 1-line bar directly above the portfolio and chart surface', async () => {
     render(<CommandPortfolio scope={scope} />);
     await waitFor(() => expect(screen.getByTestId('command-history')).toHaveAttribute('aria-busy', 'false'));
