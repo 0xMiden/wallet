@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
 - [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
 - [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
 - [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
