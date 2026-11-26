@@ -10999,6 +10999,27 @@
     "message": "Депозиты данного токена из этой сети пока не поддерживаются.",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "Не удаётся подключиться к сервису пополнения счёта. Попытайтесь позже.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "Комиссия за мост превышает эту сумму. Введите более крупную сумму.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "Комиссия за перевод через мост выросла после вашего подтверждения, поэтому вы получите меньшую сумму, чем указано в подтверждении. Ваши средства по-прежнему находятся на вашем адресе депозита. Вернитесь и проверьте депозит ещё раз.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "Служба депозита в настоящее время не обслуживает $network$, поэтому этот депозит не может быть инициирован. Ваши средства по-прежнему находятся на вашем адресе депозита.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "Около 30 минут",
     "englishSource": "About 30 minutes"
