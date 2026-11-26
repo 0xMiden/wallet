@@ -137,119 +137,36 @@ const mergedBadgeRow = (stored: unknown, changes: BadgeChangeSpec) => {
   };
 };
 
-export interface TransactionHistoryEpochs {
-  writeSeq: number;
-  completedMissingEpoch: number;
-  terminalMissingEpoch: number;
-  negativeCompletedEpoch: number;
-  removalEpoch: number;
-}
-
-interface HistoryEpochDelta {
-  completedMissing?: boolean;
-  terminalMissing?: boolean;
-  negativeCompleted?: boolean;
-  removal?: boolean;
-}
-
-const transactionHistoryEpochs = new WeakMap<Dexie, TransactionHistoryEpochs>();
-
-export const getTransactionHistoryEpochs = (target: Dexie): TransactionHistoryEpochs | undefined =>
-  transactionHistoryEpochs.get(target);
-
-const inspectEpochRow = (status: unknown, completedAt: unknown, delta: HistoryEpochDelta): void => {
-  if (typeof completedAt === 'number' && completedAt < 0) {
-    delta.negativeCompleted = true;
-  }
-  const terminal =
-    status === ITransactionStatus.Completed ||
-    status === ITransactionStatus.Failed ||
-    status === ITransactionStatus.Unconfirmed;
-  if (!terminal) return;
-  const hasNonzeroNumericCompleted =
-    typeof completedAt === 'number' && Number.isFinite(completedAt) && completedAt !== 0;
-  if (!hasNonzeroNumericCompleted) {
-    delta.terminalMissing = true;
-    if (status === ITransactionStatus.Completed) delta.completedMissing = true;
-  }
-};
-
-const applyEpochDelta = (epochs: TransactionHistoryEpochs, delta: HistoryEpochDelta): void => {
-  if (delta.completedMissing) epochs.completedMissingEpoch += 1;
-  if (delta.terminalMissing) epochs.terminalMissingEpoch += 1;
-  if (delta.negativeCompleted) epochs.negativeCompletedEpoch += 1;
-  if (delta.removal) epochs.removalEpoch += 1;
-};
-
-const broadcastAfterMutate = (
-  promise: Promise<DBCoreMutateResponse>,
-  delta: HistoryEpochDelta,
-  broadcast?: (delta: HistoryEpochDelta) => void
-): Promise<DBCoreMutateResponse> => {
-  if (!broadcast) return promise;
-  return promise.then(res => {
-    broadcast(delta);
-    return res;
-  });
-};
-
 const reviseTransactionPut = (
   coreTable: DBCoreTable,
-  req: Extract<Parameters<DBCoreTable['mutate']>[0], { type: 'put' }>,
-  epochs: TransactionHistoryEpochs,
-  broadcast?: (delta: HistoryEpochDelta) => void
+  req: Extract<Parameters<DBCoreTable['mutate']>[0], { type: 'put' }>
 ): Promise<DBCoreMutateResponse> => {
-  const write = (values: readonly ITransaction[], updates: typeof req.updates, delta: HistoryEpochDelta) => {
+  const write = (values: readonly ITransaction[], updates: typeof req.updates) => {
     const changeSpec = req.changeSpec && withoutSharedRevision(req.changeSpec);
-    return broadcastAfterMutate(
-      coreTable.mutate({
-        ...req,
-        values,
-        ...(updates && { updates }),
-        ...(changeSpec && { changeSpec })
-      }),
-      delta,
-      broadcast
-    );
+    return coreTable.mutate({
+      ...req,
+      values,
+      ...(updates && { updates }),
+      ...(changeSpec && { changeSpec })
+    });
   };
   const perKey = req.updates;
   if (!perKey) {
     const revisions = new Map<string, string>();
-    const rows = req.values as readonly ITransaction[];
-    const delta: HistoryEpochDelta = { removal: true };
-    for (const row of rows) {
-      inspectEpochRow(row.status, row.completedAt, delta);
-    }
-    epochs.writeSeq += 1;
-    applyEpochDelta(epochs, delta);
     return write(
-      rows.map((row: ITransaction) => withEvidenceRevision(row, revisions)),
-      undefined,
-      delta
+      req.values.map((row: ITransaction) => withEvidenceRevision(row, revisions)),
+      undefined
     );
   }
-  epochs.writeSeq += 1;
-  epochs.removalEpoch += 1;
   // The stored row is read on this mutate's transaction. A shared changeSpec is not this path: modify already
   // merged it into `values`, and reading again would add a second getMany beside the one modify counts.
   return coreTable.getMany({ trans: req.trans, keys: perKey.keys }).then(stored => {
     const revisions = new Map<string, string>();
     const eligibleIds = new Set<string>();
     const judgedIds = new Set<string>();
-    const delta: HistoryEpochDelta = {};
     const changeSpecs = perKey.changeSpecs.map((changes, index) => {
       const key = perKey.keys[index];
-      const storedRow = stored[index];
-      const fallbackRow = req.values[index] as ITransaction | undefined;
-      const readField = (field: 'status' | 'completedAt'): unknown =>
-        Object.prototype.hasOwnProperty.call(changes, field)
-          ? changes[field]
-          : storedRow !== undefined
-            ? Reflect.get(storedRow, field)
-            : fallbackRow?.[field];
-      inspectEpochRow(readField('status'), readField('completedAt'), delta);
-
-      const merged = mergedBadgeRow(storedRow, changes);
+      const merged = mergedBadgeRow(stored[index], changes);
       if (merged === undefined) return changes;
       const id = String(key);
       judgedIds.add(id);
@@ -263,8 +180,7 @@ const reviseTransactionPut = (
       if (!eligibleIds.has(id)) return row;
       return { ...row, badgeEvidenceRevision: revisionFor(revisions, row.id) };
     });
-    applyEpochDelta(epochs, delta);
-    return write(values, { ...perKey, changeSpecs }, { ...delta, removal: true });
+    return write(values, { ...perKey, changeSpecs });
   });
 };
 
@@ -517,35 +433,6 @@ function defineSchema(target: Dexie): void {
     [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE
   });
 
-  const historyEpochs: TransactionHistoryEpochs = {
-    writeSeq: 0,
-    completedMissingEpoch: 0,
-    terminalMissingEpoch: 0,
-    negativeCompletedEpoch: 0,
-    removalEpoch: 0
-  };
-  transactionHistoryEpochs.set(target, historyEpochs);
-
-  const inJestWorker = typeof process !== 'undefined' && process.env?.JEST_WORKER_ID !== undefined;
-  const channel =
-    !inJestWorker && typeof BroadcastChannel === 'function'
-      ? new BroadcastChannel(`miden-tx-history-epochs:${target.name}`)
-      : undefined;
-  const instanceId = channel ? crypto.randomUUID() : undefined;
-  if (channel) {
-    channel.onmessage = event => {
-      const msg = event.data as ({ sender?: string } & HistoryEpochDelta) | undefined;
-      if (!msg || msg.sender === instanceId) return;
-      historyEpochs.writeSeq += 1;
-      applyEpochDelta(historyEpochs, msg);
-    };
-  }
-  const broadcast = channel
-    ? (delta: HistoryEpochDelta) => {
-        channel.postMessage({ sender: instanceId, ...delta });
-      }
-    : undefined;
-
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -566,26 +453,14 @@ function defineSchema(target: Dexie): void {
               if (unplaceable !== undefined) {
                 throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
-              const delta: HistoryEpochDelta = {};
-              for (const row of rows) {
-                inspectEpochRow(row.status, row.completedAt, delta);
-              }
-              historyEpochs.writeSeq += 1;
-              applyEpochDelta(historyEpochs, delta);
               const revisions = new Map<string, string>();
-              return broadcastAfterMutate(
-                table.mutate({
-                  ...req,
-                  values: rows.map(row => withEvidenceRevision(row, revisions))
-                }),
-                delta,
-                broadcast
-              );
+              return table.mutate({
+                ...req,
+                values: rows.map(row => withEvidenceRevision(row, revisions))
+              });
             }
-            if (req.type === 'put') return reviseTransactionPut(table, req, historyEpochs, broadcast);
-            historyEpochs.writeSeq += 1;
-            historyEpochs.removalEpoch += 1;
-            return broadcastAfterMutate(table.mutate(req), { removal: true }, broadcast);
+            if (req.type === 'put') return reviseTransactionPut(table, req);
+            return table.mutate(req);
           }
         };
       }

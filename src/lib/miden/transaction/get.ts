@@ -1,5 +1,5 @@
 import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
-import Dexie, { type DBCoreKeyRange, type Table, type Transaction as DexieTransaction } from 'dexie';
+import Dexie, { type DBCoreKeyRange, type Table } from 'dexie';
 
 import {
   type ChunkReadOptions,
@@ -510,62 +510,9 @@ const saveMergeStreamPositions = (sources: readonly HistorySource[], state: Hist
   }
 };
 
-interface HistoryStreamCacheEntry {
-  negativeExhausted: boolean;
-  fallbackExhausted: boolean;
-  missingEpoch: number;
-  negativeCompletedEpoch: number;
-  removalEpoch: number;
-}
-
-interface HistoryStreamCachePair {
-  false?: HistoryStreamCacheEntry;
-  true?: HistoryStreamCacheEntry;
-}
-
-const historyStreamCache = new WeakMap<Table<ITransaction, string>, HistoryStreamCachePair>();
-
-const missingEpochFor = (epochs: Repo.TransactionHistoryEpochs, includeFailed: boolean): number =>
-  includeFailed ? epochs.terminalMissingEpoch : epochs.completedMissingEpoch;
-
-const isInReadwriteTransaction = (): boolean => {
-  let tx: DexieTransaction | null = Dexie.currentTransaction;
-  while (tx !== null) {
-    if (tx.mode === 'readwrite') return true;
-    tx = tx.parent ?? null;
-  }
-  return false;
-};
-
 const detectActiveHistoryStreams = async (read: BoundedHistoryRead, state: HistoryStreamState): Promise<void> => {
   if (!canPruneHistoryStreams(read.table)) return;
-  const includeFailed = read.includeFailed;
-  const cacheKey = includeFailed ? 'true' : 'false';
-  const inReadwriteTx = isInReadwriteTransaction();
-  const epochs =
-    typeof Repo.getTransactionHistoryEpochs === 'function' && read.table.db
-      ? Repo.getTransactionHistoryEpochs(read.table.db)
-      : undefined;
-
-  if (!inReadwriteTx && epochs !== undefined) {
-    const cached = historyStreamCache.get(read.table)?.[cacheKey];
-    if (cached !== undefined) {
-      const negativeValid = cached.negativeExhausted
-        ? cached.negativeCompletedEpoch === epochs.negativeCompletedEpoch
-        : cached.removalEpoch === epochs.removalEpoch;
-      const fallbackValid = cached.fallbackExhausted
-        ? cached.missingEpoch === missingEpochFor(epochs, includeFailed)
-        : cached.removalEpoch === epochs.removalEpoch;
-      if (negativeValid && fallbackValid) {
-        if (cached.negativeExhausted) state.negativeExhausted = true;
-        if (cached.fallbackExhausted) state.fallbackExhausted = true;
-        return;
-      }
-    }
-  }
-
-  const startWriteSeq = epochs?.writeSeq;
-  const statuses = includeFailed
+  const statuses = read.includeFailed
     ? [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed, ITransactionStatus.Completed]
     : [ITransactionStatus.Completed];
   let needsFallback = false;
@@ -634,27 +581,11 @@ const detectActiveHistoryStreams = async (read: BoundedHistoryRead, state: Histo
     const total = await countIndexEntriesUpTo(read.table, 'status', statusRange);
     const withNumericCompleted = await countIndexEntriesUpTo(read.table, '[status+completedAt]', numericRange);
     const totalAfter = await countIndexEntriesUpTo(read.table, 'status', statusRange);
-    if (
-      (epochs !== undefined && epochs.writeSeq !== startWriteSeq) ||
-      totalAfter !== total ||
-      total > withNumericCompleted
-    ) {
+    if (totalAfter !== total || total > withNumericCompleted) {
       needsFallback = true;
     }
   }
   if (!needsFallback) state.fallbackExhausted = true;
-
-  if (!inReadwriteTx && epochs !== undefined && epochs.writeSeq === startWriteSeq) {
-    const pair = historyStreamCache.get(read.table) ?? {};
-    pair[cacheKey] = {
-      negativeExhausted: state.negativeExhausted,
-      fallbackExhausted: state.fallbackExhausted,
-      missingEpoch: missingEpochFor(epochs, includeFailed),
-      negativeCompletedEpoch: epochs.negativeCompletedEpoch,
-      removalEpoch: epochs.removalEpoch
-    };
-    historyStreamCache.set(read.table, pair);
-  }
 };
 
 /**
