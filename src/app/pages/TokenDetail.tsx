@@ -169,7 +169,15 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const claiming = pendingTotal(representedItems.filter(isThisToken), ['claiming']);
   const hasClaimingNote = representedItems.some(item => isThisToken(item) && item.status === 'claiming');
   // The amount stays the last confirmed one; this only says whether it is being refreshed or could not be.
-  const balanceState = balanceReadFailed ? 'stale' : balanceReadInFlight || hasClaimingNote ? 'updating' : undefined;
+  // With no confirmed amount yet (the skeleton) there is nothing to call stale or to refresh.
+  const balanceState =
+    balance === null
+      ? undefined
+      : balanceReadFailed
+        ? 'stale'
+        : balanceReadInFlight || hasClaimingNote
+          ? 'updating'
+          : undefined;
 
   const handleBack = () => goBack();
 

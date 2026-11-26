@@ -430,7 +430,7 @@ type Overrides = {
   /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
   explorerUrl?: string | null;
   /** Fields `useAllBalances` reports beside the rows. */
-  balanceStatus?: { readFailed?: boolean; balanceReadInFlight?: boolean };
+  balanceStatus?: { readFailed?: boolean; balanceReadInFlight?: boolean; isLoading?: boolean };
 };
 
 function configure(o: Overrides = {}) {
@@ -576,6 +576,12 @@ describe('TokenDetail', () => {
 
       expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
       expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceStale');
+    });
+
+    it('draws no stale or updating line while the first read has produced no confirmed amount', () => {
+      renderPage({ balanceStatus: { isLoading: true, readFailed: true, balanceReadInFlight: true } });
+
+      expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
     });
 
     it('says the balance is updating while one of its notes is being claimed', () => {
