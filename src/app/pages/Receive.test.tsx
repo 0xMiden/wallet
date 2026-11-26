@@ -91,6 +91,7 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey,
   // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
   getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet',
+  getEffectiveRpcUrl: () => 'https://rpc.test.invalid',
   subscribeEffectiveEndpoints: () => () => undefined
 }));
 
