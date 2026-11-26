@@ -4,6 +4,7 @@ import {
   RelayExpiredError,
   RelayMismatchError,
   RelayNotSubmittedError,
+  RelayProviderRpcError,
   RelayRefusedError,
   RelayRevertedError,
   RelayStillPendingError,
@@ -55,6 +56,7 @@ describe('relayErrorAction', () => {
     ['a reverted job', new RelayRevertedError(JOB_ID, TX_HASH), 'review-again'],
     ['a mismatch', new RelayMismatchError('text'), 'stop'],
     ['a refusal', new RelayRefusedError('no-fee'), 'stop'],
+    ['a provider error', new RelayProviderRpcError(4200, 'text'), 'stop'],
     ['a plain error', new Error('text'), 'stop'],
     ['a value that is not an error', 'text', 'stop']
   ])('classifies %s as %s', (_name, error, action) => {
@@ -138,5 +140,11 @@ describe('the typed errors', () => {
       cause
     });
     expect(new RelayNotSubmittedError(JOB)).toMatchObject({ name: 'RelayNotSubmittedError', job: JOB, id: JOB_ID });
+    expect(new RelayProviderRpcError(3, 'execution reverted', '0x08c379a0')).toMatchObject({
+      name: 'RelayProviderRpcError',
+      code: 3,
+      message: 'execution reverted',
+      data: '0x08c379a0'
+    });
   });
 });

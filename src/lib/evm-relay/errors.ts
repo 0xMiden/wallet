@@ -196,6 +196,27 @@ export class RelayNotSubmittedError extends Error {
   }
 }
 
+/**
+ * The EIP-1193 error codes of the relay provider: 4200 for a method it does not support, 4100 for a sender that is
+ * not the relay address, -32602 for parameters it cannot read. An RPC read keeps the code of the node's error.
+ */
+export const RELAY_PROVIDER_UNSUPPORTED_METHOD = 4200;
+export const RELAY_PROVIDER_UNAUTHORIZED = 4100;
+export const RELAY_PROVIDER_INVALID_PARAMS = -32602;
+
+/** An EIP-1193 provider error: viem reads `code` (and `data`) to map it to its own RPC error types. */
+export class RelayProviderRpcError extends Error {
+  readonly code: number;
+  readonly data?: unknown;
+
+  constructor(code: number, message: string, data?: unknown) {
+    super(message);
+    this.name = 'RelayProviderRpcError';
+    this.code = code;
+    this.data = data;
+  }
+}
+
 /** What a failed `POST /v1/relay` proves about the job: `refused` (not stored) or `unknown` (maybe stored). */
 export type RelaySubmitFailure = 'refused' | 'unknown';
 

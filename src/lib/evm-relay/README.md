@@ -5,6 +5,9 @@ key, the relay key. Its address (`relayEvmAddress`) is a deposit address that de
 EIP-7702. The wallet signs a Calibur batch with the relay key, and the relay service submits it and pays the gas.
 The batch module (`batch/`) has its own README. The relay knows no bridge.
 
+The folder has two layers. The submitter (`submit.ts`) is the core: it applies every relay rule. The EIP-1193
+provider (`provider.ts`) is a thin adapter over it, for a flow that sends its own transactions.
+
 ## The core: the relay submitter (`submit.ts`)
 
 A bridge flow gives the calls that it must send. The submitter puts them in ONE Calibur batch, has the backend sign
@@ -145,11 +148,39 @@ The service is not trusted for anything that decides where funds go or what they
   is accepted: the batch pays the reviewed amount.
 - `submit` in `sponsor` mode refuses a supplied `fee` (`unexpected-fee`): the review and the service disagree.
 
-## Removed until a route needs them
+## The integration point of a flow that sends its own transactions: the relay provider (`provider.ts`)
 
-The EIP-1193 adapter (`request`, the read forwarding to the chain RPC) and the Epoch wallet-client wrapper were
-removed from this folder until a route uses them. A later RPC adapter must share its read forwarding with
-`buildNativeReownProvider` (`lib/walletconnect/native.ts`), not copy it.
+A bridge flow that sends its own transactions through an EIP-1193 provider (the Agglayer helpers of
+`lib/bridge/providers`) or a viem `WalletClient` (the Epoch SDK) gets the relay provider in the place of the
+WalletConnect provider. The provider is a thin adapter over the submitter: it adds no relay rule of its own.
+
+- `createRelayProvider({ chain, address, rpcUrl, sign, beforeSign?, onJob?, fee? })` gives
+  `{ chainId, address, request, sendCalls, submitter }`. It builds one submitter from the same options (tests also
+  inject the submitter's dependencies and `readRpc`). `beforeSign`, `onJob` and `fee` go to EACH `submit`, so a flow
+  that uses the provider also gets the review check and the durable job reference. `submitter.resume(job)` follows a
+  job that `onJob` recorded.
+- `request` fits viem's `Pick<EIP1193Provider, 'request'>` with no cast (an overload gives the caller's result type):
+  - `eth_accounts`, `eth_requestAccounts`: the relay address. `eth_chainId`: the hex chain id.
+    `wallet_switchEthereumChain`: `null` for its own chain.
+  - `eth_sendTransaction`: `from` must be the relay address (else 4100), `to` is required, `data` or `input` and
+    `value` are read, a `chainId` must be the provider's chain, and the gas fields are ignored (the relayer sets the
+    gas). Bad parameters give -32602. It calls `submitter.submit([{ to, value, data }])` and resolves with the mined
+    hash.
+  - The read methods of `RELAY_READ_METHODS` (`rpc.ts`) go to `rpcUrl`, as in the native Reown shim. An RPC error
+    keeps its code and data. A later change should share this read forwarding with `buildNativeReownProvider`
+    (`lib/walletconnect/native.ts`).
+  - Every other method (`personal_sign`, `eth_signTypedData_v4`, `wallet_sendCalls`, a switch to another chain, ...)
+    rejects with an EIP-1193 error of code 4200.
+- `sendCalls(calls)` relays several calls in one batch and gives the mined hash. A `TypeError` of the submitter (a
+  call that it cannot take) becomes -32602.
+- Every relay error goes to the caller as it is. viem wraps a provider error in its own RPC error types; the typed
+  relay error (`RelayUnknownOutcomeError` with its `job`, `RelayRefusedError`, ...) is in the `cause` chain.
+- `createRelayWalletClient(provider, chain)` gives a viem `WalletClient` over the provider. Its account is the relay
+  address as a JSON-RPC account, so `sendTransaction` and `writeContract` send `eth_chainId` and then one
+  `eth_sendTransaction`, which is one `POST /v1/relay`.
+
+A flow that wants one batch of several calls (for example `approve` and the bridge call, which pays one fee in
+`deduct` mode) calls `sendCalls` or the submitter directly.
 
 ## Account poll (`use-relay-account.ts`)
 
@@ -203,6 +234,7 @@ Unknown fields are ignored. Two fees of one token are refused.
 - `RelayStillPendingError` (`job`, `id`, `txHash`), `RelayUnknownOutcomeError` (`job`, `id`, `cause`): follow the job
   with `resume(job)`.
 - `RelayNotSubmittedError` (`job`, `id`): the job was never stored and can no longer execute.
+- `RelayProviderRpcError`: an EIP-1193 error of the provider, with a numeric `code` (and `data` for an RPC read).
 - `relaySubmitFailure(error): 'refused' | 'unknown'`: the table above.
 - `relayErrorAction(error): 'review-again' | 'wait' | 'stop'`:
   - `wait`: try again later. `RelayUnknownOutcomeError` and `RelayStillPendingError` (call `resume(job)`), every
