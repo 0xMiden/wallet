@@ -1375,6 +1375,8 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     let schemaReads = 0;
     let overrideReads = 0;
     let failFirstOverrideRead = false;
+    let deferNextSchemaRead = false;
+    let resolvePostTtlSchemaRead: ((val: unknown) => void) | null = null;
     let overrideValue: Record<string, any> = {
       'faucet-recover-1': { symbol: 'MYUSDC', name: 'My USDC' }
     };
@@ -1384,6 +1386,12 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
         schemaReads += 1;
         if (schemaReads === 1) {
           return Promise.reject(new Error('transient schema read error'));
+        }
+        if (deferNextSchemaRead) {
+          deferNextSchemaRead = false;
+          return new Promise(resolve => {
+            resolvePostTtlSchemaRead = resolve;
+          });
         }
         return Promise.resolve(TOKENS_METADATA_SCHEMA_VERSION);
       }
@@ -1448,19 +1456,24 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
       });
       expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'OVRD2']]);
 
-      // 3) Snapshot expires after bounded TTL so updated overrides surface without restart.
+      // 3) Snapshot stays usable past TTL while refresh is pending, then updates once fresh overrides land.
       overrideValue = { 'faucet-recover-1': { symbol: 'FRESH', name: 'Fresh Override' } };
+      deferNextSchemaRead = true;
       await act(async () => {
         jest.advanceTimersByTime(31_000);
-        await flushMicrotasks(32);
-      });
-      await act(async () => {
         requestNotesRefresh();
+        await flushMicrotasks(24);
+      });
+      expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'OVRD2']]);
+
+      await act(async () => {
+        resolvePostTtlSchemaRead?.(TOKENS_METADATA_SCHEMA_VERSION);
         await flushMicrotasks(32);
       });
       expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'FRESH']]);
       hOvrd.unmount();
     } finally {
+      resolvePostTtlSchemaRead?.(null);
       _g.__cnSwrTest.fetchFromStorageOverride = null;
     }
   });
