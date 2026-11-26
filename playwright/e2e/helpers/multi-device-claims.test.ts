@@ -21,6 +21,7 @@ import {
   sameNoteId,
   toJsonText,
   unexplainedFailedClaims,
+  waitForNoPendingCard,
   windowPosition,
   type ClaimRow
 } from './multi-device-claims';
@@ -244,5 +245,23 @@ describe('multi-device claims helpers', () => {
       expect(parseProposalList('{"proposals":7}')).toEqual([]);
       expect(parseProposalList(null)).toEqual([]);
     });
+  });
+});
+
+describe('waitForNoPendingCard', () => {
+  const PENDING_URL = 'chrome-extension://id/fullpage.html#/history?filter=pending';
+
+  it('does not take a failed read for a card that is gone', async () => {
+    const card = { entryKey: NOTE_A, status: 'pending', acceptEnabled: true };
+    const evaluate = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('Execution context was destroyed'))
+      .mockResolvedValueOnce(card)
+      .mockResolvedValueOnce(null);
+    const wallet = {
+      page: { url: () => PENDING_URL, evaluate, waitForTimeout: () => Promise.resolve() }
+    } as unknown as Parameters<typeof waitForNoPendingCard>[0];
+    await waitForNoPendingCard(wallet, NOTE_A, 60_000);
+    expect(evaluate).toHaveBeenCalledTimes(3);
   });
 });

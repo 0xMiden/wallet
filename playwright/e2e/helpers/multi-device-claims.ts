@@ -531,28 +531,32 @@ export async function openPendingList(wallet: GuardianAwareWalletPage): Promise<
   await wallet.page.waitForSelector('#root > *', { timeout: 60_000 });
 }
 
+async function evaluatePendingCard(wallet: GuardianAwareWalletPage, noteId: string): Promise<PendingCardView | null> {
+  return wallet.page.evaluate((wanted: string) => {
+    const key = (id: string): string => id.trim().toLowerCase().replace(/^0x/, '');
+    for (const row of Array.from(document.querySelectorAll('[data-testid="pending-activity-row"]'))) {
+      const entry = row.getAttribute('data-entry-key');
+      if (entry === null || key(entry) !== key(wanted)) continue;
+      const article = row.closest('article');
+      const accept = article?.querySelector('[data-testid="pending-activity-accept"]');
+      return {
+        entryKey: entry,
+        status: article?.getAttribute('data-pending-status') ?? 'unknown',
+        acceptEnabled:
+          accept instanceof HTMLButtonElement && !accept.disabled && accept.getAttribute('aria-busy') !== 'true'
+      };
+    }
+    return null;
+  }, noteId);
+}
+
 /** The card of `noteId` on the Pending list now on screen, or `null` when the list shows no such card. */
 export async function readPendingCard(
   wallet: GuardianAwareWalletPage,
   noteId: string
 ): Promise<PendingCardView | null> {
   try {
-    return await wallet.page.evaluate((wanted: string) => {
-      const key = (id: string): string => id.trim().toLowerCase().replace(/^0x/, '');
-      for (const row of Array.from(document.querySelectorAll('[data-testid="pending-activity-row"]'))) {
-        const entry = row.getAttribute('data-entry-key');
-        if (entry === null || key(entry) !== key(wanted)) continue;
-        const article = row.closest('article');
-        const accept = article?.querySelector('[data-testid="pending-activity-accept"]');
-        return {
-          entryKey: entry,
-          status: article?.getAttribute('data-pending-status') ?? 'unknown',
-          acceptEnabled:
-            accept instanceof HTMLButtonElement && !accept.disabled && accept.getAttribute('aria-busy') !== 'true'
-        };
-      }
-      return null;
-    }, noteId);
+    return await evaluatePendingCard(wallet, noteId);
   } catch {
     // A navigation destroyed the context: the caller reads again.
     return null;
@@ -602,7 +606,11 @@ export async function waitForNoPendingCard(
   if (!isOnPendingList(wallet.page)) await openPendingList(wallet);
   await pollUntil(
     wallet.page,
-    () => readPendingCard(wallet, noteId),
+    // `undefined` is a read that failed or ran off the Pending list: it never proves the card gone.
+    async () => {
+      if (!isOnPendingList(wallet.page)) return undefined;
+      return evaluatePendingCard(wallet, noteId).catch(() => undefined);
+    },
     card => card === null,
     {
       what: `the Pending list shows no card for note ${noteId}`,
