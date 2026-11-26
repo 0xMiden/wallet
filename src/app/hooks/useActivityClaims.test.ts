@@ -2398,7 +2398,7 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
     });
   });
 
-  it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
+  it('shows a failed claim with no submission verdict when the stored submit error is unrecognized', async () => {
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unrecognized' }];
     const { result } = renderHook(() => useActivityClaims());
     await latestSubscription().query();
@@ -2413,7 +2413,7 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
       }
     ]);
 
-    expect(result.current.items[0]).toMatchObject({ status: 'claiming' });
+    expect(result.current.items[0]).toMatchObject({ status: 'failed' });
     expect(result.current.items[0]?.submission).toBeUndefined();
   });
 });
@@ -2677,6 +2677,12 @@ describe('a failed claim follows its row (#2060)', () => {
     const { result } = await accepted();
     settle([proven('tx-one')]);
     mockQueue.mockResolvedValue('tx-two');
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+
+    settle([proven('tx-one', { candidateKept: undefined })]);
     await act(async () => {
       await result.current.accept(note);
     });

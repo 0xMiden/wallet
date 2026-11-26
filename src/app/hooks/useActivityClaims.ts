@@ -220,12 +220,17 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     key,
     txIds: new Set()
   });
+  const [failedClaims, setFailedClaims] = useState<{ key: string; txIds: ReadonlySet<string> }>({
+    key,
+    txIds: new Set()
+  });
   const [submissionByTx, setSubmissionByTx] = useState<ReadonlyMap<string, SubmissionFeedback>>(() => new Map());
   const [holdByTx, setHoldByTx] = useState<ReadonlyMap<string, number>>(() => new Map());
 
   useEffect(() => {
     if (!watchedTxIds) {
       setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
+      setFailedClaims(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
       setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
       setHoldByTx(previous => (previous.size === 0 ? previous : new Map()));
       return;
@@ -240,6 +245,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       const present = new Set(rows.map(tx => tx.id));
       const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
       const failedRows = new Map<string, ITransaction>();
+      const failedClaimIds = new Set<string>();
       const held = new Set<string>();
       const waiting = new Set<string>();
       const submissions = new Map<string, SubmissionFeedback>();
@@ -263,9 +269,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
               submission: feedback
             });
             failedRows.set(tx.id, tx);
+            if (tx.type === 'consume') failedClaimIds.add(tx.id);
           }
         }
       }
+      setFailedClaims(previous =>
+        previous.key === key && sameIds(previous.txIds, failedClaimIds) ? previous : { key, txIds: failedClaimIds }
+      );
       setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
       setHoldByTx(previous => (sameHolds(previous, holds) ? previous : holds));
       // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
@@ -375,9 +385,12 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     };
     const result = new Map<string, PendingActivityItem>();
     for (const note of claim.safeClaimableNotes) {
+      // The note snapshot can still say claiming after its watched claim has settled.
+      const failedClaim =
+        failedClaims.key === key && note.claimingTxId !== undefined && failedClaims.txIds.has(note.claimingTxId);
       let status: PendingActivityStatus = 'pending';
       switch (true) {
-        case note.isBeingClaimed:
+        case note.isBeingClaimed && !failedClaim:
           status = 'claiming';
           break;
         // The check holds back a note until its state is known; a cached note cannot be accepted, so it stays listed.
@@ -387,7 +400,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
         case claim.invalidNoteIds.has(note.id):
           status = 'unavailable';
           break;
-        case claim.retriableNoteIds.has(note.id):
+        case failedClaim || claim.retriableNoteIds.has(note.id):
           status = 'failed';
           break;
       }
@@ -436,6 +449,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     attempts,
     heldTxIds,
     guardianWait,
+    failedClaims,
     submissionByTx,
     holdByTx,
     key,
@@ -465,7 +479,14 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     // cannot start a claim. The live read replaces it within one poll lap.
     if (note.fromCache) return;
     const item = items.find(candidate => candidate.note.id === note.id);
-    if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.has(note.id)) return;
+    if (
+      !item ||
+      (item.status !== 'pending' && item.status !== 'failed') ||
+      item.note.fromCache ||
+      item.holdUntil !== undefined ||
+      busy.has(note.id)
+    )
+      return;
     // The card withholds Accept, so this is a tap that raced the balance landing.
     if (item.cannotPayFee === true) return;
     busy.add(note.id);
@@ -512,7 +533,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       // Same gate as `accept`: unconfirmed cache entries are never claimed.
       if (note.fromCache) return false;
       const item = items.find(candidate => candidate.note.id === note.id);
-      return item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.has(note.id);
+      return (
+        item !== undefined &&
+        (item.status === 'pending' || item.status === 'failed') &&
+        !item.note.fromCache &&
+        item.holdUntil === undefined &&
+        !busy.has(note.id)
+      );
     });
     if (accepted.length === 0) return;
     for (const note of accepted) busy.add(note.id);
