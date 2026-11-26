@@ -140,7 +140,7 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
     expect(systemPrompt).toContain('Choose Safety for questions about sharing secrets, even with support.');
     expect(systemPrompt).toContain('Choose Recovery for how to restore wallet access.');
-    expect(systemPrompt).toContain('Bread accounts are private by default');
+    expect(systemPrompt).toContain('With a private Bread account, your balance and holdings');
     expect(systemPrompt).toContain('the recipient can read it');
     expect(systemPrompt).toContain('Never call a transaction anonymous or unlinkable.');
     expect(systemPrompt).not.toContain("The sender's account and some metadata are public.");
