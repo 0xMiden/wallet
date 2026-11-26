@@ -12,6 +12,8 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
+import { isExtension } from 'lib/platform';
+import { setShowFullscreenButton, useShowFullscreenButton } from 'lib/settings/fullscreen-button';
 import { setNominalUnquotedPriceSetting, useNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
@@ -26,6 +28,7 @@ const AdvancedSettings: FC = () => {
   // A device display preference (lib/settings/nominal-price): it applies on the tap, with no
   // save, and has no effect on mainnet (lib/prices/unquoted-default).
   const nominalUnquotedPrice = useNominalUnquotedPrice();
+  const showFullscreenButton = useShowFullscreenButton();
 
   const fetchPublicKey = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -107,6 +110,15 @@ const AdvancedSettings: FC = () => {
             pressed={nominalUnquotedPrice}
             trailing={<CheckboxIndicator checked={nominalUnquotedPrice} />}
           />
+          {isExtension() && (
+            <ListRow
+              title={t('devShowFullscreenButton')}
+              data-testid="advanced-show-fullscreen-button"
+              onClick={() => setShowFullscreenButton(!showFullscreenButton)}
+              pressed={showFullscreenButton}
+              trailing={<CheckboxIndicator checked={showFullscreenButton} />}
+            />
+          )}
         </ListGroup>
       </SubPageSection>
     </SubPageLayout>

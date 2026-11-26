@@ -1581,6 +1581,7 @@
   "devEndpointGuardian": "Benutzerdefinierte URL für „guardian“",
   "devEndpointFeeFaucet": "Konto-ID des Gebühren-Faucets",
   "devAllowNoGuardian": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
+  "devShowFullscreenButton": "Schaltfläche „Vollbild anzeigen“",
   "devNominalUnquotedPrice": "Bewerte nicht in Anführungszeichen gesetzte Token mit 1 $ (nur Testnetzwerke)",
   "devEndpointChecking": "Wird geprüft…",
   "devEndpointReachable": "Host erreichbar",

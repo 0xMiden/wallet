@@ -7242,6 +7242,10 @@
     "message": "Permitir a opção 'Sem responsável' na integração",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Botão “Mostrar em tela cheia”",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Valorize os tokens não cotados em US$ 1 (apenas em redes de teste)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"

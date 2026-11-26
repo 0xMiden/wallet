@@ -1588,6 +1588,7 @@
   "devEndpointGuardian": "Niestandardowy adres URL guardian",
   "devEndpointFeeFaucet": "Opłata faucet identyfikator konta",
   "devAllowNoGuardian": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
+  "devShowFullscreenButton": "Przycisk pełnego ekranu",
   "devNominalUnquotedPrice": "Wartość tokenów bez cudzysłowów wynosi 1 USD (tylko sieci testowe)",
   "devEndpointChecking": "Sprawdzam…",
   "devEndpointReachable": "Serwer jest dostępny",
