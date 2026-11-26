@@ -130,6 +130,7 @@ def validate_exported_signing(profile, profile_hash, record, leaf, identities, s
 
 
 def verify_ipa(ipa_dir, directory, entitlements_path, identities):
+    print('Checking exported IPA structure', flush=True)
     packages = list(ipa_dir.glob('*.ipa'))
     if len(packages) != 1 or not packages[0].is_file() or packages[0].is_symlink():
         raise ValueError('Expected one exported IPA')
@@ -140,6 +141,7 @@ def verify_ipa(ipa_dir, directory, entitlements_path, identities):
         if len(apps) != 1 or not apps[0].is_dir() or apps[0].is_symlink():
             raise ValueError('Expected one exported app')
         app = apps[0]
+        print('Checking exported app signature and signing certificate', flush=True)
         codesign = '/usr/bin/codesign'
         subprocess.run([codesign, '--verify', '--deep', '--strict', str(app)], capture_output=True, check=True)
         if plistlib.loads((app / 'Info.plist').read_bytes()).get('CFBundleIdentifier') != BUNDLE:
@@ -149,6 +151,7 @@ def verify_ipa(ipa_dir, directory, entitlements_path, identities):
         certificate = (root / 'cert0').read_bytes()
         signed = plistlib.loads(subprocess.run([codesign, '--display', '--entitlements', '-', '--xml', str(app)],
                                               capture_output=True, check=True).stdout)
+        print('Checking embedded App Store profile', flush=True)
         embedded = app / 'embedded.mobileprovision'
         if embedded.is_symlink() or not embedded.is_file() or embedded.stat().st_size > LIMIT:
             raise ValueError('Expected an embedded App Store profile')
@@ -157,6 +160,7 @@ def verify_ipa(ipa_dir, directory, entitlements_path, identities):
                                                capture_output=True, check=True).stdout)
         record = json.loads(private_bytes(directory / 'profile-install.json'))
         expected = plistlib.loads(entitlements_path.read_bytes())
+        print('Checking exported signing identity and production entitlements', flush=True)
         validate_exported_signing(profile, hashlib.sha256(payload).hexdigest(), record,
                                   hashlib.sha256(certificate).hexdigest(), identities, signed, expected)
 
