@@ -1584,6 +1584,7 @@
   "devEndpointGuardian": "URL del Guardian personalizado",
   "devEndpointFeeFaucet": "faucet de la cuenta para el pago de comisiones",
   "devAllowNoGuardian": "Permitir la opción \"Sin tutor\" en la incorporación",
+  "devShowFullscreenButton": "Botón de pantalla completa",
   "devNominalUnquotedPrice": "Valor de los tokens sin cotizar: 1 $ (solo redes de prueba)",
   "devEndpointChecking": "Comprobando…",
   "devEndpointReachable": "Servidor accesible",

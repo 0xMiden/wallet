@@ -1588,6 +1588,7 @@
   "devEndpointGuardian": "Індивідуальна URL-адреса guardian",
   "devEndpointFeeFaucet": "Комісія faucet ідентифікатор рахунку",
   "devAllowNoGuardian": "Дозволити опцію «Без опікуна» під час реєстрації",
+  "devShowFullscreenButton": "Кнопка «Показати на весь екран»",
   "devNominalUnquotedPrice": "Вартість токенів без лапок — 1 долар (лише для тестових мереж)",
   "devEndpointChecking": "Перевірка…",
   "devEndpointReachable": "Хост доступний",

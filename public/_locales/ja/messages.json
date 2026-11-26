@@ -7236,6 +7236,10 @@
     "message": "オンボーディングで「保護者なし」オプションを許可する",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "全画面表示ボタン",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "引用符で囲まれていないトークンの価値を$1とみなす（テストネットワークのみ）",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
