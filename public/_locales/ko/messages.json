@@ -10850,6 +10850,45 @@
     "message": "입금 내역을 확인했습니다. 탭하여 내역을 확인하세요.",
     "englishSource": "We see your deposit. Tap to follow it."
   },
+  "depositFlowAddressExpiresIn": {
+    "message": "주소 유효 기간은",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "주소 유효 기간이 $countdown$ 남았습니다. Bread를 떠나셔도 됩니다. 저희가 알려드리겠습니다.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "$expected$보다 적은 금액이 도착했습니다",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "나머지는 이 주소로 보내주십시오.",
+    "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "새로운 입금을 시작하여 새로운 입금 주소를 받으십시오.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents는 이 입금을 완료할 수 없었으며, 해당 금액을 $address$로 환불했습니다.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowRelayReverted": {
     "message": "입금 거래가 온체인에서 실패했기 때문에, 아무것도 브릿지되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10916,10 +10955,6 @@
       }
     }
   },
-  "depositFlowConnectWalletInstead": {
-    "message": "대신 지갑을 연결하세요",
-    "englishSource": "Connect a wallet instead"
-  },
   "depositFlowRouteAgglayer": {
     "message": "Agglayer",
     "englishSource": "Agglayer"
@@ -10931,6 +10966,34 @@
   "depositFlowRouteCircle": {
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearRoute": {
+    "message": "NEAR 인텐트",
+    "englishSource": "NEAR Intents"
+  },
+  "depositFlowNearArrives": {
+    "message": "2~3분",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "수수료에 포함됨",
+    "englishSource": "Included in fee"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "입금은 이용할 수 없습니다",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "다른 네트워크에서의 입금은 아직 이 네트워크에서 지원되지 않습니다.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "이 계정은 입금 주소가 없으므로, 아직 다른 네트워크로부터 입금을 받을 수 없습니다.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "이 네트워크를 통한 해당 토큰의 입금은 아직 지원되지 않습니다.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
   },
   "depositFlowArrivesAgglayer": {
     "message": "약 30분",
