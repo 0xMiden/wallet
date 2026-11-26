@@ -65,17 +65,22 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
 
   // Claims are drawn as the Activity views draw them: every represented claim keeps its consume row out, and
   // this group's own are drawn as cards, so a claim reads once here, in the groups and in the list.
-  const { representedItems, renderPendingItem, hidden, declinedItems } = useActivityClaimList('', 'all');
+  const { representedItems, renderPendingItem, hidden, declinedItems } = useActivityClaimList(
+    '',
+    'all',
+    undefined,
+    nameOf
+  );
   const claimMatcher = useMemo(
     () => (isActivityGroupKind(kind) ? activityClaimMatcher(kind, id, activityKeys) : undefined),
     [kind, id, activityKeys]
   );
   const drawnPendingItems = useMemo(
-    () => (claimMatcher ? representedItems.filter(item => claimMatcher(item.note)) : []),
+    () => (claimMatcher ? representedItems.filter(claimMatcher) : []),
     [representedItems, claimMatcher]
   );
   const groupDeclinedItems = useMemo(
-    () => (claimMatcher ? declinedItems.filter(item => claimMatcher(item.note)) : []),
+    () => (claimMatcher ? declinedItems.filter(claimMatcher) : []),
     [declinedItems, claimMatcher]
   );
   const groupDeclinedIds = groupDeclinedItems.map(item => item.note.id);

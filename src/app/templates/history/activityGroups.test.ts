@@ -5,6 +5,7 @@ import {
   ActivityCategory,
   activityCategoryOf,
   activityClaimGroupKeyOf,
+  activityClaimMatcher,
   activityGroupKeyOf,
   activityGroupMatcher,
   activityGroupPath,
@@ -49,6 +50,32 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
 });
 
 describe('verified dApp grouping', () => {
+  it.each(['claiming', 'failed'] as const)(
+    'keeps a represented %s consume in the same dApp group as its transaction',
+    status => {
+      const initiatingDappOrigin = 'https://example.test:8443';
+      const note = {
+        id: 'note',
+        faucetId: FAUCET,
+        senderAddress: 'mtst1alice',
+        amount: '1',
+        isBeingClaimed: status === 'claiming',
+        type: 'unknown' as const,
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      };
+      const claim = { note, status, txId: 'consume', initiatingDappOrigin };
+      const manualClaim = { note: { ...note, id: 'manual-note' }, status, txId: 'manual-consume' };
+      const claims = [claim, manualClaim];
+      const groups = groupActivityEntries([], () => 'Alice', claims);
+      expect(groups.map(({ kind, id, claims }) => [kind, id, claims.length])).toEqual([
+        ['dapp', initiatingDappOrigin, 1],
+        ['address', note.senderAddress, 1]
+      ]);
+      expect(claims.filter(activityClaimMatcher('dapp', initiatingDappOrigin))).toEqual([claim]);
+      expect(claims.filter(activityClaimMatcher('address', note.senderAddress))).toEqual([manualClaim]);
+    }
+  );
+
   it('groups once by exact initiating origin without grouping legacy or wait-result grant rows there', () => {
     const origin = 'https://example.test:8443';
     const counterparty = { secondaryAddress: 'mtst1alice' };

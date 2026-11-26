@@ -50,7 +50,15 @@ export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
  */
 export function activityGroupSubtitle(group: ActivityGroup, t: Translate, nameOf?: ActivityCounterpartyName): string {
   const event = latestEvent(group, t);
-  const contact = group.latest && activityDappCounterpartyName(group.latest, nameOf);
+  const latestClaim =
+    group.kind === 'dapp' && group.claims.find(item => item.note.receivedAt === group.latestTimestamp);
+  const contact = group.latest
+    ? activityDappCounterpartyName(group.latest, nameOf)
+    : latestClaim &&
+      activityDappCounterpartyName(
+        { initiatingDappOrigin: latestClaim.initiatingDappOrigin, secondaryAddress: latestClaim.note.senderAddress },
+        nameOf
+      );
   return [event, contact, relativeTime(group.latestTimestamp)].filter(Boolean).join(' · ');
 }
 
@@ -122,7 +130,7 @@ function groupMatchesSearch(
   const shown = [activityGroupTitle(group, t), group.name, ...addresses];
   if (shown.some(value => value?.toLowerCase().includes(query))) return true;
   if (group.entries.some(entry => historyEntryMatchesSearch(entry, query, t, nameOf))) return true;
-  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig));
+  return group.claims.some(claim => activityClaimMatchesSearch(claim, query, bridgeConfig, nameOf));
 }
 
 /**

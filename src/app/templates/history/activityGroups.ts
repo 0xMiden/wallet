@@ -173,7 +173,7 @@ export function activityCounterpartyNames(
 }
 
 export function activityDappCounterpartyName(
-  entry: IHistoryEntry,
+  entry: Pick<IHistoryEntry, 'initiatingDappOrigin' | 'secondaryAddress'>,
   nameOf?: ActivityCounterpartyName
 ): string | undefined {
   return entry.initiatingDappOrigin && entry.secondaryAddress ? nameOf?.(entry.secondaryAddress) : undefined;
@@ -268,7 +268,7 @@ export function groupActivityEntries(
   }
 
   for (const claim of claims) {
-    const group = getGroup(activityClaimGroupKeyOf(claim.note));
+    const group = getGroup(activityClaimGroupKeyOf(claim.note, claim.initiatingDappOrigin));
     const timestamp = usableTimestamp(claim.note.receivedAt);
     group.claims.push(claim);
     if (timestamp > group.latestTimestamp) {
@@ -297,7 +297,11 @@ export function activityGroupMatcher(
 }
 
 /** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
-export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
+export function activityClaimGroupKeyOf(
+  note: { faucetId: string; senderAddress: string },
+  initiatingDappOrigin?: string
+): ActivityGroupKey {
+  if (initiatingDappOrigin) return { kind: 'dapp', id: initiatingDappOrigin };
   return isFaucetClaimNote(note) ? { kind: 'faucet', id: 'faucet' } : activityAddressGroupKey(note.senderAddress);
 }
 
@@ -306,9 +310,9 @@ export function activityClaimMatcher(
   kind: ActivityGroupKind,
   id?: string,
   activityKeys?: ActivityKeyMemory
-): (note: { faucetId: string; senderAddress: string }) => boolean {
+): (item: PendingActivityItem) => boolean {
   const matches = groupKeyMatcher(kind, id, activityKeys);
-  return note => matches(activityClaimGroupKeyOf(note));
+  return item => matches(activityClaimGroupKeyOf(item.note, item.initiatingDappOrigin));
 }
 
 function groupKeyMatcher(

@@ -361,6 +361,36 @@ describe('ActivityGroupList', () => {
     expect(within(row).getByText(/Alice/)).toBeTruthy();
   });
 
+  it('finds a dApp group by the contact on its represented claim', () => {
+    const initiatingDappOrigin = 'https://dapp.test:8443';
+    const senderAddress = 'mtst1xyz';
+    renderList([], {
+      claims: [
+        {
+          note: {
+            id: 'claim',
+            faucetId: 'token-faucet',
+            senderAddress,
+            amount: '1',
+            isBeingClaimed: true,
+            type: 'unknown',
+            receivedAt: 1_000,
+            metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+          },
+          status: 'claiming',
+          txId: 'consume',
+          initiatingDappOrigin
+        }
+      ],
+      nameOf: activityCounterpartyNames([{ address: senderAddress, name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
   it('names a known counterparty and ellipsises an unknown address', () => {
     renderList(
       [
