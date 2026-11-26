@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
 - [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
 - [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
@@ -22,7 +23,6 @@
 
 ## 1.18.2 (TBD)
 
-- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
 - [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
 - [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
 - [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
