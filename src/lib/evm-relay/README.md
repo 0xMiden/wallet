@@ -20,7 +20,8 @@ submitter.submit(calls: BatchCall[], options?: RelaySubmitOptions): Promise<Rela
 submitter.resume(job: RelayJobRef): Promise<RelayResult>
 ```
 
-- `chain` is the relay entry of the remote config (`getRelayChain`), `address` is the account's `relayEvmAddress`,
+- `chain` is the relay values of the remote config for one chain (`getRelayChain`), `address` is the account's
+  `relayEvmAddress`,
   and `sign` reaches the vault through the `signRelay` action, for example
   `request => signRelay(accountPublicKey, request)` from `useMidenContext()`. Tests also inject `fetchAccount`,
   `postRelay`, `fetchJob`, `now` (ms) and `sleep`.
@@ -133,8 +134,8 @@ throws a `TypeError`.
 
 The service is not trusted for anything that decides where funds go or what they cost.
 
-- The remote config names the fee recipient of a chain (`relay.chains.<key>.feeRecipient`). A chain without it does
-  not take `deduct` mode. In `deduct` mode `assertRelayAccountMatches` requires the account's `feeRecipient` to be the
+- The remote config names one fee recipient for every chain (`relay.feeRecipient`). Without it the wallet does not
+  take `deduct` mode. In `deduct` mode `assertRelayAccountMatches` requires the account's `feeRecipient` to be the
   configured one.
 - The review shows the fee from `reviewRelayFee(account, chain, token)`: `{ mode: 'sponsor' }`, or
   `{ mode: 'deduct', fee: { token, amount } }` with the relayer's current fee of the token. It refuses
@@ -287,7 +288,9 @@ Base, Arbitrum and Optimism have one). The 1Click links (`lib/one-click/payment-
 ## Account poll (`use-relay-account.ts`)
 
 `useRelayAccount({ chainId, address, tokens })` reads `GET /v1/account` every 10 seconds while the page is on screen
-and the relay serves the chain, and gives `{ account, error, isLoading, refresh }`. Off screen its SWR key is null.
+and the relay is on for the chain (`selectRelayChain`: the switch is on and the document lists the chain in
+`supportedEvmChains`), and gives `{ account, error, isLoading, refresh }`. Off screen its SWR key is null. A chain
+that the service does not serve fails with `unsupported_chain`.
 An answer must pass `assertRelayAccountMatches`. A page uses it to see when funds arrive at the deposit address. The
 minimum amount of a deposit is the rule of the bridge flow, not of the relay.
 

@@ -22,7 +22,7 @@ The service contains the config parse, the router, CORS, the error bodies, the r
 | `src/worker.ts` | The Wrangler entry: exports the default `fetch` of `index.ts` and the Durable Object class |
 | `src/index.ts` | CORS gate, `handleRequest`, the default `fetch` |
 | `src/router.ts` | Typed route match, the method check, the rate limit and the dispatch |
-| `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig` |
+| `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig`, and the served chains from the `RPC_URL_<chainId>` keys |
 | `src/parse.ts` | The strict parse helpers of the config and the request bodies |
 | `src/rate-limit.ts` | The read and relay rate limits per caller IP and per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
@@ -46,44 +46,55 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | `ALLOWED_ORIGINS` | Worker variable | JSON array of exact allowed origins, no wildcard. `[]` refuses every request that sends an `Origin` header |
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
 | `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fixed token fee to `feeRecipient` |
-| `RELAY_CONFIG` | Worker variable | JSON of the chains, below |
+| `RELAY_CONFIG` | Worker variable | JSON of the Calibur pin, the fee recipient and the values that are different on each chain, below |
 | `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
 | `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay`. A relay that passes the signature checks also counts on the key `relay-address:<evmAddress>` |
 | `RELAY_SENDER` | Durable Object binding | The class `RelaySenderObject`, with SQLite storage (migration `v1`, `new_sqlite_classes`). One object per chain, named by the decimal chain id |
 | `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. The Worker derives the `executor` address from it, and the Sender signs the relay transactions with it. The Worker never logs it |
-| `RPC_URL_<chainId>` | Worker secret | The HTTP(S) JSON-RPC URL of each chain in `RELAY_CONFIG`, for example `RPC_URL_8453`. It is a paid URL: the Worker sends it only its own reads and signed relay transactions, and never forwards a caller's RPC request |
+| `RPC_URL_<chainId>` | Worker secret | The HTTP(S) JSON-RPC URL of a chain, for example `RPC_URL_8453`. The Worker serves each chain that has this secret, and no other chain. It is a paid URL: the Worker sends it only its own reads and signed relay transactions, and never forwards a caller's RPC request |
 
-The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `DEPLOYMENT_REVISION` is `unknown`, `GAS_MODE` is `sponsor` and `RELAY_CONFIG` has no chains. The rate limits use the namespace ids 189405 and 189406; 189401 to 189404 belong to the other Workers of the account.
+The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `DEPLOYMENT_REVISION` is `unknown`, `GAS_MODE` is `sponsor` and `RELAY_CONFIG` has only the Calibur pin: the Uniswap Calibur address and the hash of its runtime code. That contract has the same address and the same code on each chain that was checked (Ethereum, Base, Arbitrum One, Polygon and Sepolia), so with an `RPC_URL_<chainId>` in `.dev.vars` a local Worker serves that chain with no other config. The rate limits use the namespace ids 189405 and 189406; 189401 to 189404 belong to the other Workers of the account.
+
+### Served chains
+
+The Worker serves exactly the chains that have an `RPC_URL_<chainId>` secret. There is no second chain list. Every EVM chain uses the same Uniswap Calibur at the same address and the same relayer key, so `RELAY_CONFIG` has one Calibur pin and one fee recipient for all chains. Its optional `chains` object holds only the values that are different on each chain: the fees (token addresses are different on each chain) and the allowed targets (contract addresses are different on each chain). A served chain without an entry in `chains` has no fee and no target list. A request for a chain without an RPC URL gets `unsupported_chain`, also when `chains` has an entry for it.
 
 `RELAY_CONFIG` has this shape:
 
 ```json
-{ "chains": { "<chainId as decimal string>": {
-    "calibur": { "address": "0x<40 hex>", "runtimeHash": "0x<64 hex>", "domainName": "Calibur", "domainVersion": "1.0.0" },
-    "feeRecipient": "0x<40 hex>",
+{ "calibur": { "address": "0x<40 hex>", "runtimeHash": "0x<64 hex>", "domainName": "Calibur", "domainVersion": "1.0.0" },
+  "feeRecipient": "0x<40 hex>",
+  "chains": { "<chainId as decimal string>": {
     "fees": { "0x<token address; zero address = native coin>": "<positive decimal integer>" },
     "allowedTargets": ["0x<40 hex>"]
 } } }
 ```
 
+For example, a `sponsor` setup for Base only, with no target list, is this `RELAY_CONFIG` and the secret `RPC_URL_8453`:
+
+```json
+{ "calibur": { "address": "0x000000009b1d0af20d8c6d0a44e162d11f9b8f00", "runtimeHash": "0x<keccak256 of the Calibur runtime code>", "domainName": "Calibur", "domainVersion": "1.0.0" } }
+```
+
 The parse is strict. It refuses an unknown field and a missing field, and it lower-cases every address and hash.
 
-- A chain id is a positive safe integer.
+- `calibur` is required. `feeRecipient` and `chains` are optional. An entry of `chains` has only the optional fields `fees` and `allowedTargets`, so `{}` is a valid entry.
+- A chain id (a key of `chains`, and the suffix of each `RPC_URL_` secret) is a positive decimal safe integer with no leading zero. An `RPC_URL_` secret with another suffix is a config error.
 - An address is 20 bytes of hex. Only a key of `fees` can be the zero address, which means the native coin.
 - A hash is 32 bytes of hex. `domainName` and `domainVersion` are non-empty strings.
-- `calibur` is required. `feeRecipient`, `fees` and `allowedTargets` are optional.
 - `fees` maps a token to its fee in base units: a decimal string above 0 and below 2^256. A token occurs one time only, in any case. No `fees` is the same as `{}`. The Worker keeps the config order.
 - `allowedTargets` is a non-empty list of distinct addresses that are not the zero address. Without it, a call can go to any address.
-- When `GAS_MODE` is `deduct`, every chain needs `feeRecipient` and at least one entry in `fees`.
-- An empty `chains` object is valid.
+- When `GAS_MODE` is `deduct`, `feeRecipient` is required, and every served chain needs an entry with at least one token in `fees`.
+- The parse checks the entry of a chain without an RPC URL, but the Worker does not serve that chain. The release check refuses such an entry (see Release check).
+- No `chains`, and no `RPC_URL_` secret, are valid. With no `RPC_URL_` secret, the Worker serves no chain.
 
 ### No bridge code
 
 The Worker does not know a bridge. A bridge flow in the wallet gives the transactions that it must send (`to`, `value`, `data`). The wallet puts them in a batch as calls, signs the batch and sends the calls in the relay request. The Worker relays the calls as the request sends them, in the same order, and never builds a call. It checks only rules that do not depend on a bridge: the signature, the nonce key, the deadline, the fee call in `deduct` mode, and `allowedTargets` when the chain has it. A new bridge thus needs no change to the Worker; if the chain has `allowedTargets`, add the contracts of the bridge to the list.
 
-In `sponsor` mode a chain without `allowedTargets` pays the gas of any batch that a relay address signs, whatever its calls do. The rate limits are then the only bound on that cost. Set `allowedTargets` on a `sponsor` chain to limit the gas to the calls of known contracts.
+In `sponsor` mode a chain without `allowedTargets` (also a served chain without a `chains` entry) pays the gas of any batch that a relay address signs, whatever its calls do. The rate limits are then the only bound on that cost. Set `allowedTargets` in the `chains` entry of a `sponsor` chain to limit the gas to the calls of known contracts.
 
-`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
+`/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and the `RPC_URL_<chainId>` of each served chain is an HTTP(S) URL. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
 The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, `evm-relay: cancelled nonce <nonce> on chain <chainId> after its deadline, attempt <n>.` for each cancel transaction, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
 
@@ -240,7 +251,7 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 - `fees` lists the configured fees of the chain in config order in `deduct` mode. In `sponsor` mode `fees` is `[]` and `feeRecipient` is `null`, whatever the config holds.
 - `allowedTargets` is the chain's list, or `null` when a call can go to any address. The wallet can check its calls against it before it signs.
 - `balances` has one entry for each token of the `tokens` query, in query order, and is `[]` without `tokens`. The tokens need not be in `fees`.
-- Errors: `invalid_request` for a bad `chainId` or `address`, for the relayer's own address, and for a bad `tokens` value: an empty value, a value that is not an address, a token that occurs two times (in any case), more than 16 tokens, or a second `tokens` parameter. `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.
+- Errors: `invalid_request` for a bad `chainId` or `address`, for the relayer's own address, and for a bad `tokens` value: an empty value, a value that is not an address, a token that occurs two times (in any case), more than 16 tokens, or a second `tokens` parameter. `unsupported_chain` for a chain that the Worker does not serve (it has no `RPC_URL_<chainId>`).
 
 `POST /v1/relay` with
 
@@ -268,7 +279,7 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 
 - `{id}` is `0x` and 64 hex characters, in any case. Another value is `404 not_found`, before the rate limit.
 - The caller IP is charged on `read:<CF-Connecting-IP>`.
-- The id does not name its chain, so the route asks the Sender of each chain of `RELAY_CONFIG` in config order until one knows the id. With `chainId`, it asks only that chain: an unknown chain is `unsupported_chain`, a bad value `invalid_request`.
+- The id does not name its chain, so the route asks the Sender of each served chain in chain id order until one knows the id. With `chainId`, it asks only that chain: an unknown chain is `unsupported_chain`, a bad value `invalid_request`.
 - The route reads the Sender storage only, never the chain. The timer of the Sender updates `state` and `txHash`. While the relay is `pending`, `txHash` is the last signed hash: a fee replacement or a cancel changes it. Once final, `txHash` is the hash that was mined, which can be an earlier hash than the last one. For `expired`, it is the mined cancel.
 - A final relay is deleted 24 hours after it became final; the route then answers `404`.
 
@@ -277,7 +288,7 @@ An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seco
 | Code | Status | Meaning |
 | --- | --- | --- |
 | `invalid_request` | 400 | The request is malformed |
-| `unsupported_chain` | 400 | The chain is not in `RELAY_CONFIG` |
+| `unsupported_chain` | 400 | The Worker does not serve the chain: it has no `RPC_URL_<chainId>` |
 | `target_not_allowed` | 400 | A call goes to an address that is not in the chain's `allowedTargets` |
 | `fee_too_low` | 400 | In `deduct` mode, the last call is not a fee call to `feeRecipient` in a token of `fees`, or it pays less than the configured fee |
 | `bad_signature` | 400 | The signature or the authorization does not verify |
@@ -316,13 +327,13 @@ The workflow reads these from the repository's Actions secrets and variables, or
 | `CLOUDFLARE_API_TOKEN` | secret | A token with Workers Scripts: Edit and Account Settings: Read on the Cloudflare account of the Worker. The wallet-api deploy uses the same name |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | That account's id |
 | `EVM_RELAY_RELAYER_PRIVATE_KEY` | secret | The key of the relayer account, `0x` and 64 hex characters. It becomes the Worker secret `RELAYER_PRIVATE_KEY` |
-| `EVM_RELAY_RPC_URLS` | secret | One JSON object of decimal chain id to the `https:` JSON-RPC URL of that chain, for example `{"8453":"https://base.example/v2/<key>"}`. Each entry becomes the Worker secret `RPC_URL_<chainId>` |
+| `EVM_RELAY_RPC_URLS` | secret | One JSON object of decimal chain id to the `https:` JSON-RPC URL of that chain, for example `{"8453":"https://base.example/v2/<key>"}`. Each entry becomes the Worker secret `RPC_URL_<chainId>`. Its chains are the chains that the Worker serves |
 | `EVM_RELAY_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins, no wildcard: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost`. It becomes `ALLOWED_ORIGINS` |
 | `EVM_RELAY_GAS_MODE` | variable | `sponsor` or `deduct`. It becomes `GAS_MODE` |
-| `EVM_RELAY_CONFIG` | variable | The `RELAY_CONFIG` JSON (shape above) with at least one chain. It becomes `RELAY_CONFIG` |
+| `EVM_RELAY_CONFIG` | variable | The `RELAY_CONFIG` JSON (shape above): the Calibur pin, and in `deduct` mode the fee recipient and the fees of each chain. It becomes `RELAY_CONFIG` |
 | `EVM_RELAY_URL` | variable | The base URL of the deployed Worker, `https:` and no trailing slash, for example `https://miden-evm-relay.<subdomain>.workers.dev` |
 
-The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are one secret, so a new chain needs no change to the workflow: add the chain to `EVM_RELAY_CONFIG` and its URL to `EVM_RELAY_RPC_URLS`. GitHub masks a secret only as a whole value, not each URL in it. The scripts never print a secret or a part of one, and Wrangler prints each secret as `(hidden)`.
+The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are one secret, so a new chain needs no change to the workflow: add its URL to `EVM_RELAY_RPC_URLS`. Add an entry for it to the `chains` of `EVM_RELAY_CONFIG` only when it has fees or allowed targets (always in `deduct` mode). GitHub masks a secret only as a whole value, not each URL in it. The scripts never print a secret or a part of one, and Wrangler prints each secret as `(hidden)`.
 
 ### Release check
 
@@ -333,8 +344,9 @@ The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are
 - `EVM_RELAY_RELAYER_PRIVATE_KEY` is `0x` and 64 hex characters, and a valid secp256k1 key;
 - `EVM_RELAY_ALLOWED_ORIGINS` is a nonempty JSON array of strings with no wildcard;
 - `EVM_RELAY_URL` is `https:` with no credentials, query, fragment or trailing slash;
-- `EVM_RELAY_CONFIG` is JSON with at least one chain, and the Worker's own `parseConfig` (`src/config.ts`) accepts it with the gas mode and the origins. esbuild bundles that parse in memory, so the deploy refuses a config that the live Worker would refuse;
-- `EVM_RELAY_RPC_URLS` is a JSON object with an `https:` URL for every chain of the config, and with no URL for a chain that the config does not name;
+- `EVM_RELAY_RPC_URLS` is a JSON object that names at least one chain, each key a decimal chain id and each value an `https:` URL;
+- `EVM_RELAY_CONFIG` is a JSON object, and the Worker's own `parseConfig` (`src/config.ts`) accepts it with the gas mode, the origins and the `RPC_URL_<chainId>` keys of `EVM_RELAY_RPC_URLS`. esbuild bundles that parse in memory, so the deploy refuses a config that the live Worker would refuse, for example a `deduct` config without fees for a chain of `EVM_RELAY_RPC_URLS`;
+- each key of the `chains` of `EVM_RELAY_CONFIG` is a chain of `EVM_RELAY_RPC_URLS`. The Worker would ignore an entry for a chain that it does not serve, but such a key is often a mistake, and then the chain that the entry is for gets no fee and no target list;
 - `wrangler.jsonc` has the two rate limit bindings (60 and 10 per 60 seconds, two namespaces) and binds `RELAY_SENDER` to `RelaySenderObject` with its SQLite migration.
 
 The step log then prints `Relayer address (executor): 0x…`, the address that the key derives. The address is public.
@@ -343,7 +355,7 @@ The step log then prints `Relayer address (executor): 0x…`, the address that t
 
 After the deploy, `check-deployment.mjs` checks that:
 
-- `GET /healthz` answers `200` with `ok: true`, the deployed revision and `Cache-Control: no-store`. It tries 5 times, 2 seconds apart. `ok: true` means that the variables parse, the bindings exist, the key is valid and each chain has an RPC URL;
+- `GET /healthz` answers `200` with `ok: true`, the deployed revision and `Cache-Control: no-store`. It tries 5 times, 2 seconds apart. `ok: true` means that the variables parse, the bindings exist, the key is valid and the RPC URL of each served chain is an HTTP(S) URL;
 - a CORS preflight of `POST /v1/relay` from the first configured origin answers `204` with that origin, `Vary: Origin`, the methods `GET` and `POST` and the header `content-type`;
 - `GET /healthz` from an unknown origin answers `403` with no `Access-Control-Allow-Origin`;
 - `GET /v1/account` with no query, from the first configured origin, answers `400 invalid_request`. The route parses the config before it checks the query, so this proves that the router and the config are live. It reads no chain.
@@ -354,16 +366,16 @@ The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`
 
 1. Choose the Cloudflare account. The rate limit bindings need no resource: their `namespace_id` (189405 and 189406) is an integer that no other rate limit binding of the account may use. If the account uses those ids already, choose two free ids in `wrangler.jsonc`.
 2. Create a new relayer key for this service only. Do not reuse a key of another service.
-3. Set the secrets and the variables in the table.
-4. Run the workflow. The step log prints the relayer address.
-5. Fund the relayer address on each chain of the config with a small amount of the native coin. The relayer pays the gas of every relay in both gas modes. `/healthz` does not check the balance, so a deploy passes with no funds. After the deploy, `GET /v1/account?chainId=<id>&address=<any address>` also gives the address as `executor`.
-6. Set the `relay` section of the `0xMiden/wallet-config` document. The wallet reads the service URL, the executor address and the Calibur pin from that section. The executor there must be the address of the deployed key: the wallet signs batches that only that executor can run.
+3. Set the secrets and the variables in the table. `EVM_RELAY_RPC_URLS` names the chains to serve. `EVM_RELAY_CONFIG` needs the one Calibur pin; a `sponsor` setup with no target list needs nothing else (see the example under Served chains).
+4. Run the workflow. The step log prints the relayer address and the served chains.
+5. Fund the relayer address on each chain of `EVM_RELAY_RPC_URLS` with a small amount of the native coin. The relayer pays the gas of every relay in both gas modes. `/healthz` does not check the balance, so a deploy passes with no funds. After the deploy, `GET /v1/account?chainId=<id>&address=<any address>` also gives the address as `executor`.
+6. Set the `relay` section of the `0xMiden/wallet-config` document. The wallet reads the service URL, the executor address and the Calibur pin from that section. The executor there must be the address of the deployed key: the wallet signs batches that only that executor can run. The Calibur pin there must be the `calibur` of `EVM_RELAY_CONFIG`.
 
 ### Change the gas mode or the config
 
-`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a `feeRecipient` and at least one entry in `fees` on every chain, and the release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
+`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a top-level `feeRecipient` and, for every chain of `EVM_RELAY_RPC_URLS`, an entry with at least one token in `fees`. The release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
 
-`--secrets-file` adds and replaces secrets, and it does not delete one. When a chain leaves the config, its `RPC_URL_<chainId>` secret stays on the Worker, unused. Delete it with `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`.
+`--secrets-file` adds and replaces secrets, and it does not delete one. The Worker serves each chain that has an `RPC_URL_<chainId>` secret, so a chain that you remove from `EVM_RELAY_RPC_URLS` stays served until you delete its secret: `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`. In `deduct` mode, delete the secret before you remove the fees of that chain from `EVM_RELAY_CONFIG`, else the Worker refuses its config: the API routes answer `503 service_unavailable` and `/healthz` reports `ok: false`.
 
 ### Rotate the relayer key
 

@@ -4,10 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { keccak256, type Hex } from 'viem';
 
-import { bodyOf, chainEntry, createHarness, send, type Harness } from './harness';
+import { bodyOf, createHarness, relayConfigOf, send, type Harness } from './harness';
 import type { SubmitJob } from '../src/sender';
 
-const CONFIG = JSON.stringify({ chains: { '8453': chainEntry(), '1': chainEntry() } });
+/** The served chains come from the RPC URLs; a status read needs no chains entry. */
+const CONFIG = relayConfigOf();
+const CHAINS = [8453, 1];
 const CALLER = { 'CF-Connecting-IP': '203.0.113.7' };
 const ID_BASE: Hex = `0x${'b1'.repeat(32)}`;
 const ID_MAINNET: Hex = `0x${'e1'.repeat(32)}`;
@@ -30,7 +32,7 @@ function job(chainId: number, id: Hex): SubmitJob {
 
 /** A harness with one stored relay on chain 8453 and one on chain 1. Return their transaction hashes. */
 async function stored(): Promise<{ harness: Harness; base: Hex; mainnet: Hex }> {
-  const harness = createHarness({ relayConfig: CONFIG });
+  const harness = createHarness({ relayConfig: CONFIG, chains: CHAINS });
   const base = await harness.senders.senderOf(8453).submit(job(8453, ID_BASE));
   const mainnet = await harness.senders.senderOf(1).submit(job(1, ID_MAINNET));
   if (base.status !== 'job' || mainnet.status !== 'job') throw new Error('A relay was not stored');
@@ -72,7 +74,7 @@ describe('GET /v1/relay/{id}', () => {
   });
 
   it('shows pending while a cancel is out, then expired with the cancel hash', async () => {
-    const harness = createHarness({ relayConfig: CONFIG });
+    const harness = createHarness({ relayConfig: CONFIG, chains: CHAINS });
     // The Senders of the harness run at 1_700_000_000 seconds: this deadline passed 1000 seconds ago.
     const outcome = await harness.senders.senderOf(8453).submit({ ...job(8453, ID_BASE), deadline: 1_699_999_000 });
     if (outcome.status !== 'job') throw new Error('The relay was not stored');

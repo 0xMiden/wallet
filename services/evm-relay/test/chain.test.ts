@@ -4,7 +4,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { encodeFunctionData, encodeFunctionResult, erc20Abi, type Hex } from 'viem';
 
-import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, NATIVE, TEST_RPC_URL, USDC, chainEntry } from './harness';
+import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, NATIVE, TEST_RPC_URL, USDC, oneChainConfig } from './harness';
 import { CALIBUR_ABI, RELAY_NONCE_KEY } from '../../../src/lib/evm-relay/batch';
 import {
   ChainIntegrityError,
@@ -18,7 +18,7 @@ import {
   type Fetcher,
   type RelayCall
 } from '../src/chain';
-import { parseChains, type ChainConfig } from '../src/config';
+import { parseRelayConfig, type ChainConfig } from '../src/config';
 import { ApiError } from '../src/errors';
 import { isRecord } from '../src/http';
 import type { Env } from '../src/types';
@@ -56,7 +56,7 @@ const DOMAIN: Domain = { name: 'Calibur', version: '1.0.0', chainId: 8453n, veri
 const TOKENS: Hex[] = [USDC, NATIVE];
 
 function chainOf(): ChainConfig {
-  const chain = parseChains(JSON.stringify({ chains: { '8453': chainEntry() } }), 'sponsor').get(8453);
+  const chain = parseRelayConfig(oneChainConfig(), 'sponsor', [8453]).chains.get(8453);
   if (chain === undefined) throw new Error('The test chain did not parse');
   return chain;
 }

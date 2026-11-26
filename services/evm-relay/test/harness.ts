@@ -28,27 +28,33 @@ export const FEE_RECIPIENT: Hex = `0x${'fe'.repeat(20)}`;
 /** A contract that a batch calls, for example a bridge. The relay does not know what it does. */
 export const TARGET: Hex = `0x${'2a'.repeat(20)}`;
 
+/** The Calibur pin of the test chains. */
+export const CALIBUR_PIN = {
+  address: CALIBUR_ADDRESS,
+  runtimeHash: keccak256(IMPLEMENTATION_CODE),
+  domainName: 'Calibur',
+  domainVersion: '1.0.0'
+};
+
 /**
  * A chain entry of RELAY_CONFIG with fees in USDC and in the native coin, valid in both gas modes. It has no
  * `allowedTargets` unless `extra` sets it.
  */
 export function chainEntry(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    calibur: {
-      address: CALIBUR_ADDRESS,
-      runtimeHash: keccak256(IMPLEMENTATION_CODE),
-      domainName: 'Calibur',
-      domainVersion: '1.0.0'
-    },
-    feeRecipient: FEE_RECIPIENT,
-    fees: { [USDC]: '100000', [NATIVE]: '10' },
-    ...extra
-  };
+  return { fees: { [USDC]: '100000', [NATIVE]: '10' }, ...extra };
 }
 
-/** RELAY_CONFIG with the chain 8453 only. */
+/**
+ * RELAY_CONFIG with the test Calibur pin, the test fee recipient and the chain entries `chains`. `top` adds or
+ * replaces top fields.
+ */
+export function relayConfigOf(chains: Record<string, unknown> = {}, top: Record<string, unknown> = {}): string {
+  return JSON.stringify({ calibur: CALIBUR_PIN, feeRecipient: FEE_RECIPIENT, chains, ...top });
+}
+
+/** RELAY_CONFIG with an entry for the chain 8453 only. */
 export function oneChainConfig(): string {
-  return JSON.stringify({ chains: { '8453': chainEntry() } });
+  return relayConfigOf({ '8453': chainEntry() });
 }
 
 /** The account state that the fake reader returns, unless a test sets another. */
@@ -237,7 +243,9 @@ export interface EnvOptions {
   gasMode?: string | null;
   relayConfig?: string | null;
   relayerKey?: string | null;
-  /** The `RPC_URL_<chainId>` secrets, keyed by chain id. */
+  /** The served chains: each one gets the secret `RPC_URL_<chainId>` with TEST_RPC_URL. */
+  chains?: readonly number[];
+  /** More `RPC_URL_<chainId>` secrets, keyed by chain id. They replace the URL of a chain in `chains`. */
   rpcUrls?: Record<string, string>;
   senderBinding?: boolean;
 }
@@ -256,6 +264,7 @@ export function createHarness(options: EnvOptions = {}): Harness {
   const env: Env = { ALLOWED_ORIGINS: options.allowedOrigins ?? JSON.stringify([ORIGIN]) };
   const relayerKey = options.relayerKey === undefined ? TEST_RELAYER_KEY : options.relayerKey;
   if (relayerKey !== null) env.RELAYER_PRIVATE_KEY = relayerKey;
+  for (const chainId of options.chains ?? []) Reflect.set(env, `RPC_URL_${chainId}`, TEST_RPC_URL);
   for (const [chainId, url] of Object.entries(options.rpcUrls ?? {})) Reflect.set(env, `RPC_URL_${chainId}`, url);
   if (options.readLimit !== false) env.READ_RATE_LIMIT = readLimit;
   if (options.relayLimit !== false) env.RELAY_RATE_LIMIT = relayLimit;
@@ -264,7 +273,7 @@ export function createHarness(options: EnvOptions = {}): Harness {
   if (revision !== null) env.DEPLOYMENT_REVISION = revision;
   const gasMode = options.gasMode === undefined ? 'sponsor' : options.gasMode;
   if (gasMode !== null) env.GAS_MODE = gasMode;
-  const relayConfig = options.relayConfig === undefined ? '{"chains":{}}' : options.relayConfig;
+  const relayConfig = options.relayConfig === undefined ? relayConfigOf() : options.relayConfig;
   if (relayConfig !== null) env.RELAY_CONFIG = relayConfig;
   return { env, readLimit, relayLimit, reader: new FakeReader(), senders: new TestSenders() };
 }

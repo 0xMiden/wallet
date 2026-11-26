@@ -1,5 +1,5 @@
 // GET /v1/relay/{id}: the state of a stored relay. The id does not name its chain, so the route asks the Sender of each
-// configured chain in config order, or only the chain of the `chainId` query. It reads the Sender storage only, never
+// served chain in chain id order, or only the chain of the `chainId` query. It reads the Sender storage only, never
 // the chain.
 import { chainOf } from './account';
 import { answer } from './relay';

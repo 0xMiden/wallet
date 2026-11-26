@@ -103,7 +103,8 @@ jobs:
       # The script checks every value before it writes a file, and no message
       # names a secret value. It writes the release config and the secrets file
       # to RUNNER_TEMP with mode 0600. EVM_RELAY_RPC_URLS is one JSON object of
-      # chain id to URL, so a new chain needs no change to this workflow.
+      # chain id to URL, and its chains are the chains that the Worker serves,
+      # so a new chain needs no change to this workflow.
       - name: Check release values and prepare server configuration and secrets
         id: release
         env:
