@@ -259,31 +259,52 @@ export function swapStepAttempted(jobs, leg, provider = 'swap') {
   ]);
 }
 
+// Each entry pins one immutable run whose failed legacy step provably spent nothing, with the retained report that shows it.
+// shortcut: requires retained artifact metadata; archive the verified receipt before its retention expires.
+const READ_ONLY_LEGACY_FAILURES = [
+  {
+    // Stops at the reviewed source's first indexer read, before its AggLayer deposit call.
+    runId: 43562192705,
+    source: '46d7fcf8ac612ca48997753574b53b308e365070',
+    step: 'Run the mainnet AggLayer loop',
+    artifact: 'mainnet-agglayer-43562192705',
+    artifactId: 14100963457,
+    digest: 'sha256:dbf7bc5943653fc30cb53f633fc9db1e059f6ab06b17f850e9cfe5135cbcaedb'
+  },
+  {
+    // Failed while setting up the second wallet fixture, before the test body: no wallet recorded a settled prove.
+    runId: 45762536645,
+    source: '1838f5af5b61314c7d54389f27eb11755a49f594',
+    step: 'Run native mainnet round trip',
+    artifact: 'wallet-e2e-v1-45762536645-1-mainnet',
+    artifactId: 15090921188,
+    digest: 'sha256:35eedd0ea6211a2032d96d4c567bd9bab4d3ed2733a91563562fbeaf1ee608aa'
+  }
+];
+
 async function reconciledReadOnlyLegacyFailure(run, step, getArtifacts) {
-  // This immutable report stops at the reviewed source's first indexer read, before its AggLayer deposit call.
-  // shortcut: requires retained artifact metadata; archive the verified receipt before its retention expires.
-  const source = '46d7fcf8ac612ca48997753574b53b308e365070';
+  const pin = READ_ONLY_LEGACY_FAILURES.find(entry => entry.runId === run.id);
   if (
-    run.id !== 43562192705 ||
-    run.head_sha !== source ||
+    !pin ||
+    run.head_sha !== pin.source ||
     run.head_branch !== 'main' ||
     run.event !== 'schedule' ||
-    step.name !== 'Run the mainnet AggLayer loop' ||
+    step.name !== pin.step ||
     step.status !== 'completed' ||
     step.conclusion !== 'failure'
   )
     return false;
   const result = await getArtifacts(run.id);
   if (!Array.isArray(result?.artifacts)) throw new Error('Invalid legacy reconciliation artifact response');
-  const reports = result.artifacts.filter(item => item.name === 'mainnet-agglayer-43562192705');
+  const reports = result.artifacts.filter(item => item.name === pin.artifact);
   if (reports.length !== 1) return false;
   const [report] = reports;
   return (
-    report.id === 14100963457 &&
+    report.id === pin.artifactId &&
     report.expired === false &&
-    report.digest === 'sha256:dbf7bc5943653fc30cb53f633fc9db1e059f6ab06b17f850e9cfe5135cbcaedb' &&
+    report.digest === pin.digest &&
     report.workflow_run?.id === run.id &&
-    report.workflow_run.head_sha === source &&
+    report.workflow_run.head_sha === pin.source &&
     report.workflow_run.head_branch === 'main' &&
     report.workflow_run.repository_id === 853430876 &&
     report.workflow_run.head_repository_id === 853430876
