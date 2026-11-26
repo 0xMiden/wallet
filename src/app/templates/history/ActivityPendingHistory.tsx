@@ -183,6 +183,7 @@ export const ActivityPendingHistory = ({
             emptyState={emptyState}
             scrollParentRef={scrollRef}
             searchQuery={search}
+            counterpartyNameOf={nameOf}
             filter={filter}
             predicate={predicate}
             pendingItems={representedItems}
