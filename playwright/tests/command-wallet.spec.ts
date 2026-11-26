@@ -265,14 +265,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   expect(
     Math.abs((await portfolioHeading.evaluate(headingY)) - (await allocationHeading.evaluate(headingY)))
   ).toBeLessThanOrEqual(1);
-  const chevronGapError = await command
-    .getByTestId('command-ai-morph-toggle')
-    .locator('svg')
-    .evaluate(el => {
-      const button = el.closest('button')!.getBoundingClientRect();
-      const chevron = el.getBoundingClientRect();
-      return Math.abs(chevron.left - button.left - (button.right - chevron.right));
-    });
+  const morphChevron = command.getByTestId('command-ai-morph-toggle').locator('svg');
+  // An unpainted icon would still measure centred.
+  await expect(morphChevron).toHaveAttribute('fill', 'currentColor');
+  await expect(morphChevron.locator('path')).not.toHaveCSS('fill', 'none');
+  const chevronGapError = await morphChevron.evaluate(el => {
+    const button = el.closest('button')!.getBoundingClientRect();
+    const chevron = el.getBoundingClientRect();
+    return Math.abs(chevron.left - button.left - (button.right - chevron.right));
+  });
   expect(chevronGapError).toBeLessThanOrEqual(1);
   await captureCommand(command, info, 'command-dashboard-1440x1000');
   const assetSearch = await command.getByRole('textbox', { name: 'Search assets...' }).boundingBox();
