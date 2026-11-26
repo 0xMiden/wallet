@@ -85,23 +85,15 @@ export async function compileCommandPrompt(req: CompileCommandRequest): Promise<
   req.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
   try {
-    const send = (context: { helpContext?: CommandHelpTopic | null; snapshot?: RedactedClarificationSnapshot }) =>
-      fetch(`${endpoint}/v1/compile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'omit',
-        body: JSON.stringify({ redactedText: req.redactedText, ...context }),
-        signal: controller.signal
-      });
-    let response = await send(
-      req.helpContext !== undefined ? { helpContext: req.helpContext } : req.snapshot ? { snapshot: req.snapshot } : {}
-    );
-    if (response.status === 400 && req.helpContext !== undefined) {
-      const detail = await response.json().catch(() => null);
-      if (detail?.error === 'bad_request' && detail.message === 'Unexpected field: helpContext.') {
-        response = await send({});
-      }
-    }
+    const context =
+      req.helpContext !== undefined ? { helpContext: req.helpContext } : req.snapshot ? { snapshot: req.snapshot } : {};
+    const response = await fetch(`${endpoint}/v1/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify({ redactedText: req.redactedText, ...context }),
+      signal: controller.signal
+    });
 
     if (response.status === 429) {
       throw new CommandAiClientError('rate_limited', 'AI command service rate limited');
