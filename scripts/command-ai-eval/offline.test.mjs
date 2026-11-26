@@ -143,6 +143,20 @@ for (const wrapped of [true, false]) {
   );
 }
 
+test('reports only the provider status for an upstream 502 translation', async context => {
+  mockProviderKey(context);
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'pending'));
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response('private provider body', { status: 503 })
+  );
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.modelFailures, 1);
+  assert.deepEqual(summary.errors, ['[MODEL ERR] pending: Worker returned 502 (provider HTTP 503)']);
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
 test('preserves a safe caution that lists multiple credentials', async context => {
   const answer =
     'Never share your recovery phrase. If someone asks you to share your recovery phrase or private key, stop and contact official support.';

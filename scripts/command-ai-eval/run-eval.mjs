@@ -104,6 +104,7 @@ export async function runEval({
   const errors = [];
   const latencies = [];
   let maxPromptTokens = 0;
+  let providerFailureDetail;
   const retryBudget = freshRetryBudget();
   const proxyMod =
     offlineOnly || questions ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
@@ -115,11 +116,17 @@ export async function runEval({
         }).createService({
           fetchImpl: async (...args) => {
             const response = await fetch(...args);
-            const { usage } = await response
+            const { usage, choices } = await response
               .clone()
               .json()
               .catch(() => ({}));
             maxPromptTokens = Math.max(maxPromptTokens, usage?.prompt_tokens ?? 0);
+            const finishReason = choices?.[0]?.finish_reason;
+            providerFailureDetail = !response.ok
+              ? `provider HTTP ${response.status}`
+              : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
+                ? `provider finish ${finishReason}`
+                : undefined;
             return response;
           }
         });
@@ -169,6 +176,7 @@ export async function runEval({
     }
 
     if (worker || proxyMod) {
+      providerFailureDetail = undefined;
       const t0 = Date.now();
       try {
         const res = await retryCompile(() =>
@@ -192,7 +200,8 @@ export async function runEval({
                 )
                 .then(async response => {
                   if (response.ok) return response.json();
-                  const error = new Error(`Worker returned ${response.status}`);
+                  const detail = response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
+                  const error = new Error(`Worker returned ${response.status}${detail}`);
                   if (response.status === 429) {
                     const header = response.headers.get('Retry-After');
                     if (typeof header === 'string' && /^\d+$/.test(header)) {
@@ -227,10 +236,11 @@ export async function runEval({
         const matchesQuery = !exp.query || parsed.query === exp.query;
         const matchesTopic = !exp.topic || parsed.topic === exp.topic;
         const answer = parsed.answer?.toLowerCase().replaceAll('’', "'") ?? '';
-        const answerCoversFacts = testCase.answerContains?.every(requirement => {
-          const alternatives = Array.isArray(requirement) ? requirement : [requirement];
-          return alternatives.some(term => answer.includes(term));
-        }) ?? true;
+        const answerCoversFacts =
+          testCase.answerContains?.every(requirement => {
+            const alternatives = Array.isArray(requirement) ? requirement : [requirement];
+            return alternatives.some(term => answer.includes(term));
+          }) ?? true;
         const matchesEarnOp = !exp.earn_op || parsed.earn_op === exp.earn_op;
         const matchesAmountKind =
           exp.amountKind === undefined ||
