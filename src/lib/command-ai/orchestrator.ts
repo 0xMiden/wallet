@@ -1037,25 +1037,17 @@ function resolveEarnFlow(
   };
 }
 
-// A clarification with one option has nothing to ask, so it is answered with that option. The recipient slot is
-// the exception: there the click is the safety check (naming a contact nobody asked for, or completing a typed address
-// prefix, is the address-poisoning surface).
-const MAX_AUTO_PICKS = 4;
-
 export function resolveDraftToAction(
   draft: HydratedIntentDraft,
   map: RedactionMap,
   ctx: OrchestratorWalletContext
 ): OrchestratorResolution {
-  let resolution = resolveDraftOnce(draft, map, ctx);
-  for (let picks = 0; picks < MAX_AUTO_PICKS; picks++) {
-    if (resolution.kind !== 'clarifying' || resolution.slot === 'recipient' || resolution.chips.length !== 1) break;
-    const only = resolution.chips[0]!;
-    const next = resolveDraftOnce({ ...resolution.draft, ...only.patch }, resolution.map, ctx);
-    if (next.kind === 'clarifying' && next.slot === resolution.slot && next.chips[0]?.id === only.id) break;
-    resolution = next;
+  const resolution = resolveDraftOnce(draft, map, ctx);
+  // A recipient click confirms the user chose that address, including a saved match for a typed prefix.
+  if (resolution.kind !== 'clarifying' || resolution.slot === 'recipient' || resolution.chips.length !== 1) {
+    return resolution;
   }
-  return resolution;
+  return resolveDraftOnce({ ...resolution.draft, ...resolution.chips[0]!.patch }, resolution.map, ctx);
 }
 
 function resolveDraftOnce(
