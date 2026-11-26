@@ -526,7 +526,9 @@ describe('CommandAiBar', () => {
       expect(useUserVisibleError).toHaveBeenLastCalledWith('raw_command_ai_failed', 'inline');
 
       submit('What is my balance?');
-      expect(await screen.findByTestId('command-ai-query-result')).toHaveTextContent('25 MIDEN');
+      const result = await screen.findByTestId('command-ai-query-result');
+      expect(result).toHaveTextContent('25 MIDEN');
+      fireEvent.click(within(result).getByRole('button', { name: 'close' }));
       expect(screen.queryByTestId('command-ai-plan-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
     });
@@ -551,7 +553,8 @@ describe('CommandAiBar', () => {
 
       mockEarnVaultCatalog = null;
       submit('bridge 500 usdc to miden');
-      await screen.findByTestId('command-ai-clarification');
+      const clarification = await screen.findByTestId('command-ai-clarification');
+      fireEvent.click(within(clarification).getByRole('button', { name: 'close' }));
       expect(screen.queryByTestId('command-ai-plan-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
     });

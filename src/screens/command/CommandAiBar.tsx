@@ -373,8 +373,11 @@ export function CommandAiBar({
     async (raw: string, topic?: keyof typeof COMMAND_HELP_TOPICS) => {
       if (!raw || activeAbortRef.current) return;
       const helpOnly = topic !== undefined;
-      const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) =>
-        setRequestFailure(error && { error, state, plan: planCtx?.plan });
+      const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) => {
+        const nextState: AiBarState = error && state.kind === 'error' ? { kind: 'idle' } : state;
+        if (nextState !== state) setState(nextState);
+        setRequestFailure(error && { error, state: nextState, plan: planCtx?.plan });
+      };
       if (containsCommandSecret(raw)) {
         setRequestError({ kind: 'error', messageKey: 'commandAiHelpSecret', redactedKinds: [] });
         setInput('');
@@ -440,7 +443,6 @@ export function CommandAiBar({
             });
             return;
           }
-          planCtx?.dismissPlan();
           const result = await executeLocalLedgerQuery(output, {
             accountId: scope.accountId,
             balances: assets,
@@ -448,6 +450,7 @@ export function CommandAiBar({
             map: redaction.map
           });
           if (controller.signal.aborted) return;
+          planCtx?.dismissPlan();
           setHelpAnswer(null);
           setTurns(prev => [...prev.slice(-7), { id: `q-${Date.now()}`, role: 'assistant', text: result.summaryText }]);
           setState({ kind: 'query_result', result, redactedKinds });
@@ -465,10 +468,6 @@ export function CommandAiBar({
         if (controller.signal.aborted) return;
         setHelpAnswer(null);
 
-        if (output.op !== 'set_plan') {
-          planCtx?.dismissPlan();
-        }
-
         const effectiveMap = output.op === 'patch_slots' ? activeMap : redaction.map;
         const resolution = compileOutputToResolution(
           output,
@@ -477,6 +476,9 @@ export function CommandAiBar({
           output.op === 'patch_slots' ? previousClarifying?.draft : undefined
         );
         applyResolution(resolution, redactedKinds, earnPositions);
+        if (output.op !== 'set_plan' && resolution.kind !== 'cancelled') {
+          planCtx?.dismissPlan();
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         const messageKey =
