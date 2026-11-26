@@ -682,6 +682,17 @@ describe('HistoryDetails', () => {
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
     },
     {
+      label: 'register-name',
+      type: 'register-name',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'register-name carrying 1Click tracking',
+      type: 'register-name',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
       label: 'consume (plain receive)',
       type: 'consume',
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'secondary', to: 'account' }
