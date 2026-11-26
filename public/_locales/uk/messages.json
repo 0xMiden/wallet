@@ -10896,5 +10896,82 @@
   "depositFlowTokenPortalTag": {
     "message": "Портал",
     "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "У мережі $network$ надходить як $token$",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "Жоден токен чи мережа не відповідає запиту «$query$».",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowConnectWalletInstead": {
+    "message": "Підключіть гаманець замість цього",
+    "englishSource": "Connect a wallet instead"
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Епоха",
+    "englishSource": "Epoch"
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "Приблизно 30 хвилин",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "Приблизно 2 хвилини",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "Міст не запустився",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "Ваші кошти все ще знаходяться на вашій депозитній адресі. Поверніться і спробуйте ще раз.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "Виявлено депозит",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Перехід на Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Прибуло в Bread",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "Ви можете закрити це. Ми повідомимо вас, коли все буде готово.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "Цей процес займає приблизно 30 хвилин. Ви можете закрити це вікно. Ми повідомимо вас, коли все буде готово.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "Депозит надійшов",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "Знову внести депозит",
+    "englishSource": "Deposit again"
   }
 }

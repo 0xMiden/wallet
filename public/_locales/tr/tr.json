@@ -2362,5 +2362,21 @@
   "depositFlowTokenArrivesAs": "$token$ olarak gelir",
   "depositFlowTokenOpensPortal": "bridge.miden.xyz adresini açar",
   "depositFlowTokenNoRoute": "Canlı rota yok",
-  "depositFlowTokenPortalTag": "Portal"
+  "depositFlowTokenPortalTag": "Portal",
+  "depositFlowTokenOnNetworkArrivesAs": "$network$ üzerinde, $token$ olarak gelir",
+  "depositFlowTokenNoMatch": "\"$query$\" ile eşleşen hiçbir token veya ağ bulunmamaktadır.",
+  "depositFlowConnectWalletInstead": "Bunun yerine bir cüzdan bağlayın",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Epoch",
+  "depositFlowArrivesAgglayer": "Yaklaşık 30 dakika",
+  "depositFlowArrivesEpoch": "Yaklaşık 2 dakika",
+  "depositFlowStartFailedTitle": "Köprü çalışmaya başlamadı",
+  "depositFlowStartFailedBody": "Paralarınız hâlâ para yatırma adresinizde bulunmaktadır. Geri dönüp tekrar deneyin.",
+  "depositFlowStepDetected": "Para yatırma tespit edildi",
+  "depositFlowBridgingToMiden": "Miden'e Köprü Kurma",
+  "depositFlowStepArrived": "Bread'e geldi",
+  "depositFlowProcessingNote": "Bunu kapatabilirsiniz. İşlem tamamlandığında sizi bilgilendireceğiz.",
+  "depositFlowProcessingSlowNote": "Bu işlem yaklaşık 30 dakika sürer. Bu pencereyi kapatabilirsiniz. İşlem tamamlandığında sizi bilgilendireceğiz.",
+  "depositFlowArrivedTitle": "Para yatırma işlemi tamamlandı",
+  "depositFlowDepositAgain": "Tekrar para yatırın"
 }

@@ -2364,5 +2364,21 @@
   "depositFlowTokenArrivesAs": "以 $token$ 的形式到帳",
   "depositFlowTokenOpensPortal": "開啟 bridge.miden.xyz",
   "depositFlowTokenNoRoute": "無即時路由",
-  "depositFlowTokenPortalTag": "入口網站"
+  "depositFlowTokenPortalTag": "入口網站",
+  "depositFlowTokenOnNetworkArrivesAs": "在 $network$ 上，以 $token$ 的形式到達",
+  "depositFlowTokenNoMatch": "沒有任何代幣或網路符合「$query$」。",
+  "depositFlowConnectWalletInstead": "請改為連接錢包",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Epoch",
+  "depositFlowArrivesAgglayer": "約 30 分鐘",
+  "depositFlowArrivesEpoch": "約 2 分鐘",
+  "depositFlowStartFailedTitle": "該橋接服務並未啟動",
+  "depositFlowStartFailedBody": "您的資金仍存於您的存款地址中。請返回並重新嘗試。",
+  "depositFlowStepDetected": "偵測到存款",
+  "depositFlowBridgingToMiden": "銜接至 Miden",
+  "depositFlowStepArrived": "已抵達 Bread",
+  "depositFlowProcessingNote": "您可以關閉此事項。完成後我們會通知您。",
+  "depositFlowProcessingSlowNote": "此流程約需 30 分鐘。您可以關閉此視窗。完成後我們會通知您。",
+  "depositFlowArrivedTitle": "存款已到帳",
+  "depositFlowDepositAgain": "再次存入"
 }

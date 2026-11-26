@@ -2355,5 +2355,21 @@
   "depositFlowTokenArrivesAs": "Trifft ein als $token$",
   "depositFlowTokenOpensPortal": "Öffnet bridge.miden.xyz",
   "depositFlowTokenNoRoute": "Keine Live-Route",
-  "depositFlowTokenPortalTag": "Portal"
+  "depositFlowTokenPortalTag": "Portal",
+  "depositFlowTokenOnNetworkArrivesAs": "Auf $network$ trifft ein als $token$",
+  "depositFlowTokenNoMatch": "Es gibt kein Token und kein Netzwerk, das mit „$query$“ übereinstimmt.",
+  "depositFlowConnectWalletInstead": "Stattdessen eine Wallet verbinden",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Epoche",
+  "depositFlowArrivesAgglayer": "Etwa 30 Minuten",
+  "depositFlowArrivesEpoch": "Etwa 2 Minuten",
+  "depositFlowStartFailedTitle": "Die Brücke wurde nicht gestartet",
+  "depositFlowStartFailedBody": "Ihr Guthaben befindet sich weiterhin an Ihrer Einzahlungsadresse. Gehen Sie zurück und versuchen Sie es erneut.",
+  "depositFlowStepDetected": "Einzahlung erkannt",
+  "depositFlowBridgingToMiden": "Brücke zu Miden",
+  "depositFlowStepArrived": "Angekommen bei Bread",
+  "depositFlowProcessingNote": "Sie können diesen Vorgang schließen. Wir benachrichtigen Sie, sobald er abgeschlossen ist.",
+  "depositFlowProcessingSlowNote": "Dieser Vorgang dauert etwa 30 Minuten. Sie können dieses Fenster schließen. Wir benachrichtigen Sie, sobald der Vorgang abgeschlossen ist.",
+  "depositFlowArrivedTitle": "Einzahlung eingegangen",
+  "depositFlowDepositAgain": "Erneut einzahlen"
 }

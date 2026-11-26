@@ -2365,5 +2365,21 @@
   "depositFlowTokenArrivesAs": "$token$として到着する",
   "depositFlowTokenOpensPortal": "bridge.miden.xyz を開く",
   "depositFlowTokenNoRoute": "ライブルートなし",
-  "depositFlowTokenPortalTag": "ポータル"
+  "depositFlowTokenPortalTag": "ポータル",
+  "depositFlowTokenOnNetworkArrivesAs": "$network$上では、$token$として到着します。",
+  "depositFlowTokenNoMatch": "「$query$」に一致するトークンやネットワークはありません。",
+  "depositFlowConnectWalletInstead": "代わりにウォレットを接続してください",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "エポック",
+  "depositFlowArrivesAgglayer": "約30分",
+  "depositFlowArrivesEpoch": "約2分",
+  "depositFlowStartFailedTitle": "ブリッジは開始されませんでした",
+  "depositFlowStartFailedBody": "お客様の資金は依然として預入アドレスに残っています。戻って、もう一度お試しください。",
+  "depositFlowStepDetected": "入金が検出されました",
+  "depositFlowBridgingToMiden": "Midenへのブリッジ",
+  "depositFlowStepArrived": "Breadに到着",
+  "depositFlowProcessingNote": "これで閉じていただいて結構です。完了次第、ご連絡いたします。",
+  "depositFlowProcessingSlowNote": "この処理には約30分かかります。このウィンドウを閉じていただいて構いません。完了次第、通知いたします。",
+  "depositFlowArrivedTitle": "入金が完了しました",
+  "depositFlowDepositAgain": "再度入金"
 }

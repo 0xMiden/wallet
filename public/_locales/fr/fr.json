@@ -2361,5 +2361,21 @@
   "depositFlowTokenArrivesAs": "Arrive sous la forme $token$",
   "depositFlowTokenOpensPortal": "Ouvre bridge.miden.xyz",
   "depositFlowTokenNoRoute": "Pas de route active",
-  "depositFlowTokenPortalTag": "Portail"
+  "depositFlowTokenPortalTag": "Portail",
+  "depositFlowTokenOnNetworkArrivesAs": "Sur $network$, arrive sous la forme $token$",
+  "depositFlowTokenNoMatch": "Aucun jeton ni réseau ne correspond à « $query$ ».",
+  "depositFlowConnectWalletInstead": "Connectez plutôt un portefeuille",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Époque",
+  "depositFlowArrivesAgglayer": "Environ 30 minutes",
+  "depositFlowArrivesEpoch": "Environ 2 minutes",
+  "depositFlowStartFailedTitle": "Le pont n’a pas démarré",
+  "depositFlowStartFailedBody": "Vos fonds se trouvent toujours à votre adresse de dépôt. Revenez en arrière et réessayez.",
+  "depositFlowStepDetected": "Dépôt détecté",
+  "depositFlowBridgingToMiden": "Connexion à Miden",
+  "depositFlowStepArrived": "Arrivé sur Bread",
+  "depositFlowProcessingNote": "Vous pouvez clore cette affaire. Nous vous informerons lorsque ce sera fait.",
+  "depositFlowProcessingSlowNote": "Cette opération prend environ 30 minutes. Vous pouvez fermer cette fenêtre. Nous vous avertirons lorsqu’elle sera terminée.",
+  "depositFlowArrivedTitle": "Dépôt reçu",
+  "depositFlowDepositAgain": "Effectuer un nouveau dépôt"
 }

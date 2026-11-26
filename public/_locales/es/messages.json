@@ -10902,5 +10902,82 @@
   "depositFlowTokenPortalTag": {
     "message": "Portal",
     "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "En $network$, llega como $token$",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "Ningún token ni red coincide con «$query$».",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowConnectWalletInstead": {
+    "message": "Conecta una cartera en su lugar",
+    "englishSource": "Connect a wallet instead"
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Época",
+    "englishSource": "Epoch"
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "Unos 30 minutos",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "Aproximadamente 2 minutos",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "El puente no se puso en marcha",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "Tus fondos siguen estando en tu dirección de depósito. Vuelve atrás e inténtalo de nuevo.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "Se ha detectado un depósito",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Conexión con Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Llegado a Bread",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "Puedes cerrar esto. Te avisaremos cuando esté hecho.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "Este proceso tarda unos 30 minutos. Puedes cerrar esta ventana. Te avisaremos cuando haya terminado.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "Depósito recibido",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "Depositar de nuevo",
+    "englishSource": "Deposit again"
   }
 }

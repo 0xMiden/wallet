@@ -2365,5 +2365,21 @@
   "depositFlowTokenArrivesAs": "$token$로 도착합니다.",
   "depositFlowTokenOpensPortal": "bridge.miden.xyz 열기",
   "depositFlowTokenNoRoute": "실시간 경로 없음",
-  "depositFlowTokenPortalTag": "포털"
+  "depositFlowTokenPortalTag": "포털",
+  "depositFlowTokenOnNetworkArrivesAs": "$network$에서는 $token$로 도착합니다.",
+  "depositFlowTokenNoMatch": "\"$query$\"에 해당하는 토큰이나 네트워크는 없습니다.",
+  "depositFlowConnectWalletInstead": "대신 지갑을 연결하세요",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "에포크",
+  "depositFlowArrivesAgglayer": "약 30분",
+  "depositFlowArrivesEpoch": "약 2분",
+  "depositFlowStartFailedTitle": "브릿지는 시작되지 않았습니다",
+  "depositFlowStartFailedBody": "자금은 여전히 입금 주소에 있습니다. 돌아가서 다시 시도해 보세요.",
+  "depositFlowStepDetected": "입금 감지됨",
+  "depositFlowBridgingToMiden": "Miden으로의 브리징",
+  "depositFlowStepArrived": "Bread에 도착",
+  "depositFlowProcessingNote": "이 작업을 종료하셔도 됩니다. 완료되면 알려드리겠습니다.",
+  "depositFlowProcessingSlowNote": "이 과정은 약 30분이 소요됩니다. 이 창을 닫으셔도 됩니다. 완료되면 알려드리겠습니다.",
+  "depositFlowArrivedTitle": "입금 완료",
+  "depositFlowDepositAgain": "다시 입금"
 }

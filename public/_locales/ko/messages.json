@@ -10894,5 +10894,82 @@
   "depositFlowTokenPortalTag": {
     "message": "포털",
     "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "$network$에서는 $token$로 도착합니다.",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "\"$query$\"에 해당하는 토큰이나 네트워크는 없습니다.",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowConnectWalletInstead": {
+    "message": "대신 지갑을 연결하세요",
+    "englishSource": "Connect a wallet instead"
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "에포크",
+    "englishSource": "Epoch"
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "약 30분",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "약 2분",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "브릿지는 시작되지 않았습니다",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "자금은 여전히 입금 주소에 있습니다. 돌아가서 다시 시도해 보세요.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "입금 감지됨",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Miden으로의 브리징",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Bread에 도착",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "이 작업을 종료하셔도 됩니다. 완료되면 알려드리겠습니다.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "이 과정은 약 30분이 소요됩니다. 이 창을 닫으셔도 됩니다. 완료되면 알려드리겠습니다.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "입금 완료",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "다시 입금",
+    "englishSource": "Deposit again"
   }
 }

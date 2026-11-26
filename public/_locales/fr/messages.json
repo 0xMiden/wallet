@@ -10898,5 +10898,82 @@
   "depositFlowTokenPortalTag": {
     "message": "Portail",
     "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "Sur $network$, arrive sous la forme $token$",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "Aucun jeton ni réseau ne correspond à « $query$ ».",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowConnectWalletInstead": {
+    "message": "Connectez plutôt un portefeuille",
+    "englishSource": "Connect a wallet instead"
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Époque",
+    "englishSource": "Epoch"
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "Environ 30 minutes",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "Environ 2 minutes",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "Le pont n’a pas démarré",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "Vos fonds se trouvent toujours à votre adresse de dépôt. Revenez en arrière et réessayez.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "Dépôt détecté",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Connexion à Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Arrivé sur Bread",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "Vous pouvez clore cette affaire. Nous vous informerons lorsque ce sera fait.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "Cette opération prend environ 30 minutes. Vous pouvez fermer cette fenêtre. Nous vous avertirons lorsqu’elle sera terminée.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "Dépôt reçu",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "Effectuer un nouveau dépôt",
+    "englishSource": "Deposit again"
   }
 }
