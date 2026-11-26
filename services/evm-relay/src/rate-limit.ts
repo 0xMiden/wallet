@@ -23,7 +23,7 @@ function callerOf(request: Request): string {
   return request.headers.get('CF-Connecting-IP') ?? 'unknown';
 }
 
-/** Charge GET /v1/account and GET /v1/relay/{id} to `read:<caller IP>`. */
+/** Charge GET /v1/chains, GET /v1/account and GET /v1/relay/{id} to `read:<caller IP>`. */
 export function limitRead({ request, env }: RequestContext): Promise<void> {
   return charge(env.READ_RATE_LIMIT, `read:${callerOf(request)}`);
 }

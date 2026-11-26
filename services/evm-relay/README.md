@@ -6,11 +6,12 @@ This Worker is separate from `services/wallet-api`. The wallet-api Worker stores
 
 ## State of this service
 
-The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the account read, the relay routes and the Sender Durable Object with its timer. The deploy workflow is `.github/workflows/deploy-evm-relay.yml` (see Deployment).
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the served chains read, the account read, the relay routes and the Sender Durable Object with its timer. The deploy workflow is `.github/workflows/deploy-evm-relay.yml` (see Deployment).
 
 | Route | State |
 | --- | --- |
 | `GET /healthz` | Implemented |
+| `GET /v1/chains` | Implemented |
 | `GET /v1/account` | Implemented |
 | `POST /v1/relay` | Implemented |
 | `GET /v1/relay/{id}` | Implemented |
@@ -30,6 +31,7 @@ The service contains the config parse, the router, CORS, the error bodies, the r
 | `src/sender.ts` | `RelaySender`: the nonce, the signature, the stored row, the broadcast and the timer. Also the route's Sender client |
 | `src/sender-object.ts` | `RelaySenderObject`: the Durable Object that wraps `RelaySender` and runs its alarm |
 | `src/routes/health.ts` | `/healthz` |
+| `src/routes/chains.ts` | `GET /v1/chains` |
 | `src/routes/account.ts` | `GET /v1/account` |
 | `src/routes/relay.ts` | `POST /v1/relay` |
 | `src/routes/relay-status.ts` | `GET /v1/relay/{id}` |
@@ -47,7 +49,7 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
 | `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fixed token fee to `feeRecipient` |
 | `RELAY_CONFIG` | Worker variable | JSON of the Calibur pin, the fee recipient and the values that are different on each chain, below |
-| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
+| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/chains`, `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
 | `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay`. A relay that passes the signature checks also counts on the key `relay-address:<evmAddress>` |
 | `RELAY_SENDER` | Durable Object binding | The class `RelaySenderObject`, with SQLite storage (migration `v1`, `new_sqlite_classes`). One object per chain, named by the decimal chain id |
 | `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. The Worker derives the `executor` address from it, and the Sender signs the relay transactions with it. The Worker never logs it |
@@ -227,9 +229,23 @@ The runbook `scripts/dev/relay-local/README.md` tells how to test the wallet's d
 
 ## API contract
 
-This section is the reference for the wallet client. The three routes implement it.
+This section is the reference for the wallet client. The four routes implement it.
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
+
+`GET /v1/chains` returns the chains that the Worker serves. The wallet must not show a deposit address for a chain that the relay does not serve, so it reads this route when the Deposit flow opens, before it has an address to send to `/v1/account`.
+
+```
+200 { mode: "sponsor" | "deduct",
+      executor: <address of the relayer; the same value as the executor of /v1/account>,
+      chains: [ <chain id as a JSON number>, … ] }
+```
+
+- `chains` lists the served chain ids in ascending order: each chain with an `RPC_URL_<chainId>` secret, from the same parse that the other routes use. `/v1/account` and `/v1/relay` accept exactly these chains and answer `unsupported_chain` for every other chain, also for a chain that has a `chains` entry in `RELAY_CONFIG` and no RPC URL. With no `RPC_URL_` secret, `chains` is `[]`.
+- The body has only these three fields: no RPC URL, no fee, no fee recipient, no target list and no other config value.
+- The route makes no RPC call and reads no Sender. The caller IP is charged on `read:<CF-Connecting-IP>`.
+- The 200 response has `Cache-Control: private, max-age=60`. The served chains change only on a deploy.
+- Errors: `403 origin_not_allowed` for an origin outside `ALLOWED_ORIGINS`, `429 rate_limited`, `405 method_not_allowed` for a method other than `GET` (`Allow: GET`), and `503 service_unavailable` when a variable does not parse, the read rate limit binding is missing, or `RELAYER_PRIVATE_KEY` is missing or not a valid key (the same answer as `/v1/account`).
 
 `GET /v1/account?chainId=<int>&address=<0x40hex>[&tokens=<comma list of 1 to 16 addresses; zero address = native coin>]` returns everything the wallet needs to sign:
 

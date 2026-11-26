@@ -31,7 +31,7 @@ export type ErrorCode =
  * The chains that have this secret are the chains that the Worker serves (`servedChainIds` in config.ts).
  */
 export interface Env {
-  /** Per caller IP, on GET /v1/account and GET /v1/relay/{id}. */
+  /** Per caller IP, on GET /v1/chains, GET /v1/account and GET /v1/relay/{id}. */
   READ_RATE_LIMIT?: RateLimit;
   /** Per caller IP and per address, on POST /v1/relay. */
   RELAY_RATE_LIMIT?: RateLimit;
@@ -79,6 +79,15 @@ export interface AccountBalance {
 export interface AccountFee {
   token: Hex;
   fee: string;
+}
+
+/** The body of `GET /v1/chains`. It has no RPC URL and no config value. */
+export interface ChainsResponse {
+  mode: GasMode;
+  /** The relayer address, the same value as the `executor` of `GET /v1/account`. */
+  executor: Hex;
+  /** The served chain ids in ascending order: each chain with an `RPC_URL_<chainId>` secret. */
+  chains: number[];
 }
 
 /** The body of `GET /v1/account`. */

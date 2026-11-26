@@ -3,6 +3,7 @@ import { ApiError, notFound } from './errors';
 import type { Hex } from './parse';
 import { limitRead, limitRelay } from './rate-limit';
 import { account } from './routes/account';
+import { chains } from './routes/chains';
 import { healthz } from './routes/health';
 import { relay } from './routes/relay';
 import { relayStatus } from './routes/relay-status';
@@ -13,10 +14,11 @@ const RELAY_STATUS_PATH = /^\/v1\/relay\/([^/]+)$/;
 /** A relay id: the EIP-712 digest of the batch. */
 const RELAY_ID = /^0x[0-9a-fA-F]{64}$/;
 
-type Route = { name: 'healthz' | 'account' | 'relay' } | { name: 'relayStatus'; id: Hex };
+type Route = { name: 'healthz' | 'chains' | 'account' | 'relay' } | { name: 'relayStatus'; id: Hex };
 
 const ALLOWED_METHODS: Readonly<Record<Route['name'], string>> = {
   healthz: 'GET',
+  chains: 'GET',
   account: 'GET',
   relay: 'POST',
   relayStatus: 'GET'
@@ -32,6 +34,8 @@ function matchRoute(pathname: string): Route {
   switch (pathname) {
     case '/healthz':
       return { name: 'healthz' };
+    case '/v1/chains':
+      return { name: 'chains' };
     case '/v1/account':
       return { name: 'account' };
     case '/v1/relay':
@@ -53,6 +57,8 @@ function handlerFor(route: Route): Handler {
   switch (route.name) {
     case 'healthz':
       return healthz;
+    case 'chains':
+      return limited(limitRead, chains);
     case 'account':
       return limited(limitRead, account);
     case 'relay':
