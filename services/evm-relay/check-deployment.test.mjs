@@ -40,6 +40,13 @@ const accountInvalid = (overrides = {}) => {
   );
 };
 
+/** The answer of POST /v1/quote with the body `{}` (src/routes/quote.ts): fee_not_needed in sponsor mode. */
+const quoteRefused = (error = 'fee_not_needed', overrides = {}) => {
+  const headers = { ...noStore, Vary: 'Origin', 'Access-Control-Allow-Origin': origin, ...overrides };
+  for (const [name, value] of Object.entries(headers)) if (value === null) delete headers[name];
+  return Response.json({ error, message: 'The relayer pays the gas: a batch needs no fee.' }, { status: 400, headers });
+};
+
 /** A fake Worker. Each override replaces one answer. */
 const fixture = (overrides = {}) => {
   const calls = [];
@@ -61,6 +68,12 @@ const fixture = (overrides = {}) => {
         assert.equal(target.search, '');
         assert.equal(init.headers.Origin, origin);
         return overrides.account?.() ?? accountInvalid();
+      case 'POST /v1/quote':
+        assert.equal(target.search, '');
+        assert.equal(init.headers.Origin, origin);
+        assert.equal(init.headers['Content-Type'], 'application/json');
+        assert.equal(init.body, '{}');
+        return overrides.quote?.() ?? quoteRefused();
       case 'GET /healthz':
         if (init.headers?.Origin !== undefined) {
           assert.notEqual(init.headers.Origin, origin);
@@ -100,8 +113,41 @@ test('passes a ready service that reports the revision, allows the wallet origin
   const { calls, fetchImpl } = fixture();
   const result = await checkDeployment({ ...options, fetchImpl });
   assert.deepEqual(result, { endpoint: 'https://evm-relay.example' });
-  assert.deepEqual(calls, ['GET /healthz', 'OPTIONS /v1/relay', 'GET /healthz', 'GET /v1/account']);
+  assert.deepEqual(calls, ['GET /healthz', 'OPTIONS /v1/relay', 'GET /healthz', 'GET /v1/account', 'POST /v1/quote']);
 });
+
+test('passes a deduct service whose quote route refuses the empty body', async () => {
+  const { fetchImpl } = fixture({ quote: () => quoteRefused('invalid_request') });
+  assert.deepEqual(await checkDeployment({ ...options, fetchImpl }), { endpoint: 'https://evm-relay.example' });
+});
+
+for (const [name, answer] of [
+  [
+    'answers 503 because the config does not parse',
+    () =>
+      Response.json(
+        { error: 'service_unavailable', message: 'The service is not configured.' },
+        { status: 503, headers: { ...noStore, 'Access-Control-Allow-Origin': origin } }
+      )
+  ],
+  [
+    'answers 404 because the route is missing',
+    () =>
+      Response.json(
+        { error: 'not_found', message: 'The route does not exist.' },
+        { status: 404, headers: { ...noStore, 'Access-Control-Allow-Origin': origin } }
+      )
+  ],
+  ['answers 400 with another error code', () => quoteRefused('unsupported_chain')],
+  ['answers 400 with a body that is not JSON', () => new Response('bad', { status: 400, headers: { ...noStore } })],
+  ['omits the allow-origin header', () => quoteRefused('fee_not_needed', { 'Access-Control-Allow-Origin': null })],
+  ['is cacheable', () => quoteRefused('fee_not_needed', { 'Cache-Control': null })]
+]) {
+  test(`fails when the quote route ${name}`, async () => {
+    const { fetchImpl } = fixture({ quote: answer });
+    await assert.rejects(checkDeployment({ ...options, fetchImpl }), /route a quote/);
+  });
+}
 
 test('refuses empty or wildcard origins before any request', async () => {
   const { calls, fetchImpl } = fixture();

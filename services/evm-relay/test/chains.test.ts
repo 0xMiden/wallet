@@ -151,7 +151,7 @@ describe('GET /v1/chains', () => {
     ['RELAY_CONFIG is missing', createHarness({ relayConfig: null, chains: [8453] })],
     ['GAS_MODE is not valid', createHarness({ gasMode: 'free', chains: [8453] })],
     [
-      'GAS_MODE is deduct and a served chain has no fees',
+      'GAS_MODE is deduct and a served chain has no nativePrice',
       createHarness({ gasMode: 'deduct', relayConfig: relayConfigOf({ '8453': chainEntry() }), chains: [8453, 1] })
     ],
     ['an RPC_URL_ secret does not name a chain id', createHarness({ rpcUrls: { base: TEST_RPC_URL } })],

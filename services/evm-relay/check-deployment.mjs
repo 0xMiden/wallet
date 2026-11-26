@@ -1,7 +1,9 @@
 // Post-deploy probe of the evm-relay Worker. The deploy workflow runs it after `wrangler deploy`. It checks that the
 // deployed revision answers `/healthz`, that a configured wallet origin passes the CORS preflight, that an unknown
-// origin is refused, and that `GET /v1/account` with no query answers `400 invalid_request`. That last request proves
-// that the router and the config are live, and it reads no chain. The probe sends no relay and writes no data.
+// origin is refused, that `GET /v1/account` with no query answers `400 invalid_request`, and that `POST /v1/quote`
+// with the body `{}` answers `400 fee_not_needed` (sponsor mode) or `400 invalid_request` (deduct mode). The last two
+// requests prove that the router and the config are live, and they read no chain and ask no price source. The probe
+// sends no relay and writes no data.
 import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +14,8 @@ const noStore = response => /(?:^|,)\s*no-store\s*(?:,|$)/i.test(response.header
 /** The methods and the request headers the wallet sends to the relay (src/http.ts allows exactly these). */
 const WALLET_METHODS = ['GET', 'POST'];
 const WALLET_HEADERS = ['content-type'];
+/** The answers of `POST /v1/quote` with the body `{}`: sponsor mode, then deduct mode. */
+const QUOTE_PROBE_ERRORS = ['fee_not_needed', 'invalid_request'];
 
 /** True when the comma-separated list holds every name as a whole token; header names ignore case. */
 const allowsEvery = (list, names, ignoreCase) => {
@@ -149,6 +153,24 @@ export async function checkDeployment({ endpoint, origins, revision, fetchImpl =
     !noStore(account)
   ) {
     throw new Error('Deployed service does not route an account read with its config');
+  }
+
+  // The quote route parses the config and checks the gas mode before it reads the body: sponsor mode answers
+  // fee_not_needed, deduct mode refuses the empty body. Both stop before a chain read and a price request.
+  const quote = await request('/v1/quote', {
+    method: 'POST',
+    headers: { Origin: allowed[0], 'Content-Type': 'application/json' },
+    body: '{}'
+  });
+  const quoteBody = await readBody(quote);
+  if (
+    quote.status !== 400 ||
+    !record(quoteBody) ||
+    !QUOTE_PROBE_ERRORS.includes(quoteBody.error) ||
+    quote.headers.get('Access-Control-Allow-Origin') !== allowed[0] ||
+    !noStore(quote)
+  ) {
+    throw new Error('Deployed service does not route a quote with its config');
   }
 
   return { endpoint: base };

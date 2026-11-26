@@ -3,16 +3,29 @@
 //
 // All chains use one Calibur pin and one fee recipient, at the top of RELAY_CONFIG. The Worker serves each chain that
 // has an `RPC_URL_<chainId>` secret, and no other chain. The optional `chains` object holds only the values that are
-// different on each chain: the fees (token addresses) and the allowed targets (contract addresses).
+// different on each chain: the price symbol of the native coin, the fee tokens (token addresses) and the allowed
+// targets (contract addresses).
 import { notConfigured } from './errors';
 import { isRecord } from './http';
-import { ParseError, address, amount, fail, shape, type Hex } from './parse';
+import { ParseError, address, fail, shape, type Hex } from './parse';
 import type { Env } from './types';
 
 export type { Hex } from './parse';
 
-/** `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fixed token fee to `feeRecipient`. */
+/**
+ * `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fee to `feeRecipient`. The fee is the simulated gas
+ * cost of the batch, priced in the fee token (fee.ts).
+ */
 export type GasMode = 'sponsor' | 'deduct';
+
+/**
+ * The price of a coin or a token against USD. `usd`: a USD stablecoin, priced at 1 USD. Any other value is a market
+ * symbol of the price sources (prices.ts), for example `ETHUSDT`: 5 to 20 characters of `A-Z0-9`.
+ */
+export type PriceSymbol = string;
+
+/** The symbol of a USD stablecoin. Its price is 1 USD, and the Worker asks no price source for it. */
+export const USD_SYMBOL = 'usd';
 
 export interface CaliburConfig {
   address: Hex;
@@ -28,10 +41,14 @@ export interface ChainConfig {
   calibur: CaliburConfig;
   feeRecipient: Hex | null;
   /**
-   * The fee of each token, in base units, keyed by token address in config order. The zero address is the native
-   * coin. It is empty when the chain has no entry or its entry has no `fees`.
+   * The price symbol of the native coin, or null when the entry has none. `deduct` mode needs it on each served chain.
    */
-  fees: ReadonlyMap<Hex, bigint>;
+  nativePrice: PriceSymbol | null;
+  /**
+   * The ERC-20 tokens that the chain takes a fee in, keyed by token address in config order, with the price symbol of
+   * each. The native coin is not in the map: in `deduct` mode it is always a fee token, and it needs no price.
+   */
+  feeTokens: ReadonlyMap<Hex, PriceSymbol>;
   /**
    * The addresses that a call of a batch can go to, in config order. Null when any address is allowed: the chain has no
    * entry, or its entry has no `allowedTargets`.
@@ -53,6 +70,8 @@ export class ConfigError extends Error {}
 
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const CHAIN_ID = /^[1-9][0-9]*$/;
+/** A market symbol of the price sources, for example `ETHUSDT`. */
+const MARKET_SYMBOL = /^[A-Z0-9]{5,20}$/;
 /** The prefix of the secret that holds the RPC URL of a chain. */
 const RPC_URL_PREFIX = 'RPC_URL_';
 
@@ -86,19 +105,26 @@ function parseCalibur(value: unknown, path: string): CaliburConfig {
   };
 }
 
-/** The `fees` object: token address to a fee above 0. Absent means no fee. */
-function parseFees(value: unknown, path: string): Map<Hex, bigint> {
-  const fees = new Map<Hex, bigint>();
-  if (value === undefined) return fees;
+/** A price symbol: `usd`, or 5 to 20 characters of `A-Z0-9`. */
+function priceSymbol(value: unknown, path: string): PriceSymbol {
+  if (value === USD_SYMBOL || (typeof value === 'string' && MARKET_SYMBOL.test(value))) return value;
+  fail(path, 'must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9');
+}
+
+/**
+ * The `feeTokens` object: ERC-20 token address to its price symbol. Absent means no ERC-20 fee token. The zero address
+ * is refused, because the native coin is always a fee token in `deduct` mode.
+ */
+function parseFeeTokens(value: unknown, path: string): Map<Hex, PriceSymbol> {
+  const tokens = new Map<Hex, PriceSymbol>();
+  if (value === undefined) return tokens;
   if (!isRecord(value)) fail(path, 'must be an object');
   for (const [key, entry] of Object.entries(value)) {
-    const token = address(key, `${path}.${key}`, true);
-    if (fees.has(token)) fail(`${path}.${key}`, 'repeats a token address');
-    const fee = amount(entry, `${path}.${key}`);
-    if (fee === 0n) fail(`${path}.${key}`, 'must be above 0');
-    fees.set(token, fee);
+    const token = address(key, `${path}.${key}`);
+    if (tokens.has(token)) fail(`${path}.${key}`, 'repeats a token address');
+    tokens.set(token, priceSymbol(entry, `${path}.${key}`));
   }
-  return fees;
+  return tokens;
 }
 
 /** The `allowedTargets` list: absent means any target, else a non-empty list of distinct non-zero addresses. */
@@ -116,7 +142,8 @@ function parseTargets(value: unknown, path: string): Hex[] | null {
 
 /** The values of `RELAY_CONFIG.chains.<chainId>`: the values that are different on each chain. */
 interface ChainEntry {
-  fees: Map<Hex, bigint>;
+  nativePrice: PriceSymbol | null;
+  feeTokens: Map<Hex, PriceSymbol>;
   allowedTargets: Hex[] | null;
 }
 
@@ -130,11 +157,12 @@ function parseChainEntry(key: string, value: unknown): [number, ChainEntry] {
   const path = `RELAY_CONFIG.chains.${key}`;
   const chainId = chainIdOf(key);
   if (chainId === null) fail(path, 'must have a positive decimal chain id key');
-  const fields = shape(value, path, [], ['fees', 'allowedTargets']);
+  const fields = shape(value, path, [], ['nativePrice', 'feeTokens', 'allowedTargets']);
   return [
     chainId,
     {
-      fees: parseFees(fields.fees, `${path}.fees`),
+      nativePrice: fields.nativePrice === undefined ? null : priceSymbol(fields.nativePrice, `${path}.nativePrice`),
+      feeTokens: parseFeeTokens(fields.feeTokens, `${path}.feeTokens`),
       allowedTargets: parseTargets(fields.allowedTargets, `${path}.allowedTargets`)
     }
   ];
@@ -205,9 +233,10 @@ export interface ParsedRelayConfig {
 
 /**
  * Parse `RELAY_CONFIG` for the served chains `chainIds`. Each served chain gets the one Calibur pin and the one fee
- * recipient, and the fees and the allowed targets of its `chains` entry. A served chain without an entry gets no fee
- * and no target list. The parse checks an entry of a chain that is not served, but does not keep it: that chain is
- * not supported.
+ * recipient, and the native price, the fee tokens and the allowed targets of its `chains` entry. A served chain
+ * without an entry gets no price, no fee token and no target list. In `deduct` mode each served chain needs an entry
+ * with `nativePrice`. The parse checks an entry of a chain that is not served, but does not keep it: that chain is not
+ * supported.
  */
 export function parseRelayConfig(
   relayConfig: string | undefined,
@@ -232,11 +261,18 @@ export function parseRelayConfig(
     const chains = new Map<number, ChainConfig>();
     for (const chainId of chainIds) {
       const entry = entries.get(chainId);
-      const fees = entry?.fees ?? new Map<Hex, bigint>();
-      if (gasMode === 'deduct' && fees.size === 0) {
-        fail(`RELAY_CONFIG.chains.${chainId}.fees`, 'must name a token when GAS_MODE is deduct');
+      const nativePrice = entry?.nativePrice ?? null;
+      if (gasMode === 'deduct' && nativePrice === null) {
+        fail(`RELAY_CONFIG.chains.${chainId}.nativePrice`, 'is required when GAS_MODE is deduct');
       }
-      chains.set(chainId, { chainId, calibur, feeRecipient, fees, allowedTargets: entry?.allowedTargets ?? null });
+      chains.set(chainId, {
+        chainId,
+        calibur,
+        feeRecipient,
+        nativePrice,
+        feeTokens: entry?.feeTokens ?? new Map<Hex, PriceSymbol>(),
+        allowedTargets: entry?.allowedTargets ?? null
+      });
     }
     return { calibur, feeRecipient, chains };
   });

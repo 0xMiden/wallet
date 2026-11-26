@@ -1,6 +1,7 @@
 // Types of the bindings, the request context and the wire shapes. The config types are in config.ts.
 import type { ChainReader } from './chain';
 import type { GasMode, Hex } from './config';
+import type { PriceSource } from './prices';
 import type { SenderDirectory } from './sender';
 import type { RelaySenderObject } from './sender-object';
 
@@ -10,11 +11,14 @@ export type ErrorCode =
   | 'unsupported_chain'
   | 'target_not_allowed'
   | 'fee_too_low'
+  | 'fee_token_not_accepted'
+  | 'fee_not_needed'
   | 'bad_signature'
   | 'stale_request'
   | 'simulation_failed'
   | 'busy'
   | 'relayer_unfunded'
+  | 'price_unavailable'
   | 'rpc_unavailable'
   | 'rate_limited'
   | 'origin_not_allowed'
@@ -31,7 +35,7 @@ export type ErrorCode =
  * The chains that have this secret are the chains that the Worker serves (`servedChainIds` in config.ts).
  */
 export interface Env {
-  /** Per caller IP, on GET /v1/chains, GET /v1/account and GET /v1/relay/{id}. */
+  /** Per caller IP, on GET /v1/chains, GET /v1/account, POST /v1/quote and GET /v1/relay/{id}. */
   READ_RATE_LIMIT?: RateLimit;
   /** Per caller IP and per address, on POST /v1/relay. */
   RELAY_RATE_LIMIT?: RateLimit;
@@ -51,6 +55,7 @@ export interface RequestContext {
   url: URL;
   reader: ChainReader;
   senders: SenderDirectory;
+  prices: PriceSource;
 }
 
 export type Handler = (context: RequestContext) => Response | Promise<Response>;
@@ -62,6 +67,10 @@ export interface ErrorBody {
   retryAfter?: number;
   /** The id of the open relay, on `busy`. */
   id?: string;
+  /** On `fee_too_low`: the fee that the Worker quotes now, in base units of `token`, a decimal string. */
+  required?: string;
+  /** On `fee_too_low`: the fee token of the batch. The zero address is the native coin. */
+  token?: Hex;
 }
 
 export interface HealthResponse {
@@ -73,12 +82,6 @@ export interface HealthResponse {
 export interface AccountBalance {
   token: Hex;
   balance: string;
-}
-
-/** The fee of one token, a decimal string in base units. */
-export interface AccountFee {
-  token: Hex;
-  fee: string;
 }
 
 /** The body of `GET /v1/chains`. It has no RPC URL and no config value. */
@@ -102,10 +105,28 @@ export interface AccountResponse {
   salt: Hex;
   /** `getSeq(RELAY_NONCE_KEY)` of the address, as a decimal string. */
   sequence: string;
-  /** The configured fees in config order in `deduct` mode. Empty in `sponsor` mode. */
-  fees: AccountFee[];
+  /**
+   * The tokens that the chain takes a fee in, in `deduct` mode: the zero address (the native coin) first, then the
+   * `feeTokens` of the chain in config order. Empty in `sponsor` mode.
+   */
+  feeTokens: Hex[];
   /** The allowed call targets of the chain, or null when any target is allowed. */
   allowedTargets: Hex[] | null;
   /** One balance for each token of the `tokens` query, in query order. */
   balances: AccountBalance[];
+}
+
+/** The body of `POST /v1/quote`. The Worker does not store it and does not sign it. */
+export interface QuoteResponse {
+  chainId: number;
+  /** The fee token. The zero address is the native coin. */
+  token: Hex;
+  /** The fee recipient of the config. */
+  recipient: Hex;
+  /** The quoted fee in base units of `token`, a decimal string. */
+  fee: string;
+  /** The gas that the fee pays for, a decimal string. */
+  gas: string;
+  /** Unix seconds: the time of the quote plus QUOTE_VALID_SECONDS. */
+  validUntil: number;
 }

@@ -61,7 +61,7 @@ describe('GET /v1/account', () => {
       authorizationNonce: 3,
       salt: SALT,
       sequence: '9',
-      fees: [],
+      feeTokens: [],
       allowedTargets: null,
       balances: [
         { token: USDC, balance: '2500000' },
@@ -71,14 +71,27 @@ describe('GET /v1/account', () => {
     expect(harness.reader.calls).toEqual([{ chainId: 8453, address, tokens: [USDC, NATIVE] }]);
   });
 
-  it('answers the configured fees in config order and the fee recipient in deduct mode', async () => {
+  it('answers the fee tokens, the native coin first, and the fee recipient in deduct mode', async () => {
     const body = await bodyOf(await send(harnessFor('deduct'), accountPath('8453', ADDRESS, `${USDC},${NATIVE}`)));
     expect(body.mode).toBe('deduct');
     expect(body.feeRecipient).toBe(FEE_RECIPIENT);
-    expect(body.fees).toEqual([
-      { token: USDC, fee: '100000' },
-      { token: NATIVE, fee: '10' }
-    ]);
+    expect(body.feeTokens).toEqual([NATIVE, USDC]);
+    expect(body).not.toHaveProperty('fees');
+  });
+
+  it('answers the feeTokens of the config in config order', async () => {
+    const OTHER = `0x${'bb'.repeat(20)}`;
+    const config = relayConfigOf({ '8453': chainEntry({ feeTokens: { [OTHER]: 'BTCUSDT', [USDC]: 'usd' } }) });
+    const harness = createHarness({ gasMode: 'deduct', relayConfig: config, chains: [8453] });
+    const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS)));
+    expect(body.feeTokens).toEqual([NATIVE, OTHER, USDC]);
+  });
+
+  it('answers only the native coin for a deduct chain without feeTokens', async () => {
+    const config = relayConfigOf({ '8453': { nativePrice: 'usd' } });
+    const harness = createHarness({ gasMode: 'deduct', relayConfig: config, chains: [8453] });
+    const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS)));
+    expect(body.feeTokens).toEqual([NATIVE]);
   });
 
   it.each(['sponsor', 'deduct'])('answers the allowed targets of the chain in %s mode', async gasMode => {
@@ -95,7 +108,7 @@ describe('GET /v1/account', () => {
     const body = await bodyOf(response);
     expect(body.chainId).toBe(10);
     expect(body.allowedTargets).toBeNull();
-    expect(body.fees).toEqual([]);
+    expect(body.feeTokens).toEqual([]);
     expect(harness.reader.calls).toEqual([{ chainId: 10, address: ADDRESS, tokens: [] }]);
   });
 
@@ -228,8 +241,12 @@ describe('GET /v1/account', () => {
       createHarness({ relayConfig: relayConfigOf({ '8453': chainEntry({ calibur: {} }) }), chains: CHAINS })
     ],
     [
-      'GAS_MODE is deduct and a served chain has no fees',
+      'GAS_MODE is deduct and a served chain has no nativePrice',
       createHarness({ gasMode: 'deduct', relayConfig: relayConfigOf({ '8453': chainEntry() }), chains: CHAINS })
+    ],
+    [
+      'RELAY_CONFIG has the old fees field',
+      createHarness({ relayConfig: relayConfigOf({ '8453': chainEntry({ fees: {} }) }), chains: CHAINS })
     ],
     ['an RPC_URL_ secret does not name a chain id', createHarness({ relayConfig: CONFIG, rpcUrls: { base: 'x' } })]
   ])('answers 503 when %s', async (_name, harness) => {

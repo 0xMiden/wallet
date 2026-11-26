@@ -156,13 +156,13 @@ test("runs the Worker's own parse and reports its path", () => {
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ allowedTargets: [] }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.allowedTargets must be a non-empty array/
   );
-  // Deduct mode needs a fee recipient and at least one fee on each served chain.
+  // Deduct mode needs a fee recipient and the price symbol of the native coin on each served chain.
   refuses({ EVM_RELAY_GAS_MODE: 'deduct' }, /Worker refuses the release config: .*feeRecipient is required/);
   refuses(
     { EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: relayConfig({ 8453: chain() }, { feeRecipient: FEE_RECIPIENT }) },
-    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.fees must name a token when GAS_MODE is deduct/
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.nativePrice is required when GAS_MODE is deduct/
   );
-  const deduct = chain({ fees: { [`0x${'00'.repeat(20)}`]: '10' } });
+  const deduct = chain({ nativePrice: 'ETHUSDT', feeTokens: { [`0x${'ee'.repeat(20)}`]: 'usd' } });
   const deductConfig = relayConfig({ 8453: deduct }, { feeRecipient: FEE_RECIPIENT });
   refuses(
     {
@@ -170,10 +170,29 @@ test("runs the Worker's own parse and reports its path", () => {
       EVM_RELAY_CONFIG: deductConfig,
       EVM_RELAY_RPC_URLS: JSON.stringify({ 1: 'https://one.example', 8453: RPC_URL })
     },
-    /Worker refuses the release config: RELAY_CONFIG\.chains\.1\.fees must name a token when GAS_MODE is deduct/
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.1\.nativePrice is required when GAS_MODE is deduct/
   );
   const release = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: deductConfig }), worker);
   assert.equal(release.vars.GAS_MODE, 'deduct');
+  // A chain whose native coin is a USD stablecoin (Arc) takes "usd", and feeTokens is optional.
+  const arc = relayConfig({ 8453: chain({ nativePrice: 'usd' }) }, { feeRecipient: FEE_RECIPIENT });
+  const arcRelease = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: arc }), worker);
+  assert.equal(arcRelease.vars.GAS_MODE, 'deduct');
+});
+
+test('refuses the old fixed fee table and a bad price symbol of a deduct config', () => {
+  const zero = `0x${'00'.repeat(20)}`;
+  const cases = [
+    [{ fees: { [zero]: '10' } }, /RELAY_CONFIG\.chains\.8453\.fees is not a known field/],
+    [{ nativePrice: 'eth' }, /RELAY_CONFIG\.chains\.8453\.nativePrice must be "usd" or a market symbol/],
+    [{ feeTokens: { [zero]: 'usd' } }, /RELAY_CONFIG\.chains\.8453\.feeTokens\.0x0{40} must not be the zero address/],
+    [{ feeTokens: { [`0x${'ee'.repeat(20)}`]: 'USD' } }, /feeTokens\.0x(ee){20} must be "usd" or a market symbol/]
+  ];
+  for (const [extra, message] of cases) {
+    const entry = chain({ nativePrice: 'ETHUSDT', ...extra });
+    const config = relayConfig({ 8453: entry }, { feeRecipient: FEE_RECIPIENT });
+    refuses({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: config }, message);
+  }
 });
 
 test('turns the RPC URL object into one RPC_URL secret per served chain', () => {
