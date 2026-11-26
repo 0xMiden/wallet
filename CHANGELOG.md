@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
+
 ## 1.18.2 (TBD)
 
 - [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
