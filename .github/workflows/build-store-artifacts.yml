@@ -362,6 +362,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: automation
           persist-credentials: false
+      - name: Test App Store signing validation
+        run: python3 -B automation/scripts/store-publishing/apple-profile.test.py
       - name: Checkout approved release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -428,12 +430,11 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           KEY_PATH="$RUNNER_TEMP/wallet-store-signing/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
-          # Archive signing is automatic per target; App Store distribution signing happens during export.
+          # The intermediate archive uses ad-hoc signatures; export must use the verified Store identity.
           xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -jobs 2 -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
-            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
             CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=LHU7B7J5WL \
+            CODE_SIGN_IDENTITY=- AD_HOC_CODE_SIGNING_ALLOWED=YES \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-archive.log"; then
@@ -458,6 +459,9 @@ jobs:
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-export.log"; then
             echo 'iOS export log contains errors' >&2; exit 1
           fi
+          python3 ../automation/scripts/store-publishing/apple-profile.py verify-ipa \
+            --directory "$RUNNER_TEMP/wallet-store-signing" --ipa-dir "$RUNNER_TEMP/wallet-ipa" \
+            --entitlements ios/App/App/App.entitlements
       - name: Remove Apple signing material and restore keychain search list
         if: ${{ always() }}
         run: |
