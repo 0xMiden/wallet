@@ -3,6 +3,9 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
+- [FIX][ci] Update the mainnet nightly test for the larger default runner.
+- [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
+- [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
 - [FIX][all] Show failed Activity claims and when they can be retried.
 - [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
 - [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
