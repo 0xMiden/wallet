@@ -38,7 +38,9 @@ import {
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
-  INVALID_NOTE_ERROR
+  INVALID_NOTE_ERROR,
+  awaitingVerdict,
+  isNoteHoldingRow
 } from './index';
 import { BridgedSendTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
@@ -1825,6 +1827,155 @@ describe('transactions utilities', () => {
       // tx died in the 'proving' stage - that would invite the retry the sweep avoids.
       expect(dbTx.error).toMatch(/interrupted/i);
       expect(dbTx.error).not.toMatch(/prov(e|ing)|try again/i);
+    });
+
+    it('reports committed failures and note-holder counts across consume, execute, send, empty, and raced sweeps', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const runSweep = async (
+        snapshotRows: Array<Record<string, unknown>>,
+        storedById: Map<string, Record<string, unknown>>
+      ) => {
+        mockTransactionsFilter.mockReturnValueOnce({
+          toArray: jest.fn().mockResolvedValueOnce(snapshotRows)
+        });
+        mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => {
+          const target = storedById.get(id);
+          return {
+            first: jest.fn().mockResolvedValue(target ? { ...target } : undefined),
+            modify: jest.fn(async (fn: (t: Record<string, unknown>) => unknown) => (target ? fn(target) : false))
+          };
+        });
+        const result: unknown = await failInterruptedTransactions();
+        return result;
+      };
+
+      const consumeRow = {
+        id: 'orphan-consume',
+        type: 'consume',
+        noteId: 'note-1',
+        noteIds: ['note-1'],
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      };
+      expect(await runSweep([consumeRow], new Map([[consumeRow.id, { ...consumeRow }]]))).toEqual({
+        failedCount: 1,
+        failedNoteHolderCount: 1
+      });
+
+      const executeRow = {
+        id: 'orphan-execute',
+        type: 'execute',
+        heldNoteIds: ['note-2'],
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      };
+      expect(await runSweep([executeRow], new Map([[executeRow.id, { ...executeRow }]]))).toEqual({
+        failedCount: 1,
+        failedNoteHolderCount: 1
+      });
+
+      const sendRow = {
+        id: 'orphan-send-only',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 10,
+        processingStartedAt: SESSION_STARTED_AT - 1
+      };
+      expect(await runSweep([sendRow], new Map([[sendRow.id, { ...sendRow }]]))).toEqual({
+        failedCount: 1,
+        failedNoteHolderCount: 0
+      });
+
+      const mixedConsume = { ...consumeRow, id: 'orphan-mix-consume' };
+      const mixedSend = { ...sendRow, id: 'orphan-mix-send' };
+      expect(
+        await runSweep(
+          [mixedConsume, mixedSend],
+          new Map([
+            [mixedConsume.id, { ...mixedConsume }],
+            [mixedSend.id, { ...mixedSend }]
+          ])
+        )
+      ).toEqual({
+        failedCount: 2,
+        failedNoteHolderCount: 1
+      });
+
+      expect(await runSweep([], new Map())).toEqual({
+        failedCount: 0,
+        failedNoteHolderCount: 0
+      });
+
+      const racedConsumeSnapshot = { ...consumeRow, id: 'raced-consume' };
+      const racedConsumeStored = { ...racedConsumeSnapshot, status: ITransactionStatus.Completed };
+      expect(await runSweep([racedConsumeSnapshot], new Map([[racedConsumeSnapshot.id, racedConsumeStored]]))).toEqual({
+        failedCount: 0,
+        failedNoteHolderCount: 0
+      });
+    });
+
+    it('preserves checkable-submit holds and queued row eligibility when failing an interrupted consume', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const consumeWithEvidence: Record<string, unknown> = {
+        id: 'orphan-consume-evidence',
+        type: 'consume',
+        noteId: 'note-held-1',
+        noteIds: ['note-held-1'],
+        attemptId: 'attempt-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        stage: 'submitting',
+        initiatedAt: nowSec - 20,
+        processingStartedAt: SESSION_STARTED_AT - 1,
+        submitEvidence: [
+          {
+            attemptId: 'attempt-1',
+            capturedAt: nowSec - 10,
+            source: 'stage',
+            transactionId: '0xtx-orphan',
+            initialCommitment: '0xinit',
+            finalCommitment: '0xfinal',
+            initialNonce: '1',
+            outputNoteIds: [],
+            nullifiers: ['0xnull-1'],
+            refBlock: 100,
+            refBlockCommitment: '0xref'
+          }
+        ]
+      };
+      const queuedSibling: Record<string, unknown> = {
+        id: 'queued-sibling',
+        type: 'consume',
+        noteId: 'note-queued-2',
+        status: ITransactionStatus.Queued,
+        initiatedAt: nowSec - 5
+      };
+
+      const stored = new Map<string, Record<string, unknown>>([
+        ['orphan-consume-evidence', { ...consumeWithEvidence }],
+        ['queued-sibling', { ...queuedSibling }]
+      ]);
+
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce([consumeWithEvidence, queuedSibling].filter(pred))
+      }));
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => {
+        const target = stored.get(id);
+        return {
+          first: jest.fn().mockResolvedValue(target ? { ...target } : undefined),
+          modify: jest.fn(async (fn: (t: Record<string, unknown>) => unknown) => (target ? fn(target) : false))
+        };
+      });
+
+      const result: unknown = await failInterruptedTransactions();
+      const failedRow = stored.get('orphan-consume-evidence') as unknown as ITransaction;
+
+      expect(result).toEqual({ failedCount: 1, failedNoteHolderCount: 1 });
+      expect(failedRow.status).toBe(ITransactionStatus.Failed);
+      expect(stored.get('queued-sibling')?.status).toBe(ITransactionStatus.Queued);
+      expect(awaitingVerdict(failedRow, nowSec)).toBe(true);
+      expect(isNoteHoldingRow(failedRow, nowSec)).toBe(true);
     });
   });
 
