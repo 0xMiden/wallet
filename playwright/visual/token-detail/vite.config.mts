@@ -34,6 +34,7 @@ const fixtureModules: Record<string, string> = {
   'app/templates/history/transactionUtils': historyLeaves,
   './transactionUtils': historyLeaves,
   './HistoryItem': historyLeaves,
+  'lib/miden/front/use-filtered-contacts.hook': historyLeaves,
   'app/templates/history/useActivityClaimList': claimsFixture,
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,

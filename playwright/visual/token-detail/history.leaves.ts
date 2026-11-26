@@ -5,6 +5,8 @@ export const FIXTURE_NOW = Math.floor(new Date('2026-10-05T12:00:00Z').getTime()
 export default function HistoryItem() {
   return null;
 }
+// The saved-contact lookup reads the wallet's settings context.
+export const useFilteredContacts = () => ({ contacts: [], allContacts: [] });
 export const isReceiveEntry = () => true;
 export const isFaucetRequest = () => false;
 export const isBridgeInEntry = () => false;
