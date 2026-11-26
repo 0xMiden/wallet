@@ -232,7 +232,9 @@ async function prepare(
       const offer = live.tokens.find(token => token.hex === direction[0]);
       const request = live.tokens.find(token => token.hex === direction[1]);
       if (!offer || !request || BigInt(offer.balance) === 0n) continue;
-      for (const amount of swapSearchAmounts(holding(offer))) {
+      const amounts = swapSearchAmounts(holding(offer));
+      if (!amounts.length) console.log(`Swap ${offer.symbol}/${request.symbol} skipped: no search amount fits`);
+      for (const amount of amounts) {
         attempts++;
         try {
           const forward = await readLiveSwapLeg(live.service, offer, request, amount);
