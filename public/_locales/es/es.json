@@ -1784,6 +1784,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Aceptada",
   "activityAcceptingTransfer": "Aceptando…",
+  "activityClaimQueued": "Reclamación en cola",
+  "activityClaimQueuedRetry": "Solicitud en cola. El monedero lo volverá a intentar automáticamente.",
   "transfersSection": "Transferencias",
   "activityUnread": "No leído",
   "revealRecoveryPhrase": "Revelar la frase de recuperación",

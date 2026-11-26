@@ -8153,6 +8153,14 @@
     "message": "受け取り中…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "クレイムがキューに入れられました",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "リクエストがキューに入れられました。ウォレットは自動的に再試行します。",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "送金",
     "englishSource": "Transfers"

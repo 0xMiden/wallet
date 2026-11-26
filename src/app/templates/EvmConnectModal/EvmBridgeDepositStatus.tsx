@@ -76,9 +76,8 @@ const outputLabel = (
 };
 
 /**
- * The status word and the footer of a submitted deposit. A USDCx row follows Circle: the
- * app-root watcher moves it to `ready` on the attestation (Confirmed), and the consume of
- * the minted note moves it to `received` (Completed).
+ * The status word and footer of a submitted deposit. A USDCx deposit stays Pending after
+ * attestation and reads Completed when the minted note is received.
  */
 function submittedCopyOf(
   inputs: IBridgedReceiveExtraInputs,
@@ -99,7 +98,7 @@ function submittedCopyOf(
         : { statusValue: t('received'), footerDescription: t('bridgeDepositDeliveryDescription') };
     case 'ready':
       return {
-        statusValue: t('confirmed'),
+        statusValue: t(usdcx ? 'pending' : 'confirmed'),
         footerDescription: usdcx ? t('usdcxAttested') : t('bridgeDepositDeliveryDescription')
       };
     default:

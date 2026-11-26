@@ -138,6 +138,8 @@ describe('command-ai standalone Worker', () => {
     });
     const systemPrompt = help.messages[0].content;
     expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
+    expect(systemPrompt).toContain('Choose Safety for questions about sharing secrets, even with support.');
+    expect(systemPrompt).toContain('Choose Recovery for how to restore wallet access.');
     expect(systemPrompt).toContain("The sender's account and some metadata are public.");
     expect(systemPrompt).toContain('Compare Public and Private in send review.');
     expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
@@ -146,7 +148,8 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('Do not guess who holds the funds');
     expect(systemPrompt).toContain('A private account also needs its account data restored.');
     expect(systemPrompt).not.toContain('Guardian receives encrypted account state');
-    expect(systemPrompt).toContain('a redacted question goes to an AI service; help sends no wallet history.');
+    expect(systemPrompt).toContain('Choose Assistant for what the AI can see.');
+    expect(systemPrompt).toContain('Help sends no chat or wallet history.');
     expect(systemPrompt).toContain('two of three validators');
     expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5000);
     expect(JSON.stringify(help.response_format)).toContain('"explain"');
