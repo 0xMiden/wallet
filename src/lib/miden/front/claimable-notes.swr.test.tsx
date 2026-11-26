@@ -1524,9 +1524,18 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     expect(sub2Renders).toBe(rendersAtLiveSettle);
     view.unmount();
 
+    // Remounting after unmount without resetting memCache must still surface live-win rather than overwritten cached-live.
+    _g.__cnSwrTest.fetchFromStorageOverride = null;
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(() => new Promise(() => {}));
+    const hPostLive = renderHook(() => useClaimableNotes('pk-shared-live'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hPostLive.result.current.data?.map(n => n.id)).toEqual(['live-win']);
+    hPostLive.unmount();
+
     // After full unmount and cache reset, fresh mount with pending live read still surfaces cached fallback.
     __resetClaimableNotesCacheForTests();
-    _g.__cnSwrTest.fetchFromStorageOverride = null;
     _g.__cnSwrTest.kv[keyLive] = [cachedLive];
     _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(() => new Promise(() => {}));
     const hFresh = renderHook(() => useClaimableNotes('pk-shared-live'), { wrapper: createWrapper() });
@@ -1535,5 +1544,117 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     });
     expect(hFresh.result.current.data?.map(n => n.id)).toEqual(['cached-live']);
     hFresh.unmount();
+  });
+
+  it('does not overwrite claimableNotesMemCache when deferred storage resolves after live write and unmount', async () => {
+    const keyMem = 'claimable_notes:v1:https://rpc.mainnet.miden.io|mainnet:pk-mem-after-unmount';
+    const cachedStale = {
+      id: 'cached-stale',
+      faucetId: 'miden-faucet',
+      amount: '100',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      standardPayment: true,
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
+    _g.__cnSwrTest.kv[keyMem] = [cachedStale];
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => [makeNote('live-after-unmount')]);
+
+    let resolveStorage: ((val: any) => void) | null = null;
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === keyMem) {
+        return new Promise(resolve => {
+          resolveStorage = resolve;
+        });
+      }
+      return Promise.resolve(null);
+    };
+
+    const h1 = renderHook(() => useClaimableNotes('pk-mem-after-unmount'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(h1.result.current.data?.map(n => n.id)).toEqual(['live-after-unmount']);
+
+    // Dispose coordinator first so liveLanded is false before deferred storage resolves.
+    h1.unmount();
+    await act(async () => {
+      resolveStorage?.([cachedStale]);
+      await flushMicrotasks(12);
+    });
+
+    _g.__cnSwrTest.fetchFromStorageOverride = null;
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(() => new Promise(() => {}));
+    const h2 = renderHook(() => useClaimableNotes('pk-mem-after-unmount'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(h2.result.current.data?.map(n => n.id)).toEqual(['live-after-unmount']);
+    h2.unmount();
+  });
+
+  it('preserves stage-specific debugInfo.error labels when not fused and records SWR error for unguarded steps', async () => {
+    let sub1Error: string | undefined;
+    let sub2Error: string | undefined;
+    function Sub1() {
+      const res = useClaimableNotes('pk-nonfused-stage');
+      sub1Error = res.debugInfo?.error;
+      return null;
+    }
+    function Sub2() {
+      const res = useClaimableNotes('pk-nonfused-stage');
+      sub2Error = res.debugInfo?.error;
+      return null;
+    }
+
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => {
+      throw new Error('rpc hold fail');
+    });
+    const wrapper = createWrapper();
+    const viewErr = render(React.createElement(wrapper, null, React.createElement(Sub1), React.createElement(Sub2)));
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(isSyncFused('claimable-notes')).toBe(false);
+    expect(sub1Error).toContain('getConsumableNotes failed:');
+    expect(sub2Error).toContain('getConsumableNotes failed:');
+
+    // Subsequent retry that clears getConsumableNotes and fails in an unguarded step must record SWR error.
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => [makeNote('n-after-stage')]);
+    _g.__cnSwrTest.getNoteHoldingTransactions = jest.fn(async () => {
+      throw new Error('holding query fail');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(5_000);
+      await flushMicrotasks(12);
+    });
+    expect(sub1Error).toContain('SWR error:');
+    viewErr.unmount();
+
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => [makeNote('n-nonfused-cls')]);
+    _g.__cnSwrTest.getNoteHoldingTransactions = jest.fn(async () => []);
+    _g.__cnSwrTest.classifySwapOrderNotes = jest.fn(async () => {
+      throw new Error('lineage parse fail');
+    });
+    const hCls = renderHook(() => useClaimableNotes('pk-nonfused-classify'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(isSyncFused('claimable-notes')).toBe(false);
+    expect(hCls.result.current.debugInfo?.error).toContain('classifySwapOrderNotes failed:');
+    hCls.unmount();
+
+    // After unmount disposes the coordinator, a fresh mount failing in an unguarded step records SWR error.
+    _g.__cnSwrTest.classifySwapOrderNotes = jest.fn(async () => new Map());
+    _g.__cnSwrTest.getNoteHoldingTransactions = jest.fn(async () => {
+      throw new Error('holding fail after unmount');
+    });
+    const hAfterUnmount = renderHook(() => useClaimableNotes('pk-nonfused-classify'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hAfterUnmount.result.current.debugInfo?.error).toContain('SWR error:');
+    hAfterUnmount.unmount();
   });
 });

@@ -298,7 +298,7 @@ async function fetchNotesFromLocalClient(
     // nothing about a note read whose call is parked, and a single counter let either
     // fact erase the other.
     noteProbeFailure('claimable-notes', e);
-    recordCoordinatorDebugError(coordinator, 'getConsumableNotes failed', e);
+    recordCoordinatorDebugError(coordinator, 'getConsumableNotes failed', e, true);
     throw e;
   }
 
@@ -335,7 +335,7 @@ async function fetchNotesFromLocalClient(
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.
     noteProbeFailure('claimable-notes', e);
-    recordCoordinatorDebugError(coordinator, 'classifySwapOrderNotes failed', e);
+    recordCoordinatorDebugError(coordinator, 'classifySwapOrderNotes failed', e, true);
     throw e;
   }
 
@@ -493,6 +493,9 @@ async function readCachedClaimableNotes(cacheKey: string): Promise<ClaimableNote
   if (warm) return warm;
   try {
     const stored = await fetchFromStorage<unknown>(cacheKey);
+    const warmAfter = claimableNotesMemCache.get(cacheKey);
+    if (warmAfter) return warmAfter;
+    if (coordinatorsByKey.get(cacheKey)?.liveLanded) return null;
     if (!Array.isArray(stored)) return null;
     // The same bound the writer applies, so a stored list can never publish more than the cache keeps.
     // The same ownership filter as the extension's stored list, so the first view lists no foreign order.
@@ -549,12 +552,21 @@ interface CacheKeyRefreshCoordinator {
   debugInfo: ClaimableNotesDebugInfo;
   // Whether a LIVE read has already landed for this cacheKey while subscribers are active.
   liveLanded: boolean;
+  recordedStageError: boolean;
   unsubscribeRefresh?: () => void;
   errorRetryTimer?: ReturnType<typeof setTimeout>;
   removeWakeListeners?: () => void;
 }
 
-function recordCoordinatorDebugError(coordinator: CacheKeyRefreshCoordinator, label: string, error: unknown): void {
+function recordCoordinatorDebugError(
+  coordinator: CacheKeyRefreshCoordinator,
+  label: string,
+  error: unknown,
+  isStageError = false
+): void {
+  if (isStageError) {
+    coordinator.recordedStageError = true;
+  }
   coordinator.debugInfo = {
     ...coordinator.debugInfo,
     error: `${label}: ${error}`,
@@ -592,7 +604,8 @@ function ensureCoordinator(cacheKey: string): CacheKeyRefreshCoordinator {
       trailingPromise: null,
       resolveTrailing: null,
       debugInfo: createInitialDebugInfo(),
-      liveLanded: false
+      liveLanded: false,
+      recordedStageError: false
     };
     coordinatorsByKey.set(cacheKey, entry);
   }
@@ -722,6 +735,7 @@ function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator)
   entry.abortedBeforeRead = false;
   entry.rerunAfterInFlight = false;
   entry.liveLanded = false;
+  entry.recordedStageError = false;
   entry.debugInfo = createInitialDebugInfo();
   const resolve = entry.resolveTrailing;
   entry.trailingPromise = null;
@@ -983,6 +997,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
 
       if (coordinatorsByKey.get(cacheKey) === entry) {
         entry.inFlightStartedRead = true;
+        entry.recordedStageError = false;
       }
       const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, entry)).filter(isListedClaimableNote);
 
@@ -1167,7 +1182,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     onError: e => {
       console.error('Error fetching claimable notes:', e);
       const coordinator = coordinatorsByKey.get(cacheKey);
-      if (coordinator) {
+      if (coordinator && !coordinator.recordedStageError) {
         recordCoordinatorDebugError(coordinator, 'SWR error', e);
       }
     }
