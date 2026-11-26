@@ -155,6 +155,7 @@
   "promptCardLoading": "Wird geladen",
   "noteReturnsToSenderBy": "Geht an den Absender zurück, wenn sie nicht bis $date$ akzeptiert wird",
   "tokenDetailChange24h": "$change$",
+  "seeAll": "Alle anzeigen",
   "tokenDetailToClaim": "+$amount$ $symbol$ zum Einlösen",
   "tokenDetailClaiming": "+$amount$ $symbol$ einlösen",
   "tokenDetailBalanceUpdating": "Aktualisierung des Kontostands",

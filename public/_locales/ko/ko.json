@@ -155,6 +155,7 @@
   "promptCardLoading": "로딩 중",
   "noteReturnsToSenderBy": "$date$까지 수락하지 않으면 보낸 사람에게 반환됩니다",
   "tokenDetailChange24h": "$change$",
+  "seeAll": "모두 보기",
   "tokenDetailToClaim": "+$amount$ $symbol$를 청구하려면",
   "tokenDetailClaiming": "+$amount$ $symbol$ 청구",
   "tokenDetailBalanceUpdating": "잔액 업데이트",

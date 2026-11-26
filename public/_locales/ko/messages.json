@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "모두 보기",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$를 청구하려면",
     "englishSource": "+$amount$ $symbol$ to claim",

@@ -155,6 +155,7 @@
   "promptCardLoading": "Загрузка",
   "noteReturnsToSenderBy": "Вернётся отправителю, если не будет принят до $date$",
   "tokenDetailChange24h": "$change$",
+  "seeAll": "Показать всё",
   "tokenDetailToClaim": "+$amount$ $symbol$ для получения",
   "tokenDetailClaiming": "+$amount$ Получение $symbol$",
   "tokenDetailBalanceUpdating": "Обновление баланса",

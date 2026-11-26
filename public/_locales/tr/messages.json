@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Tümünü gör",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$'i talep etmek için",
     "englishSource": "+$amount$ $symbol$ to claim",

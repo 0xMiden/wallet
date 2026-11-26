@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Ver todo",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$ para reclamar",
     "englishSource": "+$amount$ $symbol$ to claim",
