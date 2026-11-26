@@ -578,8 +578,14 @@ describe('TokenDetail', () => {
       expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceStale');
     });
 
-    it('draws no stale or updating line while the first read has produced no confirmed amount', () => {
+    it('says the balance could not be loaded when the first read failed, never stale or zero', () => {
       renderPage({ balanceStatus: { isLoading: true, readFailed: true, balanceReadInFlight: true } });
+
+      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUnavailable');
+    });
+
+    it('draws no state line while the first read is simply in flight with no confirmed amount', () => {
+      renderPage({ balanceStatus: { isLoading: true, balanceReadInFlight: true } });
 
       expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
     });

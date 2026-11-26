@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ claiming",
   "tokenDetailBalanceUpdating": "Updating balance",
   "tokenDetailBalanceStale": "Last confirmed balance. Could not refresh.",
+  "tokenDetailBalanceUnavailable": "Could not load balance.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "Failed to load transaction",

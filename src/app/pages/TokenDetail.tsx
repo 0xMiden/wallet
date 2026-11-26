@@ -168,11 +168,13 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const toClaim = pendingTotal(representedItems.filter(isThisToken), ['pending', 'failed']);
   const claiming = pendingTotal(representedItems.filter(isThisToken), ['claiming']);
   const hasClaimingNote = representedItems.some(item => isThisToken(item) && item.status === 'claiming');
-  // The amount stays the last confirmed one; this only says whether it is being refreshed or could not be.
-  // With no confirmed amount yet (the skeleton) there is nothing to call stale or to refresh.
+  // The amount stays the last confirmed one. Before any amount has landed (the skeleton) a failed read
+  // says so plainly, and nothing else is claimed about an amount that does not exist.
   const balanceState =
     balance === null
-      ? undefined
+      ? balanceReadFailed
+        ? 'unavailable'
+        : undefined
       : balanceReadFailed
         ? 'stale'
         : balanceReadInFlight || hasClaimingNote
@@ -253,7 +255,13 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               )}
               {balanceState && (
                 <p role="status" data-testid="token-detail-balance-state">
-                  {balanceState === 'stale' ? t('tokenDetailBalanceStale') : t('tokenDetailBalanceUpdating')}
+                  {t(
+                    balanceState === 'unavailable'
+                      ? 'tokenDetailBalanceUnavailable'
+                      : balanceState === 'stale'
+                        ? 'tokenDetailBalanceStale'
+                        : 'tokenDetailBalanceUpdating'
+                  )}
                 </p>
               )}
             </div>
