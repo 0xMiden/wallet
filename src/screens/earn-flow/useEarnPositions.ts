@@ -12,7 +12,7 @@ import {
   POSITIONS_PAGE_LIMIT
 } from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
+import { hasTransactionIndex, readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import type { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
@@ -163,14 +163,14 @@ function settlementOf(tx: ITransaction): string | undefined {
  * about a live position.
  */
 async function readSettledEarnRows(accountId: string): Promise<Set<string>> {
-  const rows = await readTransactionIndexChunks(
-    Repo.transactions,
-    typeIndexSpecs(['earn-deposit', 'earn-withdraw']),
-    tx => !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
-  );
+  const matches = (tx: ITransaction) => !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId);
+  const rows = hasTransactionIndex('type', Repo.transactions)
+    ? await Repo.transactions.where('type').anyOf('earn-deposit', 'earn-withdraw').filter(matches).toArray()
+    : await Repo.transactions
+        .filter(tx => (tx.type === 'earn-deposit' || tx.type === 'earn-withdraw') && matches(tx))
+        .toArray();
   const settled = new Set<string>();
   for (const tx of rows) {
-    if (tx.restoredFromBackup || !compareAccountIds(tx.accountId, accountId)) continue;
     const state = settlementOf(tx);
     if (state) settled.add(`${tx.id}:${state}`);
   }
