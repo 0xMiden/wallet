@@ -14,6 +14,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
+import type { ActivityCounterpartyName } from './activityGroups';
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { ActivityFilter } from './History';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -157,6 +158,7 @@ const mockHistoryRenders: Array<{
   filter?: string;
   hideLoadingSpinner?: boolean;
   deferInitialLoad?: boolean;
+  counterpartyNameOf?: ActivityCounterpartyName;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -167,7 +169,8 @@ jest.mock('./History', () => ({
     filter,
     onLoadingChange,
     hideLoadingSpinner,
-    deferInitialLoad
+    deferInitialLoad,
+    counterpartyNameOf
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
@@ -176,6 +179,7 @@ jest.mock('./History', () => ({
     filter?: string;
     hideLoadingSpinner?: boolean;
     deferInitialLoad?: boolean;
+    counterpartyNameOf?: ActivityCounterpartyName;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
@@ -186,7 +190,8 @@ jest.mock('./History', () => ({
       renderPendingItem,
       filter,
       hideLoadingSpinner,
-      deferInitialLoad
+      deferInitialLoad,
+      counterpartyNameOf
     });
     return (
       <div data-testid="timeline">
@@ -419,6 +424,15 @@ it('does not hide a transfer claimed while the decline dialog was open', async (
   rerender(<ActivityPendingHistory search="" filter="all" />);
   await act(async () => answer(true));
   expect(mockHide).not.toHaveBeenCalled();
+});
+
+it('supplies saved contact names to ordinary Activity history rows', () => {
+  const address = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqaaaa';
+  mockContacts.push({ address, name: 'Saved Alice' });
+
+  render(<ActivityPendingHistory search="Saved Alice" filter="all" />);
+
+  expect(mockHistoryRenders.at(-1)?.counterpartyNameOf?.(address)).toBe('Saved Alice');
 });
 
 it('shows the saved sender name on a verified dApp claim in Pending Activity', () => {
