@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Переглянути все",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$ для отримання",
     "englishSource": "+$amount$ $symbol$ to claim",

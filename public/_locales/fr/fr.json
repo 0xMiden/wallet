@@ -155,6 +155,7 @@
   "promptCardLoading": "Chargement en cours",
   "noteReturnsToSenderBy": "Retourne à l'expéditeur s'il n'est pas accepté avant le $date$",
   "tokenDetailChange24h": "$change$",
+  "seeAll": "Tout afficher",
   "tokenDetailToClaim": "+$amount$ $symbol$ à réclamer",
   "tokenDetailClaiming": "+$amount$ $symbol$ réclamation",
   "tokenDetailBalanceUpdating": "Mise à jour du solde",

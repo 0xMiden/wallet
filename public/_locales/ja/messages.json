@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "すべて表示",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$ を請求する",
     "englishSource": "+$amount$ $symbol$ to claim",

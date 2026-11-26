@@ -824,6 +824,10 @@
       }
     }
   },
+  "seeAll": {
+    "message": "查看全部",
+    "englishSource": "See all"
+  },
   "tokenDetailToClaim": {
     "message": "+$amount$ $symbol$ 以进行申领",
     "englishSource": "+$amount$ $symbol$ to claim",

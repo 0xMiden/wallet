@@ -155,6 +155,7 @@
   "promptCardLoading": "Yükleniyor",
   "noteReturnsToSenderBy": "$date$ tarihine kadar kabul edilmezse gönderene geri döner",
   "tokenDetailChange24h": "$change$",
+  "seeAll": "Tümünü gör",
   "tokenDetailToClaim": "+$amount$ $symbol$'i talep etmek için",
   "tokenDetailClaiming": "+$amount$ $symbol$ talep etme",
   "tokenDetailBalanceUpdating": "Bakiye güncelleme",
