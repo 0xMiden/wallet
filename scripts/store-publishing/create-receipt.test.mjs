@@ -195,7 +195,10 @@ test('workflow keeps automation and source checkouts pinned and signing out of a
   assert.equal((source.match(/ref: \$\{\{ inputs\.source_sha \}\}/g) ?? []).length, 4);
   assert.equal((source.match(/run: yarn install --frozen-lockfile/g) ?? []).length, 3);
   assert.equal((source.match(/environment: wallet-store-signing/g) ?? []).length, 2);
-  assert.match(source, /runs-on: xcode-27\n/);
+  const iosJob = source.match(/\n  ios:\n([\s\S]*?)(?=\n  [a-z0-9_-]+:|$)/)?.[1];
+  assert.ok(iosJob);
+  assert.match(iosJob, /^    runs-on: macos-26$/m);
+  assert.match(iosJob, /^      DEVELOPER_DIR: \/Applications\/Xcode_26\.6\.app\/Contents\/Developer$/m);
   assert.match(source, /java-version: '21'/);
   assert.match(source, /bundleRelease -PandroidBuildNumber="\$BUILD_NUMBER"/);
   assert.match(source, /'destination': 'export'/);
@@ -226,7 +229,7 @@ test('manual build choices expose only verified testnet and Chrome Devnet networ
   assert.doesNotMatch(choices, /- mainnet/);
 });
 
-test('PR compile surfaces iOS job uses the xcode-27-xlarge runner matching the store toolchain', () => {
+test('PR compile surfaces iOS job uses the xcode-27-xlarge runner', () => {
   const source = readFileSync(new URL('../../.github/workflows/pr-compile-surfaces.yml', import.meta.url), 'utf8');
   const iosJob = source.match(/\n  ios:\n([\s\S]*?)(?=\n  [a-z0-9_-]+:|$)/)?.[1];
   assert.ok(iosJob);

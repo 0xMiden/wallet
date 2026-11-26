@@ -262,7 +262,12 @@ ${helpFacts.instructions}
 
 ${Object.entries(helpFacts.topics)
   .map(([topic, fact]) => `${topic}: ${fact}`)
-  .join('\n')}`;
+  .join('\n')}
+
+Choose Verify for how to check or be sure a payment is private, even after Privacy. Explain Public/Private and explorer limits.
+State the validator caveat as written. Infer no other access, public recipient, or unlinkability.
+Decline: say it cannot refund.
+Assistant: a redacted question goes to an AI service; help sends no wallet history.`;
 
 class HttpError extends Error {
   readonly status: number;

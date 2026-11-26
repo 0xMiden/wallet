@@ -3,6 +3,8 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
 - [FIX][ci] Align the cached solver registry test with the token list readiness field.
 
 ## 1.18.2 (TBD)
