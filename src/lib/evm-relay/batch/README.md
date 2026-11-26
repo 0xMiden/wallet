@@ -42,48 +42,32 @@ byte-identical batches.
 - `caliburDelegationCode(pin): Hex`: `0xef0100` and the Calibur address, lower case.
 - `isCaliburDelegation(code, pin): boolean`: true when the account code is that delegation, in any case.
 
-### Agglayer deposit (`agglayer-deposit.ts`)
+### Nonce (`nonce.ts`)
 
-- `interface AgglayerDepositConfig { bridgeAddress: Address; midenNetworkId: number; forceUpdateGlobalExitRoot: boolean }`.
-  `midenNetworkId` is the Agglayer network ID of Miden (a uint32), not an EVM chain ID.
-- `interface RelayFee { recipient: Address; amount: bigint }`: the fee to the relayer, in the deposited token.
-- `interface AgglayerDepositParams { token: Address; amount: bigint; midenAccountHex: string; fee: RelayFee | null }`.
-  The zero `token` is the native coin. `amount` is the bridged amount after the fee. `fee: null` means sponsored.
-- `BRIDGE_ASSET_ABI`: `bridgeAsset(uint32, address, uint256, address, bool, bytes)`.
-- `isNativeToken(token): boolean`: true for the zero address.
-- `buildAgglayerDepositCalls(config, params): BatchCall[]`: the calls, in this order:
-  - ERC-20: `[transfer(fee.recipient, fee.amount) on the token]`, `approve(bridge, amount)` on the token,
-    `bridgeAsset(midenNetworkId, midenDestination, amount, token, forceUpdateGlobalExitRoot, 0x)` on the bridge.
-  - Native coin: `[{ to: fee.recipient, value: fee.amount, data: 0x }]`,
-    `bridgeAsset(midenNetworkId, midenDestination, amount, 0x0, forceUpdateGlobalExitRoot, 0x)` on the bridge with
-    `value = amount`. No approve.
-
-  The fee call is present only when `fee` is not null. It throws when `amount <= 0`, the account hex is not valid,
-  `fee.amount <= 0` or `fee.recipient` is the zero address.
-
-### Relay kinds (`relay.ts`)
-
-- `interface RelayKindInputs`: the config and the params of each kind. Today: `'agglayer-deposit'`.
-- `type RelayKind = keyof RelayKindInputs` (`'agglayer-deposit'`).
-- `nonceKeyOf(kind): bigint`: `BigInt(keccak256(stringToHex('miden.relay.' + kind))) >> 64n`.
-- `batchNonceOf(kind, sequence): bigint`: `(nonceKeyOf(kind) << 64n) | sequence`. `sequence` is `getSeq(key)` of
+- `RELAY_NONCE_KEY: bigint`: `BigInt(keccak256(stringToHex('miden.relay'))) >> 64n`. Every relay batch of an address
+  uses this one key.
+- `batchNonceOf(sequence): bigint`: `(RELAY_NONCE_KEY << 64n) | sequence`. `sequence` is `getSeq(RELAY_NONCE_KEY)` of
   the EOA and must be a uint64.
-- `buildRelayCalls(kind, config, params): BatchCall[]`: a `switch` on the kind. A new kind adds an entry to
-  `RelayKindInputs` and a case.
+- `isRelayNonce(batchNonce): boolean`: true when the key of the nonce is `RELAY_NONCE_KEY`.
 
-### ERC-20 (`erc20.ts`)
+### Fee (`fee.ts`)
 
-- `ERC20_ABI`: `approve`, `transfer`, `balanceOf`, `decimals`.
+- `interface RelayFee { token: Address; recipient: Address; amount: bigint }`: a fee to the relayer. The zero `token`
+  is the native coin.
+- `isNativeToken(token): boolean`: true for the zero address.
+- `buildFeeCall(fee): BatchCall`: `transfer(recipient, amount)` on an ERC-20 token, or a plain transfer of the native
+  coin. It throws when `amount <= 0` or the recipient is the zero address.
+- `readFeeCall(call): RelayFee | null`: the fee that a call pays, or null for a call of another shape. The relayer
+  uses it to check the fee of a batch.
 
-### Miden account (`miden-account.ts`)
+## No bridge code
 
-- `MIDEN_ACCOUNT_HEX_PATTERN`: `0x` and 30 hex characters (a 15-byte account ID).
-- `isMidenAccountHex(value): boolean`.
-- `midenAccountHexToEvmAddress(hex): Address`: 4 zero bytes, the 15-byte ID, 1 zero byte, lower case. Throws on a
-  value that is not valid.
+This module does not know a bridge. The caller gives the calls of a batch as `BatchCall[]`: the wallet takes them
+from the transaction that a bridge flow asks it to send (the Agglayer helpers, the Epoch SDK), and the relayer takes
+them from the request. A helper that builds the calls of one bridge belongs to that bridge's own folder, not here.
 
 ## Tests
 
 `testing.ts` holds test vectors only (the Sepolia values of the onramp prototype); production code does not import
 it. `calibur.test.ts` proves that this module gives the golden digests of the prototype (branch
-`utkarsh/feat/onramp-offramp-integration`). `agglayer-deposit.test.ts` pins the golden digests of the new shapes.
+`utkarsh/feat/onramp-offramp-integration`).

@@ -1,6 +1,5 @@
 import { keccak256, stringToHex, type Address, type Hex } from 'viem';
 
-import type { AgglayerDepositConfig } from './agglayer-deposit';
 import type { BatchEnvelope, CaliburPin } from './calibur';
 
 /**
@@ -15,12 +14,6 @@ export const SEPOLIA_CALIBUR_PIN: CaliburPin = {
   domainVersion: '1.0.0'
 };
 
-export const SEPOLIA_AGGLAYER_CONFIG: AgglayerDepositConfig = {
-  bridgeAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
-  midenNetworkId: 73,
-  forceUpdateGlobalExitRoot: true
-};
-
 /** The nonce key of a prototype label (`miden.onramp`, `miden.offramp`). */
 export function prototypeNonceKey(label: string): bigint {
   return BigInt(keccak256(stringToHex(label))) >> 64n;
@@ -31,8 +24,9 @@ export const PROTOTYPE_SALT: Hex = `0x${'0'.repeat(24)}00000cabfc76478c1537dd418
 export const TEST_EVM_ADDRESS: Address = '0x1111111111111111111111111111111111111111';
 export const TEST_EXECUTOR: Address = '0x2222222222222222222222222222222222222222';
 export const TEST_FEE_RECIPIENT: Address = '0x3333333333333333333333333333333333333333';
-export const TEST_MIDEN_ACCOUNT_HEX = `0x${'0a'.repeat(15)}`;
 export const TEST_ERC20: Address = '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b';
+/** A contract that a test batch calls. It is the bridge of the prototype's buy vector. */
+export const TEST_TARGET: Address = '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582';
 
 /** The envelope of the prototype's golden buy vector. */
 export const PROTOTYPE_BUY_ENVELOPE: BatchEnvelope = {

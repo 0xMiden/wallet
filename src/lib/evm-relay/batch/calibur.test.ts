@@ -1,10 +1,19 @@
 /**
  * @jest-environment node
  */
-import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, getAddress, zeroHash, type Hex } from 'viem';
+import {
+  decodeAbiParameters,
+  decodeFunctionData,
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  parseAbi,
+  zeroHash,
+  type Address,
+  type Hex
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { buildAgglayerDepositCalls } from './agglayer-deposit';
 import {
   CALIBUR_ABI,
   batchDigest,
@@ -16,28 +25,34 @@ import {
   recoverBatchSigner,
   type BatchCall
 } from './calibur';
-import { ERC20_ABI } from './erc20';
-import {
-  PROTOTYPE_BUY_ENVELOPE,
-  SEPOLIA_AGGLAYER_CONFIG,
-  SEPOLIA_CALIBUR_PIN,
-  TEST_ERC20,
-  TEST_MIDEN_ACCOUNT_HEX,
-  prototypeNonceKey
-} from './testing';
+import { PROTOTYPE_BUY_ENVELOPE, SEPOLIA_CALIBUR_PIN, TEST_ERC20, TEST_TARGET, prototypeNonceKey } from './testing';
 
 // The golden digests that the prototype's backend test (`backend/src/chain-testnet/calibur.test.ts`) and wallet test
 // (`src/lib/onramp/buy-batch.test.ts`) assert, on branch `utkarsh/feat/onramp-offramp-integration`.
 const PROTOTYPE_BUY_DIGEST = '0x53ced547f87f74297962f3bd574f25ca7a8f3392fea412b02e942b8ffcea29d2';
 const PROTOTYPE_SELL_DIGEST = '0xf51b1837c41f5128f295dcc17b811a4d7905ae66d6be235b9327df25a055a96d';
 
-const prototypeBuyCalls = (): BatchCall[] =>
-  buildAgglayerDepositCalls(SEPOLIA_AGGLAYER_CONFIG, {
-    token: TEST_ERC20,
-    amount: 10n ** 18n,
-    midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
-    fee: null
-  });
+// The two calls of the prototype's buy vector, written out here: this module builds no calls of a bridge. The batch
+// approves a contract for 10^18 of a token and then calls that contract.
+const PROTOTYPE_BUY_ABI = parseAbi(['function bridgeAsset(uint32, address, uint256, address, bool, bytes) payable']);
+const PROTOTYPE_BUY_DESTINATION: Address = `0x00000000${'0a'.repeat(15)}00`;
+
+const prototypeBuyCalls = (): BatchCall[] => [
+  {
+    to: TEST_ERC20,
+    value: 0n,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [TEST_TARGET, 10n ** 18n] })
+  },
+  {
+    to: TEST_TARGET,
+    value: 0n,
+    data: encodeFunctionData({
+      abi: PROTOTYPE_BUY_ABI,
+      functionName: 'bridgeAsset',
+      args: [73, PROTOTYPE_BUY_DESTINATION, 10n ** 18n, TEST_ERC20, true, '0x']
+    })
+  }
+];
 
 describe('Calibur batch', () => {
   it('hashes the prototype buy vector to its golden digest', () => {
@@ -51,7 +66,7 @@ describe('Calibur batch', () => {
         to: token,
         value: 0n,
         data: encodeFunctionData({
-          abi: ERC20_ABI,
+          abi: erc20Abi,
           functionName: 'transfer',
           args: ['0x57359A5071a83D3b5640BDcb7Ad17c70F40088A4', 1_000_000n]
         })
