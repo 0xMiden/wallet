@@ -128,13 +128,16 @@ test.describe('Multi-device roles: add on an unfunded account', () => {
     await steps.step('no_failed_rows_but_the_short_add', async () => {
       // The backup gives A a receipt of B's add that fell short, with its Failed status. A has no Failed row of its own.
       await expectNoFailedRows(walletA, row => !row.restoredFromBackup);
-      const restoredFailures = (await readHistory(walletA)).filter(
-        row => row.restoredFromBackup && row.status === 'Failed'
-      );
-      expect(
-        restoredFailures.every(row => row.type === 'replace-hot-key'),
-        "the only Failed receipt A can hold is B's short add"
-      ).toBe(true);
+      // An empty list would pass an every() check, so the poll requires the receipt to arrive.
+      await expect
+        .poll(
+          async () =>
+            (await readHistory(walletA))
+              .filter(row => row.restoredFromBackup && row.status === 'Failed')
+              .map(row => row.type),
+          { message: "the only Failed receipt A holds is B's short add", timeout: 120_000 }
+        )
+        .toEqual(['replace-hot-key']);
       // The one Failed row on B is the add that fell short, asserted above.
       await expectNoFailedRows(walletB, row => row.type !== 'replace-hot-key');
     });
