@@ -510,82 +510,162 @@ const saveMergeStreamPositions = (sources: readonly HistorySource[], state: Hist
   }
 };
 
-const detectActiveHistoryStreams = async (read: BoundedHistoryRead, state: HistoryStreamState): Promise<void> => {
-  if (!canPruneHistoryStreams(read.table)) return;
+const completedNumericRangeFor = (status: ITransactionStatus): DBCoreKeyRange => ({
+  type: RANGE_BOUND,
+  lower: [status, Number.NEGATIVE_INFINITY],
+  upper: [status, Number.POSITIVE_INFINITY],
+  lowerOpen: false,
+  upperOpen: false
+});
+
+const probeStatusFallbackInTx = async (
+  table: Table<ITransaction, string>,
+  status: ITransactionStatus
+): Promise<{ needsFallback: boolean; needChunkedCompletedCheck: boolean }> => {
+  const statusRange = equalIndexSpec('status', status).range;
+  const boundedTotal = await countIndexEntriesUpTo(table, 'status', statusRange, DEFAULT_READ_CHUNK_SIZE);
+  if (boundedTotal === 0) return { needsFallback: false, needChunkedCompletedCheck: false };
+
+  const zeroCompleted = await countIndexEntriesUpTo(
+    table,
+    '[status+completedAt]',
+    equalIndexSpec('[status+completedAt]', [status, 0]).range,
+    1
+  );
+  if (zeroCompleted > 0) return { needsFallback: true, needChunkedCompletedCheck: false };
+
+  if (boundedTotal < DEFAULT_READ_CHUNK_SIZE) {
+    const withNumericCompleted = await countIndexEntriesUpTo(
+      table,
+      '[status+completedAt]',
+      completedNumericRangeFor(status),
+      DEFAULT_READ_CHUNK_SIZE
+    );
+    return { needsFallback: boundedTotal > withNumericCompleted, needChunkedCompletedCheck: false };
+  }
+
+  if (status !== ITransactionStatus.Completed) {
+    return { needsFallback: true, needChunkedCompletedCheck: false };
+  }
+  return { needsFallback: false, needChunkedCompletedCheck: true };
+};
+
+const detectStreamsInTx = async (
+  read: BoundedHistoryRead,
+  state: HistoryStreamState
+): Promise<{ needsFallback: boolean; needChunkedCompletedCheck: boolean }> => {
+  const negativeCount = await countIndexEntriesUpTo(
+    read.table,
+    'completedAt',
+    { type: RANGE_BOUND, lower: undefined, upper: 0, lowerOpen: false, upperOpen: true },
+    1
+  );
+  if (negativeCount === 0) state.negativeExhausted = true;
+
   const statuses = read.includeFailed
     ? [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed, ITransactionStatus.Completed]
     : [ITransactionStatus.Completed];
   let needsFallback = false;
   let needChunkedCompletedCheck = false;
 
-  await read.table.db.transaction('r', read.table, async () => {
-    const negativeCount = await countIndexEntriesUpTo(
-      read.table,
-      'completedAt',
-      { type: RANGE_BOUND, lower: undefined, upper: 0, lowerOpen: false, upperOpen: true },
-      1
-    );
-    if (negativeCount === 0) state.negativeExhausted = true;
-
-    for (const status of statuses) {
-      const statusRange = equalIndexSpec('status', status).range;
-      const boundedTotal = await countIndexEntriesUpTo(read.table, 'status', statusRange, DEFAULT_READ_CHUNK_SIZE);
-      if (boundedTotal === 0) continue;
-      const zeroCompleted = await countIndexEntriesUpTo(
-        read.table,
-        '[status+completedAt]',
-        equalIndexSpec('[status+completedAt]', [status, 0]).range,
-        1
-      );
-      if (zeroCompleted > 0) {
-        needsFallback = true;
-        break;
-      }
-      if (boundedTotal < DEFAULT_READ_CHUNK_SIZE) {
-        const numericRange: DBCoreKeyRange = {
-          type: RANGE_BOUND,
-          lower: [status, Number.NEGATIVE_INFINITY],
-          upper: [status, Number.POSITIVE_INFINITY],
-          lowerOpen: false,
-          upperOpen: false
-        };
-        const withNumericCompleted = await countIndexEntriesUpTo(
-          read.table,
-          '[status+completedAt]',
-          numericRange,
-          DEFAULT_READ_CHUNK_SIZE
-        );
-        if (boundedTotal > withNumericCompleted) {
-          needsFallback = true;
-          break;
-        }
-        continue;
-      }
-      if (status !== ITransactionStatus.Completed) {
-        needsFallback = true;
-        break;
-      }
+  for (const status of statuses) {
+    const probe = await probeStatusFallbackInTx(read.table, status);
+    if (probe.needsFallback) {
+      needsFallback = true;
+      break;
+    }
+    if (probe.needChunkedCompletedCheck) {
       needChunkedCompletedCheck = true;
     }
-  });
+  }
 
-  if (!needsFallback && needChunkedCompletedCheck) {
-    const statusRange = equalIndexSpec('status', ITransactionStatus.Completed).range;
-    const numericRange: DBCoreKeyRange = {
-      type: RANGE_BOUND,
-      lower: [ITransactionStatus.Completed, Number.NEGATIVE_INFINITY],
-      upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-      lowerOpen: false,
-      upperOpen: false
-    };
-    const total = await countIndexEntriesUpTo(read.table, 'status', statusRange);
-    const withNumericCompleted = await countIndexEntriesUpTo(read.table, '[status+completedAt]', numericRange);
-    const totalAfter = await countIndexEntriesUpTo(read.table, 'status', statusRange);
-    if (totalAfter !== total || total > withNumericCompleted) {
-      needsFallback = true;
+  return { needsFallback, needChunkedCompletedCheck };
+};
+
+const runChunkedCompletedFallbackCheck = async (table: Table<ITransaction, string>): Promise<boolean> => {
+  const statusRange = equalIndexSpec('status', ITransactionStatus.Completed).range;
+  const total = await countIndexEntriesUpTo(table, 'status', statusRange);
+  const withNumericCompleted = await countIndexEntriesUpTo(
+    table,
+    '[status+completedAt]',
+    completedNumericRangeFor(ITransactionStatus.Completed)
+  );
+  const totalAfter = await countIndexEntriesUpTo(table, 'status', statusRange);
+  return totalAfter === total && total <= withNumericCompleted;
+};
+
+const verifyChunkOneStreamsInTx = async (
+  read: BoundedHistoryRead,
+  state: HistoryStreamState,
+  fallbackEligible: () => boolean
+): Promise<boolean> => {
+  const negativeCount = await countIndexEntriesUpTo(
+    read.table,
+    'completedAt',
+    { type: RANGE_BOUND, lower: undefined, upper: 0, lowerOpen: false, upperOpen: true },
+    1
+  );
+  state.negativeExhausted = negativeCount === 0;
+
+  if (!fallbackEligible()) return false;
+
+  const zeroCompleted = await countIndexEntriesUpTo(
+    read.table,
+    '[status+completedAt]',
+    equalIndexSpec('[status+completedAt]', [ITransactionStatus.Completed, 0]).range,
+    1
+  );
+  if (zeroCompleted > 0) return false;
+
+  if (read.includeFailed) {
+    for (const status of [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed] as const) {
+      const probe = await probeStatusFallbackInTx(read.table, status);
+      if (probe.needsFallback) return false;
     }
   }
-  if (!needsFallback) state.fallbackExhausted = true;
+
+  return fallbackEligible();
+};
+
+interface ScopedHistoryChannel {
+  getMutationSeq: () => number;
+  getFallbackSeq: () => number;
+  close: () => void;
+}
+
+const openScopedHistoryChannel = (table: Table<ITransaction, string>): ScopedHistoryChannel => {
+  let mutationSeq = 0;
+  let fallbackSeq = 0;
+  const dbName = table.db?.name;
+  if (!dbName || typeof BroadcastChannel !== 'function') {
+    return { getMutationSeq: () => 0, getFallbackSeq: () => 0, close: () => {} };
+  }
+  let channel: BroadcastChannel | undefined;
+  try {
+    const candidate = new BroadcastChannel(Repo.historyStreamChannelName(dbName));
+    candidate.onmessage = (event: MessageEvent) => {
+      mutationSeq += 1;
+      const data = event?.data as { kind?: unknown } | undefined;
+      if (data?.kind !== 'mutation') {
+        fallbackSeq += 1;
+      }
+    };
+    channel = candidate;
+  } catch {
+    // Ignore channel errors in restricted or mock environments.
+  }
+  return {
+    getMutationSeq: () => mutationSeq,
+    getFallbackSeq: () => fallbackSeq,
+    close: () => {
+      try {
+        channel?.close();
+      } catch {
+        // Ignore close errors.
+      }
+      channel = undefined;
+    }
+  };
 };
 
 /**
@@ -598,19 +678,93 @@ const detectActiveHistoryStreams = async (read: BoundedHistoryRead, state: Histo
  * `HISTORY_CHUNK_STEPS` rows inside its own short `readonly` transaction and yields one macrotask
  * between chunks so background `readwrite` writes commit promptly.
  */
+interface HistoryChunkTracker {
+  lastMergedCursor: CompletedHistoryCursor | null;
+  mutationSeq: number;
+  fallbackSeq: number;
+  crossMutationSeq: number;
+  crossFallbackSeq: number;
+}
+
+const syncMutationBaseline = (
+  cur: Repo.TransactionMutationState,
+  curCrossMutation: number,
+  curCrossFallback: number,
+  tracker: HistoryChunkTracker
+): void => {
+  tracker.mutationSeq = cur.inFlight ? -1 : cur.mutationSeq;
+  tracker.fallbackSeq = cur.fallbackInFlight ? -1 : cur.fallbackSeq;
+  tracker.crossMutationSeq = curCrossMutation;
+  tracker.crossFallbackSeq = curCrossFallback;
+};
+
+const invalidateDirtyStreams = (
+  read: BoundedHistoryRead,
+  state: HistoryStreamState,
+  channel: ScopedHistoryChannel,
+  tracker: HistoryChunkTracker
+): void => {
+  const cur = Repo.getTransactionMutationState(read.table);
+  const curCrossMutation = channel.getMutationSeq();
+  const curCrossFallback = channel.getFallbackSeq();
+  const anyDirty =
+    cur.inFlight ||
+    tracker.mutationSeq < 0 ||
+    cur.mutationSeq !== tracker.mutationSeq ||
+    curCrossMutation !== tracker.crossMutationSeq;
+  const fallbackDirty =
+    cur.fallbackInFlight ||
+    tracker.fallbackSeq < 0 ||
+    cur.fallbackSeq !== tracker.fallbackSeq ||
+    curCrossFallback !== tracker.crossFallbackSeq;
+
+  if (anyDirty) {
+    if (state.positiveExhausted) state.positiveExhausted = false;
+    state.positiveResumeAt = undefined;
+  }
+  if (fallbackDirty) {
+    if (state.negativeExhausted) state.negativeExhausted = false;
+    state.negativeResumeAt = undefined;
+    if (state.fallbackExhausted) state.fallbackExhausted = false;
+    state.fallbackResumeAt = undefined;
+  }
+
+  syncMutationBaseline(cur, curCrossMutation, curCrossFallback, tracker);
+};
+
+const runFollowupChunk = (
+  read: BoundedHistoryRead,
+  state: HistoryStreamState,
+  channel: ScopedHistoryChannel,
+  tracker: HistoryChunkTracker,
+  runChunk: (chunkBound: CompletedHistoryCursor | null) => Promise<{ done: boolean; hasMore: boolean }>
+): Promise<{ done: boolean; hasMore: boolean }> =>
+  read.table.db.transaction('r', read.table, async () => {
+    invalidateDirtyStreams(read, state, channel, tracker);
+    return runChunk(tracker.lastMergedCursor ?? read.bound);
+  });
+
 const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITransaction[]; hasMore: boolean }> => {
   const rows: ITransaction[] = [];
   let skipped = read.offset;
   const outerTx = Dexie.currentTransaction;
   const chunkable = outerTx === null && typeof read.table.schema?.idxByName === 'object';
+  const canPrune = canPruneHistoryStreams(read.table);
   const state: HistoryStreamState = {
     positiveExhausted: false,
     negativeExhausted: false,
     fallbackExhausted: false
   };
+  const tracker: HistoryChunkTracker = {
+    lastMergedCursor: null,
+    mutationSeq: 0,
+    fallbackSeq: 0,
+    crossMutationSeq: 0,
+    crossFallbackSeq: 0
+  };
 
-  const runChunk = async (): Promise<{ done: boolean; hasMore: boolean }> => {
-    const sources = await openHistorySources(read.table, read.direction, read.bound, state);
+  const runChunk = async (chunkBound: CompletedHistoryCursor | null): Promise<{ done: boolean; hasMore: boolean }> => {
+    const sources = await openHistorySources(read.table, read.direction, chunkBound, state);
     let stepsLeft = chunkable ? HISTORY_CHUNK_STEPS : Number.MAX_SAFE_INTEGER;
     const canStep = () => !chunkable || stepsLeft > 0;
     const onStep = () => {
@@ -628,6 +782,7 @@ const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITr
         return { done: false, hasMore: false };
       }
       if (row === null) return { done: true, hasMore: false };
+      tracker.lastMergedCursor = historyCursorOf(row);
       if (!completedHistoryRowMatches(row, read.accountId, read.tokenId, read.includeFailed)) continue;
       if (skipped > 0) {
         skipped -= 1;
@@ -639,19 +794,85 @@ const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITr
     }
   };
 
+  const runUnprunedChunk = () => read.table.db.transaction('r', read.table, () => runChunk(read.bound));
+
   if (outerTx !== null || !chunkable) {
     const result = await read.table.db.transaction('r', read.table, async () => {
-      await detectActiveHistoryStreams(read, state);
-      return runChunk();
+      if (canPrune) {
+        const { needsFallback, needChunkedCompletedCheck } = await read.table.db.transaction('r', read.table, () =>
+          detectStreamsInTx(read, state)
+        );
+        let countsMatch = true;
+        if (!needsFallback && needChunkedCompletedCheck) {
+          countsMatch = await read.table.db.transaction('r', read.table, () =>
+            runChunkedCompletedFallbackCheck(read.table)
+          );
+        }
+        state.fallbackExhausted = !needsFallback && (!needChunkedCompletedCheck || countsMatch);
+      }
+      return runChunk(read.bound);
     });
     return { rows, hasMore: result.hasMore };
   }
 
-  await detectActiveHistoryStreams(read, state);
-  for (;;) {
-    const result = await read.table.db.transaction('r', read.table, runChunk);
-    if (result.done) return { rows, hasMore: result.hasMore };
-    await yieldToEventLoop();
+  if (!canPrune) {
+    for (;;) {
+      const result = await runUnprunedChunk();
+      if (result.done) return { rows, hasMore: result.hasMore };
+      await yieldToEventLoop();
+    }
+  }
+
+  const channel = openScopedHistoryChannel(read.table);
+  try {
+    const startMutation = Repo.getTransactionMutationState(read.table);
+    const startCrossMutationSeq = channel.getMutationSeq();
+    const startCrossFallbackSeq = channel.getFallbackSeq();
+
+    const t1 = await read.table.db.transaction('r', read.table, async () => {
+      const { needsFallback, needChunkedCompletedCheck } = await detectStreamsInTx(read, state);
+      if (!needsFallback && needChunkedCompletedCheck) {
+        return { deferred: true as const, done: false, hasMore: false };
+      }
+      if (!needsFallback) state.fallbackExhausted = true;
+      return { deferred: false as const, ...(await runChunk(read.bound)) };
+    });
+
+    syncMutationBaseline(startMutation, startCrossMutationSeq, startCrossFallbackSeq, tracker);
+
+    if (t1.deferred) {
+      const countsMatch = await runChunkedCompletedFallbackCheck(read.table);
+      await yieldToEventLoop();
+      const t2 = await read.table.db.transaction('r', read.table, async () => {
+        const t2StartState = Repo.getTransactionMutationState(read.table);
+        const t2StartCrossMutation = channel.getMutationSeq();
+        const t2StartCrossFallback = channel.getFallbackSeq();
+        const eligibleAfterCheck = () => {
+          const cur = Repo.getTransactionMutationState(read.table);
+          return (
+            countsMatch &&
+            !startMutation.inFlight &&
+            !cur.inFlight &&
+            cur.mutationSeq === startMutation.mutationSeq &&
+            channel.getMutationSeq() === startCrossMutationSeq
+          );
+        };
+        state.fallbackExhausted = await verifyChunkOneStreamsInTx(read, state, eligibleAfterCheck);
+        syncMutationBaseline(t2StartState, t2StartCrossMutation, t2StartCrossFallback, tracker);
+        return runChunk(read.bound);
+      });
+      if (t2.done) return { rows, hasMore: t2.hasMore };
+    } else if (t1.done) {
+      return { rows, hasMore: t1.hasMore };
+    }
+
+    for (;;) {
+      await yieldToEventLoop();
+      const result = await runFollowupChunk(read, state, channel, tracker, runChunk);
+      if (result.done) return { rows, hasMore: result.hasMore };
+    }
+  } finally {
+    channel.close();
   }
 };
 
