@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Show failed Activity claims and when they can be retried.
 - [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
 - [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
