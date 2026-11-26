@@ -1,7 +1,12 @@
 import { getEnvironmentConfig } from '../../config/environments';
 import { WALLET_API_FAULTS, expect, test } from '../../fixtures/multi-device';
 import { addContact, openSettingsDrawer } from '../../helpers/contacts-receive-settings';
-import { expectNoFailedRows, setupSharedAccount, waitForBackupSettled } from '../../helpers/multi-device';
+import {
+  expectNoFailedRows,
+  requestBackupRefresh,
+  setupSharedAccount,
+  waitForBackupSettled
+} from '../../helpers/multi-device';
 import {
   type BackupHistoryRecord,
   type ContactTriple,
@@ -31,13 +36,14 @@ import {
  * outcome and never throws (src/lib/backup/refresh.ts), and a completed row
  * only signals a flush (`signalTransactionCompleted`).
  *
- * Retry timing, as the code has it: there is none. The client does not read
- * `Retry-After` and retries nothing on a timer (src/lib/backup/api-client.ts
- * `send`/`failure`; refresh.ts "There is no timer poll"). A failed upload
- * stays dirty until the next event (an unlock, a foreground, the address book
- * or Activity opening, a completed row). The only timer is the re-read after
- * a Guardian adoption, and it stops after a read that failed. So under a 429
- * the device sends nothing until the user does something.
+ * Retry timing, as the code has it: one timer. The client reads `Retry-After`
+ * (src/lib/backup/api-client.ts `parseRetryAfterMs`). A failed refresh
+ * schedules one retry in refresh.ts `scheduleBackupRetry`: 30 s, doubled after
+ * each failed retry up to 30 min, and never sooner than the `Retry-After`. The
+ * "There is no timer poll" sentence of refresh.ts means no periodic poll. The
+ * Guardian re-reads at 10, 30 and 60 s run only after a history read that came
+ * back unchanged, so a 429 does not start them. Under `Retry-After: 60` the
+ * device sends nothing for the next 60 s after a failed refresh.
  */
 
 const NETWORK_CODE = contactNetworkCode(getEnvironmentConfig().name);
@@ -46,10 +52,8 @@ const CONTACT_ADDRESS = `0x${'0'.repeat(36)}fa17`;
 const CONTACT_NAME = 'Fault Contact';
 const CONTACT_NAME_EDITED = 'Fault Contact Two';
 
-// An idle window under a 429. A client that retried on its own would send a request every few seconds.
+// An idle window under a 429 with `Retry-After: 60`. It is past the 30 s retry floor and short of the 60 s backoff.
 const OBSERVATION_MS = 45_000;
-// A Guardian adoption on B can still start one history read in the window, and a CORS preflight can double it.
-const MAX_REQUESTS_IN_IDLE_WINDOW = 4;
 
 test.describe('Encrypted backup: service faults', () => {
   test('the wallet works through 500, 429 and a refused connection, and delivers the changes after', async ({
@@ -110,17 +114,16 @@ test.describe('Encrypted backup: service faults', () => {
       ).toBeGreaterThanOrEqual(1);
 
       await walletB.navigateHome();
+      // A failed refresh restarts the retry timer at the 60 s Retry-After, so the window below ends before it.
+      expect(await requestBackupRefresh(walletB, 'foreground'), 'the refresh meets the 429').toBe('failed');
       const before = walletApi.requestCount(walletB);
-      // An observation window, not a wait for state: it counts what an idle device sends under a 429.
+      // An observation window, not a wait for state: a dirty chunk stays dirty under a 429 whether or not a retry ran,
+      // so only the count of attempts shows the backoff.
       await walletB.page.waitForTimeout(OBSERVATION_MS);
-      const sent = walletApi.requestCount(walletB) - before;
-      expect(sent, `requests to the wallet-api in ${OBSERVATION_MS} ms of idle time under a 429`).toBeLessThanOrEqual(
-        MAX_REQUESTS_IN_IDLE_WINDOW
-      );
       expect(
-        (await readBackupStateSnapshot(walletB))?.dirtyHistoryChunks.length,
-        'nothing retried the upload in the window'
-      ).toBeGreaterThanOrEqual(1);
+        walletApi.requestCount(walletB) - before,
+        `no wallet-api attempt in ${OBSERVATION_MS} ms of a 60 s backoff`
+      ).toBe(0);
     });
 
     await steps.step('network_down_contact_edit_saves_locally', async () => {
