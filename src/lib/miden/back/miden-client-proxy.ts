@@ -450,6 +450,8 @@ const opStageCallbacks = new Map<string, StageCallback>();
  */
 export type SubmitGate = ((evidence?: SubmitEvidenceFields) => Promise<boolean>) & {
   retract?: () => Promise<boolean>;
+  settle?: () => void;
+  failClosed?: () => Promise<void>;
 };
 
 /** op_id → that write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
@@ -468,6 +470,7 @@ function newOpId(): string {
 function takeInFlight(op_id: string): InFlightOp | undefined {
   const op = inFlight.get(op_id);
   if (!op) return undefined;
+  opSubmitGates.get(op_id)?.settle?.();
   if (op.timer) clearTimeout(op.timer);
   inFlight.delete(op_id);
   return op;
@@ -946,7 +949,9 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   } catch (err) {
     return { ok: false, error: `op ${op_id} could not ${verb} its submit: ${String(err)}` };
   }
-  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
+  if (inFlight.has(op_id)) return { ok: true };
+  if (verb === 'record') await gate.failClosed?.();
+  return { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
 }
 
 /**

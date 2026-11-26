@@ -12387,6 +12387,141 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  it('Guardian switch-guardian: offscreen direct switch settles submitGate synchronously and retires late stamps (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let releaseStamp: (() => void) | undefined;
+    try {
+      const txId = 'switch-guardian-direct-preopen';
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      let stampStarted!: () => void;
+      const enteredStamp = new Promise<void>(resolve => {
+        stampStarted = resolve;
+      });
+      const parkedStamp = new Promise<void>(resolve => {
+        releaseStamp = resolve;
+      });
+      let parked = false;
+      let settledBeforeRecordLeafEnd: boolean | undefined;
+      let capturedPreOpenGate: ((evidence?: unknown) => Promise<boolean>) | undefined;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const inner = realWhereImpl(query) as {
+          modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+          first: () => Promise<unknown>;
+        };
+        return {
+          ...inner,
+          modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+            if (query.id === txId && capturedPreOpenGate && settledBeforeRecordLeafEnd === undefined) {
+              settledBeforeRecordLeafEnd = !(await capturedPreOpenGate());
+            }
+            const current = (await inner.first()) as Record<string, unknown> | undefined;
+            if (!parked && query.id === 'switch-guardian-direct-late' && current) {
+              const probe = {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+              };
+              fn(probe);
+              if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+                parked = true;
+                stampStarted();
+                await parkedStamp;
+              }
+            }
+            return inner.modify(fn);
+          }
+        };
+      });
+      const proxy = jest.requireMock('../back/miden-client-proxy') as {
+        dispatchGuardianPipeline: jest.Mock;
+      };
+      jest.spyOn(proxy, 'dispatchGuardianPipeline').mockImplementationOnce(async (...a: unknown[]) => {
+        capturedPreOpenGate = a[6] as ((evidence?: unknown) => Promise<boolean>) | undefined;
+        throw new Error('pre-open switch failure');
+      });
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: jest.fn(async () => 'sig')
+      };
+
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      ).catch(() => undefined);
+
+      expect(settledBeforeRecordLeafEnd).toBe(true);
+      expect(txStore.find(r => r.id === txId)?.submitEvidence).toEqual([expect.objectContaining({ source: 'end' })]);
+
+      txStore.push({
+        id: 'switch-guardian-direct-late',
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      let pendingLateGate: Promise<boolean> | undefined;
+      jest.spyOn(proxy, 'dispatchGuardianPipeline').mockImplementationOnce(async (...a: unknown[]) => {
+        pendingLateGate = (a[6] as (evidence?: unknown) => Promise<boolean>)();
+        await enteredStamp;
+        throw markErrorBeforeSubmit(new Error('aborted direct switch while stamp pending'));
+      });
+      await generateTransaction(
+        {
+          id: 'switch-guardian-direct-late',
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      ).catch(() => undefined);
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      expect(await pendingLateGate).toBe(false);
+      const lateRow = txStore.find(r => r.id === 'switch-guardian-direct-late')!;
+      expect(lateRow.mayHaveSubmitted).toBeUndefined();
+      expect(lateRow.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    }
+  });
+
   it('Guardian switch-guardian: OLD guardian unreachable at cold co-sign → direct fallback (proposal already pushed)', async () => {
     const txId = 'switch-guardian-direct-2';
     const result = makeResult();

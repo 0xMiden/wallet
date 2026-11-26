@@ -619,6 +619,146 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     expect(row.submitEvidence ?? []).toEqual([]);
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
+
+  it('settles synchronously before recordLeafEnd and retires late crossings on pre-open offscreen failure (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { hasErrorBeforeSubmit, markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    let capturedGate: Gate | undefined;
+    let settledDuringRecordLeafEnd: boolean | undefined;
+    const realWhere = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhere(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          if (query.id === 'tx-gate-preopen' && capturedGate && settledDuringRecordLeafEnd === undefined) {
+            settledDuringRecordLeafEnd = !(await capturedGate(evidence));
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+    try {
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        capturedGate = a[3] as Gate;
+        throw new Error('pre-open bus failure');
+      });
+
+      await expect(runSend('tx-gate-preopen')).rejects.toThrow('pre-open bus failure');
+      expect(settledDuringRecordLeafEnd).toBe(true);
+      expect(txStore.find(r => r.id === 'tx-gate-preopen')?.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'end' })
+      ]);
+
+      let taggedGate: Gate | undefined;
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        taggedGate = a[3] as Gate;
+        throw markErrorBeforeSubmit(new Error('tagged pre-open failure'));
+      });
+      const caught = await runSend('tx-gate-tagged-preopen').catch((error: unknown) => error);
+      expect(hasErrorBeforeSubmit(caught)).toBe(true);
+      expect(await taggedGate!(evidence)).toBe(false);
+      expect(txStore.find(r => r.id === 'tx-gate-tagged-preopen')?.submitEvidence).toBeUndefined();
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhere);
+    }
+
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      pendingGate = (a[3] as Gate)(evidence);
+      await enteredStamp;
+      throw markErrorBeforeSubmit(new Error('pre-open settle while stamp awaits Dexie'));
+    });
+
+    try {
+      await runSend('tx-gate-late-stamp').catch(() => undefined);
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp();
+      expect(await pendingGate).toBe(false);
+
+      const rowLate = txStore.find(r => r.id === 'tx-gate-late-stamp')!;
+      expect(rowLate.mayHaveSubmitted).toBeUndefined();
+      expect(rowLate.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+      expect(rowLate.submitEvidence).toHaveLength(1);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
+  it('keeps ungated consumeNoteId crossings untouched outside offscreenSubmitGate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    proxy.consumeNoteId.mockImplementationOnce(
+      async (_tx: unknown, _signer: unknown, stamp?: (s: string) => Promise<void>) => {
+        await stamp?.('submitting');
+        throw new Error('apply failed after submit');
+      }
+    );
+
+    const tx = {
+      id: 'tx-ungated-consume',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    await generateTransaction(tx as never, signCallback, false, provider as never).catch(() => undefined);
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume')!;
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    expect((row.submitEvidence as Array<{ preSubmitEnd?: boolean }>)[0]?.preSubmitEnd).toBeUndefined();
+  });
 });
 
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {

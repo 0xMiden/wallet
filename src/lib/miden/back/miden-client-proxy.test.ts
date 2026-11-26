@@ -4679,9 +4679,66 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     finishOp({ ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 });
     await p;
     resolveRetract(true);
-    expect(await retractPending).toEqual(
+    const resolveRetractPending = await retractPending;
+    expect(resolveRetractPending).toEqual(
       expect.objectContaining({ ok: false, error: expect.stringContaining('ended while retracting its submit') })
     );
+  });
+
+  it('settles submitGate synchronously on takeInFlight and calls failClosed if op leaves inFlight mid-record (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    let opId = '';
+    let resolveRecord!: (ok: boolean) => void;
+    const settle = jest.fn();
+    const failClosed = jest.fn(async () => {});
+    const submitGate = Object.assign(
+      jest.fn(
+        () =>
+          new Promise<boolean>(resolve => {
+            resolveRecord = resolve;
+          })
+      ),
+      { settle, failClosed }
+    );
+    let finishOp!: (r: unknown) => void;
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: any) =>
+        new Promise(resolve => {
+          opId = env.op_id;
+          finishOp = resolve;
+        })
+    );
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await flush();
+
+    const recordPending = handleOffscreenSubmitGate({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: opId,
+      evidence: { refBlock: 4 }
+    });
+    await flush();
+
+    expect(settle).not.toHaveBeenCalled();
+    finishOp({ ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 });
+    await p;
+    expect(settle).toHaveBeenCalledTimes(1);
+
+    resolveRecord(true);
+    expect(await recordPending).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('ended while recording its submit') })
+    );
+    expect(failClosed).toHaveBeenCalledTimes(1);
   });
 
   it('refuses action retract when the op gate has no retract handler (#2325)', async () => {

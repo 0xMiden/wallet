@@ -702,30 +702,81 @@ const stageStampFor =
  * and while the attempt has not settled, so an attempt it never answered yes for never called submit. `settle` is
  * called first thing when the attempt's outcome is decided; a gate still recording then answers no.
  */
+type OffscreenSubmitGateOptions = {
+  retractCrossing?: () => Promise<void>;
+  retireCrossing?: () => Promise<void>;
+};
+
 const offscreenSubmitGate = (
   stamp: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  retractCrossing?: () => Promise<void>
+  options?: OffscreenSubmitGateOptions
 ) => {
+  const { retractCrossing, retireCrossing } = options ?? {};
   let opened = false;
   let settled = false;
+  let retractGeneration = 0;
+  let pending: Promise<void> = Promise.resolve();
+  const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = pending.then(fn, fn);
+    pending = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  };
+  const retireBestEffort = async (): Promise<void> => {
+    try {
+      await retireCrossing?.();
+    } catch {
+      /* retirement is best-effort so pre-submit errors remain visible */
+    }
+  };
   const gate: SubmitGate = Object.assign(
     async (evidence?: SubmitEvidenceFields) => {
       if (settled) return false;
-      await stamp('submitting', { evidence });
-      if (settled) return false;
-      opened = true;
-      return true;
-    },
-    retractCrossing
-      ? {
-          retract: async () => {
-            if (settled) return false;
-            opened = false;
-            await retractCrossing();
-            return !settled;
-          }
+      const entryGeneration = retractGeneration;
+      return enqueue(async () => {
+        if (settled || retractGeneration !== entryGeneration) return false;
+        try {
+          await stamp('submitting', { evidence });
+        } catch (error) {
+          if (settled) await retireBestEffort();
+          throw error;
         }
-      : {}
+        if (settled) {
+          await retireBestEffort();
+          return false;
+        }
+        if (retractGeneration !== entryGeneration) return false;
+        opened = true;
+        return true;
+      });
+    },
+    {
+      ...(retractCrossing
+        ? {
+            retract: async () => {
+              if (settled) return false;
+              opened = false;
+              retractGeneration += 1;
+              return enqueue(async () => {
+                if (settled) return false;
+                opened = false;
+                await retractCrossing();
+                return !settled;
+              });
+            }
+          }
+        : {}),
+      settle: () => {
+        settled = true;
+      },
+      failClosed: async () => {
+        settled = true;
+        opened = false;
+        await enqueue(retireBestEffort);
+      }
+    }
   );
   return {
     gate,
@@ -2632,9 +2683,17 @@ const generateTransactionWithProvider = async (
           const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
           if (isReviewedNativeBridge(transaction)) {
             const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
-            const submitGate = offscreenSubmitGate(stamp);
-            try {
-              return await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+            const submitGate = offscreenSubmitGate(stamp, {
+              retireCrossing:
+                attempt === undefined ? undefined : () => markAttemptPreSubmitEnd(transaction.id, attempt.attemptId)
+            });
+            return runGatedWriteLeaf({
+              txId: transaction.id,
+              attempt,
+              offscreen: writeLeafRunsOffscreen(),
+              submitGate,
+              tagUnopenedBeforeSubmit: true,
+              leaf: () =>
                 midenClientProxy.newTransaction(
                   transaction.accountId,
                   requestBytes,
@@ -2643,12 +2702,7 @@ const generateTransactionWithProvider = async (
                   stamp,
                   submitGate.gate
                 )
-              );
-            } catch (error) {
-              throw submitGate.opened() ? error : markErrorBeforeSubmit(error);
-            } finally {
-              submitGate.settle();
-            }
+            });
           }
           return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
             midenClientProxy.newTransaction(
@@ -3368,6 +3422,40 @@ const runWriteLeaf = async <T>(
  * precondition on both routes, awaited by the inline leaf and through the gate by the offscreen one, which the proxy
  * alone tells apart. Without an attempt the leaf stamps nothing and gets no gate.
  */
+/**
+ * Wrap an offscreen-gated `runWriteLeaf` callback so failures settle `submitGate` synchronously before `runWriteLeaf`
+ * inspects the failure or runs `recordLeafEnd`. `tagUnopenedBeforeSubmit` is reserved for paths that do not rely on
+ * `recordLeafEnd` for untagged proxy decode errors.
+ */
+const runGatedWriteLeaf = async <T>({
+  txId,
+  attempt,
+  offscreen,
+  submitGate,
+  tagUnopenedBeforeSubmit = false,
+  leaf
+}: {
+  txId: string;
+  attempt: AttemptContext | undefined;
+  offscreen: boolean;
+  submitGate: ReturnType<typeof offscreenSubmitGate>;
+  tagUnopenedBeforeSubmit?: boolean;
+  leaf: () => Promise<T>;
+}): Promise<T> =>
+  runWriteLeaf(txId, attempt, offscreen, async () => {
+    try {
+      return await leaf();
+    } catch (error) {
+      submitGate.settle();
+      if (tagUnopenedBeforeSubmit && offscreen && !submitGate.opened()) {
+        throw markErrorBeforeSubmit(error);
+      }
+      throw error;
+    } finally {
+      submitGate.settle();
+    }
+  });
+
 const runStampedWriteLeaf = async <T>(
   txId: string,
   attempt: AttemptContext | undefined,
@@ -3375,12 +3463,16 @@ const runStampedWriteLeaf = async <T>(
 ): Promise<T> => {
   if (attempt === undefined) return runWriteLeaf(txId, undefined, writeLeafRunsOffscreen(), () => leaf());
   const stamp = stageStampFor(txId, attempt);
-  const submitGate = offscreenSubmitGate(stamp);
-  try {
-    return await runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp, submitGate.gate));
-  } finally {
-    submitGate.settle();
-  }
+  const submitGate = offscreenSubmitGate(stamp, {
+    retireCrossing: () => markAttemptPreSubmitEnd(txId, attempt.attemptId)
+  });
+  return runGatedWriteLeaf({
+    txId,
+    attempt,
+    offscreen: writeLeafRunsOffscreen(),
+    submitGate,
+    leaf: () => leaf(stamp, submitGate.gate)
+  });
 };
 
 /**
@@ -3760,11 +3852,16 @@ const generateDirectSwitchGuardianTransaction = async (
     // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
     const requestBytes = tr.serialize();
     const stamp = stageStampFor(transaction.id, attempt);
-    const submitGate = offscreenSubmitGate(stamp, () =>
-      retractSubmitCrossing(transaction.id, attempt.attemptId, 'sending')
-    );
-    try {
-      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+    const submitGate = offscreenSubmitGate(stamp, {
+      retractCrossing: () => retractSubmitCrossing(transaction.id, attempt.attemptId, 'sending'),
+      retireCrossing: () => markAttemptPreSubmitEnd(transaction.id, attempt.attemptId)
+    });
+    result = await runGatedWriteLeaf({
+      txId: transaction.id,
+      attempt,
+      offscreen: true,
+      submitGate,
+      leaf: () =>
         dispatchGuardianPipeline(
           transaction.accountId,
           requestBytes,
@@ -3774,10 +3871,7 @@ const generateDirectSwitchGuardianTransaction = async (
           undefined,
           submitGate.gate
         )
-      );
-    } finally {
-      submitGate.settle();
-    }
+    });
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
@@ -5271,10 +5365,11 @@ const generateGuardianTransaction = async (
     // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
     submitStageRecorded = false;
   };
-  const submitGate = offscreenSubmitGate(stampStage, async () => {
-    if (transaction.attemptId !== undefined) {
-      await retractSubmitCrossing(transaction.id, transaction.attemptId, 'sending');
-    }
+  const attemptId = transaction.attemptId;
+  const submitGate = offscreenSubmitGate(stampStage, {
+    retractCrossing:
+      attemptId === undefined ? undefined : () => retractSubmitCrossing(transaction.id, attemptId, 'sending'),
+    retireCrossing: attemptId === undefined ? undefined : () => markAttemptPreSubmitEnd(transaction.id, attemptId)
   });
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
@@ -5389,20 +5484,25 @@ const generateGuardianTransaction = async (
         await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
-      result = await runWriteLeaf(transaction.id, attempt, true, () =>
-        dispatchGuardianPipeline(
-          transaction.accountId,
-          requestBytes,
-          transaction.delegateTransaction,
-          signCallback,
-          stampStage,
-          chainAnchorB64,
-          submitGate.gate,
-          oneClickDeadline,
-          oneClickRequired,
-          testAuthorizationKind
-        )
-      );
+      result = await runGatedWriteLeaf({
+        txId: transaction.id,
+        attempt,
+        offscreen: true,
+        submitGate,
+        leaf: () =>
+          dispatchGuardianPipeline(
+            transaction.accountId,
+            requestBytes,
+            transaction.delegateTransaction,
+            signCallback,
+            stampStage,
+            chainAnchorB64,
+            submitGate.gate,
+            oneClickDeadline,
+            oneClickRequired,
+            testAuthorizationKind
+          )
+      });
     } else {
       result = await runGuardianPipeline(
         transaction.accountId,
