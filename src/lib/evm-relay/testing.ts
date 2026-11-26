@@ -1,7 +1,7 @@
 // Test fixtures of the relay client. Production code does not import this file.
 import type { Address, Hex } from 'viem';
 
-import type { RelayChainConfig } from 'lib/remote-config/schema';
+import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import type { RelayResponse } from './client';
 
@@ -29,6 +29,17 @@ export const CHAIN: RelayChainConfig = {
   maxFee: { [USDC]: '50000' },
   feeRecipient: FEE_RECIPIENT
 };
+
+/** The relay section that gives `CHAIN` for chain 8453, with the base URL `baseUrl`. */
+export function relayConfig(baseUrl: string): RelayConfig {
+  return {
+    baseUrl,
+    executor: CHAIN.executor,
+    calibur: CHAIN.calibur,
+    maxFee: CHAIN.maxFee,
+    feeRecipient: FEE_RECIPIENT
+  };
+}
 
 /** The hex with upper-case digits, as the service may send it. */
 export function upperHex(value: string): `0x${string}` {

@@ -33,7 +33,7 @@ export interface RelayAccountState {
 
 /**
  * The relay state of a deposit address (`GET /v1/account`), for a page that shows the address and waits for funds.
- * It reads every 10 seconds while the page is on screen and the relay serves the chain. Off screen the SWR key is
+ * It reads every 10 seconds while the page is on screen and the relay is on for the chain. Off screen the SWR key is
  * null (never `isPaused`, see `usePageActive`), so nothing is read. Each answer must pass `assertRelayAccountMatches`.
  */
 export function useRelayAccount({ chainId, address, tokens = [] }: RelayAccountTarget): RelayAccountState {

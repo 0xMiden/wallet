@@ -28,6 +28,7 @@ import {
   accountBody,
   deductAccountBody,
   jobBody,
+  relayConfig,
   stubResponse,
   upperHex
 } from './testing';
@@ -63,10 +64,7 @@ beforeEach(() => {
   calls = [];
   delete process.env.MIDEN_EVM_RELAY_URL;
   jest.mocked(initBridgeConfig).mockReset();
-  jest
-    .mocked(getRelayConfig)
-    .mockReset()
-    .mockReturnValue({ baseUrl: BASE, chains: [CHAIN] });
+  jest.mocked(getRelayConfig).mockReset().mockReturnValue(relayConfig(BASE));
 });
 
 function submission(overrides: Partial<RelaySubmission> = {}): RelaySubmission {
