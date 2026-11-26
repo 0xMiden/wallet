@@ -65,9 +65,12 @@ export function isFaucetClaimNote(
   return !!nativeFaucetId && note.faucetId === nativeFaucetId && note.senderAddress === nativeFaucetId;
 }
 
+type ActivityCategoryGroupKind = 'swap' | 'faucet' | 'guardian' | 'other';
+
 /**
  * What a group is keyed by:
  *
+ * - `dapp` groups transactions by the approved origin that created them.
  * - `address` — a person or an address: sends and receives keyed by the counterparty.
  * - `swap` — every swap, whatever the pair.
  * - `faucet` — faucet claims.
@@ -76,13 +79,12 @@ export function isFaucetClaimNote(
  *   leg). A catch-all rather than a drop: a row the feed lists has to be reachable from the
  *   grouped view too, or the two views disagree about what happened.
  */
-export type ActivityGroupKind = 'address' | 'swap' | 'faucet' | 'guardian' | 'other';
+export type ActivityGroupKind = 'address' | 'dapp' | ActivityCategoryGroupKind;
 
-/** The category groups, in the order they are keyed. `address` is not here: it carries an id. */
-export const ACTIVITY_GROUP_KINDS: readonly ActivityGroupKind[] = ['address', 'swap', 'faucet', 'guardian', 'other'];
+const ACTIVITY_GROUP_KINDS: readonly ActivityGroupKind[] = ['address', 'dapp', 'swap', 'faucet', 'guardian', 'other'];
 
 /** The i18n key naming each category group, on its row in the list and as its page's heading. */
-export const ACTIVITY_GROUP_LABELS: Record<Exclude<ActivityGroupKind, 'address'>, string> = {
+export const ACTIVITY_GROUP_LABELS: Record<ActivityCategoryGroupKind, string> = {
   swap: 'activityGroupSwaps',
   faucet: 'activityGroupFaucet',
   guardian: 'activityGroupGuardian',
@@ -91,7 +93,7 @@ export const ACTIVITY_GROUP_LABELS: Record<Exclude<ActivityGroupKind, 'address'>
 
 export interface ActivityGroupKey {
   kind: ActivityGroupKind;
-  /** The counterparty address for `address`; the kind's own name for every category group. */
+  /** The counterparty address, dApp origin, or category name. */
   id: string;
 }
 
@@ -170,13 +172,20 @@ export function activityCounterpartyNames(
   return (address, knownKey) => names.get(knownKey ?? activityCounterpartyKey(address, activityKeys));
 }
 
+export function activityDappCounterpartyName(
+  entry: Pick<IHistoryEntry, 'initiatingDappOrigin' | 'secondaryAddress'>,
+  nameOf?: ActivityCounterpartyName
+): string | undefined {
+  return entry.initiatingDappOrigin && entry.secondaryAddress ? nameOf?.(entry.secondaryAddress) : undefined;
+}
+
 /** An entry the wallet has queued or is generating: the rows the pending badge counts. */
 export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
   return entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
 }
 
 /** A timestamp a `Date` can be built from; `-Infinity` for anything else, so it never wins a max. */
-function usableTimestamp(timestamp = -Infinity): number {
+export function usableTimestamp(timestamp = -Infinity): number {
   return Number.isFinite(timestamp) ? timestamp : -Infinity;
 }
 
@@ -186,6 +195,7 @@ function usableTimestamp(timestamp = -Infinity): number {
  * has to be decided before the address fallback can claim it.
  */
 export function activityGroupKeyOf(entry: IHistoryEntry): ActivityGroupKey {
+  if (entry.initiatingDappOrigin) return { kind: 'dapp', id: entry.initiatingDappOrigin };
   if (entry.txType === 'switch-guardian' || entry.txType === 'replace-hot-key') {
     return { kind: 'guardian', id: 'guardian' };
   }
@@ -220,7 +230,7 @@ export function groupActivityEntries(
 
   const getGroup = (key: ActivityGroupKey): ActivityGroup => {
     const addressKey = key.kind === 'address' ? activityCounterpartyKey(key.id, activityKeys, seen) : undefined;
-    const bucket = addressKey === undefined ? key.kind : `address:${addressKey}`;
+    const bucket = `${key.kind}:${addressKey ?? key.id}`;
     const existing = groups.get(bucket);
     if (existing) {
       if (existing.kind === 'address' && MIDEN_ACCOUNT_HEX.test(existing.id) && !MIDEN_ACCOUNT_HEX.test(key.id)) {
@@ -258,7 +268,7 @@ export function groupActivityEntries(
   }
 
   for (const claim of claims) {
-    const group = getGroup(activityClaimGroupKeyOf(claim.note));
+    const group = getGroup(activityClaimGroupKeyOf(claim.note, claim.initiatingDappOrigin));
     const timestamp = usableTimestamp(claim.note.receivedAt);
     group.claims.push(claim);
     if (timestamp > group.latestTimestamp) {
@@ -287,7 +297,11 @@ export function activityGroupMatcher(
 }
 
 /** The group a claim card belongs to: the one its consume row joins (see `isFaucetClaimNote`). */
-export function activityClaimGroupKeyOf(note: { faucetId: string; senderAddress: string }): ActivityGroupKey {
+export function activityClaimGroupKeyOf(
+  note: { faucetId: string; senderAddress: string },
+  initiatingDappOrigin?: string
+): ActivityGroupKey {
+  if (initiatingDappOrigin) return { kind: 'dapp', id: initiatingDappOrigin };
   return isFaucetClaimNote(note) ? { kind: 'faucet', id: 'faucet' } : activityAddressGroupKey(note.senderAddress);
 }
 
@@ -296,9 +310,9 @@ export function activityClaimMatcher(
   kind: ActivityGroupKind,
   id?: string,
   activityKeys?: ActivityKeyMemory
-): (note: { faucetId: string; senderAddress: string }) => boolean {
+): (item: PendingActivityItem) => boolean {
   const matches = groupKeyMatcher(kind, id, activityKeys);
-  return note => matches(activityClaimGroupKeyOf(note));
+  return item => matches(activityClaimGroupKeyOf(item.note, item.initiatingDappOrigin));
 }
 
 function groupKeyMatcher(
@@ -307,13 +321,17 @@ function groupKeyMatcher(
   activityKeys?: ActivityKeyMemory
 ): (key: ActivityGroupKey) => boolean {
   const wanted = kind === 'address' && id !== undefined ? activityCounterpartyKey(id, activityKeys) : undefined;
-  return key => key.kind === kind && (kind !== 'address' || activityCounterpartyKey(key.id, activityKeys) === wanted);
+  return key => {
+    if (key.kind !== kind) return false;
+    if (kind === 'dapp') return key.id === id;
+    return kind !== 'address' || activityCounterpartyKey(key.id, activityKeys) === wanted;
+  };
 }
 
-/** The route of a group's page. A category group needs no id; an address carries one. */
+/** Address and dApp group routes carry their keys. */
 export function activityGroupPath(key: ActivityGroupKey): string {
-  return key.kind === 'address'
-    ? `/activity/group/address/${encodeURIComponent(key.id)}`
+  return key.kind === 'address' || key.kind === 'dapp'
+    ? `/activity/group/${key.kind}/${encodeURIComponent(key.id)}`
     : `/activity/group/${key.kind}`;
 }
 

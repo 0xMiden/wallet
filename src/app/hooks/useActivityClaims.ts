@@ -24,6 +24,7 @@ import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
 import type { ClaimableNoteWithMetadata, ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { isGuardianHoldRetryError, retryRefusalText } from 'lib/miden/transaction/retry-refusal';
 import { shownSubmissionFeedback, type SubmissionFeedback } from 'lib/miden/transaction/submission-feedback';
@@ -53,6 +54,7 @@ type FeeSnapshot = {
 type ClaimAttempt = PendingActivityItem & { feeRefusedAt?: FeeSnapshot };
 type RetryFailure = { message: string; metHold?: true } & NonNullable<PendingActivityItem['failure']>;
 type Attempts = ReadonlyMap<string, ClaimAttempt>;
+type ClaimOrigin = { noteId: string; origin: string };
 type ClaimSlot = {
   attempts: Attempts;
   busy: Set<string>;
@@ -150,7 +152,8 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
   const verificationBaseFee = useVerificationBaseFee();
   // Before the first balance read lands the rows are a zero placeholder, which would refuse every claim.
   const feeGateBaseFee = balancesLoading ? null : verificationBaseFee;
-  const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
+  const accountId = claim.account.publicKey;
+  const key = `${accountId}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
   const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
   const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
   // Notes whose claim is being queued right now. Once queued, the attempt's
@@ -226,6 +229,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
   });
   const [submissionByTx, setSubmissionByTx] = useState<ReadonlyMap<string, SubmissionFeedback>>(() => new Map());
   const [holdByTx, setHoldByTx] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [originByTx, setOriginByTx] = useState<{ key: string; values: ReadonlyMap<string, ClaimOrigin> }>();
 
   useEffect(() => {
     if (!watchedTxIds) {
@@ -237,6 +241,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       setFailedClaims(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
       setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
       setHoldByTx(previous => (previous.size === 0 ? previous : new Map()));
+      setOriginByTx(undefined);
       return;
     }
     const txIds = watchedTxIds.split(',');
@@ -255,8 +260,19 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       const automaticRetry = new Set<string>();
       const submissions = new Map<string, SubmissionFeedback>();
       const holds = new Map<string, number>();
+      const origins = new Map<string, ClaimOrigin>();
       const nowSec = nowSeconds();
       for (const tx of rows) {
+        if (
+          tx.type === 'consume' &&
+          tx.initiatingDappOrigin &&
+          !tx.restoredFromBackup &&
+          !tx.recovered &&
+          sameWalletAccountId(tx.accountId, accountId)
+        ) {
+          const noteId = tx.noteIds ? (tx.noteIds.length === 1 ? tx.noteIds[0] : undefined) : tx.noteId;
+          if (noteId) origins.set(tx.id, { noteId, origin: tx.initiatingDappOrigin });
+        }
         const feedback = shownSubmissionFeedback(tx);
         if (feedback !== undefined) submissions.set(tx.id, feedback);
         if (tx.status === ITransactionStatus.Queued) {
@@ -295,6 +311,17 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       );
       setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
       setHoldByTx(previous => (sameHolds(previous, holds) ? previous : holds));
+      setOriginByTx(previous => {
+        if (origins.size === 0) return undefined;
+        return previous?.key === key &&
+          previous.values.size === origins.size &&
+          [...origins].every(([id, value]) => {
+            const old = previous.values.get(id);
+            return old?.noteId === value.noteId && old.origin === value.origin;
+          })
+          ? previous
+          : { key, values: origins };
+      });
       // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
       setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
       setQueueWait(previous =>
@@ -369,7 +396,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       document.removeEventListener('visibilitychange', resample);
       unsubscribe();
     };
-  }, [watchedTxIds, key]);
+  }, [watchedTxIds, key, accountId]);
 
   const items = useMemo(() => {
     // A refusal belongs to the held claim whose Retry met it: once the row settles or runs again it no longer applies.
@@ -446,7 +473,12 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
         continue;
       result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...rowFields(attempt.status, attempt.txId) });
     }
-    const built = [...result.values()];
+    const built = [...result.values()].map(item => {
+      if (originByTx?.key !== key || !item.txId || (item.status !== 'claiming' && item.status !== 'failed'))
+        return item;
+      const match = originByTx.values.get(item.txId);
+      return match?.noteId === item.note.id ? { ...item, initiatingDappOrigin: match.origin } : item;
+    });
     // Each card's Accept claims its note alone, after whatever is already queued.
     const gated = built.filter(
       item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true
@@ -475,6 +507,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     failedClaims,
     submissionByTx,
     holdByTx,
+    originByTx,
     key,
     retryErrors,
     balances,

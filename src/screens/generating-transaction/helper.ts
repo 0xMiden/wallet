@@ -290,6 +290,7 @@ export const getStageTitleKey = (stage?: ITransactionStage, type?: ITransactionT
   if (type === 'execute') return 'transactionStageExecuting';
   if (type === 'switch-guardian') return 'transactionStageSwitching';
   if (type === 'swap') return 'transactionStageSwapping';
+  if (type === 'register-name') return 'transactionStageRegisteringName';
   return 'transactionStageSending';
 };
 
@@ -318,5 +319,6 @@ export const getProcessingTitleKey = (type?: ITransactionType, tx?: ITransaction
   if (nearIntentsSendTracking(tx) !== undefined) return 'transactionTitleSend';
   if (type === 'send') return 'transactionTitleSend';
   if (type === 'swap') return 'transactionTitleSwap';
+  if (type === 'register-name') return 'transactionTitleRegisterName';
   return 'generatingTransaction';
 };

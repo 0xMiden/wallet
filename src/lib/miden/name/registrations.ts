@@ -1,9 +1,5 @@
 /**
- * Read model of the Miden Name registrations.
- *
- * The record of a registration is its `register-name` transaction row (see
- * `IRegisterNameExtraInputs`). The functions here only read these rows. The
- * tracker (`tracker.ts`) writes the phase.
+ * Read Miden Name registrations and bind an exact consume to a failed delivery claim.
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -12,6 +8,9 @@ import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
   IRegisterNameExtraInputs,
+  isLiveTransaction,
+  type IConsumeMidenNameExtraInputs,
+  type IMidenNameClaimLink,
   ITransaction,
   ITransactionStatus,
   type MidenNameFailure,
@@ -22,6 +21,7 @@ import { awaitingVerdict } from 'lib/miden/transaction/verdict-rules';
 import { getEffectiveNetworkName, subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 
 import { isMidenNameSupported } from './config';
+import { normalizeMidenNameInput } from './encoding';
 
 export type { MidenNameFailure, MidenNamePhase };
 
@@ -78,6 +78,75 @@ export function uiStateOf(phase: MidenNamePhase): MidenNameUiState {
 export function isLiveRegistrationRow(row: ITransaction, network: string = getEffectiveNetworkName()): boolean {
   const inputs = registerNameInputsOf(row);
   return inputs !== undefined && row.restoredFromBackup !== true && inputs.network === network;
+}
+
+export function claimForNote(row: ITransaction, noteId: string): IMidenNameClaimLink | undefined {
+  const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = row.extraInputs;
+  const normalized = noteId.toLowerCase();
+  const byNote = inputs?.midenNameClaims?.[normalized];
+  if (byNote) return byNote;
+  if ((row.noteIds?.length ?? 0) <= 1) return inputs?.midenNameClaim;
+  if (inputs?.midenNameClaim && row.noteId?.toLowerCase() === normalized) return inputs.midenNameClaim;
+  return undefined;
+}
+
+export async function bindMidenNameClaimRegistration(
+  registerId: string,
+  consumeId: string,
+  mode: 'manual' | 'completed'
+): Promise<boolean> {
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const consume = await Repo.transactions.where({ id: consumeId }).first();
+    let written = false;
+    await Repo.transactions.where({ id: registerId }).modify(row => {
+      const inputs = registerNameInputsOf(row);
+      if (
+        row.id !== registerId ||
+        !isLiveRegistrationRow(row) ||
+        row.status !== ITransactionStatus.Completed ||
+        inputs?.phase !== 'failed' ||
+        inputs.failure !== 'claim-failed' ||
+        !inputs.deliveryNoteId ||
+        consume?.id !== consumeId ||
+        consume.type !== 'consume' ||
+        consume.restoredFromBackup ||
+        !compareAccountIds(row.accountId, consume.accountId)
+      ) {
+        return false;
+      }
+
+      const deliveryNoteId = inputs.deliveryNoteId.toLowerCase();
+      const noteIds = consume.noteIds?.length ? consume.noteIds : [consume.noteId];
+      if (!noteIds.some(id => id?.toLowerCase() === deliveryNoteId)) return false;
+      const link = claimForNote(consume, deliveryNoteId);
+      if (
+        link?.registerTxId !== registerId ||
+        normalizeMidenNameInput(link.label) !== normalizeMidenNameInput(inputs.label)
+      ) {
+        return false;
+      }
+
+      const completed = consume.status === ITransactionStatus.Completed;
+      if (mode === 'completed') {
+        if (!completed || inputs.claimTxId !== consumeId) return false;
+      } else if (!completed && !isLiveTransaction(consume) && !awaitingVerdict(consume)) {
+        return false;
+      }
+
+      const next: IRegisterNameExtraInputs = {
+        ...inputs,
+        phase: completed ? 'owned' : 'claiming',
+        phaseUpdatedAt: Date.now(),
+        claimTxId: consumeId
+      };
+      delete next.failure;
+      delete next.lastError;
+      row.extraInputs = next;
+      written = true;
+      return undefined;
+    });
+    return written;
+  });
 }
 
 function newestFirst(a: ITransaction, b: ITransaction): number {

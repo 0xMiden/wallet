@@ -15,7 +15,9 @@
 
 import { NoteScript, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
+import { bindMidenNameClaimRegistration } from 'lib/miden/name/registrations';
 import * as Repo from 'lib/miden/repo';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
@@ -47,6 +49,7 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   IBridgeClaimStatus,
+  ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -1102,6 +1105,108 @@ describe('completeConsumeTransaction', () => {
     expect(consumeRow.displayMessage).toBe('Name received');
     expect(consumeRow.amount).toBeUndefined();
     expect(registerRow.extraInputs.phase).toBe('owned');
+  });
+
+  function failedNameClaim() {
+    const registration = {
+      id: 'reg-1',
+      type: 'register-name',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 90,
+      extraInputs: {
+        network: getEffectiveNetworkName(),
+        label: 'alice',
+        phase: 'failed',
+        phaseUpdatedAt: 1,
+        failure: 'claim-failed',
+        lastError: 'interrupted',
+        deliveryNoteId: '0xdelivery',
+        claimTxId: 'tx-1',
+        claimAttempts: 2
+      }
+    };
+    const consume: ITransaction = {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: registration.accountId,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      displayIcon: 'RECEIVE',
+      noteId: '0xDELIVERY',
+      extraInputs: { midenNameClaim: { label: 'Alice.miden', registerTxId: registration.id } }
+    };
+    return { registration, consume };
+  }
+
+  it('recovers an exact linked failed Miden Name claim when its existing consume completes', async () => {
+    const { registration, consume } = failedNameClaim();
+    txStore.push(registration, consume);
+
+    await completeConsumeTransaction(consume.id, nonFungibleResult());
+
+    expect(consume.status).toBe(ITransactionStatus.Completed);
+    expect(registration.extraInputs).toMatchObject({ phase: 'owned', claimAttempts: 2, claimTxId: 'tx-1' });
+    expect(registration.extraInputs).not.toHaveProperty('failure');
+    expect(registration.extraInputs).not.toHaveProperty('lastError');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('owned');
+  });
+
+  it('only binds a queued consume on manual retry', async () => {
+    const { registration, consume } = failedNameClaim();
+    consume.status = ITransactionStatus.Queued;
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'completed')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('failed');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(true);
+    expect(registration.extraInputs).toMatchObject({ phase: 'claiming', claimAttempts: 2, claimTxId: consume.id });
+  });
+
+  it('requires the existing claim id for automatic recovery of a completed consume', async () => {
+    const { registration, consume } = failedNameClaim();
+    registration.extraInputs.claimTxId = 'older';
+    consume.status = ITransactionStatus.Completed;
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'completed')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('failed');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(true);
+    expect(registration.extraInputs).toMatchObject({ phase: 'owned', claimTxId: consume.id });
+  });
+
+  it.each([
+    ['different account', { accountId: 'acc-2' }],
+    ['missing note membership', { noteId: '0xother' }],
+    ['batch excludes the legacy scalar', { noteIds: ['0xother'] }],
+    ['different label', { extraInputs: { midenNameClaim: { label: 'bob', registerTxId: 'reg-1' } } }],
+    ['different registration', { extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-2' } } }],
+    ['failed without pending verdict', { status: ITransactionStatus.Failed }],
+    ['restored consume', { restoredFromBackup: true }],
+    [
+      'batch link belongs to another note',
+      {
+        noteId: '0xa',
+        noteIds: ['0xa', '0xb', '0xdelivery'],
+        extraInputs: { midenNameClaims: { '0xb': { label: 'alice', registerTxId: 'reg-1' } } }
+      }
+    ]
+  ] as const)('refuses a failed Miden Name claim binding with %s', async (_reason, overrides) => {
+    const { registration, consume } = failedNameClaim();
+    txStore.push(registration, { ...consume, ...overrides });
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs).toMatchObject({ phase: 'failed', failure: 'claim-failed', claimTxId: 'tx-1' });
+  });
+
+  it('does not reopen a non-retryable registration failure', async () => {
+    const { registration, consume } = failedNameClaim();
+    registration.extraInputs.failure = 'taken';
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs).toMatchObject({ phase: 'failed', failure: 'taken' });
   });
 
   it('completes a Miden Name claim even when the register row is missing', async () => {
