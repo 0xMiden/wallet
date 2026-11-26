@@ -40,12 +40,6 @@ on:
         required: false
         default: false
         type: boolean
-  # TEMPORARY, remove before this pull request merges. GitHub can dispatch a workflow
-  # only when its file is on the default branch, so this trigger is the only way to
-  # run the suite in CI before the merge. It runs every area with the long holds off.
-  # No `branches:` filter: release-workflows.test.ts refuses one on a pull request gate.
-  # The `if:` on the build job limits the run to this suite's own pull request.
-  pull_request:
 
 permissions:
   contents: read
@@ -59,8 +53,6 @@ concurrency:
 jobs:
   build:
     name: Build extension (testnet)
-    # TEMPORARY, with the pull_request trigger: only this suite's own pull request runs it.
-    if: github.event_name != 'pull_request' || github.head_ref == 'utk-multi-device-e2e'
     runs-on: warp-ubuntu-latest-x64-8x
     # About 15 minutes. A dispatch from a pull request's branch can first build a
     # linked web-sdk PR from source (about 20 minutes on this runner). Only a
@@ -127,8 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # An event with no `suite` input (the temporary pull_request trigger) runs every area.
-        area: ${{ fromJSON((inputs.suite == 'all' || inputs.suite == '') && '["roles","claims","backup","swap"]' || format('["{0}"]', inputs.suite)) }}
+        area: ${{ fromJSON(inputs.suite == 'all' && '["roles","claims","backup","swap"]' || format('["{0}"]', inputs.suite)) }}
     env:
       E2E_NETWORK: testnet
       E2E_MULTI_DEVICE_LONG_HOLDS: ${{ inputs.long_holds && 'true' || 'false' }}
