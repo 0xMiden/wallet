@@ -10207,7 +10207,7 @@
     "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Cüzdanınızla ilgili gönderme, takas etme, köprüleme, kazanç elde etme veya soru sorma işlemlerini gerçekleştirin...",
+    "message": "Cüzdanınızla ilgili gönderme, takas etme, köprüleme, kazanç elde etme veya soru sorma işlemleri...",
     "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
@@ -10324,7 +10324,7 @@
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Bu çift için swap şu anda kullanılamıyor.",
+    "message": "Bu ikili için swap şu anda kullanılamıyor.",
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {

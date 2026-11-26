@@ -189,8 +189,7 @@ export const NetworkId = {
 };
 
 export const Address = {
-  fromAccountId: jest.fn(),
-  fromBech32: jest.fn()
+  fromAccountId: jest.fn()
 };
 
 // ---- Note building (register note) ----

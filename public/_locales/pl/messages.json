@@ -10326,7 +10326,7 @@
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap nie jest obecnie dostępny dla tej pary walutowej.",
+    "message": "Wymiana dla tej pary walut nie jest obecnie dostępna.",
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
@@ -10342,7 +10342,7 @@
     "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "Ta czynność nie jest tutaj obsługiwana. Spróbuj skorzystać z opcji „Wyślij”, „Wymień”, „Przekaż”, „Zarabiaj” lub zadaj pytanie dotyczące portfela.",
+    "message": "Ta czynność nie jest tutaj obsługiwana. Spróbuj skorzystać z opcji „Wyślij”, „Wymień”, „Przenieś”, „Zarabiaj” lub zadaj pytanie dotyczące portfela.",
     "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
@@ -10467,7 +10467,7 @@
     "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Wpłać 1 ETH i wymień je na USDCx",
+    "message": "Wpłać 1 ETH i zamień je na USDCx",
     "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {

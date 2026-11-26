@@ -10334,7 +10334,7 @@
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "En este momento no hay bóvedas ni posiciones de «Earn» disponibles.",
+    "message": "En este momento no hay bóvedas ni posiciones de Earn disponibles.",
     "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
@@ -10370,7 +10370,7 @@
     "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Total de casaciones",
+    "message": "Total de emparejamientos",
     "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {

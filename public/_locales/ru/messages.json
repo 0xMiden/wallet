@@ -10342,7 +10342,7 @@
     "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "Данное действие здесь не поддерживается. Попробуйте воспользоваться функциями «Отправить», «Обмен», «Бридж», «Заработать» или задать вопрос, связанный с кошельком.",
+    "message": "Данное действие здесь не поддерживается. Попробуйте воспользоваться функциями «Отправить», «Обмен», «Бридж», «Заработать» или задать вопрос о кошельке.",
     "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {

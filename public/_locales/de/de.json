@@ -2241,7 +2241,7 @@
   "commandAiEarnUnavailable": "Derzeit sind keine „Earn“-Tresore oder -Positionen verfügbar.",
   "commandAiFiatPriceUnavailable": "Der aktuelle USD-Kurs ist für diesen Token nicht verfügbar. Geben Sie einen Token-Betrag ein.",
   "commandAiInvalidModelOutput": "Diese Anfrage konnte nicht sicher überprüft werden. Versuchen Sie es mit einer anderen Formulierung oder nutzen Sie eines der untenstehenden Formulare.",
-  "commandAiUnsupported": "Diese Aktion wird hier nicht unterstützt. Versuchen Sie es mit „Senden“, „Swap“, „Bridge“, „Verdienen“ oder einer Frage zur Wallet.",
+  "commandAiUnsupported": "Diese Aktion wird hier nicht unterstützt. Versuchen Sie es mit „Senden“, „Swap“, „Bridge“, „Earn“ oder einer Frage zur Wallet.",
   "commandAiNoActiveDraft": "Es gibt nichts Aktives zu aktualisieren. Geben Sie einen vollständigen Befehl ein.",
   "commandAiUnconfigured": "Der KI-Proxy ist nicht konfiguriert. Legen Sie einen Endpunkt fest oder verwenden Sie die Aktionsleiste unten.",
   "commandAiServiceUnavailable": "Der KI-Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es erneut oder nutzen Sie eines der untenstehenden Formulare.",

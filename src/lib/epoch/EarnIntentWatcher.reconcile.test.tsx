@@ -165,6 +165,7 @@ describe('EarnIntentWatcher local reconciliation', () => {
     'leaves a restored %s withdrawal whose poll key is owned as it was restored',
     async phase => {
       jest.useRealTimers();
+      jest.spyOn(Date, 'now').mockReturnValue(NOW_SECONDS * 1000);
       const row = withdrawal('restored', { phase });
       row.restoredFromBackup = true;
       row.status = ITransactionStatus.Failed;

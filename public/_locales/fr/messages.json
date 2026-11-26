@@ -10246,7 +10246,7 @@
     "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "À qui souhaitez-vous envoyer ce message ?",
+    "message": "À qui souhaitez-vous envoyer ?",
     "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {
@@ -10289,7 +10289,7 @@
     "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Indiquez une adresse de destinataire ou un nom de contact.",
+    "message": "Précisez une adresse de destinataire ou un nom de contact.",
     "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
@@ -10318,7 +10318,7 @@
     "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "De quelle position « Earn » souhaitez-vous effectuer un retrait ?",
+    "message": "De quelle position Earn souhaitez-vous effectuer un retrait ?",
     "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
@@ -10431,7 +10431,7 @@
     "englishSource": "Confirm this step in the dialog below, then advance."
   },
   "commandAiPlanStepSubmitted": {
-    "message": "Étape soumise ! Prêt pour l’étape suivante.",
+    "message": "Étape validée ! Prêt pour la prochaine étape.",
     "englishSource": "Step submitted! Ready for the next step."
   },
   "commandAiPlanCompletedTitle": {

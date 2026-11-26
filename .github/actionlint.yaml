@@ -3,6 +3,7 @@ self-hosted-runner:
     - warp-ubuntu-latest-arm64-2x
     - warp-ubuntu-latest-arm64-8x
     - warp-ubuntu-latest-x64-8x
+    - warp-ubuntu-2404-x64-16x
     # GitHub-hosted images with Xcode 27. actionlint 1.7.12 does not know these labels.
     - xcode-27
     - xcode-27-xlarge

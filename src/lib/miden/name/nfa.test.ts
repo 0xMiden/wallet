@@ -18,7 +18,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: { getAccount: jest.fn() } }));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: jest.fn(),
+  walletAccountIdToSdk:
+    jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers').walletAccountIdToSdk,
   getBech32AddressFromAccountId: jest.fn(),
   randomFeeSalt: jest.fn()
 }));

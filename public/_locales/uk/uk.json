@@ -2222,7 +2222,7 @@
   "midenNetworkName": "Miden $network$",
   "loginSignatureTitle": "Це лише входить у систему",
   "commandAiBarLabel": "Помічник з команд",
-  "commandAiPlaceholder": "Надсилайте, обмінюйте, переказуйте, заробляйте або запитуйте про свій гаманець...",
+  "commandAiPlaceholder": "Надсилайте, обмінюйте, використовуйте міст, заробляйте або запитуйте про свій гаманець...",
   "commandAiSendButton": "Run",
   "commandAiWorking": "Думаю...",
   "commandAiExpand": "Розгорнути до багаторядкового",
@@ -2244,7 +2244,7 @@
   "commandAiChooseSwapTarget": "Який токен ви хочете отримати?",
   "commandAiChooseEarnVault": "У яке сховище Earn ви хочете внести кошти?",
   "commandAiChooseEarnPosition": "З якої позиції Earn ви хочете зняти кошти?",
-  "commandAiBridgeUnavailable": "Наразі відповідний маршрут перекладу відсутній.",
+  "commandAiBridgeUnavailable": "Наразі відповідний маршрут перекладу недоступний.",
   "commandAiSwapUnavailable": "Обмін для цієї пари наразі недоступний.",
   "commandAiEarnUnavailable": "Наразі сховища та позиції Earn недоступні.",
   "commandAiFiatPriceUnavailable": "Актуальна ціна в доларах США для цього токена недоступна. Введіть суму токена.",
@@ -2280,6 +2280,6 @@
   "commandAiSamplePrompt2": "Переведіть 1 ETH і обміняйте його на USDCx",
   "commandAiSamplePrompt3": "Підсумуйте мою активність за останній тиждень",
   "commandAiSamplePrompt4": "Заробіть 10 USDCx найефективнішим способом",
-  "commandAiSamplePrompt5": "Переведіть 1 ETH, обміняйте на USDCx і покладіть у сховище з найвищим доходом",
+  "commandAiSamplePrompt5": "Переведіть 1 ETH, обміняйте на USDCx і покладіть у сховище з найвищим прибутком",
   "commandAiSamplePrompt6": "Скільки USDCx я надіслав цього місяця?"
 }

@@ -10358,7 +10358,7 @@
     "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "O serviço de IA está temporariamente indisponível. Tente novamente ou use um dos formulários abaixo.",
+    "message": "O serviço de IA está temporariamente indisponível. Tente novamente ou use o formulário abaixo.",
     "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {

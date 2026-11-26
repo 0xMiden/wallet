@@ -27,6 +27,7 @@ import {
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import type { TokenPrices } from 'lib/prices';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
 import { BreadMascot, type BreadMascotMood } from './BreadMascot';
@@ -244,6 +245,7 @@ export function CommandAiBar({
   const [expanded, setExpanded] = useState(false);
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState<AiBarState>({ kind: 'idle' });
+  useUserVisibleError(state.kind === 'error' ? 'raw_command_ai_failed' : null, 'inline');
   const [turns, setTurns] = useState<BarTurn[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
 

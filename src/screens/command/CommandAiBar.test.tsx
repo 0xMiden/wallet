@@ -8,6 +8,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { WalletStatus, type WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -22,6 +23,8 @@ jest.mock('react-i18next', () => ({
     t: (key: string, values?: Record<string, string>) => (values ? `${key} ${Object.values(values).join(' ')}` : key)
   })
 }));
+
+jest.mock('lib/telemetry/use-user-visible-error', () => ({ useUserVisibleError: jest.fn() }));
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
@@ -417,6 +420,7 @@ describe('CommandAiBar', () => {
 
     const alert = await screen.findByTestId('command-ai-error');
     expect(alert.textContent).toContain('commandAiInvalidModelOutput');
+    expect(useUserVisibleError).toHaveBeenLastCalledWith('raw_command_ai_failed', 'inline');
     expect(executeLocalLedgerQuery).not.toHaveBeenCalled();
   });
 

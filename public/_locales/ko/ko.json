@@ -2265,7 +2265,7 @@
   "commandAiAssistantName": "Bread Assistant",
   "commandAiPlanTitle": "실행 계획",
   "commandAiPlanProgress": "$total$ 단계 중 $current$ 단계",
-  "commandAiPlanStepLabel": "$num$단계",
+  "commandAiPlanStepLabel": "$num$ 단계",
   "commandAiPlanStatusActive": "활성",
   "commandAiPlanStatusPending": "다음 내용",
   "commandAiPlanStatusDone": "완료",
@@ -2278,10 +2278,10 @@
   "commandAiPlanStop": "중지",
   "commandAiPlanMaxAmount": "Max",
   "commandAiPlanPreviousOutput": "이전 출력",
-  "commandAiSamplePrompt1": "John에게 10 USDCx를 보내세요",
+  "commandAiSamplePrompt1": "John에게 USDCx 10을 보내세요",
   "commandAiSamplePrompt2": "1 ETH를 입금하고 USDCx로 스왑하세요",
-  "commandAiSamplePrompt3": "지난주 내 활동을 요약해 주세요",
-  "commandAiSamplePrompt4": "10 USDCx를 가장 효율적인 방식으로 수익 창출하기",
+  "commandAiSamplePrompt3": "지난주 내 활동 요약",
+  "commandAiSamplePrompt4": "10 USDCx를 가장 효율적인 방법으로 수익 창출하기",
   "commandAiSamplePrompt5": "1 ETH를 브리지하여 USDCx로 스왑한 후, 최고 수익 금고에 예치하세요.",
   "commandAiSamplePrompt6": "이번 달에 USDCx를 얼마나 보냈나요?"
 }

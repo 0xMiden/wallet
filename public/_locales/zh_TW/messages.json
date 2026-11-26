@@ -10322,11 +10322,11 @@
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "該交易對目前無法進行交換。",
+    "message": "該交易對目前暫不提供交換服務。",
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "目前沒有任何「Earn」金庫或持倉可用。",
+    "message": "目前沒有任何「Earn」金庫或倉位可用。",
     "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
@@ -10350,7 +10350,7 @@
     "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI 服務暫時無法使用。請稍後重試，或使用下方的表單。",
+    "message": "AI 服務暫時無法使用。請稍後重試或使用下方的表單。",
     "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {
