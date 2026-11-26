@@ -2367,6 +2367,7 @@
   "depositFlowConnectWalletInstead": "Zamiast tego podłącz portfel",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Epoka",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Około 30 minut",
   "depositFlowArrivesEpoch": "Około 2 minuty",
   "depositFlowStartFailedTitle": "Most nie został uruchomiony",

@@ -2367,6 +2367,7 @@
   "depositFlowConnectWalletInstead": "Connectez plutôt un portefeuille",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Époque",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Environ 30 minutes",
   "depositFlowArrivesEpoch": "Environ 2 minutes",
   "depositFlowStartFailedTitle": "Le pont n’a pas démarré",

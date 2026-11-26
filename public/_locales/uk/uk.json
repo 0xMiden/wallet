@@ -2369,6 +2369,7 @@
   "depositFlowConnectWalletInstead": "Підключіть гаманець замість цього",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Епоха",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Приблизно 30 хвилин",
   "depositFlowArrivesEpoch": "Приблизно 2 хвилини",
   "depositFlowStartFailedTitle": "Міст не запустився",

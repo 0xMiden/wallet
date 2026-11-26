@@ -2371,6 +2371,7 @@
   "depositFlowConnectWalletInstead": "대신 지갑을 연결하세요",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "에포크",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "약 30분",
   "depositFlowArrivesEpoch": "약 2분",
   "depositFlowStartFailedTitle": "브릿지는 시작되지 않았습니다",

@@ -2368,6 +2368,7 @@
   "depositFlowConnectWalletInstead": "Bunun yerine bir cüzdan bağlayın",
   "depositFlowRouteAgglayer": "Agglayer",
   "depositFlowRouteEpoch": "Epoch",
+  "depositFlowRouteCircle": "Circle xReserve",
   "depositFlowArrivesAgglayer": "Yaklaşık 30 dakika",
   "depositFlowArrivesEpoch": "Yaklaşık 2 dakika",
   "depositFlowStartFailedTitle": "Köprü çalışmaya başlamadı",

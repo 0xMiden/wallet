@@ -10928,6 +10928,10 @@
     "message": "纪元",
     "englishSource": "Epoch"
   },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
+  },
   "depositFlowArrivesAgglayer": {
     "message": "约 30 分钟",
     "englishSource": "About 30 minutes"
