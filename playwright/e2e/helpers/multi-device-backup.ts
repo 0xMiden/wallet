@@ -19,6 +19,7 @@ import type { Page } from '@playwright/test';
 import { createHash } from 'crypto';
 
 import { walletDiscoveredNativeFaucetId } from './balance-truth';
+import { type TxStatusName, txStatusName } from './history';
 import { dismissTelemetryConsent } from './telemetry-consent';
 import { isRecord } from '../../../src/lib/update/guards';
 import type { GuardianAwareWalletPage } from '../fixtures/multi-device';
@@ -484,24 +485,10 @@ export async function waitForGuardianHistoryPass(wallet: GuardianAwareWalletPage
 
 // ── Transaction history ─────────────────────────────────────────────────────
 
-export type HistoryStatusName = 'Queued' | 'GeneratingTransaction' | 'Completed' | 'Failed' | 'Unconfirmed';
+export type HistoryStatusName = TxStatusName;
 
-function statusName(status: number | null): HistoryStatusName | null {
-  switch (status) {
-    case 0:
-      return 'Queued';
-    case 1:
-      return 'GeneratingTransaction';
-    case 2:
-      return 'Completed';
-    case 3:
-      return 'Failed';
-    case 4:
-      return 'Unconfirmed';
-    default:
-      return null;
-  }
-}
+const statusName = (status: number | null): HistoryStatusName | null =>
+  status === null ? null : (txStatusName(status) ?? null);
 
 /** One Dexie transaction row as the in-page read returns it. */
 export interface RawTransactionRow {

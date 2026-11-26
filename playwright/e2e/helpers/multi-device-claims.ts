@@ -19,7 +19,7 @@
  */
 import type { Page, Request } from '@playwright/test';
 
-import type { HistoryStatus } from './multi-device';
+import { type TxStatusName, txStatusName } from './history';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
@@ -72,7 +72,7 @@ export function namesNote(noteIds: readonly string[], noteId: string): boolean {
 
 // ── Transaction rows ────────────────────────────────────────────────────────
 
-export type ClaimRowStatus = HistoryStatus | 'Unknown';
+export type ClaimRowStatus = TxStatusName | 'Unknown';
 
 /** One row of the wallet's `transactions` store, with the fields the claim rules read. */
 export interface ClaimRow {
@@ -199,23 +199,7 @@ const readRawClaimRowsInPage = async (): Promise<RawClaimRow[]> => {
   }
 };
 
-/** `ITransactionStatus` in src/lib/miden/db/types.ts. */
-export function claimRowStatus(code: number): ClaimRowStatus {
-  switch (code) {
-    case 0:
-      return 'Queued';
-    case 1:
-      return 'GeneratingTransaction';
-    case 2:
-      return 'Completed';
-    case 3:
-      return 'Failed';
-    case 4:
-      return 'Unconfirmed';
-    default:
-      return 'Unknown';
-  }
-}
+export const claimRowStatus = (code: number): ClaimRowStatus => txStatusName(code) ?? 'Unknown';
 
 const READ_ATTEMPTS = 5;
 

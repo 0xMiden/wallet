@@ -15,6 +15,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import { ensureFeeFunded } from './fee-funding';
+import { type TxStatusName, txStatusName } from './history';
 import type { MidenCli } from './miden-cli';
 import { PASSWORD, type DeviceRole, type GuardianAuthInfo, type RecoveryPhrasePromptPolicy } from './wallet-page';
 import { isRecord } from '../../../src/lib/update/guards';
@@ -553,16 +554,7 @@ export async function assertBackupReachesWalletApi(
 
 // ── Transaction history ─────────────────────────────────────────────────────
 
-/** `ITransactionStatus` in src/lib/miden/db/types.ts. */
-export type HistoryStatus = 'Queued' | 'GeneratingTransaction' | 'Completed' | 'Failed' | 'Unconfirmed';
-
-const STATUS_NAMES: Record<number, HistoryStatus> = {
-  0: 'Queued',
-  1: 'GeneratingTransaction',
-  2: 'Completed',
-  3: 'Failed',
-  4: 'Unconfirmed'
-};
+export type HistoryStatus = TxStatusName;
 
 export interface HistoryRow {
   id: string;
@@ -597,7 +589,7 @@ const optionalString = (value: unknown): string | undefined => (typeof value ===
 
 function toHistoryRow(raw: unknown): HistoryRow | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.status !== 'number') return null;
-  const status = STATUS_NAMES[raw.status];
+  const status = txStatusName(raw.status);
   if (status === undefined) return null;
   const noteIds = Array.isArray(raw.noteIds) ? raw.noteIds.filter((id): id is string => typeof id === 'string') : [];
   const noteId = optionalString(raw.noteId);

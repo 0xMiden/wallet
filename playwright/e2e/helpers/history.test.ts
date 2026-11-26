@@ -2,12 +2,30 @@
  * @jest-environment node
  */
 import 'fake-indexeddb/auto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
-import { describeTransactionRow, readTransactionRowsInPage, TxStatus } from './history';
+import { describeTransactionRow, readTransactionRowsInPage, TxStatus, txStatusName } from './history';
 
 it('names the Unconfirmed status instead of printing its number', () => {
   expect(TxStatus.Unconfirmed).toBe(4);
   expect(describeTransactionRow({ id: 'r1', status: 4 })).toContain(' Unconfirmed ');
+});
+
+it('is the only status-name lookup', () => {
+  expect([0, 1, 2, 3, 4, 9].map(txStatusName)).toEqual([
+    'Queued',
+    'GeneratingTransaction',
+    'Completed',
+    'Failed',
+    'Unconfirmed',
+    undefined
+  ]);
+  expect(describeTransactionRow({ id: 'r1', status: 9 })).toContain('status=9');
+  expect(describeTransactionRow({ id: 'r1' })).toContain('no-status');
+  for (const file of ['multi-device', 'multi-device-backup', 'multi-device-claims', 'multi-device-swap']) {
+    expect(readFileSync(join(__dirname, `${file}.ts`), 'utf8')).not.toMatch(/return 'Queued'|0: 'Queued'/);
+  }
 });
 
 describe('readTransactionRowsInPage', () => {

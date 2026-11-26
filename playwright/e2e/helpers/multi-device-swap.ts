@@ -19,6 +19,7 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import { txStatusName } from './history';
 import type { MidenCli } from './miden-cli';
 import { describeRows, type HistoryRow, type HistoryStatus, readHistory, requestBackupRefresh } from './multi-device';
 import {
@@ -205,23 +206,7 @@ export function judgePaybackSample(sample: PaybackSample): PaybackVerdict {
   return { held, violations };
 }
 
-/** `ITransactionStatus` in src/lib/miden/db/types.ts. */
-export function statusName(status: number): HistoryStatus | undefined {
-  switch (status) {
-    case 0:
-      return 'Queued';
-    case 1:
-      return 'GeneratingTransaction';
-    case 2:
-      return 'Completed';
-    case 3:
-      return 'Failed';
-    case 4:
-      return 'Unconfirmed';
-    default:
-      return undefined;
-  }
-}
+export const statusName = (status: number): HistoryStatus | undefined => txStatusName(status);
 
 // ── Extension storage reads ────────────────────────────────────────────────
 

@@ -36,13 +36,20 @@ export const TxStatus = {
 
 export type TxStatusValue = (typeof TxStatus)[keyof typeof TxStatus];
 
-const TX_STATUS_NAME: Record<number, string> = {
-  0: 'Queued',
-  1: 'GeneratingTransaction',
-  2: 'Completed',
-  3: 'Failed',
-  4: 'Unconfirmed'
+export type TxStatusName = keyof typeof TxStatus;
+
+const TX_STATUS_NAME: Record<TxStatusValue, TxStatusName> = {
+  [TxStatus.Queued]: 'Queued',
+  [TxStatus.GeneratingTransaction]: 'GeneratingTransaction',
+  [TxStatus.Completed]: 'Completed',
+  [TxStatus.Failed]: 'Failed',
+  [TxStatus.Unconfirmed]: 'Unconfirmed'
 };
+
+/** The name of a persisted status code, or undefined for a code that is not an `ITransactionStatus`. */
+export function txStatusName(status: number): TxStatusName | undefined {
+  return (TX_STATUS_NAME as Record<number, TxStatusName | undefined>)[status];
+}
 
 /** Mirror of `USER_CANCELLED_TRANSACTION_REASON` (src/lib/miden/transaction/constants.ts). */
 export const USER_CANCELLED_REASON = 'Transaction was cancelled by user';
@@ -350,7 +357,7 @@ export async function readTransactionRow(page: Page, rowId: string): Promise<Tra
 
 /** Compact one-line rendering of a row, for timeout diagnostics. */
 export function describeTransactionRow(row: TransactionRowSnapshot): string {
-  const status = row.status === undefined ? 'no-status' : (TX_STATUS_NAME[row.status] ?? `status=${row.status}`);
+  const status = row.status === undefined ? 'no-status' : (txStatusName(row.status) ?? `status=${row.status}`);
   return (
     `${row.id} type=${row.type ?? '?'} ${status} amount=${row.amount ?? '-'} ` +
     `to=${row.secondaryAccountId ?? '-'} txHash=${row.transactionId ?? '-'} ` +
@@ -403,7 +410,7 @@ export async function waitForSendRow(page: Page, query: SendRowQuery): Promise<T
   throw new Error(
     `waitForSendRow timed out after ${timeoutMs}ms.\n` +
       `  wanted: type=send to=${query.recipient} amount=${wantAmount} ` +
-      `status=${TX_STATUS_NAME[query.status]}` +
+      `status=${txStatusName(query.status)}` +
       `${query.requireTransactionId ? ' with an on-chain transactionId' : ''}\n` +
       `  send rows present (${seen.length}):\n` +
       (seen.length === 0 ? '    (none)\n' : seen.map(row => `    ${describeTransactionRow(row)}\n`).join(''))
@@ -585,7 +592,7 @@ export function assertNeverStartedBuilding(
   const problems: string[] = [];
   if (row.status !== expectStatus) {
     problems.push(
-      `status is ${TX_STATUS_NAME[row.status ?? -1] ?? row.status} (wanted ${TX_STATUS_NAME[expectStatus]})`
+      `status is ${txStatusName(row.status ?? -1) ?? row.status} (wanted ${txStatusName(expectStatus)})`
     );
   }
   if (row.processingStartedAt !== undefined) problems.push(`processingStartedAt=${row.processingStartedAt} is set`);
