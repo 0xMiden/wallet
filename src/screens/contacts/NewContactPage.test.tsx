@@ -69,8 +69,17 @@ jest.mock('components/NetworkChip', () => ({
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
 let mockNetworkName = 'testnet';
+let mockRpcUrl = 'https://old.example';
+const mockEndpointListeners = new Set<() => void>();
 let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetworkName,
+  getEffectiveRpcUrl: () => mockRpcUrl,
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    mockEndpointListeners.add(listener);
+    return () => mockEndpointListeners.delete(listener);
+  }
+}));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
@@ -94,6 +103,7 @@ const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 beforeEach(() => {
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
   mockNetworkName = 'testnet';
+  mockRpcUrl = 'https://old.example';
   mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
@@ -138,6 +148,29 @@ describe('Miden Name contacts', () => {
     });
     expect(addContactMock).toHaveBeenCalledWith(
       expect.objectContaining({ address: 'mtst1goodbob', name: 'bob.miden' })
+    );
+  });
+
+  it('requires a fresh name resolution before saving after a same-network RPC change', async () => {
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    await finishLookup();
+    const save = screen.getByTestId('address-book-add-contact');
+    expect(save).toBeEnabled();
+
+    mockRpcUrl = 'https://new.example';
+    await act(async () => fireEvent.click(save));
+    expect(addContactMock).not.toHaveBeenCalled();
+
+    act(() => mockEndpointListeners.forEach(listener => listener()));
+    expect(save).toBeDisabled();
+    expect(screen.queryByTestId('contact-resolved-address')).not.toBeInTheDocument();
+
+    resolveNameMock.mockResolvedValue('mtst1goodnewbob');
+    await finishLookup();
+    await act(async () => fireEvent.click(save));
+    expect(addContactMock).toHaveBeenCalledWith(
+      expect.objectContaining({ address: 'mtst1goodnewbob', name: 'bob.miden' })
     );
   });
 

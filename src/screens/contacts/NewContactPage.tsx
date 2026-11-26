@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -20,6 +20,11 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { resolveMidenName } from 'lib/miden/name/resolver';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -33,6 +38,8 @@ import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 import { isContactAddressChain, useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
+
+const getRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), getEffectiveRpcUrl()]);
 
 /**
  * New contact, from Settings → Address Book: the address (typed, pasted or scanned), its network,
@@ -52,7 +59,7 @@ export const NewContactPage: React.FC = () => {
   // does not flash on every keystroke of an address still being typed.
   const [addressTouched, setAddressTouched] = useState(false);
   const [name, setName] = useState<string>();
-  const [nameLookup, setNameLookup] = useState<{ input: string; address?: string; error?: string }>();
+  const [nameLookup, setNameLookup] = useState<{ input: string; scope: string; address?: string; error?: string }>();
   const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
   const networks = useContactBridgeNetworks();
   const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
@@ -67,8 +74,9 @@ export const NewContactPage: React.FC = () => {
 
   const trimmedAddress = address.trim();
   const isMidenName = looksLikeMidenName(trimmedAddress);
-  const nameSupported = isMidenNameSupported();
-  const lookup = nameLookup?.input === trimmedAddress ? nameLookup : undefined;
+  const scope = useSyncExternalStore(subscribeEffectiveEndpoints, getRegistryScope, getRegistryScope);
+  const nameSupported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
+  const lookup = nameLookup?.input === trimmedAddress && nameLookup.scope === scope ? nameLookup : undefined;
   const resolving = isMidenName && nameSupported && !lookup?.address && !lookup?.error;
   const resolvedAddress = isMidenName ? (nameSupported ? (lookup?.address ?? '') : '') : trimmedAddress;
   const suggestedName = isMidenName && lookup?.address ? formatMidenName(normalizeMidenNameInput(trimmedAddress)) : '';
@@ -85,25 +93,27 @@ export const NewContactPage: React.FC = () => {
   useEffect(() => {
     if (!isMidenName || !nameSupported) return;
     const controller = new AbortController();
-    setNameLookup({ input: trimmedAddress });
+    setNameLookup({ input: trimmedAddress, scope });
     const timer = setTimeout(async () => {
       try {
         const result = await resolveMidenName(normalizeMidenNameInput(trimmedAddress), { signal: controller.signal });
         if (controller.signal.aborted) return;
         setNameLookup({
           input: trimmedAddress,
+          scope,
           address: result ?? undefined,
           error: result ? undefined : 'midenNameNotFound'
         });
       } catch {
-        if (!controller.signal.aborted) setNameLookup({ input: trimmedAddress, error: 'midenNameResolveFailed' });
+        if (!controller.signal.aborted)
+          setNameLookup({ input: trimmedAddress, scope, error: 'midenNameResolveFailed' });
       }
     }, 400);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [trimmedAddress, isMidenName, nameSupported]);
+  }, [trimmedAddress, isMidenName, nameSupported, scope]);
 
   const resolveOptionalErrorId = (key: string): UserErrorId | null => (isUserErrorId(key) ? key : null);
 
@@ -170,7 +180,7 @@ export const NewContactPage: React.FC = () => {
   };
 
   const save = async () => {
-    if (!canSave) return;
+    if (!canSave || (isMidenName && scope !== getRegistryScope())) return;
     setSaving(true);
     setSaveError(undefined);
     try {
