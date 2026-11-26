@@ -1,8 +1,8 @@
 import React from 'react';
 
-import { generateMnemonic } from '@miden/hd-key';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { generateMnemonic } from '@miden/hd-key';
 import { CommandAiClientError, compileCommandPrompt } from 'lib/command-ai/client';
 import { executeLocalLedgerQuery } from 'lib/command-ai/local-query';
 import type { AiCompilerOutput } from 'lib/command-ai/schema';
@@ -350,12 +350,12 @@ describe('CommandAiBar', () => {
         submit('What happens next?');
         expect(await screen.findByTestId('command-ai-error')).toHaveTextContent('commandAiServiceUnavailable');
 
-        if (transition === 'dismiss') {
-          fireEvent.click(within(clarification).getByRole('button', { name: 'close' }));
-        } else {
-          fireEvent.click(screen.getByTestId('command-ai-chip-testnet:agglayer:usdc:faucet-usdcx:receive'));
-          expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
-        }
+        const control =
+          transition === 'dismiss'
+            ? within(clarification).getByRole('button', { name: 'close' })
+            : screen.getByTestId('command-ai-chip-testnet:agglayer:usdc:faucet-usdcx:receive');
+        fireEvent.click(control);
+        expect(jest.mocked(navigate).mock.calls).toEqual(transition === 'select' ? [['/bridge/deposit']] : []);
         expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
       }
     );
