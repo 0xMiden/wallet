@@ -12,6 +12,8 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
+import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
+import { useActivityClaimList } from 'app/templates/history/useActivityClaimList';
 import { BasketComposition } from 'components/BasketComposition';
 import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
@@ -29,6 +31,7 @@ import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedC
 import { Skeleton } from 'components/ui/Skeleton';
 import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
+import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -89,13 +92,50 @@ const SectionDivider: FC = () => (
   <div aria-hidden="true" className="h-px shrink-0 bg-hairline" data-testid="token-detail-section-divider" />
 );
 
+/**
+ * The summed amount of one token's claim notes in the given states, each note once. A note whose
+ * scale is unknown has no honest amount, so it adds nothing and, if it is the only one, no line.
+ */
+function pendingTotal(
+  items: PendingActivityItem[],
+  statuses: PendingActivityStatus[]
+): { amount: string; symbol: string } | undefined {
+  const seen = new Set<string>();
+  let total = 0n;
+  let decimals = 0;
+  let symbol = '';
+  for (const { note, status } of items) {
+    if (!statuses.includes(status) || seen.has(note.id) || !hasKnownScale(note.metadata)) continue;
+    seen.add(note.id);
+    total += BigInt(note.amount);
+    decimals = note.metadata.decimals;
+    symbol = note.metadata.symbol;
+  }
+  if (seen.size === 0) return undefined;
+  return {
+    amount: formatAmountDisplay(total, {
+      decimals,
+      rounding: 'down',
+      minimumFractionDigits: 2,
+      trimTrailingZeros: false
+    }),
+    symbol
+  };
+}
+
 const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const allTokensMetadata = useAllTokensBaseMetadata();
-  const { data: balances, isLoading: balancesLoading } = useAllBalances(account.publicKey, allTokensMetadata);
+  const {
+    data: balances,
+    isLoading: balancesLoading,
+    readFailed: balanceReadFailed,
+    balanceReadInFlight
+  } = useAllBalances(account.publicKey, allTokensMetadata);
+  const { representedItems, listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'all');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
@@ -119,6 +159,17 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const scaleIsKnown = hasKnownScale(metadata);
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
+
+  // History hides the consume row of every represented note, so all of them go to it; only this
+  // token's cards are drawn on this page.
+  const isThisToken = (item: PendingActivityItem) =>
+    normalizedFaucetId(item.note.faucetId) === normalizedFaucetId(tokenId);
+  const drawnTokenPendingItems = listItems.filter(isThisToken);
+  const toClaim = pendingTotal(representedItems.filter(isThisToken), ['pending', 'failed']);
+  const claiming = pendingTotal(representedItems.filter(isThisToken), ['claiming']);
+  const hasClaimingNote = representedItems.some(item => isThisToken(item) && item.status === 'claiming');
+  // The amount stays the last confirmed one; this only says whether it is being refreshed or could not be.
+  const balanceState = balanceReadFailed ? 'stale' : balanceReadInFlight || hasClaimingNote ? 'updating' : undefined;
 
   const handleBack = () => goBack();
 
@@ -161,7 +212,15 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
             }
             value={
-              <TokenAmount amount={scaleIsKnown ? balance : null} animated rounding="down" trimTrailingZeros={false} />
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-caption font-normal text-muted">{t('available')}</span>
+                <TokenAmount
+                  amount={scaleIsKnown ? balance : null}
+                  animated
+                  rounding="down"
+                  trimTrailingZeros={false}
+                />
+              </div>
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
@@ -170,6 +229,27 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               ) : undefined
             }
           />
+
+          {(balanceState || toClaim || claiming) && (
+            // Pending amounts are their own lines, never added to Available.
+            <div className="-mt-3 flex flex-col items-center gap-1 text-caption text-muted">
+              {toClaim && (
+                <p data-testid="token-detail-pending-claim">
+                  {t('tokenDetailToClaim', { amount: toClaim.amount, symbol: toClaim.symbol })}
+                </p>
+              )}
+              {claiming && (
+                <p data-testid="token-detail-pending-claiming">
+                  {t('tokenDetailClaiming', { amount: claiming.amount, symbol: claiming.symbol })}
+                </p>
+              )}
+              {balanceState && (
+                <p role="status" data-testid="token-detail-balance-state">
+                  {balanceState === 'stale' ? t('tokenDetailBalanceStale') : t('tokenDetailBalanceUpdating')}
+                </p>
+              )}
+            </div>
+          )}
 
           {verification === 'unverified' && (
             // A token's name and logo are whatever its creator chose; only the list vouches for it. One
@@ -260,6 +340,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               // The section's heading names the list; each day is a quiet caption under it.
               dateStyle="caption"
               scrollParentRef={scrollParentRef}
+              pendingItems={representedItems}
+              drawnPendingItems={drawnTokenPendingItems}
+              renderPendingItem={renderPendingItem}
+              externalLoading={isLoadingNotes}
             />
           </section>
         </div>

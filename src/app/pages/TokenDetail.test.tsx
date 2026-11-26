@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -113,6 +114,23 @@ jest.mock('lib/miden/front', () => ({
   useAccount: () => mockUseAccount(),
   useAllBalances: (...args: unknown[]) => mockUseAllBalances(...args),
   useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata()
+}));
+
+// The shared claim state the Activity tab reads; the page only filters it to its own token.
+let mockActivityItems: PendingActivityItem[] = [];
+let mockActivityLoading = false;
+const mockUseActivityClaimList = jest.fn();
+const mockRenderPendingItem = (item: PendingActivityItem) => <span key={item.note.id}>{item.note.id}</span>;
+jest.mock('app/templates/history/useActivityClaimList', () => ({
+  useActivityClaimList: (...args: unknown[]) => {
+    mockUseActivityClaimList(...args);
+    return {
+      representedItems: mockActivityItems,
+      listItems: mockActivityItems,
+      renderPendingItem: mockRenderPendingItem,
+      isLoadingNotes: mockActivityLoading
+    };
+  }
 }));
 
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
@@ -248,14 +266,28 @@ jest.mock('components/UnverifiedTokenSheet', () => ({
 // TokenDetail forwards.
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
-  default: (props: { address: string; tokenId?: string; fullHistory?: boolean; dateStyle?: string }) => (
+  default: (props: {
+    address: string;
+    tokenId?: string;
+    fullHistory?: boolean;
+    dateStyle?: string;
+    pendingItems?: PendingActivityItem[];
+    drawnPendingItems?: PendingActivityItem[];
+    renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+    externalLoading?: boolean;
+  }) => (
     <div
       data-testid="history"
       data-address={props.address}
       data-token-id={props.tokenId}
       data-full-history={String(props.fullHistory)}
       data-date-style={props.dateStyle ?? ''}
-    />
+      data-pending-ids={props.pendingItems?.map(item => item.note.id).join(',') ?? ''}
+      data-drawn-pending-ids={props.drawnPendingItems?.map(item => item.note.id).join(',') ?? ''}
+      data-external-loading={String(props.externalLoading)}
+    >
+      {(props.drawnPendingItems ?? props.pendingItems ?? []).map(item => props.renderPendingItem?.(item))}
+    </div>
   )
 }));
 
@@ -397,6 +429,8 @@ type Overrides = {
   klineLoading?: boolean;
   /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
   explorerUrl?: string | null;
+  /** Fields `useAllBalances` reports beside the rows. */
+  balanceStatus?: { readFailed?: boolean; balanceReadInFlight?: boolean };
 };
 
 function configure(o: Overrides = {}) {
@@ -404,7 +438,8 @@ function configure(o: Overrides = {}) {
   mockIsMobile.mockReturnValue(o.isMobile ?? false);
   mockUseAccount.mockReturnValue({ publicKey: 'pk-123' });
   mockUseAllBalances.mockReturnValue({
-    data: o.balances === undefined ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }] : o.balances
+    data: o.balances === undefined ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }] : o.balances,
+    ...o.balanceStatus
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockWalletNetwork = o.network;
@@ -442,8 +477,28 @@ const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
   return render(<TokenDetail tokenId={tokenId} />);
 };
 
+const pendingItem = (
+  id: string,
+  faucetId: string,
+  status: PendingActivityItem['status'] = 'pending',
+  amount = '1500000'
+): PendingActivityItem => ({
+  note: {
+    id,
+    faucetId,
+    amount,
+    senderAddress: 'mtst1sender',
+    isBeingClaimed: false,
+    type: 'unknown',
+    metadata: { name: 'Test token', symbol: 'ETH', decimals: 6 }
+  },
+  status
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockActivityItems = [];
+  mockActivityLoading = false;
   mockTokenPrices = {};
   mockTokenMetadataOverrides = {};
   mockSetTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
@@ -462,6 +517,94 @@ beforeEach(() => {
 });
 
 describe('TokenDetail', () => {
+  describe('available, pending and reconciling balance', () => {
+    it('labels the headline as Available', () => {
+      renderPage();
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('available')).toBeInTheDocument();
+    });
+
+    it('adds labelled to-claim and claiming lines for this token only, never summed into Available', () => {
+      mockActivityItems = [
+        pendingItem('a', TOKEN_ID, 'pending', '1500000'),
+        pendingItem('b', TOKEN_ID, 'failed', '500000'),
+        pendingItem('c', TOKEN_ID, 'claiming', '250000'),
+        pendingItem('other', 'mtst1other', 'pending', '9000000')
+      ];
+      renderPage();
+
+      expect(screen.getByTestId('token-detail-pending-claim')).toHaveTextContent('tokenDetailToClaim_2.00');
+      expect(screen.getByTestId('token-detail-pending-claiming')).toHaveTextContent('tokenDetailClaiming_0.25');
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
+    });
+
+    it('draws no pending line when no authoritative claim exists', () => {
+      mockActivityItems = [pendingItem('other', 'mtst1other')];
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-pending-claim')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('token-detail-pending-claiming')).not.toBeInTheDocument();
+    });
+
+    it('counts a note once even when the shared state lists it twice', () => {
+      mockActivityItems = [
+        pendingItem('dup', TOKEN_ID, 'pending', '1000000'),
+        pendingItem('dup', TOKEN_ID, 'pending', '1000000')
+      ];
+      renderPage();
+
+      expect(screen.getByTestId('token-detail-pending-claim')).toHaveTextContent('tokenDetailToClaim_1.00');
+    });
+
+    it('draws no amount for a claim whose faucet scale is unknown', () => {
+      const item = pendingItem('guess', TOKEN_ID);
+      item.note.metadata = { name: 'x', symbol: 'ETH', decimals: 6, scaleIsUnknown: true } as never;
+      mockActivityItems = [item];
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-pending-claim')).not.toBeInTheDocument();
+    });
+
+    it('keeps the last confirmed amount and says it is updating while a read is in flight', () => {
+      renderPage({ balanceStatus: { balanceReadInFlight: true } });
+
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
+      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUpdating');
+    });
+
+    it('says the amount is the last confirmed one when the refresh failed, never zero', () => {
+      renderPage({ balanceStatus: { readFailed: true } });
+
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
+      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceStale');
+    });
+
+    it('says the balance is updating while one of its notes is being claimed', () => {
+      mockActivityItems = [pendingItem('c', TOKEN_ID, 'claiming')];
+      renderPage();
+
+      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUpdating');
+    });
+
+    it('draws no state line when the balance is settled', () => {
+      renderPage();
+      expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
+    });
+
+    it('keeps every mixed-faucet note represented in History but draws only this token cards', () => {
+      mockActivityItems = [pendingItem('this', TOKEN_ID, 'claiming'), pendingItem('other', 'mtst1other', 'claiming')];
+      mockActivityLoading = true;
+      renderPage();
+
+      const history = screen.getByTestId('history');
+      expect(mockUseActivityClaimList).toHaveBeenCalledWith('', 'all');
+      expect(history).toHaveAttribute('data-pending-ids', 'this,other');
+      expect(history).toHaveAttribute('data-drawn-pending-ids', 'this');
+      expect(history).toHaveAttribute('data-external-loading', 'true');
+      expect(within(history).getByText('this')).toBeInTheDocument();
+      expect(within(history).queryByText('other')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders the hero with the resolved symbol, balance and fiat value', () => {
     renderPage();
 
@@ -691,7 +834,7 @@ describe('TokenDetail', () => {
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
     // Both figures are `AnimatedNumber`s now, so the type is on the slot Hero renders around them.
-    expect(within(hero).getByText('12.50').closest('div')).toHaveClass('text-hero-value', 'text-ink');
+    expect(within(hero).getByText('12.50').closest('.text-hero-value')).toHaveClass('text-ink');
     expect(within(hero).getByText('$25000.00').closest('p')).toHaveClass('text-muted');
   });
 
