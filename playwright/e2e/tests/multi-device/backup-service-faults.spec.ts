@@ -43,7 +43,7 @@ import {
  * "There is no timer poll" sentence of refresh.ts means no periodic poll. The
  * Guardian re-reads at 10, 30 and 60 s run only after a history read that came
  * back unchanged, so a 429 does not start them. Under `Retry-After: 60` the
- * device sends nothing for the next 60 s after a failed refresh.
+ * device sends nothing for 60 s after a failed refresh, then retries.
  */
 
 const NETWORK_CODE = contactNetworkCode(getEnvironmentConfig().name);
@@ -124,6 +124,13 @@ test.describe('Encrypted backup: service faults', () => {
         walletApi.requestCount(walletB) - before,
         `no wallet-api attempt in ${OBSERVATION_MS} ms of a 60 s backoff`
       ).toBe(0);
+      // The timer retries once the 60 s have passed (the 429 still answers it, and the next wait is longer).
+      await expect
+        .poll(() => walletApi.requestCount(walletB) - before, {
+          message: 'the device retries after the Retry-After has passed',
+          timeout: 30_000
+        })
+        .toBeGreaterThan(0);
     });
 
     await steps.step('network_down_contact_edit_saves_locally', async () => {
