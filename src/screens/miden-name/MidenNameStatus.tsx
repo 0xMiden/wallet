@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -144,11 +145,9 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
         onClose={onDone}
         footer={
           <div className="flex w-full flex-col gap-2.5">
-            {retryError && (
-              <p role="alert" className="text-center text-caption text-negative-ink">
-                {retryError}
-              </p>
-            )}
+            <ErrorLine className="text-center" errorId="midenNameClaimFailed">
+              {retryError}
+            </ErrorLine>
             {needsRetry && (
               <Button
                 data-testid="miden-name-retry-claim"
@@ -195,7 +194,7 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
           </ListGroup>
 
           {failureKey && (
-            <Notice tone="negative" data-testid="miden-name-failure">
+            <Notice tone="negative" errorId="midenNameRegistrationFailed" data-testid="miden-name-failure">
               {t(failureKey)}
             </Notice>
           )}

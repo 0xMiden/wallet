@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -54,7 +54,11 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
-import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from 'lib/one-click/address';
 import { useNearIntentsConfig } from 'lib/one-click/config';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
@@ -162,9 +166,18 @@ export function nearIntentsSendFailureId(
  * to `to`. A name that is dropped is logged.
  */
 function useVerifiedMidenName(nameParam: string, to: string): string | undefined {
-  const [verified, setVerified] = useState<{ nameParam: string; to: string; name: string }>();
+  const network = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveNetworkName);
+  const rpcUrl = useSyncExternalStore(subscribeEffectiveEndpoints, getEffectiveRpcUrl);
+  const [verified, setVerified] = useState<{
+    nameParam: string;
+    to: string;
+    name: string;
+    network: string;
+    rpcUrl: string;
+  }>();
 
   useEffect(() => {
+    setVerified(undefined);
     if (!nameParam) return;
     if (!isMidenNameSupported() || !looksLikeMidenName(nameParam)) {
       console.warn('Review: dropped the recipient name because name lookup is not available for it');
@@ -177,7 +190,7 @@ function useVerifiedMidenName(nameParam: string, to: string): string | undefined
         const address = await resolveMidenName(label, { signal: controller.signal });
         if (controller.signal.aborted) return;
         if (address !== null && address === to) {
-          setVerified({ nameParam, to, name: formatMidenName(label) });
+          setVerified({ nameParam, to, name: formatMidenName(label), network, rpcUrl });
           return;
         }
         console.warn('Review: dropped the recipient name because it does not resolve to the recipient address');
@@ -188,9 +201,14 @@ function useVerifiedMidenName(nameParam: string, to: string): string | undefined
     };
     verify();
     return () => controller.abort();
-  }, [nameParam, to]);
+  }, [nameParam, to, network, rpcUrl]);
 
-  return verified && verified.nameParam === nameParam && verified.to === to ? verified.name : undefined;
+  return verified?.nameParam === nameParam &&
+    verified.to === to &&
+    verified.network === network &&
+    verified.rpcUrl === rpcUrl
+    ? verified.name
+    : undefined;
 }
 
 /**

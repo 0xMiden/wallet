@@ -12,6 +12,7 @@ import { FlowLayout } from 'components/flow/FlowLayout';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { Spinner } from 'components/ui/Spinner';
 import { TextField } from 'components/ui/TextField';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -270,11 +271,9 @@ export const MidenNameClaim: FC = () => {
                 {t('midenNameInsufficientBalance', { amount: formatMiden(total) })}
               </p>
             )}
-            {submitError && (
-              <p role="alert" className="text-center text-caption text-negative-ink" data-testid="miden-name-error">
-                {submitError}
-              </p>
-            )}
+            <ErrorLine className="text-center" errorId="midenNameRegistrationFailed" data-testid="miden-name-error">
+              {submitError}
+            </ErrorLine>
             <Button
               data-testid="miden-name-claim-cta"
               title={ctaTitle}
@@ -300,6 +299,7 @@ export const MidenNameClaim: FC = () => {
             enterKeyHint="done"
             hint={t('midenNameRules')}
             error={fieldError}
+            errorId="midenNameInvalidLabel"
             trailing={<span className="text-body text-muted">{MIDEN_NAME_SUFFIX}</span>}
             data-testid="miden-name-input"
             errorTestId="miden-name-input-error"

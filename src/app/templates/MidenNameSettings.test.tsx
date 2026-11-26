@@ -155,6 +155,7 @@ describe('MidenNameSettings', () => {
     render(<MidenNameSettings />);
 
     expect(mockUseRecord).toHaveBeenCalledWith('mtst1account', 'alice', '');
+    expect(mockUseRecord.mock.calls.filter(([, label]) => label === 'alice')).toHaveLength(1);
     const card = screen.getByTestId('miden-name-primary-card');
     expect(within(card).getByTestId('miden-name-primary-label')).toHaveTextContent('alice.miden');
     expect(within(card).getByTestId('miden-name-primary-unresolved')).toHaveTextContent('midenNameNotYetResolvable');

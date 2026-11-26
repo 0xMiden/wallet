@@ -90,7 +90,8 @@ let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey,
   // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
-  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet'
+  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet',
+  subscribeEffectiveEndpoints: () => () => undefined
 }));
 
 // The Miden Name row reads Dexie and the network config; MidenNameReceiveRow.test.tsx covers it.

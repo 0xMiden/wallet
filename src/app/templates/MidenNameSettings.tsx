@@ -95,15 +95,19 @@ const PrimaryNameCard: FC<PrimaryNameCardProps> = ({ label, accountId, record })
 interface RegistrationRowProps {
   row: ITransaction;
   accountId: string;
+  primaryLabel: string | undefined;
+  primaryRecord: MidenNameRecordState;
 }
 
 /** One name of the account. A name that is not owned opens its status page. */
-const RegistrationRow: FC<RegistrationRowProps> = ({ row, accountId }) => {
+const RegistrationRow: FC<RegistrationRowProps> = ({ row, accountId, primaryLabel, primaryRecord }) => {
   const { t } = useTranslation();
   const label = registerNameInputsOf(row)?.label;
   const state = uiStateOf(phaseOf(row));
   // The registry record, read from the chain. Only an owned name needs it.
-  const record = useMidenNameRecord(accountId, state === 'owned' ? label : undefined);
+  const isPrimary = label !== undefined && label === primaryLabel;
+  const rowRecord = useMidenNameRecord(accountId, state === 'owned' && !isPrimary ? label : undefined);
+  const record = isPrimary ? primaryRecord : rowRecord;
 
   if (label === undefined) return null;
 
@@ -188,7 +192,13 @@ const MidenNameSettings: FC = () => {
           <SectionHeader>{t('midenNameYourNames')}</SectionHeader>
           <ListGroup data-testid="miden-name-list">
             {rows.map(row => (
-              <RegistrationRow key={row.id} row={row} accountId={accountId} />
+              <RegistrationRow
+                key={row.id}
+                row={row}
+                accountId={accountId}
+                primaryLabel={ownedLabel}
+                primaryRecord={primaryRecord}
+              />
             ))}
           </ListGroup>
         </section>

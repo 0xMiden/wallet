@@ -10,6 +10,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import type { TokenPriceInfo } from 'lib/prices/binance';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -104,6 +105,8 @@ let mockBalancesLoading = false;
 let mockHiddenTokensLoaded = true;
 let mockHiddenTokenIds = new Set<string>();
 let mockRpcUrl = 'https://testnet.example';
+const mockEndpointListeners = new Set<() => void>();
+const nameRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), mockRpcUrl]);
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
 const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
@@ -519,7 +522,11 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveRpcUrl: () => mockRpcUrl
+  getEffectiveRpcUrl: () => mockRpcUrl,
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    mockEndpointListeners.add(listener);
+    return () => mockEndpointListeners.delete(listener);
+  }
 }));
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -928,14 +935,26 @@ describe('Command Send uses the real SendManager form', () => {
   });
 
   it.each([
-    ['pending', '/send/review?'],
-    ['admitted', '/generating-transaction-full/original-bridge-row']
-  ])('resumes the original %s bridge Send from the already-open composer', async (status, destination) => {
+    ['pending', 'bridge', '/send/review?', 'none'],
+    ['admitted', 'bridge', '/generating-transaction-full/original-bridge-row', 'none'],
+    ['pending', 'Miden Name', '/send/review?', 'matching'],
+    ['pending', 'Miden Name', '/send/review?', 'old registry'],
+    ['pending', 'Miden Name', '/send/review?', 'different address']
+  ])('resumes the original %s %s Send to %s with %s metadata', async (status, kind, destination, nameMetadata) => {
     mockTokenRoutes = { epoch: true, agglayer: true };
     useAllBalancesMock.mockReturnValue({
       data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 }]
     });
-    const intent = JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer']);
+    const bridge = kind === 'bridge';
+    const recipientAddress = bridge ? '0xrecipient' : 'mtst1alice';
+    if (!bridge) {
+      mockNameSupported = true;
+      isValidMidenAddressMock.mockImplementation(address => address === recipientAddress);
+      if (nameMetadata === 'old registry') resolveMidenNameMock.mockResolvedValueOnce(recipientAddress);
+    }
+    const bridgeNetwork = bridge ? 'sepolia' : undefined;
+    const bridgeRoute = bridge ? 'agglayer' : undefined;
+    const intent = JSON.stringify(['original-handoff', '2', recipientAddress, 'T1', bridgeNetwork, bridgeRoute]);
     function Session() {
       const drafts = useCommandDrafts();
       const [back, setBack] = React.useState(false);
@@ -950,10 +969,18 @@ describe('Command Send uses the real SendManager form', () => {
             drafts.writeDraft('send', {
               reviewId: 'original-handoff',
               amount: '2',
-              recipientAddress: '0xrecipient',
+              recipientAddress,
               tokenId: 'T1',
-              bridgeNetwork: 'sepolia',
-              bridgeRoute: 'agglayer'
+              bridgeNetwork,
+              bridgeRoute,
+              ...(!bridge && {
+                midenName: {
+                  label: 'alice',
+                  address: nameMetadata === 'different address' ? 'mtst1alternate' : recipientAddress,
+                  input: 'Alice.miden',
+                  registryScope: nameMetadata === 'old registry' ? 'old registry scope' : nameRegistryScope()
+                }
+              })
             });
             drafts.beginSendAdmission(intent);
             setBack(true);
@@ -978,6 +1005,12 @@ describe('Command Send uses the real SendManager form', () => {
     expect(navigateMock).toHaveBeenCalledTimes(1);
     const expected = status === 'pending' ? 'commandReviewId=original-handoff' : destination;
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining(expected));
+    const params = new URL(navigateMock.mock.calls[0][0], 'https://wallet.invalid').searchParams;
+    expect(params.get('to')).toBe(status === 'pending' ? recipientAddress : null);
+    expect(params.get('name')).toBe(nameMetadata === 'matching' ? 'alice.miden' : null);
+    expect(screen.getByTestId('sr-address')).toHaveTextContent(
+      bridge || nameMetadata === 'different address' ? recipientAddress : 'Alice.miden'
+    );
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
@@ -2878,7 +2911,7 @@ describe('Miden Name recipient', () => {
       tokenId: 'T1',
       bridgeNetwork: undefined,
       bridgeRoute: undefined,
-      midenName: { label: 'alice', address: 'mtst1alice' }
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'Alice.miden', registryScope: nameRegistryScope() }
     });
   });
 
@@ -2972,12 +3005,34 @@ describe('Miden Name recipient', () => {
     expect(resolveMidenNameMock).not.toHaveBeenCalled();
   });
 
+  it('checks a restored name again when the RPC changes while Send stays mounted', async () => {
+    setSendDraft({
+      amount: '5',
+      recipientAddress: 'alice.miden',
+      tokenId: 'T1',
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'alice.miden', registryScope: nameRegistryScope() }
+    });
+    renderFlow();
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    resolveMidenNameMock.mockResolvedValueOnce('mtst1alternate');
+    act(() => {
+      mockRpcUrl = 'https://another-rpc.example';
+      mockEndpointListeners.forEach(listener => listener());
+    });
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-name')).toBeEmptyDOMElement();
+    await runLookup();
+    expect(resolveMidenNameMock).toHaveBeenCalledWith('alice', expect.objectContaining({ signal: expect.anything() }));
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+  });
+
   it('restores a resolved name from the draft without a new lookup', async () => {
     setSendDraft({
       amount: '5',
       recipientAddress: 'alice.miden',
       tokenId: 'T1',
-      midenName: { label: 'alice', address: 'mtst1alice' }
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'alice.miden', registryScope: nameRegistryScope() }
     });
     mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
     renderFlow();

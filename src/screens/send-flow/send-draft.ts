@@ -23,8 +23,8 @@ export interface SendDraft {
   bridgeRoute?: BridgeRoute;
   /**
    * The Miden Name that the recipient input resolved to. Only set when the
-   * input is a name (for example `alice.miden`). `recipientAddress` keeps the
-   * name as the user typed it, and `address` is the resolved bech32 address.
+   * input is a name (for example `alice.miden`). Command admission keeps the
+   * resolved address in `recipientAddress`, and `input` restores the editable name.
    */
   midenName?: SendDraftMidenName;
 }
@@ -34,6 +34,8 @@ export interface SendDraftMidenName {
   label: string;
   /** The bech32 address that the label resolved to. */
   address: string;
+  input: string;
+  registryScope: string;
 }
 
 let draft: SendDraft | null = null;

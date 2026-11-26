@@ -2019,6 +2019,7 @@ describe('HistoryView Miden Name rows', () => {
     });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     const row = rowByTitle('historyRegisteredName');
+    expect(mockT).toHaveBeenCalledWith('historyRegisteredName', { name: 'alice.miden' });
     expect(row).toHaveAttribute('data-iconbg', 'bg-accent-primary');
     expect(iconNameIn(row)).toBe('User');
     expect(row).toHaveAttribute('data-amount-value', '-20');
@@ -2049,6 +2050,7 @@ describe('HistoryView Miden Name rows', () => {
     });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     const row = rowByTitle('historyReceivedName');
+    expect(mockT).toHaveBeenCalledWith('historyReceivedName', { name: 'alice.miden' });
     expect(row).toHaveAttribute('data-amount-value', '');
     expect(row).toHaveAttribute('data-amount-symbol', '');
     expect(row.outerHTML).not.toMatch(/NaN|undefined|\+0/);

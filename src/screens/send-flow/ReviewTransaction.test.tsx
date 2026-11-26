@@ -3393,6 +3393,22 @@ describe('ReviewTransaction — Miden Name recipient', () => {
     expect(screen.getByText('mtst1alice')).toBeInTheDocument();
   });
 
+  it('drops the old name when the RPC changes and rechecks it against that endpoint', async () => {
+    resolveMidenNameMock.mockResolvedValueOnce('mtst1alice').mockResolvedValueOnce('mtst1mallory');
+    const view = render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('review-recipient-name')).toHaveTextContent('alice.miden');
+
+    mockReviewRpcUrl = 'https://another-rpc.example';
+    view.rerender(<ReviewTransaction />);
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    await flush();
+
+    expect(resolveMidenNameMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+  });
+
   it('drops the name when the new lookup gives a different address', async () => {
     resolveMidenNameMock.mockResolvedValue('mtst1mallory');
     render(<ReviewTransaction />);

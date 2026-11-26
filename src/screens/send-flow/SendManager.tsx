@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
@@ -24,7 +24,11 @@ import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'li
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';
 import { resolveMidenName } from 'lib/miden/name/resolver';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { normalizeNearIntentsAddress } from 'lib/one-click/address';
@@ -132,6 +136,7 @@ interface MidenNameResolution {
   /** The trimmed recipient input that this state is for. */
   input: string;
   status: MidenNameResolutionStatus;
+  registryScope?: string;
   /** The label without ".miden". */
   label?: string;
   /** The resolved bech32 address. Only set when `status` is 'resolved'. */
@@ -139,6 +144,7 @@ interface MidenNameResolution {
 }
 
 const IDLE_NAME_RESOLUTION: MidenNameResolution = { input: '', status: 'idle' };
+const getNameRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), getEffectiveRpcUrl()]);
 
 /** Context that the recipient schema gets from the form. */
 interface RecipientValidationContext {
@@ -382,19 +388,20 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [currentStep, onSendRoute]);
 
-  // The Miden Name lookup of the recipient input. A restored draft starts in
-  // the resolved state, so that backing out of review shows the name again
-  // without a new lookup.
-  const [nameResolution, setNameResolution] = useState<MidenNameResolution>(() =>
-    draft?.midenName
-      ? {
-          input: draft.recipientAddress.trim(),
-          status: 'resolved',
-          label: draft.midenName.label,
-          address: draft.midenName.address
-        }
+  const registryScope = useSyncExternalStore(subscribeEffectiveEndpoints, getNameRegistryScope);
+  const draftName = draft?.midenName;
+  const restoredName =
+    draftName && (draft?.recipientAddress === draftName.input || draft?.recipientAddress === draftName.address)
+      ? draftName
+      : undefined;
+  // A restored name keeps its typed value, but only reuses a lookup from the same registry.
+  const [cachedNameResolution, setNameResolution] = useState<MidenNameResolution>(() =>
+    restoredName?.registryScope === registryScope && isMidenNameSupported()
+      ? { ...restoredName, input: restoredName.input.trim(), status: 'resolved' }
       : IDLE_NAME_RESOLUTION
   );
+  const nameResolution =
+    cachedNameResolution.registryScope === registryScope ? cachedNameResolution : IDLE_NAME_RESOLUTION;
   const nameResolutionRef = useRef(nameResolution);
   const nameLookupTimingRef = useRef<{ input: string; startedAt: number } | null>(null);
   const logNameLookupStage = useCallback((input: string, stage: string) => {
@@ -423,7 +430,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   } = useForm<SendFlowForm>({
     defaultValues: {
       amount: draft?.amount,
-      recipientAddress: draft?.recipientAddress,
+      recipientAddress: restoredName?.input ?? draft?.recipientAddress,
       token: undefined,
       bridgeNetwork: draft?.bridgeNetwork,
       bridgeRoute: draft?.bridgeRoute ?? 'epoch'
@@ -453,6 +460,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         tokenId: getValues('token')?.id ?? previous?.tokenId ?? '',
         bridgeNetwork: getValues('bridgeNetwork'),
         bridgeRoute: getValues('bridgeRoute'),
+        midenName: changes.recipientAddress === undefined ? previous?.midenName : undefined,
         ...changes
       });
     },
@@ -480,8 +488,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const resolvedMidenName = useMemo(() => {
     const { status, input, label, address } = nameResolution;
     if (status !== 'resolved' || !label || !address || input !== (recipientAddress ?? '').trim()) return undefined;
-    return { label, address };
-  }, [nameResolution, recipientAddress]);
+    return { label, address, input: recipientAddress, registryScope };
+  }, [nameResolution, recipientAddress, registryScope]);
   // The address that the send goes to: the resolved address for a Miden Name,
   // else the input.
   const effectiveRecipientAddress = resolvedMidenName?.address ?? recipientAddress;
@@ -1067,6 +1075,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
         tokenId: original.tokenId,
         commandReviewId: original.reviewId
       });
+      const name = original.midenName;
+      if (
+        name?.address === original.recipientAddress &&
+        name.registryScope === getNameRegistryScope() &&
+        isMidenNameSupported()
+      ) {
+        params.set('name', formatMidenName(name.label));
+      }
       if (original.bridgeNetwork) params.set('network', original.bridgeNetwork);
       if (original.bridgeRoute) params.set('route', original.bridgeRoute);
       navigate(`/send/review?${params.toString()}`);
@@ -1076,7 +1092,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       !token ||
       !amount ||
       !recipientAddress ||
-      (!resolvedMidenName && isMidenNameSupported() && looksLikeMidenName(recipientAddress)) ||
+      (looksLikeMidenName(recipientAddress) && resolvedMidenName?.registryScope !== getNameRegistryScope()) ||
       (command &&
         (!isValidRecipient ||
           !!errors.amount ||
@@ -1290,8 +1306,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
     const label = normalizeMidenNameInput(input);
     const applyForInput = (next: MidenNameResolution) =>
-      setNameResolution(prev => (prev.input === input ? next : prev));
-    setNameResolution({ input, status: 'resolving', label });
+      setNameResolution(prev =>
+        prev.input === input && prev.registryScope === registryScope ? { ...next, registryScope } : prev
+      );
+    setNameResolution({ input, status: 'resolving', label, registryScope });
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
@@ -1314,7 +1332,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       controller.abort();
       logNameLookupStage(input, 'cancelled');
     };
-  }, [recipientAddress, logNameLookupStage]);
+  }, [recipientAddress, registryScope, logNameLookupStage]);
 
   useEffect(() => {
     if (nameResolution.status !== 'resolved' || !isValidRecipient) return;

@@ -90,7 +90,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 const mockShowDevEndpoints = { value: false };
 const mockIsEndpointOverrideActive = jest.fn(() => Promise.resolve(mockShowDevEndpoints.value));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  isEndpointOverrideActive: () => mockIsEndpointOverrideActive()
+  isEndpointOverrideActive: () => mockIsEndpointOverrideActive(),
+  getEffectiveNetworkName: () => 'testnet',
+  subscribeEffectiveEndpoints: () => () => undefined
 }));
 
 jest.mock('lib/store', () => ({
