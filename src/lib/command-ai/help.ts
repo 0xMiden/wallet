@@ -29,7 +29,7 @@ export function containsCommandSecret(input: string): boolean {
   ) {
     return true;
   }
-  for (const [, label, value] of input.matchAll(
+  for (const [, label = '', value = ''] of input.matchAll(
     /^\s*(?:my\s+)?(password|private key|recovery phrase|seed phrase)\s+is\s+(\S+)/gim
   )) {
     if (!/phrase$/i.test(label) || !/^(?:missing|lost|gone|forgotten)[.,?!]*$/i.test(value)) return true;
@@ -41,7 +41,7 @@ export function containsCommandSecret(input: string): boolean {
     if (parsePrivateKeyPair(pair)) return true;
   }
   for (const [, hex] of input.matchAll(/\b(?:0x)?([0-9a-f]{66,4096})\b/gi)) {
-    if (hex.length % 2 === 0) return true;
+    if (hex !== undefined && hex.length % 2 === 0) return true;
   }
 
   const words = input.toLowerCase().match(/[a-z]+/g) ?? [];
