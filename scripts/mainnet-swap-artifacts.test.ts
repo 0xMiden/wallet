@@ -114,6 +114,73 @@ describe('mainnet swap recovery artifact discovery', () => {
   it('rejects duplicate read-only reconciliation artifacts', async () => {
     await expect(legacyHistory(readOnlyLegacyRun, readOnlyLegacyReport, true)).rejects.toThrow(/legacy|unresolved/i);
   });
+  describe('the pre-body native round trip failure', () => {
+    const fixtureRun = {
+      id: 45762536645,
+      head_sha: '1838f5af5b61314c7d54389f27eb11755a49f594',
+      head_branch: 'main',
+      event: 'schedule'
+    };
+    const fixtureReport = {
+      id: 15090921188,
+      name: 'wallet-e2e-v1-45762536645-1-mainnet',
+      expired: false,
+      digest: 'sha256:35eedd0ea6211a2032d96d4c567bd9bab4d3ed2733a91563562fbeaf1ee608aa',
+      workflow_run: {
+        id: fixtureRun.id,
+        head_sha: fixtureRun.head_sha,
+        head_branch: 'main',
+        repository_id: 853430876,
+        head_repository_id: 853430876
+      }
+    };
+    const nativeHistory = (
+      candidate: typeof fixtureRun = fixtureRun,
+      report: typeof fixtureReport = fixtureReport,
+      duplicate = false,
+      conclusion = 'failure',
+      stage = 'Run native mainnet round trip'
+    ) => legacyHistory(candidate, report as typeof readOnlyLegacyReport, duplicate, conclusion, stage);
+    it('reconciles the exact immutable failure without losing the older funded swap checkpoint', async () => {
+      await expect(nativeHistory()).resolves.toEqual({
+        runId: retainedSwapRun,
+        name: `mainnet-swap-final-${retainedSwapRun}`,
+        bootstrap: false
+      });
+    });
+    it.each([
+      ['different run', { id: 45762536646 }, {}],
+      ['different source', { head_sha: '0'.repeat(40) }, {}],
+      ['different branch', { head_branch: 'other' }, {}],
+      ['different event', { event: 'workflow_dispatch' }, {}],
+      ['different artifact', {}, { id: 15090921189 }],
+      ['different digest', {}, { digest: 'sha256:' + '0'.repeat(64) }],
+      ['expired report', {}, { expired: true }],
+      ['different report name', {}, { name: 'wallet-e2e-v1-45762536645-1-agglayer' }],
+      ['different artifact origin', {}, { workflow_run: { ...fixtureReport.workflow_run, id: 45762536646 } }],
+      ['forked source', {}, { workflow_run: { ...fixtureReport.workflow_run, head_repository_id: 1 } }]
+    ])('still blocks an uncertified outcome: %s', async (_label, source, report) => {
+      await expect(nativeHistory({ ...fixtureRun, ...source }, { ...fixtureReport, ...report })).rejects.toThrow(
+        /legacy|unresolved/i
+      );
+    });
+    it('keeps a cancelled native round trip blocked', async () => {
+      await expect(nativeHistory(fixtureRun, fixtureReport, false, 'cancelled')).rejects.toThrow(/legacy|unresolved/i);
+    });
+    it('never applies its receipt to another legacy operation of the same run', async () => {
+      await expect(
+        nativeHistory(fixtureRun, fixtureReport, false, 'failure', 'Run USDCx bridge loops')
+      ).rejects.toThrow(/legacy|unresolved/i);
+    });
+    it('never lets one pinned receipt excuse the other pinned run', async () => {
+      await expect(legacyHistory(readOnlyLegacyRun, fixtureReport as typeof readOnlyLegacyReport)).rejects.toThrow(
+        /legacy|unresolved/i
+      );
+    });
+    it('rejects duplicate reconciliation artifacts', async () => {
+      await expect(nativeHistory(fixtureRun, fixtureReport, true)).rejects.toThrow(/legacy|unresolved/i);
+    });
+  });
   it.each([
     'Run native mainnet round trip',
     'Run USDCx bridge loops',
