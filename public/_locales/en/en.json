@@ -1590,6 +1590,7 @@
   "devEndpointGuardian": "Custom guardian URL",
   "devEndpointFeeFaucet": "Fee faucet account ID",
   "devAllowNoGuardian": "Allow 'No guardian' option in onboarding",
+  "devShowFullscreenButton": "Show fullscreen button",
   "devNominalUnquotedPrice": "Value unquoted tokens at $1 (test networks only)",
   "devEndpointChecking": "Checking…",
   "devEndpointReachable": "Host reachable",

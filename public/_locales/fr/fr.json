@@ -1586,6 +1586,7 @@
   "devEndpointGuardian": "URL personnalisée guardian",
   "devEndpointFeeFaucet": "faucet des frais – identifiant du compte",
   "devAllowNoGuardian": "Autoriser l'option « Aucun tuteur » lors de l'intégration",
+  "devShowFullscreenButton": "Bouton « Afficher en plein écran »",
   "devNominalUnquotedPrice": "Évaluez les jetons non cotés à 1 $ (réseaux de test uniquement)",
   "devEndpointChecking": "Vérification en cours…",
   "devEndpointReachable": "Hôte accessible",

@@ -7237,6 +7237,10 @@
     "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Tam ekran göster düğmesi",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Tırnak işareti kullanılmayan tokenlerin değerini 1 $ olarak belirleyin (sadece test ağları için)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"

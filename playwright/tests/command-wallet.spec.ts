@@ -215,6 +215,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   test.setTimeout(330_000);
   await importWallet(extensionContext, extensionId);
   const popup = await openPopup(extensionContext, extensionId);
+  await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(0);
+  const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+  await popup.goto(`${popupUrl}#/settings/advanced-settings`);
+  const fullscreenSetting = popup.getByRole('button', { name: 'Show fullscreen button' });
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'false');
+  await fullscreenSetting.click();
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'true');
+  await captureCommand(popup, info, 'command-fullscreen-preference-360x600');
+  await popup.goto(`${popupUrl}#/`);
   const balanceAction = popup.getByTestId('balance-card-action');
   const launcher = balanceAction.getByRole('button', { name: 'Open fullscreen' });
   await expect(launcher).toBeVisible();

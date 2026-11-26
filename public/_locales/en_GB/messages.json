@@ -7236,6 +7236,10 @@
     "message": "Allow 'No guardian' option in onboarding",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Show fullscreen button",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Value unquoted tokens at $1 (test networks only)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"

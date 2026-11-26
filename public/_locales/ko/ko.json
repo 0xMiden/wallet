@@ -1590,6 +1590,7 @@
   "devEndpointGuardian": "guardian 맞춤 URL",
   "devEndpointFeeFaucet": "수수료 faucet 계정 ID",
   "devAllowNoGuardian": "온보딩 시 '보호자 없음' 옵션 허용",
+  "devShowFullscreenButton": "전체 화면 표시 버튼",
   "devNominalUnquotedPrice": "따옴표로 묶이지 않은 토큰의 가치를 $1로 설정(테스트 네트워크에만 해당)",
   "devEndpointChecking": "확인 중…",
   "devEndpointReachable": "호스트에 연결 가능",
