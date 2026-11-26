@@ -1042,52 +1042,43 @@ export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Pr
  */
 export const retractSubmitCrossing = async (
   id: string,
-  attemptId: string | undefined,
+  attemptId: string,
   revertStage: ITransactionStage
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
     let changed = false;
-    if (attemptId === undefined) {
-      if (tx.mayHaveSubmitted !== undefined) {
-        tx.mayHaveSubmitted = undefined;
+    const entries = tx.submitEvidence ?? [];
+    const index = entries.findIndex(candidate => candidate.attemptId === attemptId);
+    if (index !== -1) {
+      const entry = entries[index]!;
+      if (entry.source === 'pin' || entry.preSubmitEnd === true) {
+        const resetEntry: ISubmitEvidence = {
+          attemptId: entry.attemptId,
+          capturedAt: entry.capturedAt,
+          source: entry.source,
+          ...(entry.submitContext !== undefined ? { submitContext: entry.submitContext } : {}),
+          ...(entry.guardianProposalNonce !== undefined ? { guardianProposalNonce: entry.guardianProposalNonce } : {}),
+          ...(entry.fromExecute !== undefined ? { fromExecute: entry.fromExecute } : {}),
+          ...(entry.raisedFlag === true ? { raisedFlag: true as const } : {}),
+          ...(entry.endedBy !== undefined ? { endedBy: entry.endedBy, endedAt: entry.endedAt } : {}),
+          ...(entry.preSubmitEnd === true ? { preSubmitEnd: true as const } : {})
+        };
+        const next = [...entries];
+        next[index] = resetEntry;
+        tx.submitEvidence = next;
+        if (entry.preSubmitEnd === true && entry.raisedFlag === true) {
+          tx.mayHaveSubmitted = undefined;
+        }
+        changed = true;
+      } else {
+        const remaining = entries.filter(candidate => candidate.attemptId !== attemptId);
+        if (remaining.length === 0) delete tx.submitEvidence;
+        else tx.submitEvidence = remaining;
+        if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
         changed = true;
       }
-    } else {
-      const entries = tx.submitEvidence ?? [];
-      const index = entries.findIndex(candidate => candidate.attemptId === attemptId);
-      if (index !== -1) {
-        const entry = entries[index]!;
-        if (entry.source === 'pin' || entry.preSubmitEnd === true) {
-          const resetEntry: ISubmitEvidence = {
-            attemptId: entry.attemptId,
-            capturedAt: entry.capturedAt,
-            source: entry.source,
-            ...(entry.submitContext !== undefined ? { submitContext: entry.submitContext } : {}),
-            ...(entry.guardianProposalNonce !== undefined
-              ? { guardianProposalNonce: entry.guardianProposalNonce }
-              : {}),
-            ...(entry.fromExecute !== undefined ? { fromExecute: entry.fromExecute } : {}),
-            ...(entry.raisedFlag === true ? { raisedFlag: true as const } : {}),
-            ...(entry.endedBy !== undefined ? { endedBy: entry.endedBy, endedAt: entry.endedAt } : {}),
-            ...(entry.preSubmitEnd === true ? { preSubmitEnd: true as const } : {})
-          };
-          const next = [...entries];
-          next[index] = resetEntry;
-          tx.submitEvidence = next;
-          if (entry.preSubmitEnd === true && entry.raisedFlag === true) {
-            tx.mayHaveSubmitted = undefined;
-          }
-          changed = true;
-        } else {
-          const remaining = entries.filter(candidate => candidate.attemptId !== attemptId);
-          if (remaining.length === 0) delete tx.submitEvidence;
-          else tx.submitEvidence = remaining;
-          if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
-          changed = true;
-        }
-      }
     }
-    if (!hasLeftQueue(tx) && (attemptId === undefined || tx.attemptId === attemptId)) {
+    if (!hasLeftQueue(tx) && tx.attemptId === attemptId) {
       if (tx.stage === 'submitting') {
         tx.stage = revertStage;
         changed = true;

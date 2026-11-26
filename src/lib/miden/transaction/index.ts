@@ -3035,18 +3035,28 @@ const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
  * `result.executedTransaction().id()`), so its shape matches what
  * `dispatchGuardianPipeline` re-hydrates from the offscreen round-trip.
  */
+type RunGuardianPipelineOptions = {
+  oneClickDeadline?: string;
+  oneClickRequired?: boolean;
+  onSubmitCallReached?: () => void;
+  onLockEvicted?: () => void;
+  testAuthorizationKind?: TestGuardianAuthorizationKind;
+  retractSubmittingStage?: () => Promise<void>;
+};
+
 const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  _chainAnchorB64?: string,
-  oneClickDeadline?: string,
-  oneClickRequired = false,
-  onSubmitCallReached?: () => void,
-  onLockEvicted?: () => void,
-  testAuthorizationKind?: TestGuardianAuthorizationKind,
-  retractSubmittingStage?: () => Promise<void>
+  {
+    oneClickDeadline,
+    oneClickRequired = false,
+    onSubmitCallReached,
+    onLockEvicted,
+    testAuthorizationKind,
+    retractSubmittingStage
+  }: RunGuardianPipelineOptions = {}
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -3774,13 +3784,9 @@ const generateDirectSwitchGuardianTransaction = async (
       tr,
       transaction.delegateTransaction,
       stageStampFor(transaction.id, attempt),
-      undefined,
-      undefined,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      () => retractSubmitCrossing(transaction.id, attempt.attemptId, 'proving')
+      {
+        retractSubmittingStage: () => retractSubmitCrossing(transaction.id, attempt.attemptId, 'proving')
+      }
     );
   }
 
@@ -5258,14 +5264,18 @@ const generateGuardianTransaction = async (
   // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
   // its candidate is abandoned instead of held for the Guardian's grace (#1644).
   const retractAttemptSubmittingStage = async (): Promise<void> => {
-    await retractSubmitCrossing(transaction.id, transaction.attemptId, 'proving');
+    if (transaction.attemptId !== undefined) {
+      await retractSubmitCrossing(transaction.id, transaction.attemptId, 'proving');
+    }
     // Keep `inlineSubmittingStageStarted` true: once an inline pass entered 'submitting' and retracted before
     // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
     submitStageRecorded = false;
   };
-  const submitGate = offscreenSubmitGate(stampStage, () =>
-    retractSubmitCrossing(transaction.id, transaction.attemptId, 'sending')
-  );
+  const submitGate = offscreenSubmitGate(stampStage, async () => {
+    if (transaction.attemptId !== undefined) {
+      await retractSubmitCrossing(transaction.id, transaction.attemptId, 'sending');
+    }
+  });
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
@@ -5399,17 +5409,18 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         stampAttemptStage,
-        chainAnchorB64,
-        oneClickDeadline,
-        oneClickRequired,
-        () => {
-          inlineSubmitCallReached = true;
-        },
-        () => {
-          inlineLockEvicted = true;
-        },
-        testAuthorizationKind,
-        retractAttemptSubmittingStage
+        {
+          oneClickDeadline,
+          oneClickRequired,
+          onSubmitCallReached: () => {
+            inlineSubmitCallReached = true;
+          },
+          onLockEvicted: () => {
+            inlineLockEvicted = true;
+          },
+          testAuthorizationKind,
+          retractSubmittingStage: retractAttemptSubmittingStage
+        }
       );
     }
   } catch (error) {

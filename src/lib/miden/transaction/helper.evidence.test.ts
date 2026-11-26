@@ -277,4 +277,31 @@ describe('retractSubmitCrossing (#2325)', () => {
       expect.objectContaining({ attemptId: 'a1', source: 'stage', raisedFlag: true, preSubmitEnd: true })
     ]);
   });
+
+  it('does not clear mayHaveSubmitted or revert stage when attemptId mismatches or is undefined at runtime (#2325)', async () => {
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a2',
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        stageTimestamps: { submitting: 200 },
+        submitEvidence: [{ attemptId: 'a2', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(2) }]
+      })
+    );
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+    expect((await read())?.stage).toBe('submitting');
+
+    await retractSubmitCrossing('tx-1', undefined as unknown as string, 'proving');
+
+    const requireAttemptId: (attempt: Parameters<typeof retractSubmitCrossing>[1]) => string = attempt => attempt;
+    expect(requireAttemptId('a1')).toBe('a1');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.stage).toBe('submitting');
+    expect(row?.stageTimestamps).toEqual({ submitting: 200 });
+    expect(row?.submitEvidence).toHaveLength(1);
+  });
 });
