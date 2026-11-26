@@ -281,7 +281,7 @@ export interface BackupConfig {
 /** A 32-byte hash, lowercase. */
 export type Bytes32 = `0x${string}`;
 
-/** The longest EIP-712 domain name and version of a relay chain's Calibur contract. */
+/** The longest EIP-712 domain name and version of the relay's Calibur contract. */
 export const MAX_RELAY_DOMAIN_NAME_LENGTH = 32;
 export const MAX_RELAY_DOMAIN_VERSION_LENGTH = 16;
 
@@ -296,7 +296,32 @@ export interface RelayCaliburConfig {
   domainVersion: string;
 }
 
-/** One EVM chain of the deposit relay. */
+/**
+ * The deposit-address relay service (`services/evm-relay`). One set of values applies to every chain of the
+ * document's `supportedEvmChains`: the document names no chain list for the relay. The service tells at run time
+ * whether it serves a chain (`unsupported_chain`).
+ */
+export interface RelayConfig {
+  /** The service's base URL: absolute `https:`, without credentials, query, fragment or trailing slash. */
+  baseUrl: string;
+  /** The account that executes the signed batches, the same on every chain. Never the zero address. */
+  executor: EvmAddress;
+  /** The Calibur contract that the deposit address delegates to, the same on every chain. */
+  calibur: RelayCaliburConfig;
+  /**
+   * The highest fee the wallet accepts per fee token, in base units as a decimal string, on every chain. The key is
+   * the token address in lowercase; the zero address is the chain's native coin. A token without an entry is not
+   * accepted as a fee. Empty when the document gives no `maxFee`.
+   */
+  maxFee: Record<EvmAddress, string>;
+  /**
+   * The only fee recipient that the wallet pays in `deduct` mode. Never the zero address. Without it the wallet does
+   * not take `deduct` mode: it refuses a relayer that asks for a fee there.
+   */
+  feeRecipient?: EvmAddress;
+}
+
+/** The relay values for one EVM chain of the document's `supportedEvmChains` (`selectRelayChain`). */
 export interface RelayChainConfig {
   /** The key of the chain in the document's `supportedEvmChains`. */
   key: string;
@@ -304,24 +329,10 @@ export interface RelayChainConfig {
   /** The account that executes the signed batches. Never the zero address. */
   executor: EvmAddress;
   calibur: RelayCaliburConfig;
-  /**
-   * The highest fee the wallet accepts per fee token, in base units as a decimal string. The key is the token address
-   * in lowercase; the zero address is the chain's native coin. A token without an entry is not accepted as a fee.
-   */
+  /** `RelayConfig.maxFee`. */
   maxFee: Record<EvmAddress, string>;
-  /**
-   * The only fee recipient that the wallet pays in `deduct` mode. Never the zero address. A chain without it does not
-   * take `deduct` mode: the wallet refuses a relayer that asks for a fee there.
-   */
+  /** `RelayConfig.feeRecipient`. */
   feeRecipient?: EvmAddress;
-}
-
-/** The deposit-address relay service (`services/evm-relay`). */
-export interface RelayConfig {
-  /** The service's base URL: absolute `https:`, without credentials, query, fragment or trailing slash. */
-  baseUrl: string;
-  /** The chains the relay serves, in the document's order. Never empty. */
-  chains: RelayChainConfig[];
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -622,42 +633,24 @@ function relayCalibur(value: unknown): RelayCaliburConfig {
   };
 }
 
-// A chain is keyed as in the document's `supportedEvmChains`, read as written, as `readEarn` reads it. Thus a chain
-// that this build leaves out still names its relay entry; the getters find it by chain id only when this build knows
-// the chain.
-function relayChains(value: unknown, documentChains: unknown): RelayChainConfig[] {
-  const entries = Object.entries(record(value));
-  if (entries.length === 0) return invalid();
-  const chains = entries.map(([key, entry]) => {
-    const chainId =
-      isRecord(documentChains) && Object.prototype.hasOwnProperty.call(documentChains, key)
-        ? member(documentChains[key], 'chainId')
-        : undefined;
-    if (!isPositiveSafeInteger(chainId)) return invalid();
-    const chain = record(entry);
-    return {
-      key,
-      chainId,
-      executor: nonZeroEvmAddress(chain.executor),
-      calibur: relayCalibur(chain.calibur),
-      maxFee: relayMaxFee(chain.maxFee),
-      // The fee recipient receives funds, so the zero address is refused.
-      ...(chain.feeRecipient === undefined ? {} : { feeRecipient: nonZeroEvmAddress(chain.feeRecipient) })
-    };
-  });
-  return new Set(chains.map(chain => chain.chainId)).size === chains.length ? chains : invalid();
-}
-
 /**
  * The deposit-address relay (`services/evm-relay`): the section exists exactly while `features.relayDeposit` is on,
  * so a stale executor or Calibur pin cannot linger behind a switched-off feature. A bad section rejects the document.
- * Unknown keys are ignored, as in the other sections.
+ * One set of values applies to every chain of `supportedEvmChains`. Unknown keys are ignored, as in the other
+ * sections; this includes `chains`, the per-chain list of an older document shape.
  */
-function readRelay(value: ConfigValue, enabled: boolean, documentChains: unknown): RelayConfig | undefined {
+function readRelay(value: ConfigValue, enabled: boolean): RelayConfig | undefined {
   if (value === undefined) return enabled ? invalid() : undefined;
   if (!enabled) return invalid();
   const relay = record(value);
-  return { baseUrl: backupBaseUrl(relay.baseUrl), chains: relayChains(relay.chains, documentChains) };
+  return {
+    baseUrl: backupBaseUrl(relay.baseUrl),
+    executor: nonZeroEvmAddress(relay.executor),
+    calibur: relayCalibur(relay.calibur),
+    maxFee: relay.maxFee === undefined ? {} : relayMaxFee(relay.maxFee),
+    // The fee recipient receives funds, so the zero address is refused.
+    ...(relay.feeRecipient === undefined ? {} : { feeRecipient: nonZeroEvmAddress(relay.feeRecipient) })
+  };
 }
 
 function requiredBoolean(value: ConfigValue): boolean {
@@ -991,7 +984,7 @@ function readConfig(
   const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
   const arcade = readArcade(body.arcade, featureSwitch(features, 'arcadeGcPurchase'));
   const backup = readBackup(body.backup, featureSwitch(features, 'encryptedBackup'));
-  const relay = readRelay(body.relay, featureSwitch(features, 'relayDeposit'), body.supportedEvmChains);
+  const relay = readRelay(body.relay, featureSwitch(features, 'relayDeposit'));
   return {
     network,
     version,

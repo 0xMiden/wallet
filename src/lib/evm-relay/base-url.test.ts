@@ -1,7 +1,7 @@
 import { getRelayConfig } from 'lib/remote-config/values';
 
 import { getRelayBaseUrl } from './base-url';
-import { CHAIN } from './testing';
+import { relayConfig } from './testing';
 
 jest.mock('lib/remote-config/values', () => ({ getRelayConfig: jest.fn() }));
 
@@ -25,7 +25,7 @@ describe('getRelayBaseUrl', () => {
     ['  http://localhost:8788//  ', 'http://localhost:8788']
   ])('lets a loopback define %j go before the document', (define, expected) => {
     process.env.MIDEN_EVM_RELAY_URL = define;
-    jest.mocked(getRelayConfig).mockReturnValue({ baseUrl: DOCUMENT_URL, chains: [CHAIN] });
+    jest.mocked(getRelayConfig).mockReturnValue(relayConfig(DOCUMENT_URL));
     expect(getRelayBaseUrl()).toBe(expected);
     expect(getRelayConfig).not.toHaveBeenCalled();
   });
@@ -37,12 +37,12 @@ describe('getRelayBaseUrl', () => {
     ['a define that is not a URL', 'localhost:8788']
   ])("ignores %s and takes the document's URL", (_name, define) => {
     process.env.MIDEN_EVM_RELAY_URL = define;
-    jest.mocked(getRelayConfig).mockReturnValue({ baseUrl: DOCUMENT_URL, chains: [CHAIN] });
+    jest.mocked(getRelayConfig).mockReturnValue(relayConfig(DOCUMENT_URL));
     expect(getRelayBaseUrl()).toBe(DOCUMENT_URL);
   });
 
   it("takes the document's URL with no define", () => {
-    jest.mocked(getRelayConfig).mockReturnValue({ baseUrl: DOCUMENT_URL, chains: [CHAIN] });
+    jest.mocked(getRelayConfig).mockReturnValue(relayConfig(DOCUMENT_URL));
     expect(getRelayBaseUrl()).toBe(DOCUMENT_URL);
   });
 

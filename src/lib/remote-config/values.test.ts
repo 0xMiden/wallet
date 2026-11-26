@@ -451,9 +451,8 @@ describe('the encrypted backup base URL', () => {
 });
 
 describe('the deposit-address relay', () => {
-  const SEPOLIA_RELAY: RelayChainConfig = {
-    key: 'sepolia',
-    chainId: 11155111,
+  const RELAY: RelayConfig = {
+    baseUrl: 'https://relay.example.org',
     executor: '0x1111111111111111111111111111111111111111',
     calibur: {
       address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
@@ -464,15 +463,37 @@ describe('the deposit-address relay', () => {
     maxFee: { '0x0000000000000000000000000000000000000000': '1000000000000000' },
     feeRecipient: '0xfefefefefefefefefefefefefefefefefefefefe'
   };
-  // A chain this build does not know: the document can name it, but no getter finds it.
-  const UNKNOWN_RELAY: RelayChainConfig = { ...SEPOLIA_RELAY, key: 'newchain', chainId: 999_999 };
-  const RELAY: RelayConfig = { baseUrl: 'https://relay.example.org', chains: [SEPOLIA_RELAY, UNKNOWN_RELAY] };
-  const on = snapshot({ ...CONFIG, features: { ...CONFIG.features, relayDeposit: true }, relay: RELAY });
+  const SEPOLIA_RELAY: RelayChainConfig = {
+    key: 'sepolia',
+    chainId: 11155111,
+    executor: RELAY.executor,
+    calibur: RELAY.calibur,
+    maxFee: RELAY.maxFee,
+    feeRecipient: '0xfefefefefefefefefefefefefefefefefefefefe'
+  };
+  const RELAY_CONFIG: BridgeConfig = {
+    ...CONFIG,
+    supportedEvmChains: { ...CONFIG.supportedEvmChains, 'base-sepolia': { chainId: 84532, bridges: {} } },
+    features: { ...CONFIG.features, relayDeposit: true },
+    relay: RELAY
+  };
+  const on = snapshot(RELAY_CONFIG);
 
   it('selects the section while the switch is on', () => {
     expect(selectRelayConfig(on)).toEqual(RELAY);
     expect(selectRelayChain(on, 11155111)).toEqual(SEPOLIA_RELAY);
     expect(selectRelayChain(on, 11155111)?.feeRecipient).toBe('0xfefefefefefefefefefefefefefefefefefefefe');
+  });
+
+  it('applies the one set of values to every chain of supportedEvmChains, under its own key', () => {
+    expect(selectRelayChain(on, 84532)).toEqual({ ...SEPOLIA_RELAY, key: 'base-sepolia', chainId: 84532 });
+  });
+
+  it('leaves the fee recipient out of the chain view when the section has none', () => {
+    const { feeRecipient: _feeRecipient, ...withoutRecipient } = RELAY;
+    const noRecipient = snapshot({ ...RELAY_CONFIG, relay: withoutRecipient });
+    expect(selectRelayChain(noRecipient, 11155111)).not.toHaveProperty('feeRecipient');
+    expect(selectRelayChain(noRecipient, 11155111)?.executor).toBe(RELAY.executor);
   });
 
   it('selects null while no document is accepted, or while the switch is off or absent', () => {
@@ -484,9 +505,15 @@ describe('the deposit-address relay', () => {
     expect(selectRelayChain(EMPTY, 11155111)).toBeNull();
   });
 
-  it('selects no chain that the relay does not name, or that this build does not know', () => {
+  it('selects no chain that the document does not list', () => {
     expect(selectRelayChain(on, 1)).toBeNull();
     expect(selectRelayChain(on, 999_999)).toBeNull();
+  });
+
+  it('selects null while the switch is on but the parsed config has no section', () => {
+    const { relay: _relay, ...withoutSection } = RELAY_CONFIG;
+    expect(selectRelayConfig(snapshot(withoutSection))).toBeNull();
+    expect(selectRelayChain(snapshot(withoutSection), 11155111)).toBeNull();
   });
 
   it("reads this realm's section without throwing", () => {

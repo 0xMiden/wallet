@@ -261,19 +261,20 @@ describe('features.relayDeposit and the relay section', () => {
   const baseUrl = 'https://relay.example.org';
   const NATIVE = '0x0000000000000000000000000000000000000000';
   const USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-  const chain = (fields: Record<string, ConfigValue> = {}) => ({
+  const CALIBUR = {
+    address: '0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00',
+    runtimeHash: `0x${'AB'.repeat(32)}`,
+    domainName: 'Calibur',
+    domainVersion: '1.0.0'
+  };
+  const relay = (fields: Record<string, ConfigValue> = {}) => ({
+    baseUrl,
     executor: '0x1111111111111111111111111111111111111111',
-    calibur: {
-      address: '0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00',
-      runtimeHash: `0x${'AB'.repeat(32)}`,
-      domainName: 'Calibur',
-      domainVersion: '1.0.0'
-    },
+    calibur: CALIBUR,
     maxFee: { [NATIVE]: '1000000000000000', [USDC]: '2500000' },
     ...fields
   });
-  const calibur = (fields: Record<string, ConfigValue>) => chain({ calibur: { ...chain().calibur, ...fields } });
-  const relay = (fields: Record<string, ConfigValue> = {}) => ({ baseUrl, chains: { sepolia: chain() }, ...fields });
+  const calibur = (fields: Record<string, ConfigValue>) => relay({ calibur: { ...CALIBUR, ...fields } });
   const on = (section: ConfigValue, overrides: Record<string, ConfigValue> = {}) =>
     doc({ features: { earn: true, relayDeposit: true }, relay: section, ...overrides });
 
@@ -291,64 +292,48 @@ describe('features.relayDeposit and the relay section', () => {
     expect(parsed?.features.relayDeposit).toBe(true);
     expect(parsed?.relay).toEqual({
       baseUrl,
-      chains: [
-        {
-          key: 'sepolia',
-          chainId: 11155111,
-          executor: '0x1111111111111111111111111111111111111111',
-          calibur: {
-            address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
-            runtimeHash: `0x${'ab'.repeat(32)}`,
-            domainName: 'Calibur',
-            domainVersion: '1.0.0'
-          },
-          maxFee: { [NATIVE]: '1000000000000000', [USDC.toLowerCase()]: '2500000' }
-        }
-      ]
+      executor: '0x1111111111111111111111111111111111111111',
+      calibur: {
+        address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
+        runtimeHash: `0x${'ab'.repeat(32)}`,
+        domainName: 'Calibur',
+        domainVersion: '1.0.0'
+      },
+      maxFee: { [NATIVE]: '1000000000000000', [USDC.toLowerCase()]: '2500000' }
     });
   });
 
-  it('accepts an empty fee map, a fee of 2^256 - 1, a base path and unknown keys', () => {
+  it('reads no fee map as an empty one, and accepts an empty fee map', () => {
+    expect(parseBridgeConfig(on(relay({ maxFee: undefined })), 'testnet')?.relay?.maxFee).toEqual({});
+    expect(parseBridgeConfig(on(relay({ maxFee: {} })), 'testnet')?.relay?.maxFee).toEqual({});
+  });
+
+  it('accepts a fee of 2^256 - 1, a base path and unknown keys', () => {
     const max = (2n ** 256n - 1n).toString();
-    expect(parseBridgeConfig(on(relay({ chains: { sepolia: chain({ maxFee: {} }) } })), 'testnet')).not.toBeNull();
     const parsed = parseBridgeConfig(
-      on(relay({ baseUrl: `${baseUrl}/v1`, extra: 1, chains: { sepolia: chain({ maxFee: { [NATIVE]: max } }) } })),
+      on(relay({ baseUrl: `${baseUrl}/v1`, extra: 1, maxFee: { [NATIVE]: max } })),
       'testnet'
     );
     expect(parsed?.relay?.baseUrl).toBe(`${baseUrl}/v1`);
-    expect(parsed?.relay?.chains[0]?.maxFee).toEqual({ [NATIVE]: max });
+    expect(parsed?.relay?.maxFee).toEqual({ [NATIVE]: max });
+    expect(parsed?.relay).not.toHaveProperty('extra');
   });
 
-  it('reads an optional fee recipient in lowercase, and leaves it out when the chain has none', () => {
+  it('ignores the per-chain list of the older document shape', () => {
+    const chains = { sepolia: { executor: '0x2222222222222222222222222222222222222222', maxFee: {} } };
+    const parsed = parseBridgeConfig(on(relay({ chains })), 'testnet');
+    expect(parsed?.relay).not.toHaveProperty('chains');
+    expect(parsed?.relay?.executor).toBe('0x1111111111111111111111111111111111111111');
+    // A per-chain list without the values at the top level does not give them.
+    expect(parseBridgeConfig(on({ baseUrl, chains: { sepolia: relay() } }), 'testnet')).toBeNull();
+  });
+
+  it('reads an optional fee recipient in lowercase, and leaves it out when the section has none', () => {
     const recipient = '0xFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFe';
-    const parsed = parseBridgeConfig(on(relay({ chains: { sepolia: chain({ feeRecipient: recipient }) } })), 'testnet');
-    expect(parsed?.relay?.chains[0]?.feeRecipient).toBe(recipient.toLowerCase());
+    const parsed = parseBridgeConfig(on(relay({ feeRecipient: recipient })), 'testnet');
+    expect(parsed?.relay?.feeRecipient).toBe(recipient.toLowerCase());
     const without = parseBridgeConfig(on(relay()), 'testnet');
-    expect(without?.relay?.chains[0]).not.toHaveProperty('feeRecipient');
-  });
-
-  it('names a chain that the document lists but this build leaves out, with its chain id', () => {
-    const chains = { ...doc().supportedEvmChains, newchain: { chainId: 999_999, bridges: {} } };
-    const parsed = parseBridgeConfig(
-      on(relay({ chains: { newchain: chain(), sepolia: chain() } }), { supportedEvmChains: chains }),
-      'testnet'
-    );
-    expect(parsed?.supportedEvmChains.newchain).toBeUndefined();
-    expect(parsed?.relay?.chains.map(entry => [entry.key, entry.chainId])).toEqual([
-      ['newchain', 999_999],
-      ['sepolia', 11155111]
-    ]);
-  });
-
-  it('rejects two relay chains with one chain id', () => {
-    const unknown = { chainId: 999_999, bridges: {} };
-    const chains = { ...doc().supportedEvmChains, newchain: unknown, otherchain: unknown };
-    expect(
-      parseBridgeConfig(
-        on(relay({ chains: { newchain: chain(), otherchain: chain() } }), { supportedEvmChains: chains }),
-        'testnet'
-      )
-    ).toBeNull();
+    expect(without?.relay).not.toHaveProperty('feeRecipient');
   });
 
   it.each([
@@ -362,44 +347,38 @@ describe('features.relayDeposit and the relay section', () => {
 
   it.each<[string, ConfigValue]>([
     ['a section that is not an object', baseUrl],
-    ['no base URL', { chains: { sepolia: chain() } }],
+    ['a section list', [relay()]],
+    ['no base URL', relay({ baseUrl: undefined })],
     ['an http base URL', relay({ baseUrl: 'http://relay.example.org' })],
     ['a base URL with a trailing slash', relay({ baseUrl: `${baseUrl}/` })],
     ['a base URL with a query', relay({ baseUrl: `${baseUrl}?a=1` })],
-    ['no chains', { baseUrl }],
-    ['an empty chain map', relay({ chains: {} })],
-    ['a chain list', relay({ chains: [chain()] })],
-    ['a chain the document does not list', relay({ chains: { mainnet: chain() } })],
-    ['a chain that is not an object', relay({ chains: { sepolia: 'yes' } })],
-    ['no executor', relay({ chains: { sepolia: chain({ executor: undefined }) } })],
-    ['a short executor', relay({ chains: { sepolia: chain({ executor: '0x1234' }) } })],
-    ['a zero executor', relay({ chains: { sepolia: chain({ executor: NATIVE }) } })],
-    ['no Calibur section', relay({ chains: { sepolia: chain({ calibur: undefined }) } })],
-    ['a zero Calibur address', relay({ chains: { sepolia: calibur({ address: NATIVE }) } })],
-    ['a Calibur address that is not hex', relay({ chains: { sepolia: calibur({ address: `0x${'g'.repeat(40)}` }) } })],
-    ['a short runtime hash', relay({ chains: { sepolia: calibur({ runtimeHash: `0x${'ab'.repeat(31)}` }) } })],
-    ['a runtime hash without 0x', relay({ chains: { sepolia: calibur({ runtimeHash: 'ab'.repeat(32) }) } })],
-    ['an empty domain name', relay({ chains: { sepolia: calibur({ domainName: '' }) } })],
-    ['a domain name over 32 characters', relay({ chains: { sepolia: calibur({ domainName: 'x'.repeat(33) }) } })],
-    ['a domain name with a control character', relay({ chains: { sepolia: calibur({ domainName: 'Cal\nibur' }) } })],
-    ['an empty domain version', relay({ chains: { sepolia: calibur({ domainVersion: '' }) } })],
-    ['a domain version over 16 characters', relay({ chains: { sepolia: calibur({ domainVersion: '1'.repeat(17) }) } })],
-    ['no fee map', relay({ chains: { sepolia: chain({ maxFee: undefined }) } })],
-    ['a fee list', relay({ chains: { sepolia: chain({ maxFee: [] }) } })],
-    ['a fee key that is not an address', relay({ chains: { sepolia: chain({ maxFee: { USDC: '1' } }) } })],
-    [
-      'two fee keys that differ only in case',
-      relay({ chains: { sepolia: chain({ maxFee: { [USDC]: '1', [USDC.toLowerCase()]: '2' } }) } })
-    ],
-    ['a zero fee', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '0' } }) } })],
-    ['a fee with a leading zero', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '01' } }) } })],
-    ['a negative fee', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '-1' } }) } })],
-    ['a decimal fee', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '1.5' } }) } })],
-    ['a fee as a number', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: 1000 } }) } })],
-    ['a fee of 2^256', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: (2n ** 256n).toString() } }) } })],
-    ['a zero fee recipient', relay({ chains: { sepolia: chain({ feeRecipient: NATIVE }) } })],
-    ['a fee recipient that is not an address', relay({ chains: { sepolia: chain({ feeRecipient: '0x1234' }) } })],
-    ['a null fee recipient', relay({ chains: { sepolia: chain({ feeRecipient: null }) } })]
+    ['no executor', relay({ executor: undefined })],
+    ['a short executor', relay({ executor: '0x1234' })],
+    ['a zero executor', relay({ executor: NATIVE })],
+    ['no Calibur section', relay({ calibur: undefined })],
+    ['a Calibur section that is not an object', relay({ calibur: 'Calibur' })],
+    ['a zero Calibur address', calibur({ address: NATIVE })],
+    ['a Calibur address that is not hex', calibur({ address: `0x${'g'.repeat(40)}` })],
+    ['a short runtime hash', calibur({ runtimeHash: `0x${'ab'.repeat(31)}` })],
+    ['a runtime hash without 0x', calibur({ runtimeHash: 'ab'.repeat(32) })],
+    ['an empty domain name', calibur({ domainName: '' })],
+    ['a domain name over 32 characters', calibur({ domainName: 'x'.repeat(33) })],
+    ['a domain name with a control character', calibur({ domainName: 'Cal\nibur' })],
+    ['an empty domain version', calibur({ domainVersion: '' })],
+    ['a domain version over 16 characters', calibur({ domainVersion: '1'.repeat(17) })],
+    ['a null fee map', relay({ maxFee: null })],
+    ['a fee list', relay({ maxFee: [] })],
+    ['a fee key that is not an address', relay({ maxFee: { USDC: '1' } })],
+    ['two fee keys that differ only in case', relay({ maxFee: { [USDC]: '1', [USDC.toLowerCase()]: '2' } })],
+    ['a zero fee', relay({ maxFee: { [NATIVE]: '0' } })],
+    ['a fee with a leading zero', relay({ maxFee: { [NATIVE]: '01' } })],
+    ['a negative fee', relay({ maxFee: { [NATIVE]: '-1' } })],
+    ['a decimal fee', relay({ maxFee: { [NATIVE]: '1.5' } })],
+    ['a fee as a number', relay({ maxFee: { [NATIVE]: 1000 } })],
+    ['a fee of 2^256', relay({ maxFee: { [NATIVE]: (2n ** 256n).toString() } })],
+    ['a zero fee recipient', relay({ feeRecipient: NATIVE })],
+    ['a fee recipient that is not an address', relay({ feeRecipient: '0x1234' })],
+    ['a null fee recipient', relay({ feeRecipient: null })]
   ])('rejects a section with %s', (_name, section) => {
     expect(parseBridgeConfig(on(section), 'testnet')).toBeNull();
   });
