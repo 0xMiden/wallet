@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
 - [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
 
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
