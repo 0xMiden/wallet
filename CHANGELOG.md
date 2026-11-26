@@ -5,6 +5,9 @@
 - [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.
 - [CHANGE][all] Answer an assistant clarification that has a single option with that option instead of asking, except for the recipient, where choosing it stays your click.
 - [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.
+- [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
 - [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Show when Claim All is waiting for an automatic retry.
 - [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
