@@ -360,6 +360,17 @@ describe('CommandAiBar', () => {
       }
     );
 
+    it('dismisses a request error without discarding a clarification', async () => {
+      renderBar();
+      await openClarification();
+      jest.mocked(compileCommandPrompt).mockRejectedValueOnce(new CommandAiClientError('unavailable', 'offline'));
+      submit('What happens next?');
+      const error = await screen.findByTestId('command-ai-error');
+      fireEvent.click(within(error).getByRole('button', { name: 'close' }));
+      expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
+      expect(screen.getByTestId('command-ai-clarification')).toBeInTheDocument();
+    });
+
     it.each(['stop', 'continue'] as const)('clears stale errors when users %s their plan', async button => {
       const { op: _op, ...bridge } = bridgeIntent;
       jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
@@ -392,6 +403,33 @@ describe('CommandAiBar', () => {
         'fill',
         'currentColor'
       );
+    });
+
+    it('uses the selected next topic as the help context', async () => {
+      jest
+        .mocked(compileCommandPrompt)
+        .mockResolvedValueOnce({
+          op: 'explain',
+          topic: 'Privacy',
+          answer: 'Private notes stay off the public chain.'
+        })
+        .mockResolvedValueOnce({
+          op: 'explain',
+          topic: 'Verify',
+          answer: 'Check the Public or Private choice before you send.'
+        });
+      renderBar();
+      submit('How private is it?');
+      await screen.findByTestId('command-ai-help-answer');
+      fireEvent.click(screen.getByRole('button', { name: 'commandAiHelpVerifyTitle' }));
+      await waitFor(() =>
+        expect(screen.getByTestId('command-ai-help-answer')).toHaveTextContent('commandAiHelpVerifyTitle')
+      );
+      expect(compileCommandPrompt).toHaveBeenLastCalledWith({
+        redactedText: 'commandAiHelpVerifyTitle',
+        helpContext: 'Verify',
+        signal: expect.any(AbortSignal)
+      });
     });
 
     it('rejects an answer on a different topic than the selected one', async () => {

@@ -371,8 +371,9 @@ export function CommandAiBar({
   );
 
   const submitPrompt = useCallback(
-    async (raw: string, helpOnly = false) => {
+    async (raw: string, topic?: keyof typeof COMMAND_HELP_TOPICS) => {
       if (!raw || activeAbortRef.current) return;
+      const helpOnly = topic !== undefined;
       const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) =>
         setRequestFailure(error && { error, state, plan: planCtx?.plan });
       if (containsCommandSecret(raw)) {
@@ -393,7 +394,7 @@ export function CommandAiBar({
       setPendingKinds(redactedKinds);
 
       try {
-        const helpContext = helpAnswer === 'topics' ? null : (helpAnswer?.topic ?? null);
+        const helpContext = topic ?? (helpAnswer === 'topics' ? null : (helpAnswer?.topic ?? null));
         let output = await compileCommandPrompt({
           redactedText: redaction.redactedText,
           helpContext,
@@ -402,6 +403,9 @@ export function CommandAiBar({
         if (controller.signal.aborted) return;
         setRequestError(null);
         if (output.op === 'explain') {
+          if (topic !== undefined && output.topic !== topic) {
+            throw new CommandAiClientError('invalid_response', 'The service returned a different help topic');
+          }
           if (state.kind === 'error') setState({ kind: 'idle' });
           setHelpAnswer(output);
           if (!helpOnly) setInput(current => (current.trim() === raw ? '' : current));
@@ -665,7 +669,7 @@ export function CommandAiBar({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => void submitPrompt(t(`commandAiHelp${help.next}Title`), true)}
+                      onClick={() => void submitPrompt(t(`commandAiHelp${help.next}Title`), help.next)}
                       className="text-accent-tint-ink underline underline-offset-2 focus-visible:outline-2"
                     >
                       {t(`commandAiHelp${help.next}Title`)}
@@ -682,7 +686,7 @@ export function CommandAiBar({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void submitPrompt(t(`commandAiHelp${topic}Title`), true)}
+                        onClick={() => void submitPrompt(t(`commandAiHelp${topic}Title`), topic)}
                         className="rounded-xl border border-hairline bg-page px-3 py-2 text-body-sm text-ink hover:bg-fill-pressed focus-visible:outline-2"
                       >
                         {t(`commandAiHelp${topic}Title`)}
