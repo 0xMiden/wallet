@@ -4,6 +4,8 @@ import { PendingActivityCard, type PendingActivityItem } from 'app/templates/his
 import { token, TOKEN_DETAIL_FIXTURE_ID as tokenId } from './fixture';
 import { FIXTURE_NOW } from './history.leaves';
 
+const params = new URLSearchParams(window.location.search);
+
 // A claim batch spanning two tokens: two claimable notes and one claiming note of this token, and a
 // claiming note of another faucet, which this page must represent but not draw.
 const claimNote = (
