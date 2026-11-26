@@ -4,10 +4,15 @@ const DISCLOSURE =
 const PROHIBITION =
   /\b(?:never|(?:do|should|must|can|could|would|will|may) not|don't|shouldn't|mustn't|can't|cannot|no need to)(?:\s+ever)?(?:\s+(?:ask|tell|need|want|require)\s+(?:you\s+)?to)?\s*$/;
 const WARNING = /\b(?:if|when)\b.*\b(?:asks?|asked|tells?|told)\b.*\bto\s*$/;
-const CAUTION = /^,\s*(?:stop|don't|do not|refuse|ignore|report|contact)\b/;
+const CAUTION = new RegExp(
+  String.raw`^(?:(?:,\s*(?:(?:and|or)\s+)?|\s+(?:and|or)\s+)(?:(?:your|the)\s+)?${CREDENTIAL.source}){0,3},\s*(?:stop|don't|do not|refuse|ignore|report|contact)\b`
+);
 
 export function hasUnsafeSharingAdvice(output) {
-  const result = output?.result;
+  const result =
+    output && typeof output === 'object' && Object.hasOwn(output, 'result') && Object.keys(output).length === 1
+      ? output.result
+      : output;
   if (result?.op !== 'explain' || typeof result.answer !== 'string') return false;
   const text = result.answer.normalize('NFKC').toLowerCase().replaceAll('\u2019', "'");
   if (!CREDENTIAL.test(text)) return false;
