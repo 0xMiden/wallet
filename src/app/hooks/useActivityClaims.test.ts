@@ -1924,6 +1924,41 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     ]);
   });
 
+  it('settles a stale claim card and only enables Retry after the Guardian hold clears', async () => {
+    const txId = 'tx-interrupted';
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: txId }];
+    render(React.createElement(ClaimCards));
+    open();
+
+    settle([{ id: txId, status: 1, type: 'consume' }]);
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+
+    const capturedAt = Math.floor(Date.now() / 1000) - GUARDIAN_PENDING_HOLD_SEC + 30;
+    settle([
+      {
+        id: txId,
+        status: 3,
+        type: 'consume',
+        error: 'Transaction was interrupted when the browser closed',
+        submitEvidence: [{ attemptId: 'interrupted', capturedAt, source: 'stage', candidateKept: true }]
+      }
+    ]);
+    expect(screen.queryByRole('button', { name: 'activityAcceptingTransfer' })).not.toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'retry' });
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByTestId('guardian-hold-notice')).toHaveTextContent('guardianHoldNotice');
+    await click('Accept All');
+    expect(mockQueueMany).not.toHaveBeenCalled();
+    expect(mockQueue).not.toHaveBeenCalled();
+
+    advance(31_000);
+    expect(screen.queryByTestId('guardian-hold-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+  });
+
   it('reports a real queued attempt whose watched row becomes failed while mounted', async () => {
     render(React.createElement(ClaimCards));
     open();
