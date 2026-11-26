@@ -81,6 +81,11 @@ jobs:
         uses: ./.github/actions/yarn-install
       - name: Type-check the Worker
         run: npx tsc --noEmit -p services/command-ai/tsconfig.json
+      - name: Check Bread answers with synthetic questions
+        if: hashFiles('scripts/command-ai-eval/questions.json') != ''
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: node scripts/command-ai-eval/run-eval.mjs --questions --require-live
 
       - name: Prepare server configuration and secrets
         env:

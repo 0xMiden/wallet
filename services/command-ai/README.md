@@ -5,7 +5,11 @@ Standalone, stateless Cloudflare Worker that compiles privacy-redacted wallet pr
 ## Endpoints
 
 - `GET /healthz` — returns `{ ok: true, revision }` with `Cache-Control: private, no-store`.
-- `POST /v1/compile` — rate-limited (`COMMAND_AI_RATE_LIMIT`, 30 req / 60 s per caller IP), validates `{ redactedText, snapshot? }`, calls Groq structured output (`openai/gpt-oss-120b`), and returns `{ output }`.
+- `POST /v1/compile` validates `{ redactedText, snapshot? }` for existing commands, or `{ redactedText, helpContext }` to enable help. The help context is null or the previous public topic ID. Help requests cannot include a snapshot. Both use the existing Groq structured output and share the same rate limit.
+
+Help adds a compact public fact sheet to the model instructions. The model writes the reply. The wallet accepts bounded plain text and maps a known topic to an official source link. Older clients continue using the original prompt and schema.
+
+Run `node scripts/command-ai-eval/run-eval.mjs --questions` from the repository root to check the bounded synthetic question set. With `GROQ_API_KEY` configured, the run reports model routing, basic fact checks, peak prompt tokens, and latency. Add `--offline` when checking fixture redaction without the provider.
 
 ## Bindings & Configuration
 
