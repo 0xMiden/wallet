@@ -102,6 +102,45 @@ async function send(
 }
 
 describe('command-ai standalone Worker', () => {
+  it('grounds opted-in help questions without sending a draft or changing the legacy schema', async () => {
+    const output = {
+      result: { op: 'explain', topic: 'Privacy', answer: 'Private notes keep their contents off-chain.' }
+    };
+    const fetchMock = groqOkFetch(output);
+    const service = createService({ fetchImpl: fetchMock });
+    const { env } = makeEnv();
+    const response = await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'Can people see the payment amount?', helpContext: 'Privacy' }
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ output });
+    await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'cancel' }
+    });
+    const readRequest = (index: number) => {
+      const [, init] = fetchMock.mock.calls[index] as [string, RequestInit];
+      return JSON.parse(String(init.body));
+    };
+    const help = readRequest(0);
+    const legacy = readRequest(1);
+    expect(JSON.parse(help.messages[1].content)).toEqual({
+      utterance: 'Can people see the payment amount?',
+      previousHelpTopic: 'Privacy'
+    });
+    expect(help.messages[0].content).toContain('two of three validators');
+    expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5000);
+    expect(JSON.stringify(help.response_format)).toContain('"explain"');
+    expect(JSON.stringify(legacy.response_format)).not.toContain('"explain"');
+    const refused = await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'what is a note?', helpContext: null, snapshot: { missingSlot: 'recipient' } }
+    });
+    expect(refused.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('answers /healthz with revision and no-store caching, and rejects non-GET methods', async () => {
     const service = createService();
     const { env } = makeEnv({ revision: 'rev-123' });

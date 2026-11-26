@@ -197,8 +197,8 @@ function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
 }
 
 describe('CommandAiBar', () => {
-  it('answers Bread questions locally without disturbing a pending clarification', async () => {
-    jest.mocked(compileCommandPrompt).mockResolvedValue({
+  it('asks the model for a help topic without sending a pending clarification', async () => {
+    jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
       op: 'set_intent',
       action: 'bridge',
       amount: { kind: 'exact_ref', ref: 'AMT_1' },
@@ -211,6 +211,18 @@ describe('CommandAiBar', () => {
       note_type: null,
       earn_op: null
     });
+    jest
+      .mocked(compileCommandPrompt)
+      .mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Privacy',
+        answer: 'A private payment keeps its amount off the public chain.'
+      } as never)
+      .mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Verify',
+        answer: 'Check the Public or Private choice before you send.'
+      } as never);
     renderBar();
     const input = screen.getByTestId('command-ai-input');
     const submit = (value: string) => {
@@ -222,13 +234,25 @@ describe('CommandAiBar', () => {
     submit('How private is it?');
     const answer = await screen.findByTestId('command-ai-help-answer');
     expect(answer).toHaveTextContent('commandAiHelpPrivacyTitle');
+    expect(answer).toHaveTextContent('A private payment keeps its amount off the public chain.');
     expect(screen.getByTestId('command-ai-clarification')).toBe(clarification);
-    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(2);
+    expect(compileCommandPrompt).toHaveBeenLastCalledWith({
+      redactedText: 'How private is it?',
+      helpContext: null,
+      signal: expect.any(AbortSignal)
+    });
     expect(executeLocalLedgerQuery).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     submit('What can people see?');
-    expect(answer).toHaveTextContent('commandAiHelpPrivacyTitle');
-    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(answer).toHaveTextContent('commandAiHelpVerifyTitle'));
+    expect(answer).toHaveTextContent('Check the Public or Private choice before you send.');
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(3);
+    expect(compileCommandPrompt).toHaveBeenLastCalledWith({
+      redactedText: 'What can people see?',
+      helpContext: 'Privacy',
+      signal: expect.any(AbortSignal)
+    });
   });
 
   it('keeps the prior answer and submit controls mounted while the next question is pending', async () => {
