@@ -145,7 +145,8 @@ describe('accepted cached solver registry', () => {
     expect(cachedSolverRegistry(config, derived)).toEqual({
       service: 'https://solver.example/base',
       pairs,
-      priceAssets: new Map()
+      priceAssets: new Map(),
+      tokenListLoaded: false
     });
   });
   it('retains verified stablecoin price assets omitted by the solver registry parser', () => {
