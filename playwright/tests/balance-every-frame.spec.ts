@@ -249,7 +249,7 @@ test.describe('Balance on every frame', () => {
 
       for (const surface of ['sidepanel', 'command'] as const) {
         const value = surface === 'sidepanel' ? /^7\.25$/ : /^7\.25 USD$/;
-        const dash = surface === 'sidepanel' ? /^—$/ : /^---$/;
+        const dash = surface === 'sidepanel' ? /^\u2014$/ : /^---$/;
         const expected = [expect.stringMatching(knowable ? value : dash)];
         // The panel toggled open and shut: every open is a fresh document.
         for (let open = 0; open < opens; open += 1) {

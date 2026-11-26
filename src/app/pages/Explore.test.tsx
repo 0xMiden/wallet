@@ -776,7 +776,7 @@ describe('Explore', () => {
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
     });
 
     it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
@@ -813,7 +813,7 @@ describe('Explore', () => {
 
       await renderExplore();
 
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
     });
 
     // Gamecoin on mainnet: listed, but no exchange quotes it. A fresh document cannot know that until its own feed run.
@@ -828,7 +828,7 @@ describe('Explore', () => {
       ];
       mockTokenPrices = {};
       const view = await renderExplore();
-      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
 
       await writeDisplayFeed(getEffectiveNetworkName(), {}, ['GC']);
       try {
