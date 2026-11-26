@@ -408,7 +408,9 @@ export const PendingActivityCard = ({
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
-              disabled={waitingForRetry || (!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian}
+              disabled={
+                waitingForRetry || (!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian
+              }
               isLoading={status === 'claiming' && !held && !waitingForRetry}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}

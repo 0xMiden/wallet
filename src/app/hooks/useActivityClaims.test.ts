@@ -2668,7 +2668,11 @@ it('shows a scheduled Claim All retry without offering another claim', async () 
   expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
 
-  const retry = { ...row, lastDeferral: 'node_unreachable', nextEligibleAt: Math.floor(Date.now() / 1000) + 60 } as const;
+  const retry = {
+    ...row,
+    lastDeferral: 'node_unreachable',
+    nextEligibleAt: Math.floor(Date.now() / 1000) + 60
+  } as const;
   for (const waiting of [
     { ...retry, lastDeferral: 'wallet_locked' },
     { ...retry, awaitingRecoverySeed: true },
