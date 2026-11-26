@@ -836,8 +836,7 @@ final class BreadPresentationController: NSObject, UIGestureRecognizerDelegate {
             owner.setNeedsUpdateOfHomeIndicatorAutoHidden()
             owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
             owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
-            instance?.morphContainer?.setNeedsStatusBarAppearanceUpdate()
-            instance?.morphContainer?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            instance?.morphContainer?.refreshPresentationSystemUI()
             hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
         }
         if state.phase == .visible { reveal() } else { cancelReveal() }

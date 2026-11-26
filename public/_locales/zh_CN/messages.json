@@ -10205,7 +10205,7 @@
     "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "发送、兑换、桥接、赚取，或咨询您的钱包……",
+    "message": "发送、兑换、桥接、赚取，或查询您的钱包……",
     "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
@@ -10268,7 +10268,7 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "此处不支持 $name$ 形式的 ENS 名称。请输入完整地址或选择联系人。",
+    "message": "此处不支持 $name$ 格式的 ENS 名称。请输入完整地址或选择联系人。",
     "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
@@ -10326,7 +10326,7 @@
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "目前没有可用的“赚取”金库或头寸。",
+    "message": "目前暂无可用的“赚取”金库或头寸。",
     "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {

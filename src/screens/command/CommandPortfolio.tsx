@@ -223,6 +223,16 @@ export function CommandPortfolio({
           percentage: firstSampleValue > 0 ? ((lastSampleValue - firstSampleValue) / firstSampleValue) * 100 : null
         }
       : null;
+  const deltaAmountLabel = periodDelta
+    ? `${periodDelta.amount >= 0 ? '+' : '-'}$${formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}`
+    : null;
+  const deltaPercentageLabel =
+    periodDelta && periodDelta.percentage !== null
+      ? `(${periodDelta.percentage >= 0 ? '+' : '-'}${formatAmountDisplay(Math.abs(periodDelta.percentage), {
+          ...displayOptions,
+          formatting: 'fixed'
+        })}${t('percentSign')})`
+      : null;
   const yTicks =
     span > 0
       ? [
@@ -337,20 +347,8 @@ export function CommandPortfolio({
                       : 'border-negative-tint-ink/30 bg-negative-tint/15 text-negative-tint-ink'
                   }`}
                 >
-                  <span>
-                    {periodDelta.amount >= 0 ? '+' : '-'}$
-                    {formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}
-                  </span>
-                  {periodDelta.percentage !== null && (
-                    <span className="opacity-85">
-                      ({periodDelta.percentage >= 0 ? '+' : '-'}
-                      {formatAmountDisplay(Math.abs(periodDelta.percentage), {
-                        ...displayOptions,
-                        formatting: 'fixed'
-                      })}
-                      {t('percentSign')})
-                    </span>
-                  )}
+                  <span>{deltaAmountLabel}</span>
+                  {deltaPercentageLabel !== null && <span className="opacity-85">{deltaPercentageLabel}</span>}
                 </span>
               )}
             </div>
@@ -409,7 +407,7 @@ export function CommandPortfolio({
                   <span
                     key={tick.top}
                     aria-hidden="true"
-                    className="pointer-events-none absolute right-1 -translate-y-1/2 rounded bg-page/75 px-1 text-[11px] text-muted/75 backdrop-blur-xs tabular-nums"
+                    className="pointer-events-none absolute right-1 -translate-y-1/2 rounded bg-page/75 px-1 text-[11px] text-muted/75 [backdrop-filter:blur(4px)] [-webkit-backdrop-filter:blur(4px)] tabular-nums"
                     style={{ top: `${tick.top}%` }}
                   >
                     ${formatAmountDisplay(tick.value, displayOptions)}
@@ -419,7 +417,7 @@ export function CommandPortfolio({
                   <>
                     <div
                       data-testid="command-chart-tooltip"
-                      className="pointer-events-none absolute top-1 z-10 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-accent-primary/35 bg-fill/90 px-2.5 py-1 text-[11px] font-medium text-ink shadow-md backdrop-blur-md tabular-nums"
+                      className="pointer-events-none absolute top-1 z-10 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-accent-primary/35 bg-fill/90 px-2.5 py-1 text-[11px] font-medium text-ink shadow-md [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)] tabular-nums"
                       style={{ left: `${Math.max(12, Math.min(88, activePoint.x))}%` }}
                     >
                       <span className="font-semibold text-accent-tint-ink">

@@ -10314,7 +10314,7 @@
     "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "您想從哪個「Earn」倉位中提領？",
+    "message": "您要從哪個 Earn 倉位中提領？",
     "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
@@ -10350,7 +10350,7 @@
     "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI 服務暫時無法使用。請稍後重試，或使用下方的表單。",
+    "message": "AI 服務暫時無法使用。請稍後重試或使用下方的表單。",
     "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {

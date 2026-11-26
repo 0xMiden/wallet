@@ -184,6 +184,7 @@ const quoteRefusals = [
 ];
 
 it.each(quoteRefusals)('emits $code only from bound solver quote evidence', async ({ code, priceOffset, verdict }) => {
+  jest.spyOn(Date, 'now').mockReturnValue(Math.floor(Date.now() / 1000) * 1000);
   const price = {
     offeredFaucet: offered.hex,
     requestedFaucet: requested.hex,

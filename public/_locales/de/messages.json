@@ -10252,7 +10252,7 @@
     "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "An wen möchten Sie senden?",
+    "message": "An wen möchten Sie die Nachricht senden?",
     "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {

@@ -10207,7 +10207,7 @@
     "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Надсилайте, обмінюйте, переказуйте, заробляйте або запитуйте про свій гаманець...",
+    "message": "Надсилайте, обмінюйте, використовуйте міст, заробляйте або запитуйте про свій гаманець...",
     "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
@@ -10316,11 +10316,11 @@
     "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "З якої позиції в Earn ви хочете зняти кошти?",
+    "message": "З якої позиції Earn ви хочете зняти кошти?",
     "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
-    "message": "Наразі відповідний маршрут перекладу відсутній.",
+    "message": "Наразі відповідний маршрут перекладу недоступний.",
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
@@ -10477,7 +10477,7 @@
     "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Переведіть 1 ETH, обміняйте на USDCx і покладіть у сховище з найвищим доходом",
+    "message": "Переведіть 1 ETH, обміняйте на USDCx і покладіть у сховище з найвищим прибутком",
     "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {

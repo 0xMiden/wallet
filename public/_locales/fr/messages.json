@@ -10272,7 +10272,7 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "Les noms ENS tels que $name$ ne sont pas pris en charge ici. Saisissez une adresse complète ou sélectionnez un contact.",
+    "message": "Les noms ENS du type $name$ ne sont pas pris en charge ici. Saisissez une adresse complète ou sélectionnez un contact.",
     "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
@@ -10318,7 +10318,7 @@
     "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "De quelle position « Earn » souhaitez-vous effectuer un retrait ?",
+    "message": "De quelle position Earn souhaitez-vous effectuer un retrait ?",
     "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {

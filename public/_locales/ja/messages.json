@@ -10362,7 +10362,7 @@
     "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "マッチング合計",
+    "message": "マッチング総額",
     "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
@@ -10455,11 +10455,11 @@
     "englishSource": "Max"
   },
   "commandAiPlanPreviousOutput": {
-    "message": "以前の出力",
+    "message": "前の出力",
     "englishSource": "Previous output"
   },
   "commandAiSamplePrompt1": {
-    "message": "ジョンに10 USDCxを送金する",
+    "message": "Johnに10 USDCxを送金する",
     "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {

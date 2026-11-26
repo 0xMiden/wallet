@@ -2222,7 +2222,7 @@
   "commandAiRedactedBadge": "Geschützt: $kinds$",
   "commandAiOpenNativeForm": "Formular öffnen",
   "commandAiChooseBridge": "Welche Brückenroute möchten Sie nutzen?",
-  "commandAiChooseRecipient": "An wen möchten Sie senden?",
+  "commandAiChooseRecipient": "An wen möchten Sie die Nachricht senden?",
   "commandAiDisambiguateContact": "Es gibt mehrere Kontakte mit diesem Namen. Welcher ist gemeint?",
   "commandAiIncompleteAddressMatches": "$prefix$ ist unvollständig. Meintest du einen deiner gespeicherten Kontakte?",
   "commandAiIncompleteAddress": "$address$ ist eine unvollständige Adresse. Geben Sie eine vollständige Adresse ein oder wählen Sie einen Kontakt aus.",

@@ -10289,7 +10289,7 @@
     "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Należy podać adres odbiorcy lub nazwę kontaktu.",
+    "message": "Należy podać adres odbiorcy lub nazwę osoby kontaktowej.",
     "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
@@ -10314,7 +10314,7 @@
     "englishSource": "Which token do you want to receive?"
   },
   "commandAiChooseEarnVault": {
-    "message": "Do którego skarbca Earn chcesz dokonać wpłaty?",
+    "message": "Do którego skarbca Earn chcesz wpłacić środki?",
     "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
@@ -10326,7 +10326,7 @@
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap nie jest obecnie dostępny dla tej pary walutowej.",
+    "message": "Wymiana dla tej pary walut nie jest obecnie dostępna.",
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
@@ -10338,11 +10338,11 @@
     "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
   },
   "commandAiInvalidModelOutput": {
-    "message": "Nie udało się bezpiecznie zweryfikować tego żądania. Spróbuj sformułować je inaczej lub skorzystaj z poniższego formularza.",
+    "message": "Nie udało się bezpiecznie zweryfikować tego żądania. Spróbuj przeformułować zapytanie lub skorzystaj z poniższego formularza.",
     "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "Ta czynność nie jest tutaj obsługiwana. Spróbuj skorzystać z opcji „Wyślij”, „Wymień”, „Przekaż”, „Zarabiaj” lub zadaj pytanie dotyczące portfela.",
+    "message": "Ta czynność nie jest tutaj obsługiwana. Spróbuj skorzystać z opcji „Wyślij”, „Wymień”, „Przenieś”, „Zarabiaj” lub zadaj pytanie dotyczące portfela.",
     "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
@@ -10366,7 +10366,7 @@
     "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Łączna kwota dopasowania",
+    "message": "Łączna wartość dopasowanych zleceń",
     "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
@@ -10467,7 +10467,7 @@
     "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Wpłać 1 ETH i wymień je na USDCx",
+    "message": "Wpłać 1 ETH i zamień je na USDCx",
     "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {
@@ -10479,7 +10479,7 @@
     "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Wpłać 1 ETH, wymień na USDCx i umieść w skarbcu o najwyższym zysku",
+    "message": "Wpłać 1 ETH, wymień na USDCx i umieść w skarbcu o najwyższej rentowności",
     "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {

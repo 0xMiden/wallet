@@ -2245,7 +2245,7 @@
   "commandAiChooseEarnVault": "Hangi Earn kasasına para yatırmak istiyorsunuz?",
   "commandAiChooseEarnPosition": "Hangi Earn pozisyonundan para çekmek istiyorsunuz?",
   "commandAiBridgeUnavailable": "Şu anda uygun bir köprü rotası mevcut değildir.",
-  "commandAiSwapUnavailable": "Bu çift için swap şu anda kullanılamıyor.",
+  "commandAiSwapUnavailable": "Bu ikili için swap şu anda kullanılamıyor.",
   "commandAiEarnUnavailable": "Şu anda hiçbir Earn kasası veya pozisyonu mevcut değildir.",
   "commandAiFiatPriceUnavailable": "Bu token için canlı USD fiyatı mevcut değildir. Bir token miktarı girin.",
   "commandAiInvalidModelOutput": "Bu isteği güvenli bir şekilde doğrulayamadık. İfadenizi yeniden düzenleyin veya aşağıdaki formu kullanın.",

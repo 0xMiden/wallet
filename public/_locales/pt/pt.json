@@ -2246,7 +2246,7 @@
   "commandAiUnsupported": "Essa ação não é suportada aqui. Tente “Enviar”, “Trocar”, “Bridge”, “Ganhar” ou uma pergunta sobre carteira.",
   "commandAiNoActiveDraft": "Não há nada ativo para atualizar. Digite um comando completo.",
   "commandAiUnconfigured": "O proxy de IA não está configurado. Defina um endpoint ou use a barra de ações abaixo.",
-  "commandAiServiceUnavailable": "O serviço de IA está temporariamente indisponível. Tente novamente ou use um dos formulários abaixo.",
+  "commandAiServiceUnavailable": "O serviço de IA está temporariamente indisponível. Tente novamente ou use o formulário abaixo.",
   "commandAiRateLimited": "Limite de taxa do serviço de IA atingido. Tente novamente em breve.",
   "commandAiQueryBalanceTitle": "Saldo da carteira",
   "commandAiQueryTotalTitle": "Total de correspondências",

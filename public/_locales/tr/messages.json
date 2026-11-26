@@ -10324,7 +10324,7 @@
     "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Bu çift için swap şu anda kullanılamıyor.",
+    "message": "Bu ikili için swap şu anda kullanılamıyor.",
     "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
