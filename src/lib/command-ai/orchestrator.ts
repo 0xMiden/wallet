@@ -30,6 +30,7 @@ export interface BridgeRouteSummary {
   sourceNetwork: string;
   destinationSymbol: string;
   destinationNetwork: string;
+  contractAddress?: string;
   estimateFee?: string;
   etaLabel?: string;
 }
@@ -455,6 +456,26 @@ function shortAddr(addr: string): string {
   return addr.length > 14 ? `${addr.slice(0, 7)}…${addr.slice(-4)}` : addr;
 }
 
+function bridgeClarificationLabels(routes: readonly BridgeRouteSummary[]): string[] {
+  const bases = routes.map(
+    route =>
+      `${route.sourceSymbol} → ${route.destinationSymbol} · ${route.provider} (${route.sourceNetwork} → ${route.destinationNetwork})`
+  );
+  return routes.map((route, index) => {
+    const base = bases[index]!;
+    const address = route.contractAddress;
+    if (!address || bases.filter(candidate => candidate === base).length === 1) return base;
+    const shortened = shortAddr(address);
+    const shortenedCount = routes.filter(
+      (candidate, candidateIndex) =>
+        bases[candidateIndex] === base &&
+        candidate.contractAddress !== undefined &&
+        shortAddr(candidate.contractAddress) === shortened
+    ).length;
+    return `${base} ${shortenedCount === 1 ? shortened : address}`;
+  });
+}
+
 function resolveSendFlow(
   draft: HydratedIntentDraft,
   map: RedactionMap,
@@ -781,9 +802,11 @@ function resolveBridgeFlow(
 
   // Clarification needed when multiple bridge routes/providers remain eligible.
   if (candidates.length > 1) {
-    const chips: ClarificationChip[] = candidates.slice(0, 6).map(route => ({
+    const shown = candidates.slice(0, 6);
+    const labels = bridgeClarificationLabels(shown);
+    const chips: ClarificationChip[] = shown.map((route, index) => ({
       id: route.id,
-      label: `${route.sourceSymbol} → ${route.destinationSymbol} · ${route.provider} (${route.sourceNetwork} → ${route.destinationNetwork})`,
+      label: labels[index]!,
       subtitle: [route.estimateFee, route.etaLabel].filter(Boolean).join(' · ') || undefined,
       patch: {
         routeId: route.id,
