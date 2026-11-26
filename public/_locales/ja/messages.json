@@ -3693,6 +3693,19 @@
     "message": "To",
     "englishSource": "To"
   },
+  "commandBridgeVia": {
+    "message": "$provider$経由",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "トークンが見つかりません",
+    "englishSource": "No tokens found"
+  },
   "commandBridgeRoute": {
     "message": "資産、ネットワーク、プロバイダー",
     "englishSource": "Asset, network and provider"

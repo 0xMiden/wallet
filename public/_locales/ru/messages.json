@@ -3693,6 +3693,19 @@
     "message": "Чтобы",
     "englishSource": "To"
   },
+  "commandBridgeVia": {
+    "message": "через $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Токенов не найдено",
+    "englishSource": "No tokens found"
+  },
   "commandBridgeRoute": {
     "message": "Актив, сеть и провайдер",
     "englishSource": "Asset, network and provider"

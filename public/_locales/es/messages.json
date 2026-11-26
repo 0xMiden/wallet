@@ -3693,6 +3693,19 @@
     "message": "A",
     "englishSource": "To"
   },
+  "commandBridgeVia": {
+    "message": "vía $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "No se han encontrado tokens",
+    "englishSource": "No tokens found"
+  },
   "commandBridgeRoute": {
     "message": "Activos, redes y proveedores",
     "englishSource": "Asset, network and provider"

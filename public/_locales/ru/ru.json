@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "Из",
   "commandBridgeTo": "Чтобы",
+  "commandBridgeVia": "через $provider$",
+  "commandBridgeNoTokens": "Токенов не найдено",
   "commandBridgeRoute": "Актив, сеть и провайдер",
   "commandBridgeRouteLabel": "$source$ в $destination$ · $network$",
   "commandBridgeExternalAccount": "Внешний счет",

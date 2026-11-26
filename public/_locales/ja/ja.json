@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "出典：",
   "commandBridgeTo": "To",
+  "commandBridgeVia": "$provider$経由",
+  "commandBridgeNoTokens": "トークンが見つかりません",
   "commandBridgeRoute": "資産、ネットワーク、プロバイダー",
   "commandBridgeRouteLabel": "$source$ から $destination$ へ · $network$",
   "commandBridgeExternalAccount": "外部アカウント",

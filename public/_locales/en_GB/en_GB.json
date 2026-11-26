@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "From",
   "commandBridgeTo": "To",
+  "commandBridgeVia": "via $provider$",
+  "commandBridgeNoTokens": "No tokens found",
   "commandBridgeRoute": "Asset, network and provider",
   "commandBridgeRouteLabel": "$source$ to $destination$ · $network$",
   "commandBridgeExternalAccount": "External account",

@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "Z",
   "commandBridgeTo": "Do",
+  "commandBridgeVia": "źródło: $provider$",
+  "commandBridgeNoTokens": "Nie znaleziono tokenów",
   "commandBridgeRoute": "Aktywa, sieć i dostawca",
   "commandBridgeRouteLabel": "$source$ do $destination$ · $network$",
   "commandBridgeExternalAccount": "Konto zewnętrzne",

@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "来源：",
   "commandBridgeTo": "至",
+  "commandBridgeVia": "来源：$provider$",
+  "commandBridgeNoTokens": "未找到代币",
   "commandBridgeRoute": "资产、网络和提供商",
   "commandBridgeRouteLabel": "$source$ 至 $destination$ · $network$",
   "commandBridgeExternalAccount": "外部账户",

@@ -798,6 +798,8 @@
   "commandBridgeProvider_xreserve": "Circle",
   "commandBridgeFrom": "Kaynak:",
   "commandBridgeTo": "To",
+  "commandBridgeVia": "$provider$ aracılığıyla",
+  "commandBridgeNoTokens": "Hiçbir token bulunamadı",
   "commandBridgeRoute": "Varlık, ağ ve sağlayıcı",
   "commandBridgeRouteLabel": "$source$'dan $destination$'a · $network$",
   "commandBridgeExternalAccount": "Harici hesap",

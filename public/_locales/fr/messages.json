@@ -3693,6 +3693,19 @@
     "message": "À",
     "englishSource": "To"
   },
+  "commandBridgeVia": {
+    "message": "via $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Aucun jeton trouvé",
+    "englishSource": "No tokens found"
+  },
   "commandBridgeRoute": {
     "message": "Actif, réseau et fournisseur",
     "englishSource": "Asset, network and provider"

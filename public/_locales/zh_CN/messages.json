@@ -3693,6 +3693,19 @@
     "message": "至",
     "englishSource": "To"
   },
+  "commandBridgeVia": {
+    "message": "来源：$provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "未找到代币",
+    "englishSource": "No tokens found"
+  },
   "commandBridgeRoute": {
     "message": "资产、网络和提供商",
     "englishSource": "Asset, network and provider"
