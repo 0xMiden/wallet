@@ -56,7 +56,9 @@ export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000
     if (
       !Number.isSafeInteger(entry.fetchedAt) ||
       entry.fetchedAt > now ||
-      (now - entry.fetchedAt) * 1000 > DISPLAY_QUOTE_MAX_AGE_MS
+      (now - entry.fetchedAt) * 1000 > DISPLAY_QUOTE_MAX_AGE_MS ||
+      // The market cache keeps every symbol it ever priced; a newer basket value for it is the later answer.
+      (quotes[symbol]?.observedAt ?? -1) > entry.fetchedAt * 1000
     )
       continue;
     quotes[symbol] = {

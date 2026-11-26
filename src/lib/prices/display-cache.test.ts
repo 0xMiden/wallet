@@ -1,7 +1,9 @@
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import type { TokenPriceInfo } from './binance';
 import { readCachedDisplayQuotes, selectDisplayQuotes } from './display-cache';
+import { _resetDisplayFeedForTest } from './display-feed';
 
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn() }));
 
@@ -62,4 +64,27 @@ it('shows a cached quote an hour old when nothing live replaces it', () => {
   const now = 1_700_000_000_000;
   const hourOld = quote(5, now - 60 * 60_000, 'market', Number.NaN);
   expect(selectDisplayQuotes({}, { ETH: hourOld }, now).ETH).toBe(hourOld);
+});
+
+it('keeps the newer of a stored basket quote and a market-cache entry', async () => {
+  const now = 1_000_000;
+  const feedKey = `display_feed_v1:${getEffectiveNetworkName()}`;
+  const read = (market: Record<string, { priceMicro: string; fetchedAt: number }>, basketAt: number) => {
+    _resetDisplayFeedForTest();
+    jest
+      .mocked(fetchFromStorage)
+      .mockImplementation(async key =>
+        key === feedKey ? { fetchedAt: basketAt * 1000, baskets: { ETH: 2.5 }, unquoted: [] } : market
+      );
+    return readCachedDisplayQuotes(now);
+  };
+  const hourOld = { priceMicro: '100000000', fetchedAt: now - 3_600 };
+  const sol = { priceMicro: '190000000', fetchedAt: now - 10 };
+  const quotes = await read({ ETH: hourOld, SOL: sol }, now - 30);
+  expect(quotes.ETH).toMatchObject({ price: 2.5, kind: 'basket', observedAt: (now - 30) * 1000 });
+  expect(quotes.SOL).toMatchObject({ price: 190, kind: 'market' });
+  expect((await read({ ETH: { ...hourOld, fetchedAt: now - 10 } }, now - 3_600)).ETH).toMatchObject({
+    price: 100,
+    kind: 'market'
+  });
 });
