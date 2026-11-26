@@ -67,12 +67,36 @@ jest.mock('lib/store', () => {
 // rather than swallow it — a mock that only calls the fetcher makes the gate untestable.
 const swrConfigSeen: any[] = [];
 // One stable mutate, so a test can see whether a refresh revalidated.
-const mockSwrMutate = jest.fn();
+let latestSwrFetcher: any = null;
+let latestSwrKey: any = null;
+let latestSwrConfig: any = null;
+const mockSwrMutate = jest.fn(() => {
+  if (!latestSwrFetcher) return Promise.resolve(undefined);
+  const result = latestSwrFetcher();
+  if (result instanceof Promise) {
+    const p = result
+      .then((data: any) => {
+        (globalThis as any).__cnTest.lastFetchData = data;
+        (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(latestSwrKey)] = data;
+        return data;
+      })
+      .catch((e: any) => {
+        latestSwrConfig?.onError?.(e);
+        return undefined;
+      });
+    (globalThis as any).__cnTest.lastFetchPromise = p;
+    return p;
+  }
+  return Promise.resolve(result);
+});
 
 jest.mock('lib/swr', () => ({
   useRetryableSWR: jest.fn((_key: any, fetcher: any, config: any) => {
     swrConfigSeen.push(config);
     if (!fetcher) return { data: undefined, mutate: jest.fn(), isLoading: false, isValidating: false };
+    latestSwrFetcher = fetcher;
+    latestSwrKey = _key;
+    latestSwrConfig = config;
     // Run the fetcher and expose its settlement promise so tests can await it.
     // On rejection, drive the onError callback like real SWR would.
     const result = fetcher();
@@ -1549,7 +1573,13 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
 
   it('marks cached entries fromCache so every claim gate drops them, and live entries not at all', async () => {
     _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1')];
-    neverSettlingRead();
+    let resolveRead!: (notes: any[]) => void;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(
+      () =>
+        new Promise(resolve => {
+          resolveRead = resolve;
+        })
+    );
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data).toHaveLength(1);
@@ -1558,15 +1588,20 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
 
     // The live read carries no flag, so the same gates admit it.
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
-    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
-    renderHook(() => useClaimableNotes('pk-1'));
+    resolveRead(_g.__cnTest.consumableNotes);
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData.map((n: any) => [n.id, n.fromCache])).toEqual([['live-1', undefined]]);
   });
 
   it('reports the persisted list as a fallback until a live read replaces it', async () => {
     _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1')];
-    neverSettlingRead();
+    let resolveRead!: (notes: any[]) => void;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(
+      () =>
+        new Promise(resolve => {
+          resolveRead = resolve;
+        })
+    );
     const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1']);
@@ -1574,8 +1609,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     expect(result.current.isFallback).toBe(true);
 
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
-    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
-    rerender();
+    resolveRead(_g.__cnTest.consumableNotes);
     await _g.__cnTest.lastFetchPromise;
     rerender();
     expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
@@ -1700,6 +1734,13 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['chain-a']);
     });
 
+    let resolveChainB!: (notes: any[]) => void;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(
+      () =>
+        new Promise(resolve => {
+          resolveChainB = resolve;
+        })
+    );
     _g.__cnTest.rpcUrl = 'https://rpc-b.example';
     rerender();
     expect(result.current.data).toBeUndefined();
@@ -1707,8 +1748,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     expect(result.current.data).toBeUndefined();
 
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'chain-b' })];
-    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
-    rerender();
+    resolveChainB(_g.__cnTest.consumableNotes);
     await _g.__cnTest.lastFetchPromise;
     rerender();
     const chainBKey = 'claimable_notes:v1:https://rpc-b.example|testnet:pk-1';
@@ -1841,7 +1881,13 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       makeCachedNote('newest', 30),
       makeCachedNote('a-note', 10)
     ];
-    neverSettlingRead();
+    let resolveRead!: (notes: any[]) => void;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(
+      () =>
+        new Promise(resolve => {
+          resolveRead = resolve;
+        })
+    );
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     await waitFor(() => {
       expect(result.current.data?.map((n: any) => n.id)).toEqual(['newest', 'a-note', 'b-note']);
@@ -1862,8 +1908,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
           [2, 30]
         ])
     );
-    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
-    renderHook(() => useClaimableNotes('pk-1'));
+    resolveRead(_g.__cnTest.consumableNotes);
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.getBlockTimestamps).toHaveBeenCalledWith([1, 3, 1, 2], 'https://rpc-a.example');
     expect(_g.__cnTest.lastFetchData.map((n: any) => [n.id, n.receivedAt])).toEqual([
@@ -1885,12 +1930,19 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
 
 describe('useClaimableNotes note refresh while the pager moves', () => {
   const mutate = () => mockSwrMutate;
-  const setup = () => {
+  const setup = async () => {
     jest.useFakeTimers();
     _resetInteractionPriorityForTest();
     _g.__cnTest.isExtension = false;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
     const view = renderHook(() => useClaimableNotes('pk-1'));
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     mutate().mockClear();
+    _g.__cnTest.proxyGetConsumableNotes.mockClear();
     return view;
   };
 
@@ -1900,66 +1952,81 @@ describe('useClaimableNotes note refresh while the pager moves', () => {
   });
 
   it('revalidates at once when idle', async () => {
-    setup();
+    await setup();
     await act(async () => {
       requestNotesRefresh();
+      await _g.__cnTest.lastFetchPromise;
     });
     expect(mutate()).toHaveBeenCalledTimes(1);
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
   });
 
   it('holds the revalidation while an interaction is active, then runs it once the interaction ends', async () => {
-    setup();
+    await setup();
     const end = beginInteraction();
     await act(async () => {
       requestNotesRefresh();
       jest.advanceTimersByTime(1000);
     });
-    expect(mutate()).not.toHaveBeenCalled();
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
 
     await act(async () => {
       end();
       jest.advanceTimersByTime(50);
     });
-    expect(mutate()).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
   });
 
   it('revalidates at the cap when the interaction never ends', async () => {
-    setup();
+    await setup();
     beginInteraction();
     await act(async () => {
       requestNotesRefresh();
       jest.advanceTimersByTime(1400);
     });
-    expect(mutate()).not.toHaveBeenCalled();
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
 
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
-    expect(mutate()).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
   });
 
   it('coalesces refreshes that arrive during one wait into a single revalidation', async () => {
-    setup();
+    await setup();
     const end = beginInteraction();
     await act(async () => {
       requestNotesRefresh();
       requestNotesRefresh();
       requestNotesRefresh();
     });
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
     await act(async () => {
       end();
       jest.advanceTimersByTime(50);
     });
-    expect(mutate()).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await _g.__cnTest.lastFetchPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       requestNotesRefresh();
+      await _g.__cnTest.lastFetchPromise;
     });
-    expect(mutate()).toHaveBeenCalledTimes(2);
+    expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalledTimes(2);
   });
 
   it('does not revalidate a deferred refresh after unmount', async () => {
-    const { unmount } = setup();
+    const { unmount } = await setup();
     const end = beginInteraction();
     await act(async () => {
       requestNotesRefresh();
@@ -1969,7 +2036,7 @@ describe('useClaimableNotes note refresh while the pager moves', () => {
       end();
       jest.advanceTimersByTime(50);
     });
-    expect(mutate()).not.toHaveBeenCalled();
+    expect(_g.__cnTest.proxyGetConsumableNotes).not.toHaveBeenCalled();
   });
 
   it('holds a read, the 5s poll included, until the pager gesture ends', async () => {

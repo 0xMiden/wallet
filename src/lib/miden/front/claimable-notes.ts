@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+
+import { unstable_serialize, useSWRConfig } from 'swr';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -17,7 +19,7 @@ import { hasExtensionRuntime, isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import { whenInteractionIdle } from 'lib/ui/interaction-priority';
+import { isInteracting, whenInteractionIdle } from 'lib/ui/interaction-priority';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOwnClaimableNote } from '../claimable-note-ownership';
@@ -487,18 +489,26 @@ async function writeCachedClaimableNotes(cacheKey: string, notes: readonly Claim
 
 const CLAIMABLE_NOTES_POLL_MS = 5_000;
 
+type ClaimableNotesMutate = () => Promise<ClaimableNoteWithMetadata[] | undefined>;
+
 interface CacheKeyRefreshCoordinator {
-  mutates: Set<() => Promise<unknown> | void>;
+  subscribers: Set<ClaimableNotesMutate>;
   erroredCount: number;
-  inFlight: Promise<unknown> | null;
-  pendingIdle: boolean;
+  inFlightPromise: Promise<ClaimableNoteWithMetadata[] | undefined> | null;
+  inFlight: Promise<void> | null;
+  inFlightStartedRead: boolean;
+  abortedBeforeRead: boolean;
   rerunAfterInFlight: boolean;
+  trailingPromise: Promise<void> | null;
+  resolveTrailing: (() => void) | null;
   unsubscribeRefresh?: () => void;
-  errorRetryTimer?: ReturnType<typeof setInterval>;
+  errorRetryTimer?: ReturnType<typeof setTimeout>;
   removeWakeListeners?: () => void;
 }
 
 const coordinatorsByKey = new Map<string, CacheKeyRefreshCoordinator>();
+const activeCacheKeyCounts = new Map<string, number>();
+const abortedIdleKeys = new Set<string>();
 const inFlightMetadataFaucets = new Set<string>();
 
 function isClaimableNotesPaused(): boolean {
@@ -512,54 +522,103 @@ function canRecoverClaimableNotesNow(): boolean {
   return true;
 }
 
-function runCoordinatedMutate(cacheKey: string): void {
-  const entry = coordinatorsByKey.get(cacheKey);
-  if (!entry || entry.mutates.size === 0 || isClaimableNotesPaused()) return;
-  if (entry.inFlight) {
-    entry.rerunAfterInFlight = true;
-    return;
+function ensureCoordinator(cacheKey: string): CacheKeyRefreshCoordinator {
+  let entry = coordinatorsByKey.get(cacheKey);
+  if (!entry) {
+    entry = {
+      subscribers: new Set(),
+      erroredCount: 0,
+      inFlightPromise: null,
+      inFlight: null,
+      inFlightStartedRead: false,
+      abortedBeforeRead: false,
+      rerunAfterInFlight: false,
+      trailingPromise: null,
+      resolveTrailing: null
+    };
+    coordinatorsByKey.set(cacheKey, entry);
   }
-  const leaderMutate = entry.mutates.values().next().value;
-  if (!leaderMutate) return;
-  const result = leaderMutate();
-  if (result && typeof (result as Promise<unknown>).then === 'function') {
-    const inFlight = Promise.resolve(result).finally(() => {
-      if (coordinatorsByKey.get(cacheKey) !== entry) return;
-      if (entry.inFlight === inFlight) entry.inFlight = null;
-      if (entry.rerunAfterInFlight && entry.mutates.size > 0 && !isClaimableNotesPaused()) {
-        entry.rerunAfterInFlight = false;
-        scheduleCoordinatedRefresh(cacheKey);
-      } else {
-        entry.rerunAfterInFlight = false;
-      }
+  if (!entry.unsubscribeRefresh) {
+    entry.unsubscribeRefresh = onNotesRefresh(() => {
+      void requestCoordinatedRefresh(cacheKey);
     });
-    entry.inFlight = inFlight;
   }
+  return entry;
 }
 
-function scheduleCoordinatedRefresh(cacheKey: string): void {
-  const entry = coordinatorsByKey.get(cacheKey);
-  if (!entry || entry.mutates.size === 0 || isClaimableNotesPaused()) return;
-  if (entry.inFlight) {
-    entry.rerunAfterInFlight = true;
-    return;
+function getOrCreateTrailingPromise(entry: CacheKeyRefreshCoordinator): Promise<void> {
+  if (!entry.trailingPromise) {
+    entry.trailingPromise = new Promise<void>(resolve => {
+      entry.resolveTrailing = resolve;
+    });
   }
-  if (entry.pendingIdle) return;
-  entry.pendingIdle = true;
-  void whenInteractionIdle().then(() => {
-    entry.pendingIdle = false;
+  return entry.trailingPromise;
+}
+
+function requestCoordinatedRefresh(cacheKey: string): Promise<void> {
+  const entry = coordinatorsByKey.get(cacheKey);
+  if (!entry || isClaimableNotesPaused()) return Promise.resolve();
+  if (entry.inFlight) {
+    if (entry.inFlightStartedRead || !isInteracting()) {
+      entry.rerunAfterInFlight = true;
+      return getOrCreateTrailingPromise(entry);
+    }
+    return entry.inFlight;
+  }
+  const leaderMutate = entry.subscribers.values().next().value;
+  if (!leaderMutate) return Promise.resolve();
+  const mutatePromise = leaderMutate();
+  const inFlight = entry.inFlight;
+  if (inFlight) return inFlight;
+  return Promise.resolve(mutatePromise).then(
+    () => undefined,
+    () => undefined
+  );
+}
+
+function scheduleErrorRetryTimeout(cacheKey: string, entry: CacheKeyRefreshCoordinator): void {
+  if (entry.errorRetryTimer || entry.erroredCount <= 0 || entry.subscribers.size === 0) return;
+  if (coordinatorsByKey.get(cacheKey) !== entry) return;
+  entry.errorRetryTimer = setTimeout(() => {
+    entry.errorRetryTimer = undefined;
     if (coordinatorsByKey.get(cacheKey) !== entry) return;
-    runCoordinatedMutate(cacheKey);
-  });
+    if (entry.erroredCount <= 0 || entry.subscribers.size === 0) return;
+
+    if (entry.inFlight) {
+      void entry.inFlight.then(() => {
+        scheduleErrorRetryTimeout(cacheKey, entry);
+      });
+      return;
+    }
+
+    if (!canRecoverClaimableNotesNow()) {
+      scheduleErrorRetryTimeout(cacheKey, entry);
+      return;
+    }
+
+    const leaderMutate = entry.subscribers.values().next().value;
+    if (!leaderMutate) {
+      scheduleErrorRetryTimeout(cacheKey, entry);
+      return;
+    }
+
+    const mutatePromise = Promise.resolve(leaderMutate()).catch(() => undefined);
+    const inFlight = entry.inFlight;
+    void (inFlight ?? mutatePromise).then(() => {
+      scheduleErrorRetryTimeout(cacheKey, entry);
+    });
+  }, CLAIMABLE_NOTES_POLL_MS);
 }
 
 function syncCoordinatorErrorRecovery(cacheKey: string, entry: CacheKeyRefreshCoordinator): void {
-  if (entry.erroredCount > 0 && entry.mutates.size > 0) {
-    if (!entry.errorRetryTimer) {
+  if (entry.erroredCount > 0 && entry.subscribers.size > 0) {
+    scheduleErrorRetryTimeout(cacheKey, entry);
+    if (!entry.removeWakeListeners) {
       const tryRecover = () => {
-        if (canRecoverClaimableNotesNow()) scheduleCoordinatedRefresh(cacheKey);
+        if (canRecoverClaimableNotesNow()) {
+          void requestCoordinatedRefresh(cacheKey);
+        }
       };
-      entry.errorRetryTimer = setInterval(tryRecover, CLAIMABLE_NOTES_POLL_MS);
       const onVisibility = () => {
         if (typeof document !== 'undefined' && document.visibilityState === 'visible') tryRecover();
       };
@@ -583,7 +642,7 @@ function syncCoordinatorErrorRecovery(cacheKey: string, entry: CacheKeyRefreshCo
     return;
   }
   if (entry.errorRetryTimer) {
-    clearInterval(entry.errorRetryTimer);
+    clearTimeout(entry.errorRetryTimer);
     entry.errorRetryTimer = undefined;
   }
   entry.removeWakeListeners?.();
@@ -594,14 +653,21 @@ function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator)
   entry.unsubscribeRefresh?.();
   entry.unsubscribeRefresh = undefined;
   if (entry.errorRetryTimer) {
-    clearInterval(entry.errorRetryTimer);
+    clearTimeout(entry.errorRetryTimer);
     entry.errorRetryTimer = undefined;
   }
   entry.removeWakeListeners?.();
   entry.removeWakeListeners = undefined;
-  entry.pendingIdle = false;
+  entry.inFlightPromise = null;
+  entry.inFlight = null;
+  entry.inFlightStartedRead = false;
+  entry.abortedBeforeRead = false;
   entry.rerunAfterInFlight = false;
+  const resolve = entry.resolveTrailing;
+  entry.trailingPromise = null;
+  entry.resolveTrailing = null;
   coordinatorsByKey.delete(cacheKey);
+  resolve?.();
 }
 
 /** Test-only: drops the in-memory half of the cache and refresh coordinators. */
@@ -609,6 +675,8 @@ export function __resetClaimableNotesCacheForTests(): void {
   claimableNotesMemCache.clear();
   writtenClaimableNotes.clear();
   inFlightMetadataFaucets.clear();
+  activeCacheKeyCounts.clear();
+  abortedIdleKeys.clear();
   for (const [cacheKey, entry] of coordinatorsByKey) {
     disposeCoordinator(cacheKey, entry);
   }
@@ -800,6 +868,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata, tokenMetadataOverrides]);
 
   const mutate = useCallback(() => {
+    if (!enabled) return Promise.resolve();
     // Trigger a SyncRequest to get fresh data
     const intercom = getIntercom();
     intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
@@ -809,7 +878,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     // on this platform for up to a full poll period, and offer an enabled Claim All over a live
     // consume. Returns the read so a caller can sequence on it.
     return readClaiming();
-  }, [readClaiming]);
+  }, [enabled, readClaiming]);
 
   return {
     data: computedData,
@@ -824,6 +893,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
 // -------------------- Local hook (WASM client, for mobile/desktop) --------------------
 
 function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
+  const { cache } = useSWRConfig();
   const { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata } = useTokensMetadata();
   const debugInfoRef = useRef<ClaimableNotesDebugInfo>({
     rawNotesCount: 0,
@@ -835,6 +905,8 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   });
 
   const cacheKey = claimableNotesCacheKey(publicAddress);
+  const swrKey = useMemo(() => ['claimable-notes', cacheKey] as const, [cacheKey]);
+  const serializedKey = unstable_serialize(swrKey);
 
   // Cache key whose LIVE read has already landed in this mount. Once it has, the
   // persisted list is stale by definition and publishing it as a fallback would only
@@ -842,61 +914,126 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   // on a warm client the live read frequently wins.
   const liveLandedForRef = useRef<string | null>(null);
 
-  const fetchClaimableNotes = useCallback(async () => {
-    // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
-    // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
-    await whenInteractionIdle();
-    const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
-
-    // 2) Seed metadata map from cache (and baked-in MIDEN)
-    const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
-
-    // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
-    // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
-    // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
-    const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
-    const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
-    if (toFetchMetadataIds.length > 0) {
-      for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
-      runWhenClientIdle(async () => {
-        try {
-          const fetched: Record<string, AssetMetadata> = {};
-          for (const id of toFetchMetadataIds) {
-            try {
-              fetched[id] = await fetchMetadata(id);
-            } catch (e) {
-              console.warn('Metadata fetch failed for', id, e);
-            }
-          }
-          if (Object.keys(fetched).length > 0) {
-            await persistMetadataIfAny(fetched, setTokensBaseMetadata);
-            // Surface the newly described notes right away instead of waiting out dedupingInterval.
-            requestNotesRefresh();
-          }
-        } finally {
-          for (const id of toFetchMetadataIds) inFlightMetadataFaucets.delete(id);
-        }
-      });
+  const fetchClaimableNotes = useCallback((): Promise<ClaimableNoteWithMetadata[] | undefined> => {
+    const entry = ensureCoordinator(cacheKey);
+    if (entry.inFlightPromise) {
+      return entry.inFlightPromise;
     }
-    // 4) Return notes with available metadata immediately, in a fixed order (see
-    // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
-    const result = sortClaimableNotes(attachMetadataToNotes(parsedNotes, metadataByFaucetId));
 
-    liveLandedForRef.current = cacheKey;
+    const runPromise = (async (): Promise<ClaimableNoteWithMetadata[] | undefined> => {
+      // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
+      // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
+      await whenInteractionIdle();
+      if ((activeCacheKeyCounts.get(cacheKey) ?? 0) === 0) {
+        if (coordinatorsByKey.get(cacheKey) === entry) {
+          entry.abortedBeforeRead = true;
+        }
+        abortedIdleKeys.add(cacheKey);
+        const existingData: ClaimableNoteWithMetadata[] | undefined = cache.get(serializedKey)?.data;
+        return existingData;
+      }
 
-    // Update debug info
-    debugInfoRef.current = {
-      rawNotesCount: parsedNotes.length,
-      parsedNotesCount: parsedNotes.length,
-      notesWithMetadataCount: result.length,
-      missingFaucetIds,
-      metadataCacheKeys: Object.keys(allTokensBaseMetadataRef.current || {}),
-      lastFetchTime: new Date().toISOString(),
-      error: undefined
-    };
+      if (coordinatorsByKey.get(cacheKey) === entry) {
+        entry.inFlightStartedRead = true;
+      }
+      const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
 
-    return result;
-  }, [publicAddress, cacheKey, allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata]);
+      // 2) Seed metadata map from cache (and baked-in MIDEN)
+      const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
+
+      // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
+      // This doesn't "warm up" the WASM client: it fetches token metadata (symbol, decimals)
+      // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
+      const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
+      const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
+      if (toFetchMetadataIds.length > 0) {
+        for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
+        runWhenClientIdle(async () => {
+          try {
+            const fetched: Record<string, AssetMetadata> = {};
+            for (const id of toFetchMetadataIds) {
+              try {
+                fetched[id] = await fetchMetadata(id);
+              } catch (e) {
+                console.warn('Metadata fetch failed for', id, e);
+              }
+            }
+            if (Object.keys(fetched).length > 0) {
+              await persistMetadataIfAny(fetched, setTokensBaseMetadata);
+              // Surface the newly described notes right away instead of waiting out dedupingInterval.
+              requestNotesRefresh();
+            }
+          } finally {
+            for (const id of toFetchMetadataIds) inFlightMetadataFaucets.delete(id);
+          }
+        });
+      }
+      // 4) Return notes with available metadata immediately, in a fixed order (see
+      // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
+      const result = sortClaimableNotes(attachMetadataToNotes(parsedNotes, metadataByFaucetId));
+
+      liveLandedForRef.current = cacheKey;
+
+      // Update debug info
+      debugInfoRef.current = {
+        rawNotesCount: parsedNotes.length,
+        parsedNotesCount: parsedNotes.length,
+        notesWithMetadataCount: result.length,
+        missingFaucetIds,
+        metadataCacheKeys: Object.keys(allTokensBaseMetadataRef.current || {}),
+        lastFetchTime: new Date().toISOString(),
+        error: undefined
+      };
+
+      return result;
+    })();
+
+    const handoff = runPromise.then(undefined, () => undefined);
+    const settledInFlight = handoff.then(async () => {
+      if (coordinatorsByKey.get(cacheKey) !== entry) return;
+      entry.inFlight = null;
+      entry.inFlightPromise = null;
+      entry.inFlightStartedRead = false;
+
+      const shouldRerun = entry.rerunAfterInFlight;
+      const wasAbortedBeforeRead = entry.abortedBeforeRead;
+      entry.rerunAfterInFlight = false;
+      entry.abortedBeforeRead = false;
+
+      const activeCount = activeCacheKeyCounts.get(cacheKey) ?? 0;
+      const leaderMutate = entry.subscribers.values().next().value;
+      const shouldTriggerTrailing =
+        ((shouldRerun && (entry.subscribers.size > 0 || activeCount > 0)) ||
+          (wasAbortedBeforeRead && activeCount > 0 && entry.subscribers.size > 0)) &&
+        !isClaimableNotesPaused();
+
+      const resolve = entry.resolveTrailing;
+      entry.trailingPromise = null;
+      entry.resolveTrailing = null;
+
+      if (shouldTriggerTrailing && leaderMutate) {
+        abortedIdleKeys.delete(cacheKey);
+        const mutatePromise = Promise.resolve(leaderMutate()).catch(() => undefined);
+        const nextInFlight = entry.inFlight;
+        await (nextInFlight ?? mutatePromise);
+      }
+
+      resolve?.();
+
+      if (
+        coordinatorsByKey.get(cacheKey) === entry &&
+        entry.subscribers.size === 0 &&
+        !entry.inFlight &&
+        !entry.trailingPromise
+      ) {
+        disposeCoordinator(cacheKey, entry);
+      }
+    });
+
+    entry.inFlightPromise = runPromise;
+    entry.inFlight = settledInFlight;
+    return runPromise;
+  }, [publicAddress, cacheKey, serializedKey, cache, allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata]);
 
   // Cache-first render. The persisted read is async and cannot answer the first
   // render, so it is done in an effect and handed to SWR as `fallbackData`; the
@@ -940,7 +1077,17 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   // serve the old key's data across an account switch, which this cache must not do.
   const fallbackData = cachedFallback?.key === cacheKey ? cachedFallback.notes : undefined;
 
-  const key = enabled ? ['claimable-notes', cacheKey] : null;
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    activeCacheKeyCounts.set(cacheKey, (activeCacheKeyCounts.get(cacheKey) ?? 0) + 1);
+    return () => {
+      const next = (activeCacheKeyCounts.get(cacheKey) ?? 0) - 1;
+      if (next > 0) activeCacheKeyCounts.set(cacheKey, next);
+      else activeCacheKeyCounts.delete(cacheKey);
+    };
+  }, [enabled, cacheKey]);
+
+  const key = enabled ? swrKey : null;
   const swrResult = useRetryableSWR(key, enabled ? fetchClaimableNotes : null, {
     fallbackData,
     revalidateOnFocus: false,
@@ -982,27 +1129,38 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   // earlier results SWR discards, and recover polling if SWR latched `cache.error` while
   // offline, hidden, or paused behind a sync fuse.
   const { mutate } = swrResult;
+  const coordinatedMutate = useCallback(
+    (
+      data?:
+        | ClaimableNoteWithMetadata[]
+        | Promise<ClaimableNoteWithMetadata[] | undefined>
+        | ((
+            current?: ClaimableNoteWithMetadata[]
+          ) => ClaimableNoteWithMetadata[] | Promise<ClaimableNoteWithMetadata[] | undefined> | undefined),
+      opts?: boolean | { revalidate?: boolean }
+    ): Promise<ClaimableNoteWithMetadata[] | undefined> => {
+      if (!enabled) return Promise.resolve(undefined);
+      if (data !== undefined || opts !== undefined) {
+        return mutate(data, opts);
+      }
+      return requestCoordinatedRefresh(cacheKey).then(() => cache.get(serializedKey)?.data);
+    },
+    [enabled, cacheKey, mutate, cache, serializedKey]
+  );
+
   const hasError = Boolean(swrResult.error);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) return;
-    let entry = coordinatorsByKey.get(cacheKey);
-    if (!entry) {
-      entry = {
-        mutates: new Set(),
-        erroredCount: 0,
-        inFlight: null,
-        pendingIdle: false,
-        rerunAfterInFlight: false
-      };
-      entry.unsubscribeRefresh = onNotesRefresh(() => scheduleCoordinatedRefresh(cacheKey));
-      coordinatorsByKey.set(cacheKey, entry);
-    }
-    const triggerMutate = () => mutate();
-    entry.mutates.add(triggerMutate);
+    const entry = ensureCoordinator(cacheKey);
+    const triggerMutate: ClaimableNotesMutate = () => mutate();
+    entry.subscribers.add(triggerMutate);
     syncCoordinatorErrorRecovery(cacheKey, entry);
+    if (abortedIdleKeys.delete(cacheKey) && !entry.inFlight) {
+      void requestCoordinatedRefresh(cacheKey);
+    }
     return () => {
-      entry.mutates.delete(triggerMutate);
-      if (entry.mutates.size === 0) {
+      entry.subscribers.delete(triggerMutate);
+      if (entry.subscribers.size === 0 && !entry.inFlight && !entry.trailingPromise) {
         disposeCoordinator(cacheKey, entry);
       } else {
         syncCoordinatorErrorRecovery(cacheKey, entry);
@@ -1024,6 +1182,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
 
   return {
     ...swrResult,
+    mutate: coordinatedMutate,
     // True while the list is the persisted cache rather than a live read: a consumer that treats the first
     // list as what exists at load waits for a live one.
     isFallback: fallbackData !== undefined && swrResult.data === fallbackData,
