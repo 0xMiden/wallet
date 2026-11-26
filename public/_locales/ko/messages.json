@@ -3669,10 +3669,6 @@
     "message": "Miden 네트워크",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "네트워크 변경",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "제공자",
     "englishSource": "Provider"

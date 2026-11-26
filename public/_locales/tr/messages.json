@@ -3669,10 +3669,6 @@
     "message": "Miden ağı",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Ağ değişikliği",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Sağlayıcı",
     "englishSource": "Provider"

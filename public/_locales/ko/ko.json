@@ -792,7 +792,6 @@
   "commandBridgeDirection": "방향",
   "commandBridgeOut": "브리지 아웃",
   "commandBridgeEnvironment": "Miden 네트워크",
-  "commandBridgeChangeNetwork": "네트워크 변경",
   "commandBridgeProvider": "제공자",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "에포크",

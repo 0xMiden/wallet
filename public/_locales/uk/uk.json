@@ -792,7 +792,6 @@
   "commandBridgeDirection": "Напрямок",
   "commandBridgeOut": "Вихід з мосту",
   "commandBridgeEnvironment": "Мережа Miden",
-  "commandBridgeChangeNetwork": "Зміна мережі",
   "commandBridgeProvider": "Провайдер",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "Епоха",

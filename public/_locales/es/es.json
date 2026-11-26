@@ -792,7 +792,6 @@
   "commandBridgeDirection": "Dirección",
   "commandBridgeOut": "Cerrar el puente",
   "commandBridgeEnvironment": "Red Miden",
-  "commandBridgeChangeNetwork": "Cambiar de red",
   "commandBridgeProvider": "Proveedor",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "Época",

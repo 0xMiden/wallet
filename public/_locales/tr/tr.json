@@ -792,7 +792,6 @@
   "commandBridgeDirection": "Yön",
   "commandBridgeOut": "Köprü dışı",
   "commandBridgeEnvironment": "Miden ağı",
-  "commandBridgeChangeNetwork": "Ağ değişikliği",
   "commandBridgeProvider": "Sağlayıcı",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "Epoch",

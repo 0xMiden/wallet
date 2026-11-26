@@ -792,7 +792,6 @@
   "commandBridgeDirection": "Direção",
   "commandBridgeOut": "Bridge out",
   "commandBridgeEnvironment": "Rede Miden",
-  "commandBridgeChangeNetwork": "Mudar de rede",
   "commandBridgeProvider": "Provedor",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "Época",

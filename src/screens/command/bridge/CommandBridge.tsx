@@ -5,7 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { RECOVER_FUNDS_PATH } from 'app/pages/recover-funds-paths';
 import { AmountInput } from 'components/AmountInput';
 import { useRegisterCommandFlowBack } from 'components/flow/FlowPresentation';
+import { NetworkLogo } from 'components/NetworkChip';
+import { TokenLogo } from 'components/TokenLogo';
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
@@ -21,8 +24,21 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { useCommandWorkbenchSlots } from 'screens/command/CommandWorkbench';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+import { getBridgeNetwork } from 'screens/send-flow/bridge-networks';
+import { truncateHash } from 'utils/string';
 
+import {
+  externalSide,
+  networkChoices,
+  pairRoutes,
+  routeForNetwork,
+  tokenChoices,
+  type BridgeSide
+} from './bridge-selection';
+import { BridgePicker, type BridgePickerOption } from './BridgePicker';
 import { useCommandBridge } from './useCommandBridge';
+
+const SIDES: readonly BridgeSide[] = ['source', 'destination'];
 
 export function CommandBridge(): React.ReactElement {
   const { t } = useTranslation();
@@ -30,9 +46,36 @@ export function CommandBridge(): React.ReactElement {
   const formId = useId();
   useRegisterCommandFlowBack(bridge.back);
   const route = bridge.operationId ? (bridge.review?.route ?? bridge.route) : bridge.route;
-  const sourceKey = route ? assetKey(route.source) : '';
-  const sources = new Map(bridge.routes.map(candidate => [assetKey(candidate.source), candidate.source]));
-  const destinations = bridge.routes.filter(candidate => assetKey(candidate.source) === sourceKey);
+  const external = bridge.direction === 'in' ? 'source' : 'destination';
+  const networkOptions: BridgePickerOption[] = route
+    ? networkChoices(bridge.routes).map(network => ({
+        id: network,
+        label: getBridgeNetwork(network)?.name ?? network,
+        icon: size => <NetworkLogo kind="ethereum" network={network} size={size} />
+      }))
+    : [];
+  const tokenOptions = (side: BridgeSide): BridgePickerOption[] => {
+    if (!route) return [];
+    const choices = tokenChoices(bridge.routes, route, side);
+    return choices.map(({ asset, route: choice }) => {
+      const identifier = asset.kind === 'erc20' ? asset.address : asset.kind === 'miden' ? asset.faucetId : undefined;
+      const miden = choice[externalSide(choice) === 'source' ? 'destination' : 'source'];
+      const providers = new Set(
+        pairRoutes(bridge.routes, choice).map(item => t(`commandBridgeProvider_${item.provider}`))
+      );
+      return {
+        id: assetKey(asset),
+        label: asset.symbol,
+        detail:
+          choices.filter(other => other.asset.symbol === asset.symbol).length > 1
+            ? [[...providers].join(', '), identifier && truncateHash(identifier)].filter(Boolean).join(' · ')
+            : undefined,
+        keywords: [asset.name, identifier].filter(Boolean).join(' '),
+        icon: size => <TokenLogo faucetId={miden.kind === 'miden' ? miden.faucetId : undefined} size={size} />
+      };
+    });
+  };
+  const pair = route ? pairRoutes(bridge.routes, route) : [];
   const isCircleSend = route?.provider === 'xreserve' && route.mode === 'send';
   const networkFeeBudget = bridge.review?.networkFeeBudget ?? bridge.networkFeeBudget;
   useUserVisibleError(
@@ -200,54 +243,89 @@ export function CommandBridge(): React.ReactElement {
                 </Button>
               )}
             </div>
-            <div className="lg:col-span-2">
-              <DetailCard>
-                <DetailRow
-                  label={t('commandBridgeEnvironment')}
-                  action={{ label: t('commandBridgeChangeNetwork'), onClick: () => navigate('/settings/networks') }}
-                >
-                  {bridge.environment}
-                </DetailRow>
-              </DetailCard>
-            </div>
-            <label className="grid min-w-0 gap-2 rounded-2xl border border-hairline bg-fill/40 p-4 text-label text-muted">
-              {t('commandBridgeFrom')}
-              <select
-                className="min-h-11 w-full rounded-xl border border-hairline bg-page px-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
-                data-testid="command-bridge-source"
-                value={sourceKey}
-                disabled={!route}
-                onChange={event => {
-                  const candidate = bridge.routes.find(item => assetKey(item.source) === event.target.value);
-                  if (candidate) bridge.selectRoute(candidate.id);
-                }}
+            {SIDES.map(side => (
+              <section
+                key={side}
+                role="group"
+                aria-labelledby={`${formId}-${side}`}
+                className="grid min-w-0 gap-3 rounded-2xl border border-hairline bg-fill/40 p-4"
               >
-                {!route && <option value="">{t('unavailable')}</option>}
-                {Array.from(sources, ([key, asset]) => (
-                  <option key={key} value={key}>
-                    {asset.symbol} · {asset.network}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid min-w-0 gap-2 rounded-2xl border border-hairline bg-fill/40 p-4 text-label text-muted">
-              {t('commandBridgeTo')}
-              <select
-                className="min-h-11 w-full rounded-xl border border-hairline bg-page px-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
-                data-testid="command-bridge-destination"
-                value={route?.id ?? ''}
-                disabled={!route}
-                onChange={event => bridge.selectRoute(event.target.value)}
-              >
-                {!route && <option value="">{t('unavailable')}</option>}
-                {destinations.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.destination.symbol} · {item.destination.network} ·{' '}
-                    {t(`commandBridgeProvider_${item.provider}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <h3 id={`${formId}-${side}`} className="text-label text-muted">
+                  {t(side === 'source' ? 'commandBridgeFrom' : 'commandBridgeTo')}
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {side === external ? (
+                    <BridgePicker
+                      menuLabel={t('selectNetwork')}
+                      value={route?.[external].network ?? ''}
+                      options={networkOptions}
+                      onChange={network => {
+                        const next = route && routeForNetwork(bridge.routes, route, network);
+                        if (next) bridge.selectRoute(next.id);
+                      }}
+                      data-testid={`command-bridge-${side}-network`}
+                    />
+                  ) : (
+                    <BridgePicker
+                      menuLabel={t('selectNetwork')}
+                      value="miden"
+                      options={[
+                        { id: 'miden', label: t('miden'), icon: size => <NetworkLogo kind="miden" size={size} /> }
+                      ]}
+                      onChange={() => undefined}
+                      data-testid={`command-bridge-${side}-network`}
+                    />
+                  )}
+                  <BridgePicker
+                    menuLabel={t('selectAToken')}
+                    value={route ? assetKey(route[side]) : ''}
+                    options={tokenOptions(side)}
+                    onChange={id => {
+                      const choice =
+                        route && tokenChoices(bridge.routes, route, side).find(c => assetKey(c.asset) === id);
+                      if (choice) bridge.selectRoute(choice.route.id);
+                    }}
+                    searchable
+                    data-testid={`command-bridge-${side}-token`}
+                  />
+                </div>
+                {route && side === 'source' && (
+                  <AmountInput
+                    aria-label={t('amount')}
+                    label={t('amount')}
+                    value={bridge.amount}
+                    onValueChange={value => bridge.setAmount(value ?? '')}
+                    preservePrecision
+                    maxLength={128}
+                    decimalsLimit={route.source.decimals}
+                    formatValueOnBlur={false}
+                  />
+                )}
+                {route && side === 'destination' && (
+                  <DetailRow label={t('commandBridgeReceiveEstimate')}>
+                    <TokenAmount amount={bridge.quote?.received} symbol={route.destination.symbol} rounding="down" />
+                  </DetailRow>
+                )}
+              </section>
+            ))}
+            {route &&
+              (pair.length >= 2 ? (
+                <ChoiceCardGroup
+                  aria-label={t('route')}
+                  items={pair.map(item => ({
+                    id: item.id,
+                    title: t(`commandBridgeProvider_${item.provider}`),
+                    'data-testid': `command-bridge-route-${item.provider}`
+                  }))}
+                  value={route.id}
+                  onChange={bridge.selectRoute}
+                  className="sm:grid-cols-3 lg:col-span-2"
+                />
+              ) : (
+                <p data-testid="command-bridge-via" className="text-caption text-muted lg:col-span-2">
+                  {t('commandBridgeVia', { provider: t(`commandBridgeProvider_${route.provider}`) })}
+                </p>
+              ))}
             <div className="flex min-w-0 flex-col gap-4">
               <TextField
                 label={t('commandBridgeExternalAccount')}
@@ -256,26 +334,6 @@ export function CommandBridge(): React.ReactElement {
                 onChange={event => bridge.setExternalAccountId(event.target.value)}
               />
             </div>
-            {route && (
-              <div className="min-w-0 rounded-2xl border border-hairline bg-fill/40 p-4 sm:p-5">
-                <AmountInput
-                  aria-label={t('amount')}
-                  label={t('amount')}
-                  value={bridge.amount}
-                  onValueChange={value => bridge.setAmount(value ?? '')}
-                  preservePrecision
-                  maxLength={128}
-                  decimalsLimit={route.source.decimals}
-                  formatValueOnBlur={false}
-                  tokenSelector={route.source.symbol}
-                />
-                <div className="mt-3 border-t border-hairline pt-3">
-                  <DetailRow label={t('commandBridgeReceiveEstimate')}>
-                    <TokenAmount amount={bridge.quote?.received} symbol={route.destination.symbol} rounding="down" />
-                  </DetailRow>
-                </div>
-              </div>
-            )}
           </fieldset>
         )}
         {bridge.blocked && <Notice>{t('commandBridgeEpochReceiveUnavailable')}</Notice>}

@@ -3669,10 +3669,6 @@
     "message": "Red Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Cambiar de red",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Proveedor",
     "englishSource": "Provider"

@@ -792,7 +792,6 @@
   "commandBridgeDirection": "方向",
   "commandBridgeOut": "桥接",
   "commandBridgeEnvironment": "Miden 网络",
-  "commandBridgeChangeNetwork": "更换网络",
   "commandBridgeProvider": "提供商",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "纪元",

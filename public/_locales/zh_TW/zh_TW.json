@@ -792,7 +792,6 @@
   "commandBridgeDirection": "方向",
   "commandBridgeOut": "橋接完成",
   "commandBridgeEnvironment": "Miden 網路",
-  "commandBridgeChangeNetwork": "變更網路",
   "commandBridgeProvider": "提供者",
   "commandBridgeProvider_agglayer": "Agglayer",
   "commandBridgeProvider_epoch": "Epoch",

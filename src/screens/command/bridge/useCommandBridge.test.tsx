@@ -3,8 +3,10 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 
 import { deriveBridgeRoutes } from 'lib/bridge/catalog';
+import { assetKey } from 'lib/bridge/core/assets';
 import { bindTransferQuote, type QuoteRequest, type TransferQuote } from 'lib/bridge/core/quote';
 import type { BridgeReviewContext } from 'lib/bridge/core/review';
+import type { BridgeRoute } from 'lib/bridge/core/routes';
 import { accounts, native, now, referenceSnapshot } from 'lib/bridge/testing/fixtures';
 import { submitReviewedBridge } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
@@ -179,8 +181,13 @@ afterEach(() => {
 it('disables both selectors and review when the current catalog offers no route', () => {
   mockSnapshot = { ...mockSnapshot, config: null, derived: null, status: 'loading' };
   render(<CommandBridge />, { wrapper });
-  expect(screen.getByTestId('command-bridge-source')).toBeDisabled();
-  expect(screen.getByTestId('command-bridge-destination')).toBeDisabled();
+  expect(screen.getByTestId('command-bridge-source-network')).toBeDisabled();
+  expect(screen.getByTestId('command-bridge-source-token')).toBeDisabled();
+  expect(screen.getByTestId('command-bridge-destination-token')).toBeDisabled();
+  const form = screen.getByTestId('command-bridge').querySelector('form');
+  if (!form) throw new Error('Missing Command Bridge form');
+  expect(within(form).queryByText('commandBridgeEnvironment')).toBeNull();
+  expect(within(form).queryByText('commandBridgeChangeNetwork')).toBeNull();
   expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeDisabled();
   expect(screen.getByText('commandBridgeNoRoutes')).toBeVisible();
   expect(quoteBridgeTransfer).not.toHaveBeenCalled();
@@ -818,4 +825,115 @@ it('auto-advances once to review when seeded with an AI autoReview bridge draft,
   await waitFor(() => expect(screen.getByRole('button', { name: 'confirm' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'reviewDetails' })).toBeEnabled());
+});
+
+function receiveRoute(provider: BridgeRoute['provider'], symbol: string): BridgeRoute {
+  const route = deriveBridgeRoutes(mockSnapshot).find(
+    item => item.mode === 'receive' && item.provider === provider && item.source.symbol === symbol
+  );
+  if (!route) throw new Error(`Missing ${provider} ${symbol} receive fixture`);
+  return route;
+}
+
+it('a route row appears only when two providers serve the pair', () => {
+  const view = render(<CommandBridge />, { wrapper });
+  selectCommandBridgeRoute(receiveRoute('agglayer', 'USDC'));
+  expect(screen.getByTestId('command-bridge-via')).toHaveTextContent('commandBridgeVia');
+  expect(screen.queryByRole('radiogroup', { name: 'route' })).toBeNull();
+  view.unmount();
+
+  mockSnapshot = referenceSnapshot('mainnet');
+  render(<CommandBridge />, { wrapper });
+  selectCommandBridgeRoute(receiveRoute('agglayer', 'ETH'));
+  const group = screen.getByRole('radiogroup', { name: 'route' });
+  expect(
+    within(group)
+      .getAllByRole('radio')
+      .map(item => item.dataset.testid)
+  ).toEqual(['command-bridge-route-epoch', 'command-bridge-route-agglayer']);
+  expect(screen.getByTestId('command-bridge-route-agglayer')).toHaveAttribute('aria-checked', 'true');
+  expect(screen.queryByTestId('command-bridge-via')).toBeNull();
+  fireEvent.click(screen.getByTestId('command-bridge-route-epoch'));
+  expect(screen.getByTestId('command-bridge-route-epoch')).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByText('commandBridgeEpochReceiveUnavailable')).toBeVisible();
+});
+
+it('same-symbol tokens carry a detail line', () => {
+  render(<CommandBridge />, { wrapper });
+  const agglayer = receiveRoute('agglayer', 'USDC');
+  const epoch = receiveRoute('epoch', 'USDC');
+  selectCommandBridgeRoute(agglayer);
+  fireEvent.click(screen.getByTestId('command-bridge-destination-token'));
+  const menu = screen.getByTestId('command-bridge-destination-token-menu');
+  const option = (route: BridgeRoute) => within(menu).getByTestId(`bridge-option-${assetKey(route.destination)}`);
+  expect(option(agglayer)).toHaveTextContent('commandBridgeProvider_agglayer · 0xb41ae…');
+  expect(option(epoch)).toHaveTextContent('commandBridgeProvider_epoch · 0x5b043…');
+  expect(option(receiveRoute('epoch', 'DAI')).textContent).toBe('DAI');
+});
+
+it('an assistant-prefilled route is shown by the pills', () => {
+  const route = receiveRoute('agglayer', 'USDC');
+  function SeedThenBridge() {
+    const drafts = useCommandDrafts();
+    const [seeded, setSeeded] = React.useState(false);
+    if (seeded) return <CommandBridge />;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          drafts.writeDraft('bridge', { direction: 'in', route: route.id, amount: '', externalAccountId: '' });
+          setSeeded(true);
+        }}
+      >
+        Seed
+      </button>
+    );
+  }
+  render(<SeedThenBridge />, { wrapper });
+  fireEvent.click(screen.getByRole('button', { name: 'Seed' }));
+  expect(screen.getByTestId('command-bridge-source-network')).toHaveTextContent('Sepolia');
+  expect(screen.getByTestId('command-bridge-source-token')).toHaveTextContent('USDC');
+  expect(screen.getByTestId('command-bridge-destination-network')).toHaveTextContent('miden');
+  expect(screen.getByTestId('command-bridge-destination-token')).toHaveTextContent('USDC');
+  fireEvent.click(screen.getByTestId('command-bridge-destination-token'));
+  const menu = screen.getByTestId('command-bridge-destination-token-menu');
+  expect(within(menu).getByTestId(`bridge-option-${assetKey(route.destination)}`)).toHaveAttribute(
+    'aria-checked',
+    'true'
+  );
+  expect(
+    within(menu).getByTestId(`bridge-option-${assetKey(receiveRoute('epoch', 'USDC').destination)}`)
+  ).toHaveAttribute('aria-checked', 'false');
+});
+
+it('Escape in a token menu leaves the Command workbench open', async () => {
+  const { CommandFlowBackProvider, FlowPresentationProvider } = jest.requireActual<
+    typeof import('components/flow/FlowPresentation')
+  >('components/flow/FlowPresentation');
+  const previousUrl = window.location.href;
+  const previousState: unknown = window.history.state;
+  window.history.replaceState(null, '', '#/bridge/deposit');
+  try {
+    render(
+      <CommandDraftProvider scope={scope}>
+        <FlowPresentationProvider value="command">
+          <CommandFlowBackProvider>
+            <CommandWorkbench route={{ kind: 'flow', action: 'bridge' }} container={null}>
+              <CommandBridge />
+            </CommandWorkbench>
+          </CommandFlowBackProvider>
+        </FlowPresentationProvider>
+      </CommandDraftProvider>
+    );
+    selectCommandBridgeRoute(receiveRoute('agglayer', 'USDC'));
+    fireEvent.click(screen.getByTestId('command-bridge-source-token'));
+    const search = screen.getByTestId('command-bridge-source-token-search');
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.keyDown(search, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('command-bridge-source-token-menu')).toBeNull());
+    expect(createLocationState().pathname).toBe('/bridge/deposit');
+    expect(screen.getByTestId('command-bridge')).toBeVisible();
+  } finally {
+    window.history.replaceState(previousState, '', previousUrl);
+  }
 });
