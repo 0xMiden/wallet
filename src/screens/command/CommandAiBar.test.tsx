@@ -531,6 +531,49 @@ describe('CommandAiBar', () => {
       expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
     });
 
+    it('preserves the active plan when intent resolution throws', async () => {
+      const { op: _op, ...bridge } = bridgeIntent;
+      jest
+        .mocked(compileCommandPrompt)
+        .mockResolvedValueOnce({ op: 'set_plan', steps: [bridge, { ...bridge, amount: { kind: 'previous_output' } }] })
+        .mockResolvedValueOnce(bridgeIntent)
+        .mockResolvedValueOnce(bridgeIntent);
+      renderBar();
+      submit('bridge 500 usdc to miden twice');
+      await screen.findByTestId('command-ai-plan-card');
+
+      mockEarnVaultCatalog = [{}];
+      await act(async () => {
+        submit('bridge 500 usdc to miden');
+      });
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiServiceUnavailable');
+      expect(screen.getByTestId('command-ai-plan-step-0')).toBeInTheDocument();
+
+      mockEarnVaultCatalog = null;
+      submit('bridge 500 usdc to miden');
+      await screen.findByTestId('command-ai-clarification');
+      expect(screen.queryByTestId('command-ai-plan-card')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
+    });
+
+    it('dismisses the new request error without restoring an old resolution error', async () => {
+      jest
+        .mocked(compileCommandPrompt)
+        .mockResolvedValueOnce({ op: 'unsupported', reason: 'Synthetic unsupported request', suggested_route: null })
+        .mockRejectedValueOnce(new CommandAiClientError('unavailable', 'offline'));
+      renderBar();
+      submit('Open another app');
+      expect(await screen.findByTestId('command-ai-error')).toHaveTextContent('commandAiUnsupported');
+
+      await act(async () => {
+        submit('No other open app');
+      });
+      const latest = screen.getByTestId('command-ai-error');
+      expect(latest).toHaveTextContent('commandAiServiceUnavailable');
+      fireEvent.click(within(latest).getByRole('button', { name: 'close' }));
+      expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
+    });
+
     it('paints the help card close glyph with the theme color', async () => {
       jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
         op: 'explain',
