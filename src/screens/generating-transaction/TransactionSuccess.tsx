@@ -6,6 +6,7 @@ import { nearIntentsSendTracking } from './helper';
 import { BridgeSuccess } from './success/BridgeSuccess';
 import { EarnSuccess } from './success/EarnSuccess';
 import { GuardianSwitchSuccess } from './success/GuardianSwitchSuccess';
+import { MidenNameSuccess } from './success/MidenNameSuccess';
 import { NearIntentsSendSuccess } from './success/NearIntentsSendSuccess';
 import { SendSuccess } from './success/SendSuccess';
 import { SwapSuccess } from './success/SwapSuccess';
@@ -30,7 +31,7 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
  * Picks the success receipt for a completed transaction by type. Each variant
  * lives in `./success` and composes the shared `TransactionSuccessLayout`.
  *
- * `swap`, `switch-guardian` and `earn-deposit` route by the tx type; bridged
+ * `swap`, `switch-guardian`, `earn-deposit` and `register-name` route by the tx type; bridged
  * sends route by their extraInputs discriminator, and a NEAR Intents send by its
  * 1Click tracking (`nearIntentsSendTracking`). `SendSuccess` covers send
  * plus every other type.
@@ -38,16 +39,17 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
 export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
   const extraInputs = props.transaction?.extraInputs;
 
-  if (props.transaction?.type === 'swap') {
-    return <SwapSuccess {...props} />;
-  }
-
-  if (props.transaction?.type === 'earn-deposit') {
-    return <EarnSuccess {...props} />;
-  }
-
-  if (props.transaction?.type === 'switch-guardian') {
-    return <GuardianSwitchSuccess {...props} />;
+  switch (props.transaction?.type) {
+    case 'swap':
+      return <SwapSuccess {...props} />;
+    case 'earn-deposit':
+      return <EarnSuccess {...props} />;
+    case 'switch-guardian':
+      return <GuardianSwitchSuccess {...props} />;
+    case 'register-name':
+      return <MidenNameSuccess {...props} />;
+    default:
+      break;
   }
 
   const nearIntents = nearIntentsSendTracking(props.transaction);

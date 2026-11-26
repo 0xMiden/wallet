@@ -30,6 +30,7 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import * as Repo from 'lib/miden/repo';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import {
@@ -55,7 +56,13 @@ import {
 } from './activityGroups';
 import { guardianHistoryIcon, historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import {
+  HistoryEntryType,
+  IHistoryEntry,
+  midenNameActivityOf,
+  midenNameLabelOf,
+  reconcileMidenNameActivity
+} from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
@@ -149,7 +156,10 @@ export function historyEntryMatchesSearch(
     // the very row showing it.
     entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
     entry.secondaryAddress?.toLowerCase().includes(query) ||
-    activityDappCounterpartyName(entry, counterpartyNameOf)?.toLowerCase().includes(query)
+    activityDappCounterpartyName(entry, counterpartyNameOf)?.toLowerCase().includes(query) ||
+    entry.recipientName?.toLowerCase().includes(query) ||
+    // The row title shows the full name ("alice.miden"), so search for it too.
+    (entry.midenNameLabel !== undefined && formatMidenName(entry.midenNameLabel).includes(query))
   );
 }
 
@@ -393,6 +403,11 @@ const History = memo<HistoryProps>(
           const loaded = scopedRestRef.current.key === safeStateKey ? scopedRestRef.current : NO_SCOPED_ENTRIES;
           const olderSwapIds = loaded.cursorInitialized ? loadedSwapTxIds(loaded.entries) : [];
           const olderMutableIds = loaded.cursorInitialized ? loadedMutableActivityTxIds(loaded.entries) : [];
+          const olderRegistrationIds = loaded.cursorInitialized
+            ? loaded.entries.flatMap(entry =>
+                entry.txType === 'register-name' && entry.txId !== undefined ? [entry.txId] : []
+              )
+            : [];
           const scope = scopeRef.current;
           const work = settledWorkGen.current;
           const key = safeStateKey;
@@ -410,9 +425,11 @@ const History = memo<HistoryProps>(
               setScopedRest(state => patchLoadedSwapSettlement(state, key, olderSwapIdSet, fresh));
             });
           }
-          if (olderMutableIds.length > 0) {
+          if (olderMutableIds.length > 0 || olderRegistrationIds.length > 0) {
             const olderMutableIdSet = new Set(olderMutableIds);
-            void readLoadedActivityStatus(olderMutableIds).then(fresh => {
+            const olderRegistrationIdSet = new Set(olderRegistrationIds);
+            const refreshIds = [...new Set([...olderMutableIds, ...olderRegistrationIds])];
+            void readLoadedActivityStatus(refreshIds).then(fresh => {
               if (
                 fresh === null ||
                 generation !== loadedRowsRefreshGen.current ||
@@ -421,7 +438,9 @@ const History = memo<HistoryProps>(
               ) {
                 return;
               }
-              setScopedRest(state => patchLoadedActivityStatus(state, key, olderMutableIdSet, fresh));
+              setScopedRest(state =>
+                patchLoadedActivityStatus(state, key, olderMutableIdSet, fresh, olderRegistrationIdSet)
+              );
             });
           }
           if (!loaded.cursorInitialized) return;
@@ -665,7 +684,7 @@ const History = memo<HistoryProps>(
       });
     });
     const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
-    let entries: IHistoryEntry[] = allEntries.filter(
+    let entries: IHistoryEntry[] = reconcileMidenNameActivity(allEntries).filter(
       entry =>
         !(
           entry.txType === 'consume' &&
@@ -873,18 +892,23 @@ export const patchLoadedActivityStatus = (
   state: ScopedEntries,
   key: string,
   ids: ReadonlySet<string>,
-  fresh: ReadonlyMap<string, ITransaction>
+  fresh: ReadonlyMap<string, ITransaction>,
+  registrationIds?: ReadonlySet<string>
 ): ScopedEntries => {
   if (state.key !== key) return state;
   let changed = false;
   const entries = state.entries.map(entry => {
-    if (entry.txId === undefined || !ids.has(entry.txId)) return entry;
+    if (entry.txId === undefined) return entry;
+    const refreshStatus = ids.has(entry.txId);
+    const refreshName = registrationIds?.has(entry.txId) === true && entry.txType === 'register-name';
+    if (!refreshStatus && !refreshName) return entry;
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
-    const fields = loadedActivityStatusFields(row);
+    const fields: Partial<IHistoryEntry> = refreshStatus ? loadedActivityStatusFields(row) : {};
+    if (refreshName && row.type === 'register-name') Object.assign(fields, midenNameActivityOf(row));
     // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
     // shown object and the row does not render again.
-    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+    if (refreshStatus && entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
       fields.oneClickTracking = entry.oneClickTracking;
     }
     if (
@@ -1089,6 +1113,8 @@ async function fetchTransactionsAsHistoryEntries(
       paybackClaimStuck: stuckPaybackClaim(paybackStates.get(tx.id)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: historySecondaryAddressOf(tx),
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -1140,7 +1166,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
 
     return entry;
@@ -1264,6 +1291,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: historySecondaryAddressOf(tx),
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
@@ -1293,7 +1322,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus,
-      oneClickTracking: loadedActivityOneClickTracking(tx)
+      oneClickTracking: loadedActivityOneClickTracking(tx),
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);
