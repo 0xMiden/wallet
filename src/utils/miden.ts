@@ -1,6 +1,7 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { isAddress } from 'viem';
 
+import { MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { detectNearIntentsAddressKind } from 'lib/one-click/address';
@@ -108,6 +109,8 @@ export type AddressChain = 'miden' | 'ethereum' | 'solana' | 'bitcoin' | 'near';
 export const detectAddressChain = (address: string): AddressChain => {
   const trimmed = address.trim();
   if (isHexAddress(trimmed)) return 'ethereum';
+  // A `.miden` name is a Miden Name, never a NEAR named account.
+  if (trimmed.toLowerCase().endsWith(MIDEN_NAME_SUFFIX)) return 'miden';
   const kind = detectNearIntentsAddressKind(trimmed);
   switch (kind) {
     case 'solana':

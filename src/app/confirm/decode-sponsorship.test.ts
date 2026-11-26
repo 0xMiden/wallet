@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
-import type { UsdcxSponsorshipApproval } from 'lib/usdcx/sponsorship';
+import type { SponsorshipApproval } from 'lib/usdcx/sponsorship';
 
 import { executedBytesToView, summaryBytesToView } from './decode';
 
@@ -29,11 +29,15 @@ const note = (id: string, amount: bigint, tag = 0) => ({
   metadata: () => ({ tag: () => ({ asU32: () => tag }) })
 });
 let mockOutputs: ReturnType<typeof note>[];
-const approval: UsdcxSponsorshipApproval = {
+const approval: SponsorshipApproval = {
   accountId: 'bech32:acct',
-  faucetId: 'bech32:native',
+  targetAccountId: 'bech32:native',
   noteId: 'burn',
-  budget: { faucetId: 'bech32:native', maxAmount: '5', scope: 'already-validated-source' }
+  feeFaucetId: 'bech32:native',
+  maxAmount: 5n,
+  capKernelFee: true,
+  missingNoteMessage: 'The approved USDCx burn is missing from the fee-bearing transaction',
+  ambiguousMessage: 'The USDCx sponsorship is ambiguous'
 };
 const caught = (run: () => unknown): unknown => {
   try {
@@ -85,7 +89,7 @@ test('neither path grants this exception without recorded route approval', () =>
 
 test('neither path hides an unrecognized companion under a large fee budget', () => {
   mockOutputs[1] = note('wrong-script-or-metadata', 3n);
-  const larger = { ...approval, budget: { ...approval.budget, maxAmount: '1000' } };
+  const larger = { ...approval, maxAmount: 1000n };
   for (const view of [summaryBytesToView('bytes', larger), executedBytesToView('bytes', larger)]) {
     expect(view.outgoing.reduce((sum, item) => sum + item.amount, 0n)).toBe(103n);
     expect(view.outputNotesCreated).toBe(2);
@@ -94,7 +98,7 @@ test('neither path hides an unrecognized companion under a large fee budget', ()
 });
 
 test('both paths reject a combined fee above the reviewed cap', () => {
-  const smaller = { ...approval, budget: { ...approval.budget, maxAmount: '4' } };
+  const smaller = { ...approval, maxAmount: 4n };
   expect(() => summaryBytesToView('bytes', smaller)).toThrow();
   expect(() => executedBytesToView('bytes', smaller)).toThrow();
 });

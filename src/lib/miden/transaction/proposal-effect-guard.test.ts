@@ -25,7 +25,8 @@ import {
   IApprovedCustomEffects,
   ITransaction,
   ITransactionStatus,
-  IUsdcxBurn
+  IUsdcxBurn,
+  RegisterNameTransaction
 } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -1096,5 +1097,104 @@ describe('assertViewEffectApproved', () => {
     await expect(assertViewEffectApproved(incoming, decode)).resolves.toBeUndefined();
     expect(decode).not.toHaveBeenCalled();
     expect(refreshVerificationBaseFee).not.toHaveBeenCalled();
+  });
+
+  it('effect-checks register-name transactions', () => {
+    expect(isEffectChecked('register-name')).toBe(true);
+  });
+
+  describe('register-name', () => {
+    const registerTx = (networkFeeBaseUnits = 210n) =>
+      new RegisterNameTransaction({
+        accountId: 'acct',
+        label: 'alice',
+        network: 'testnet',
+        paymentFaucetId: 'bech32:usdcx',
+        registryAccountId: 'bech32:registry',
+        priceBaseUnits: 1000n,
+        networkFeeBaseUnits,
+        requestBytes: REQUEST,
+        registrationNoteId: BUILT,
+        reclaimHeight: 1300,
+        builtAtBlock: 1000
+      });
+
+    it('initializes approvedOutputNoteIds from registrationNoteId', () => {
+      expect(registerTx().approvedOutputNoteIds).toEqual([BUILT]);
+    });
+
+    it('approves canonical sponsorship up to networkFeeBaseUnits without capping kernel 0xfee', async () => {
+      givenSummary(
+        summary({
+          removed: [fa('usdcx', 1000n + 10n + 50n)],
+          outputs: [
+            note([fa('usdcx', 1000n)], [], BUILT),
+            note([fa('usdcx', 10n)], [], 'sponsorship-note'),
+            feeNote(50n)
+          ]
+        })
+      );
+      await expect(assertProposalEffectApproved(registerTx(10n), 'sum')).resolves.toBeUndefined();
+      expect(canonicalFeeSponsorshipNoteId).toHaveBeenCalledWith(
+        {
+          senderAccountId: 'acct',
+          targetAccountId: 'bech32:registry',
+          featureNoteId: BUILT,
+          feeFaucetId: 'bech32:usdcx'
+        },
+        10n
+      );
+    });
+
+    it('refuses a companion above networkFeeBaseUnits, an unapproved note, excess outflow, or missing approvedOutputNoteIds', async () => {
+      givenSummary(
+        summary({
+          removed: [fa('usdcx', 1000n + 11n + 50n)],
+          outputs: [
+            note([fa('usdcx', 1000n)], [], BUILT),
+            note([fa('usdcx', 11n)], [], 'sponsorship-note'),
+            feeNote(50n)
+          ]
+        })
+      );
+      await expect(assertProposalEffectApproved(registerTx(10n), 'sum')).rejects.toThrow(ProposalEffectRefusedError);
+
+      givenSummary(
+        summary({
+          removed: [fa('usdcx', 1000n + 10n + 50n)],
+          outputs: [
+            note([fa('usdcx', 1000n)], [], BUILT),
+            note([fa('usdcx', 10n)], [], 'wrong-companion'),
+            feeNote(50n)
+          ]
+        })
+      );
+      await expect(assertProposalEffectApproved(registerTx(10n), 'sum')).rejects.toThrow(ProposalEffectRefusedError);
+
+      givenSummary(
+        summary({
+          removed: [fa('usdcx', 1001n + 50n)],
+          outputs: [note([fa('usdcx', 1001n)], [], BUILT), feeNote(50n)]
+        })
+      );
+      await expect(assertProposalEffectApproved(registerTx(10n), 'sum')).rejects.toThrow(ProposalEffectRefusedError);
+
+      await expect(
+        assertProposalEffectApproved({ ...registerTx(10n), approvedOutputNoteIds: [] }, 'sum')
+      ).rejects.toThrow('the transaction has no recorded note of its own');
+    });
+
+    it('allows an uncapped kernel fee in proposalEffectRefusal and rejects invalid fee budget metadata', () => {
+      const paid = viewOf(
+        summary({
+          removed: [fa('usdcx', 1050n)],
+          outputs: [note([fa('usdcx', 1000n)], [], BUILT), feeNote(50n)]
+        })
+      );
+      expect(proposalEffectRefusal(registerTx(10n), paid)).toBeUndefined();
+      const badFee = registerTx(10n);
+      badFee.extraInputs.networkFeeBaseUnits = 'invalid';
+      expect(proposalEffectRefusal(badFee, paid)).toBe('the reviewed native fee budget could not be read');
+    });
   });
 });
