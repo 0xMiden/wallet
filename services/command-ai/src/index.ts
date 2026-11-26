@@ -1,8 +1,12 @@
 import helpFacts from '../../../src/lib/command-ai/help-facts.json';
+import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
+
+import { hasUnsafeSharingAdvice } from './help-safety.mjs';
+
+export { COMMAND_AI_MAX_TEXT_CHARS };
 
 export const COMMAND_AI_MAX_BODY_BYTES = 16 * 1024;
 export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 8 * 1024;
-export const COMMAND_AI_MAX_TEXT_CHARS = 2_000;
 const COMMAND_AI_TIMEOUT_MS = 15_000;
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -506,7 +510,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
     }
 
     const output: unknown = JSON.parse(content);
-    if (!isRecord(output)) {
+    if (!isRecord(output) || (helpContext !== undefined && hasUnsafeSharingAdvice(output))) {
       throw compilationFailed();
     }
 

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'services/command-ai/**'
+      - 'services/command-ai-proxy/server.mjs'
       - 'src/lib/command-ai/help-facts.json'
       - 'src/lib/command-ai/redactor.ts'
       - 'src/lib/command-ai/schema.ts'

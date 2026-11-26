@@ -3,6 +3,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import helpFacts from '../../src/lib/command-ai/help-facts.json' with { type: 'json' };
+import { hasUnsafeSharingAdvice } from '../command-ai/src/help-safety.mjs';
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b';
@@ -360,8 +361,12 @@ export async function compileWithGroq({ redactedText, snapshot, helpContext, api
       throw Object.assign(new Error('Invalid model payload'), { statusCode: 502 });
     }
 
+    const output = JSON.parse(content);
+    if (helpContext !== undefined && hasUnsafeSharingAdvice(output)) {
+      throw Object.assign(new Error('Invalid model payload'), { statusCode: 502 });
+    }
     return {
-      output: JSON.parse(content),
+      output,
       model,
       usage: usage ? { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens } : undefined
     };

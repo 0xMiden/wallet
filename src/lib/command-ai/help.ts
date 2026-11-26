@@ -29,7 +29,7 @@ export function containsCommandSecret(input: string): boolean {
   ) {
     return true;
   }
-  const labelledValue = /(?:^\s*|\bmy\s+)(?:password|private key|recovery phrase|seed phrase)\s+is\s+(?=\S)/gim;
+  const labelledValue = /(?:(?:^|[.,?!;:])\s*|\bmy\s+)(?:password|private key|recovery phrase|seed phrase)\s+is\s+(?=\S)/gim;
   const troubleshooting =
     /^(?:missing|lost|gone|forgotten|stolen|compromised|leaked|exposed|wrong|incorrect|safe|not[ \t]+(?:working|accepted))(?=[ \t]*(?:[.,?!;]+(?=\s|$)|\r?\n|$))/i;
   for (const match of input.matchAll(labelledValue)) {

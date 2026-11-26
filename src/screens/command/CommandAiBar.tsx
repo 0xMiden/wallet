@@ -24,7 +24,7 @@ import {
   type RedactedKind,
   type RedactionMap
 } from 'lib/command-ai/redactor';
-import { commandHelpTopicIds, type AiCompilerOutput } from 'lib/command-ai/schema';
+import { COMMAND_AI_MAX_TEXT_CHARS, commandHelpTopicIds, type AiCompilerOutput } from 'lib/command-ai/schema';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import type { TokenPrices } from 'lib/prices';
@@ -370,14 +370,25 @@ export function CommandAiBar({
   );
 
   const submitPrompt = useCallback(
-    async (raw: string, topic?: keyof typeof COMMAND_HELP_TOPICS) => {
-      if (!raw || activeAbortRef.current) return;
+    async (prompt: string, topic?: keyof typeof COMMAND_HELP_TOPICS) => {
+      if (!prompt || activeAbortRef.current) return;
       const helpOnly = topic !== undefined;
       const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) => {
         const nextState: AiBarState = error && state.kind === 'error' ? { kind: 'idle' } : state;
         if (nextState !== state) setState(nextState);
         setRequestFailure(error && { error, state: nextState, plan: planCtx?.plan });
       };
+      if (prompt.length > COMMAND_AI_MAX_TEXT_CHARS) {
+        setRequestError({
+          kind: 'error',
+          messageKey: 'commandAiInputTooLong',
+          messageParams: { limit: String(COMMAND_AI_MAX_TEXT_CHARS) },
+          redactedKinds: []
+        });
+        return;
+      }
+      const raw = prompt.trim();
+      if (!raw) return;
       if (containsCommandSecret(raw)) {
         setRequestError({ kind: 'error', messageKey: 'commandAiHelpSecret', redactedKinds: [] });
         setInput('');
@@ -513,7 +524,7 @@ export function CommandAiBar({
 
   const handleSubmit = (event?: React.FormEvent) => {
     event?.preventDefault();
-    void submitPrompt(input.trim());
+    void submitPrompt(input);
   };
 
   const activeRedactedKinds = pendingKinds ?? (state.kind === 'idle' ? [] : state.redactedKinds);

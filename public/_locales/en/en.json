@@ -2282,6 +2282,7 @@
   "commandAiHelpWalletTitle": "What can I do in Bread?",
   "commandAiHelpDisclosure": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat.",
   "commandAiHelpSecret": "Keep passwords, private keys and recovery phrases out of chat.",
+  "commandAiInputTooLong": "Shorten your message to $limit$ characters or fewer.",
   "commandAiHelpBridgeSource": "Bridge privacy policy",
   "commandAiPlanTitle": "Action plan",
   "commandAiPlanProgress": "Step $current$ of $total$",

@@ -1,5 +1,7 @@
 import helpFacts from './help-facts.json';
 
+export const COMMAND_AI_MAX_TEXT_CHARS = 2_000;
+
 export type CommandAiAction = 'send' | 'swap' | 'bridge' | 'earn' | 'receive';
 
 export type AmountExpr =

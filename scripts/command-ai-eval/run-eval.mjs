@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+import { hasUnsafeSharingAdvice } from '../../services/command-ai/src/help-safety.mjs';
+
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -108,7 +110,9 @@ export async function runEval({
   const worker =
     offlineOnly || !questions
       ? null
-      : loadTsModule('services/command-ai/src/index.ts').createService({
+      : loadTsModule('services/command-ai/src/index.ts', {
+          './help-safety.mjs': { hasUnsafeSharingAdvice }
+        }).createService({
           fetchImpl: async (...args) => {
             const response = await fetch(...args);
             const { usage } = await response
