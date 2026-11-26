@@ -1014,19 +1014,35 @@ export const recordKeptCandidate = async (
  * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
  * leaf's catch, whose own error is the one the row must record.
  */
+/**
+ * Only the attempt currently owning `tx.attemptId` may clear row-level `tx.mayHaveSubmitted`, and only when no
+ * other active (unretired) `raisedFlag` entry in `submitEvidence` still relies on that flag.
+ */
+const mayClearMayHaveSubmitted = (
+  tx: { attemptId?: string; submitEvidence?: ISubmitEvidence[] },
+  attemptId: string,
+  entry: ISubmitEvidence
+): boolean =>
+  entry.raisedFlag === true &&
+  tx.attemptId === attemptId &&
+  !(tx.submitEvidence ?? []).some(
+    candidate => candidate.attemptId !== attemptId && candidate.raisedFlag === true && candidate.preSubmitEnd !== true
+  );
+
 export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   try {
     await Repo.transactions.where({ id }).modify(tx => {
       const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
       if (entry === undefined) return false;
+      const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
       tx.submitEvidence = upsertEvidenceEntry(
         tx.submitEvidence,
         attemptId,
         { source: entry.source, preSubmitEnd: true },
         nowSec
       );
-      if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
+      if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
       return undefined;
     });
   } catch (error) {
@@ -1051,6 +1067,7 @@ export const retractSubmitCrossing = async (
     const index = entries.findIndex(candidate => candidate.attemptId === attemptId);
     if (index !== -1) {
       const entry = entries[index]!;
+      const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
       if (entry.source === 'pin' || entry.preSubmitEnd === true) {
         const resetEntry: ISubmitEvidence = {
           attemptId: entry.attemptId,
@@ -1066,7 +1083,7 @@ export const retractSubmitCrossing = async (
         const next = [...entries];
         next[index] = resetEntry;
         tx.submitEvidence = next;
-        if (entry.preSubmitEnd === true && entry.raisedFlag === true) {
+        if (entry.preSubmitEnd === true && shouldClearFlag) {
           tx.mayHaveSubmitted = undefined;
         }
         changed = true;
@@ -1074,7 +1091,7 @@ export const retractSubmitCrossing = async (
         const remaining = entries.filter(candidate => candidate.attemptId !== attemptId);
         if (remaining.length === 0) delete tx.submitEvidence;
         else tx.submitEvidence = remaining;
-        if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
+        if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
         changed = true;
       }
     }
