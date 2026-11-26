@@ -578,7 +578,7 @@ describe('TokenDetail', () => {
       expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
     });
 
-    it('says the balance could not be loaded when the first read failed, ', () => {
+    it('says the balance could not be loaded when the first read failed', () => {
       renderPage({ balanceStatus: { isLoading: true, readFailed: true, balanceReadInFlight: true } });
 
       expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUnavailable');
