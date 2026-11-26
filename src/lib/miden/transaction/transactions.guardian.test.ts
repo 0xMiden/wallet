@@ -315,6 +315,18 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
   commitmentFromPublicKeyHex: (publicKeyHex: string) => mockCommitmentFromPublicKeyHex(publicKeyHex)
 }));
 
+// The signer-set membership read. Unset, every path reads the account for real. A test that sets it gives the answer
+// for the commitment it receives.
+let mockSignerSetHolds: jest.Mock<boolean, [string]> | undefined;
+jest.mock('lib/miden/guardian/account', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/guardian/account')>('lib/miden/guardian/account');
+  return {
+    ...actual,
+    hasSignerCommitment: (...args: Parameters<typeof actual.hasSignerCommitment>) =>
+      mockSignerSetHolds === undefined ? actual.hasSignerCommitment(...args) : mockSignerSetHolds(args[1])
+  };
+});
+
 // Direct on-chain switch fallback (old guardian unreachable). The classifier
 // keeps its REAL implementation (its unreachable-vs-semantic routing is what
 // these tests exercise); only the request builder + finalizer are stubbed.
@@ -4311,6 +4323,7 @@ describe('generateTransaction - Guardian routing', () => {
       faucetId: 'miden',
       noteType: 'public',
       requestBytes,
+      approvedOutputNoteIds: ['0xnote'],
       extraInputs: {
         label: 'alice',
         network: 'testnet',
@@ -12910,6 +12923,384 @@ describe('generateTransaction - Guardian routing', () => {
     expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-add', undefined);
     expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     expect(row()?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // A later run of an add row, after a restart that interrupted the completion of a landed add: the row's own key is
+  // a signer already. Only the committed state proves that: the local account holds the key and its commitment is the
+  // node's commitment for the account.
+  describe('a later run of an add row whose own key is a signer', () => {
+    const { HotKeyAlreadySignerError } = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+    const LOCAL_COMMITMENT = '0xc0ffee';
+
+    afterEach(() => {
+      mockSignerSetHolds = undefined;
+      mockReadChainAccountCommitment.mockReset();
+      mockReadChainAccountCommitment.mockResolvedValue(undefined);
+    });
+
+    // An add row that a first run stamped with its key, and an account whose local copy names `signers`.
+    const arrangeLaterAddRun = (
+      mode: HotKeyActivationMode,
+      signers: readonly string[],
+      chainCommitment: string | undefined,
+      createAddProposal?: jest.Mock
+    ) => {
+      const createProposal = proposalFor();
+      const arranged = arrangeRotation(createProposal, undefined, createAddProposal);
+      arranged.tx.extraInputs = { mode, newHotPublicKey: 'new-hot-pub' };
+      Object.assign(arranged.row()!, { extraInputs: arranged.tx.extraInputs });
+      const account = {
+        id: () => ({ toString: () => 'acc-1' }),
+        to_commitment: () => ({ toHex: () => LOCAL_COMMITMENT })
+      };
+      const getAccount = jest.fn(async (_accountId: string) => account);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount,
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: arranged.client
+      });
+      const signerSetHolds = jest.fn((commitmentHex: string) => signers.includes(commitmentHex));
+      mockSignerSetHolds = signerSetHolds;
+      mockReadChainAccountCommitment.mockResolvedValue(chainCommitment);
+      return { ...arranged, createProposal, getAccount, signerSetHolds };
+    };
+
+    it('completes the landed add: no proposal, no signature, no submit, one re-register and one key swap', async () => {
+      const { tx, row, coldService, client, createProposal, persistNewHotKey, swapHotKey, provider, signerSetHolds } =
+        arrangeLaterAddRun('add', ['0xcold', '0xnewcommit'], LOCAL_COMMITMENT);
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(signerSetHolds).toHaveBeenCalledWith('0xnewcommit');
+      expect(mockReadChainAccountCommitment).toHaveBeenCalledWith('acc-1', expect.any(Number));
+      expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+      expect(createProposal).not.toHaveBeenCalled();
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(mockGenerateHotKey).not.toHaveBeenCalled();
+      expect(persistNewHotKey).not.toHaveBeenCalled();
+      expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Device added');
+      expect(row()?.error).toBeUndefined();
+      // The wallet did not record the landed transaction's id, so the row names none.
+      expect(row()?.transactionId).toBeUndefined();
+    });
+
+    it('proposes as today when the local copy holds the key but the node commits to another state', async () => {
+      const refusal = new HotKeyAlreadySignerError('acc-1');
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        throw refusal;
+      });
+      const { tx, row, swapHotKey, provider } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        '0xanotherstate',
+        createAddProposal
+      );
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+    });
+
+    it('proposes as today when the node commitment cannot be read', async () => {
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, swapHotKey, provider } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        undefined,
+        createAddProposal
+      );
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+    });
+
+    it('proposes again as today when its key is not in the signer set', async () => {
+      const { tx, row, coldService, swapHotKey, provider } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xotherdevice'],
+        LOCAL_COMMITMENT
+      );
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(coldService.createAddHotKeyProposal).toHaveBeenCalledTimes(1);
+      expect(coldService.createAddHotKeyProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+      expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-add', undefined);
+      expect(mockGenerateHotKey).not.toHaveBeenCalled();
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('a first run that meets the refusal still fails: a key it minted is never taken as landed', async () => {
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, swapHotKey, provider, signerSetHolds } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        LOCAL_COMMITMENT,
+        createAddProposal
+      );
+      tx.extraInputs = { mode: 'add' };
+      Object.assign(row()!, { extraInputs: tx.extraInputs });
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
+      expect(signerSetHolds).not.toHaveBeenCalled();
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(String(row()?.error)).toContain('already an on-chain signer');
+    });
+
+    it('a replace row with its key in the committed set proposes the replace as today', async () => {
+      const { tx, row, coldService, createProposal, swapHotKey, provider, signerSetHolds } = arrangeLaterAddRun(
+        'replace',
+        ['0xcold', '0xnewcommit'],
+        LOCAL_COMMITMENT
+      );
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(signerSetHolds).not.toHaveBeenCalled();
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(createProposal).toHaveBeenCalledWith(expect.anything(), '0xnewcommit');
+      expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+      expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+    });
+
+    it('a kill during the membership read leaves as a kill: nothing is proposed, swapped or completed', async () => {
+      const { tx, row, coldService, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        LOCAL_COMMITMENT
+      );
+      // The first account read of the run is the membership read. An eviction during it hands the hold on.
+      getAccount.mockImplementationOnce(async () => {
+        revokeHold();
+        return { id: () => ({ toString: () => 'acc-1' }), to_commitment: () => ({ toHex: () => LOCAL_COMMITMENT }) };
+      });
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).not.toBe(ITransactionStatus.Completed);
+      expect(String(row()?.rawError ?? row()?.error)).toContain('operation abandoned');
+    });
+
+    it('a trap in the membership read leaves the hold as itself: nothing is proposed, swapped or completed', async () => {
+      const { tx, row, coldService, swapHotKey, provider } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        LOCAL_COMMITMENT
+      );
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      mockSignerSetHolds = jest.fn((_commitmentHex: string): boolean => {
+        throw trap;
+      });
+      const holdRejections: unknown[] = [];
+      const lockImplementation = mockWithWasmClientLock.getMockImplementation()!;
+      mockWithWasmClientLock.mockImplementation(async (fn, options) => {
+        try {
+          return await lockImplementation(fn, options);
+        } catch (error) {
+          holdRejections.push(error);
+          throw error;
+        }
+      });
+      try {
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider
+        );
+      } finally {
+        mockWithWasmClientLock.mockImplementation(lockImplementation);
+      }
+
+      // The lock sees the trap itself, so it retires the client.
+      expect(holdRejections).toContain(trap);
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(coldService.createAddHotKeyProposal).not.toHaveBeenCalled();
+      expect(swapHotKey).not.toHaveBeenCalled();
+      expect(row()?.status).not.toBe(ITransactionStatus.Completed);
+    });
+
+    it('completes a pre-apply landed add once createAddHotKeyProposal syncs the local account to chain', async () => {
+      let currentCommitment = '0xpreapply';
+      let currentSigners = ['0xcold'];
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        // Simulate syncBeforeRotationBuild() adopting the post-add state from Guardian before checking membership.
+        currentCommitment = LOCAL_COMMITMENT;
+        currentSigners = ['0xcold', '0xnewcommit'];
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, coldService, client, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+        'add',
+        currentSigners,
+        LOCAL_COMMITMENT,
+        createAddProposal
+      );
+      getAccount.mockImplementation(async () => ({
+        id: () => ({ toString: () => 'acc-1' }),
+        to_commitment: () => ({ toHex: () => currentCommitment })
+      }));
+      mockSignerSetHolds = jest.fn((commitmentHex: string) => currentSigners.includes(commitmentHex));
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Device added');
+      expect(row()?.error).toBeUndefined();
+      expect(row()?.transactionId).toBeUndefined();
+    });
+
+    it('completes a landed add after another device moved the chain head once createAddHotKeyProposal syncs', async () => {
+      const NEWER_COMMITMENT = '0xnewer';
+      let currentCommitment = LOCAL_COMMITMENT;
+      const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+        currentCommitment = NEWER_COMMITMENT;
+        throw new HotKeyAlreadySignerError('acc-1');
+      });
+      const { tx, row, coldService, client, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+        'add',
+        ['0xcold', '0xnewcommit'],
+        NEWER_COMMITMENT,
+        createAddProposal
+      );
+      getAccount.mockImplementation(async () => ({
+        id: () => ({ toString: () => 'acc-1' }),
+        to_commitment: () => ({ toHex: () => currentCommitment })
+      }));
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(createAddProposal).toHaveBeenCalledTimes(1);
+      expect(coldService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      expect(coldService.reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledTimes(1);
+      expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+      expect(row()?.status).toBe(ITransactionStatus.Completed);
+      expect(row()?.displayMessage).toBe('Device added');
+      expect(row()?.error).toBeUndefined();
+      expect(row()?.transactionId).toBeUndefined();
+    });
+
+    it.each([
+      ['uncommitted local copy after sync', '0xanotherstate'],
+      ['unreadable node commitment after sync', undefined]
+    ])(
+      'still fails on HotKeyAlreadySignerError when %s prevents post-sync confirmation',
+      async (_label, chainCommitment) => {
+        let currentCommitment = '0xpreapply';
+        let currentSigners = ['0xcold'];
+        const createAddProposal = jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => {
+          currentCommitment = LOCAL_COMMITMENT;
+          currentSigners = ['0xcold', '0xnewcommit'];
+          throw new HotKeyAlreadySignerError('acc-1');
+        });
+        const { tx, row, swapHotKey, provider, getAccount } = arrangeLaterAddRun(
+          'add',
+          currentSigners,
+          chainCommitment,
+          createAddProposal
+        );
+        getAccount.mockImplementation(async () => ({
+          id: () => ({ toString: () => 'acc-1' }),
+          to_commitment: () => ({ toHex: () => currentCommitment })
+        }));
+        mockSignerSetHolds = jest.fn((commitmentHex: string) => currentSigners.includes(commitmentHex));
+
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider
+        );
+
+        expect(createAddProposal).toHaveBeenCalledTimes(1);
+        expect(swapHotKey).not.toHaveBeenCalled();
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(String(row()?.error)).toContain('already an on-chain signer');
+      }
+    );
   });
 
   it.each(['earlier', undefined])(
@@ -21847,6 +22238,101 @@ describe('Guardian proposal effect check', () => {
         nativeAsset.refreshVerificationBaseFee.mockReset();
         nativeAsset.refreshVerificationBaseFee.mockImplementation(async () => 10000);
       }
+    });
+  });
+
+  describe('register-name', () => {
+    const rebasedBytes = new Uint8Array([181, 182, 183]);
+    const registerService = (nonce: number) => {
+      const proposal = { id: `prop-register-${nonce}`, nonce, metadata: {}, txSummary: 'cmVn' };
+      const service = {
+        ...serviceWith(proposal),
+        createRebasedCustomProposal: jest.fn(async () => ({ proposal, requestBytes: rebasedBytes }))
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(service);
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      return { service, client };
+    };
+    const registerRow = (id: string) => ({
+      id,
+      type: 'register-name',
+      accountId: 'guardian-acc',
+      amount: 1000n,
+      faucetId: 'faucet',
+      secondaryAccountId: 'registry',
+      noteType: 'public',
+      requestBytes: new Uint8Array([91, 92, 93]),
+      approvedOutputNoteIds: ['note:faucet-1000'],
+      extraInputs: {
+        label: 'alice',
+        network: 'testnet',
+        registrationNoteId: 'note:faucet-1000',
+        reclaimHeight: 1300,
+        builtAtBlock: 1000,
+        priceBaseUnits: '1000',
+        networkFeeBaseUnits: '210',
+        phase: 'requested',
+        phaseUpdatedAt: 1
+      }
+    });
+
+    it('refuses a register-name row missing requestBytes or approvedOutputNoteIds before guard and guardian RPC', async () => {
+      const { service } = registerService(22);
+      mockGetOrCreateMultisigService.mockClear();
+      mockAssertMidenNameRegistrationLive.mockClear();
+
+      const missingNotes = registerRow('reg-no-note');
+      const row = await run({ ...missingNotes, approvedOutputNoteIds: [] });
+
+      expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the transaction has no recorded note of its own'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+
+      const emptyBytes = await run({ ...registerRow('reg-no-bytes'), requestBytes: new Uint8Array() });
+      expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+      expect(emptyBytes.status).toBe(ITransactionStatus.Failed);
+      expect(emptyBytes.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the transaction has no request bytes of its own'
+      );
+    });
+
+    it('refuses a register-name proposal whose summary moves more than approved, abandons, and never signs', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1001n)] }));
+      const { service, client } = registerService(23);
+
+      const row = await run(registerRow('reg-over'));
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).toHaveBeenCalledWith(23, 'prop-register-23');
+      expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.rawError).toBe(
+        'ProposalEffectRefusedError: Refused to sign this register-name transaction: the proposal summary could not be read <- caused by Error: The approved registration note is missing from the fee-bearing transaction'
+      );
+      expect(row.proposalEffectRefused).toBe(true);
+    });
+
+    it('signs and runs a register-name proposal within its approved note and outflow', async () => {
+      mockDeserializeSummary.mockReturnValue(summary({ removed: [fa('faucet', 1000n)] }));
+      const { service } = registerService(24);
+
+      const row = await run(registerRow('reg-ok'));
+
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-register-24', rebasedBytes);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(row.status).toBe(ITransactionStatus.Completed);
     });
   });
 });

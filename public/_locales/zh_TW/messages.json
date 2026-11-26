@@ -4877,6 +4877,10 @@
     "message": "經由 Agglayer",
     "englishSource": "Via Agglayer"
   },
+  "bridgeRouteViaOneClick": {
+    "message": "透過 1Click",
+    "englishSource": "Via 1Click"
+  },
   "bridgeSpeedFast": {
     "message": "快速",
     "englishSource": "Fast"
@@ -7231,6 +7235,10 @@
   "devAllowNoGuardian": {
     "message": "在入职时允许“无监护人”选项",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devShowFullscreenButton": {
+    "message": "顯示全螢幕按鈕",
+    "englishSource": "Show fullscreen button"
   },
   "devNominalUnquotedPrice": {
     "message": "未加引號的代幣價值設為 1 美元（僅限測試網路）",
@@ -10195,6 +10203,373 @@
   "loginSignatureTitle": {
     "message": "這僅僅是登入",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "指令助理",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "發送、兌換、跨鏈轉帳、賺取，或查詢您的錢包……",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "執行",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "思考中……",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "展開為多行",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "壓縮為單行",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "受保護：$kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "開啟表單",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "您想使用哪條橋接路徑？",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "您想將訊息傳送給誰？",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "有多個聯絡人與該名稱相符。是哪一位？",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ 內容不完整。您是指您儲存的聯絡人之一嗎？",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ 為不完整的地址。請輸入完整地址或選擇一位聯絡人。",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "此處不支援 $name$ 形式的 ENS 名稱。請輸入完整地址或選擇一位聯絡人。",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "該地址屬於另一個 Miden 網路。",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "請輸入有效的 Miden 或目的地地址。",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "請指定收件者地址或聯絡人姓名。",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "無法在您的錢包中找到資產 $asset$。",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "您想使用哪種資產？",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "您想轉出多少？",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "您想收到哪種代幣？",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "您想存入哪個 Earn 保管庫？",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "您要從哪個 Earn 倉位中提領？",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "目前沒有可用的匹配橋接路徑。",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiSwapUnavailable": {
+    "message": "該交易對目前暫不提供交換服務。",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "目前沒有任何「Earn」金庫或倉位可用。",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "該代幣目前無法提供即時美元價格。請輸入代幣數量。",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "無法安全驗證此請求。請嘗試重新表述或使用下方的表單。",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "此處不支援該操作。請嘗試「轉帳」、「交換」、「跨鏈」、「賺取」或提出錢包相關問題。",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "無需進行任何主動更新。請輸入完整的指令。",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "AI 代理尚未設定。請設定端點或使用下方的操作列。",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AI 服務暫時無法使用。請稍後重試或使用下方的表單。",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "AI 服務已達速率限制。請稍後重試。",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "錢包餘額",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "配對總額",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "配對活動",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "未找到相符的條目。",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "於本裝置上私下計算",
+    "englishSource": "Computed privately on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "對話",
+    "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "關於 Bread 的問題",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "閱讀更多",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Miden 是如何運作的？",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "這有多私密？",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "我該如何確認哪些資訊屬於私有資訊？",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "何謂「橋接」？",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "什麼是notes？",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "為什麼我必須接受轉帳？",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "為何轉帳狀態仍顯示為「待處理」？",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "如果我拒絕一筆轉帳，會發生什麼情況？",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "為什麼我需要 USDCX 來支付手續費？",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "如果我遺失了裝置該怎麼辦？",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "主網與測試網有何區別？",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistant 會看到什麼？",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "我該如何確保安全？",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "在 Bread 中我可以做什麼？",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread 會在移除部分細節後，將您的問題轉送至其 AI 服務。請勿在聊天中透露密碼和恢復短語。",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "請勿在聊天中透露密碼、私鑰及恢復短語。",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "請將您的訊息縮短至 $limit$ 個字元或更少。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridge 隱私權政策",
+    "englishSource": "Bridge privacy policy"
+  },
+  "commandAiPlanTitle": {
+    "message": "行動計畫",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "$current$ 步驟，共 $total$ 步驟",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "步驟 $num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "有效",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "接下來",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "完成",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "請在下方對話方塊中確認此步驟，然後繼續。",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "步驟已提交！準備進行下一步。",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "所有步驟已完成",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "下一步",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "繼續",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "完成計畫",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "停止",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "先前輸出",
+    "englishSource": "Previous output"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "將 10 USDCx 發送給 John",
+    "englishSource": "Send 10 USDCx to John"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "將 1 ETH 轉入，並兌換為 USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "彙總我上週的活動",
+    "englishSource": "Summarize my last week activity"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "讓 10 USDCx 以最有效率的方式獲利",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "存入 1 ETH，兌換為 USDCx，並存入「頂級收益金庫」",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "本月我轉出了多少 USDCx？",
+    "englishSource": "How much USDCx did I send this month?"
   },
   "midenNameUnsupportedNetwork": {
     "message": "此網路不支援「中間名」。",

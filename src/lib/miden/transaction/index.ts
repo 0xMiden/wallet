@@ -27,6 +27,7 @@ import {
   type AbandonTicket,
   type ProposalSyncPhase
 } from 'lib/miden/guardian';
+import { hasSignerCommitment } from 'lib/miden/guardian/account';
 import { ClaimStartedElsewhereError, claimNoteKeys } from 'lib/miden/guardian/claims-elsewhere';
 import {
   createDirectSwitchGuardianRequest,
@@ -84,7 +85,7 @@ import { setRunningTimeout } from 'lib/mobile/background-time';
 import { assertOneClickDeadline, assertOneClickFundingDeadlineMatches } from 'lib/one-click/deadline';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
-import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
+import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { classifyError } from 'lib/telemetry/classify';
 import {
@@ -1841,11 +1842,11 @@ const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promis
 };
 
 /**
- * A bridged send's precondition for both leaves: the non-empty request stored on the row, and the one note recorded
- * when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing both names
- * the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * A prebuilt-request outgoing row's precondition for both leaves: the non-empty request stored on the row, and the one
+ * note recorded when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing
+ * both names the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
  */
-const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Array => {
+const requireRecordedRequest = (transaction: ITransaction): Uint8Array => {
   if (!transaction.requestBytes?.length) {
     throw new ProposalEffectRefusedError(
       transaction.type,
@@ -1862,6 +1863,9 @@ const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Arra
   }
   return transaction.requestBytes;
 };
+
+const requireBridgedSendRecordedRequest = requireRecordedRequest;
+const requireRegisterNameRecordedRequest = requireRecordedRequest;
 
 export const EPOCH_BRIDGE_ABANDONED_ERROR =
   'This bridge was already abandoned, so its collateral note was not submitted.';
@@ -2535,6 +2539,9 @@ const generateTransactionWithProvider = async (
     if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) !== 'near-intents') {
       requireBridgedSendRecordedRequest(transaction);
     }
+    if (transaction.type === 'register-name') {
+      requireRegisterNameRecordedRequest(transaction);
+    }
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2704,12 +2711,9 @@ const generateTransactionWithProvider = async (
           // free, the price and script allowlist unchanged, and the reclaim height
           // not near. A throw goes to the loop catch, which marks the row Failed
           // (no classifier there requeues these errors).
+          const registerBytes = requireRegisterNameRecordedRequest(transaction);
           await assertMidenNameRegistrationLive(transaction);
-          const registerBytes = transaction.requestBytes;
-          if (!registerBytes) {
-            throw new Error('Register-name row has no request bytes');
-          }
-          return runStampedWriteLeaf(transaction.id, undefined, (stamp, submitGate) =>
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
             midenClientProxy.newTransaction(
               transaction.accountId,
               registerBytes,
@@ -3905,6 +3909,52 @@ const resolveRotationHotKey = async (
   return { commitmentHex: mintedKey.commitmentHex, mintedKey };
 };
 
+/** The longest time the landed-add check waits for the node's commitment of the account. */
+const OWN_ADD_COMMITMENT_READ_MS = 15_000;
+
+/**
+ * True when the committed state of the account holds the key that an earlier run of this add row saved
+ * (`extraInputs.newHotPublicKey`) as a signer: the add landed, and only its completion did not run (for example, the
+ * browser closed during the post-commit re-register, and the row ran again after the restart).
+ *
+ * Only an add row with a saved key qualifies. A key that this run mints cannot be on chain, and a replace or a revoke
+ * row is not changed. Membership is by commitment, never by slot. The local copy can hold a transaction that the node
+ * did not commit yet, so the local copy proves nothing alone: its commitment must be the node's commitment for the
+ * account, which binds every storage slot and so the signer set. When the node does not answer, the answer is false,
+ * and the row proposes as before.
+ *
+ * The account read and the commitment are in one hold, with the ownership check after the read. The node read takes
+ * no lock. No catch is added: a trap or a kill leaves as itself, so the lock retires the client.
+ */
+const ownAddLanded = async (rTx: ReplaceHotKeyTransaction, accountPublicKey: string): Promise<boolean> => {
+  const savedKey = rTx.extraInputs?.newHotPublicKey;
+  if (rTx.extraInputs?.mode !== 'add' || rTx.extraInputs.revokedSignerCommitment || !savedKey) return false;
+  const commitmentHex = await commitmentFromPublicKeyHex(savedKey);
+  const localCommitment = await withWasmClientLock(
+    async hold => {
+      const account = await midenClientProxy.getAccount(accountPublicKey);
+      assertWasmHoldCurrent(hold, 'add-hot-key landed check: after the account read');
+      if (!account || !hasSignerCommitment(account, commitmentHex)) return undefined;
+      return account.to_commitment().toHex();
+    },
+    { label: 'add-hot-key-landed-read' }
+  );
+  if (localCommitment === undefined) return false;
+  const chainCommitment = await readChainAccountCommitment(accountPublicKey, OWN_ADD_COMMITMENT_READ_MS);
+  return chainCommitment !== undefined && sameCommitment(chainCommitment, localCommitment);
+};
+
+const completeOwnLandedAddIfConfirmed = async (
+  rTx: ReplaceHotKeyTransaction,
+  accountPublicKey: string,
+  guardianProvider: GuardianAccountProvider
+): Promise<boolean> => {
+  if (!(await ownAddLanded(rTx, accountPublicKey))) return false;
+  console.warn(`[Guardian] add-hot-key ${rTx.id}: its key is already a committed signer; completing the landed add`);
+  await completeReplaceHotKeyTransaction(rTx, undefined, guardianProvider);
+  return true;
+};
+
 /**
  * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
  * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
@@ -4571,6 +4621,12 @@ const generateGuardianTransaction = async (
       if (isActivation && !isCurrentRotationRequest(rotationRequest, walletAccount)) {
         throw new Error(getMessage('recoveryActionUnavailable'));
       }
+      // An earlier run of this add row landed on chain, and its completion did not run. A new proposal would be
+      // refused (`HotKeyAlreadySignerError`), so the row runs the completion of a landed rotation instead: the Guardian
+      // re-register, the key swap and the Completed write. Nothing is proposed, signed or submitted.
+      if (await completeOwnLandedAddIfConfirmed(rTx, walletAccount.publicKey, guardianProvider)) {
+        return;
+      }
       const sdkAccount = await withProposalStep('service_account_read', () =>
         withWasmClientLock(async () => midenClientProxy.getAccount(walletAccount.publicKey))
       );
@@ -4613,14 +4669,31 @@ const generateGuardianTransaction = async (
       const { commitmentHex, mintedKey } = await resolveRotationHotKey(rTx);
       // The mode selects the target signer set. A row without a mode is from before
       // the field existed, and it is a replace.
-      proposalResult = await withGuardianConflictRetry(() => {
-        switch (rTx.extraInputs?.mode) {
-          case 'add':
-            return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
-          default:
-            return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+      try {
+        proposalResult = await withGuardianConflictRetry(() => {
+          switch (rTx.extraInputs?.mode) {
+            case 'add':
+              return service.createAddHotKeyProposal(sdkAccount, commitmentHex);
+            default:
+              return service.createReplaceHotKeyProposal(sdkAccount, commitmentHex);
+          }
+        });
+      } catch (error) {
+        // `createAddHotKeyProposal` syncs the local account first (`syncBeforeRotationBuild`), so an add whose local
+        // copy was pre-apply or lagged behind the chain at entry only surfaces here as `HotKeyAlreadySignerError`.
+        // Re-check node confirmation when the row already carried its persisted key; newly minted keys, uncommitted
+        // local state, and unreachable node commitments still fail with the refusal.
+        if (
+          rTx.extraInputs?.mode === 'add' &&
+          mintedKey === undefined &&
+          error instanceof Error &&
+          error.name === 'HotKeyAlreadySignerError' &&
+          (await completeOwnLandedAddIfConfirmed(rTx, walletAccount.publicKey, guardianProvider))
+        ) {
+          return;
         }
-      });
+        throw error;
+      }
       // An earlier run of this row already persisted and stamped the key.
       if (mintedKey === undefined) break;
       if (!guardianProvider.persistNewHotKey) {
@@ -4718,11 +4791,8 @@ const generateGuardianTransaction = async (
       // Keep the registration note and add the v17 Guardian auth advice.
       // Build the auth args at the proposal's sync height, then store those
       // request bytes so signing and execution use the same request.
+      const registerBytes = requireRegisterNameRecordedRequest(transaction);
       await assertMidenNameRegistrationLive(transaction);
-      const registerBytes = transaction.requestBytes;
-      if (!registerBytes) {
-        throw new Error('Register-name row has no request bytes');
-      }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);

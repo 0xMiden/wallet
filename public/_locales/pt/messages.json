@@ -4877,6 +4877,10 @@
     "message": "Via Agglayer",
     "englishSource": "Via Agglayer"
   },
+  "bridgeRouteViaOneClick": {
+    "message": "Via 1Click",
+    "englishSource": "Via 1Click"
+  },
   "bridgeSpeedFast": {
     "message": "Rápido",
     "englishSource": "Fast"
@@ -7237,6 +7241,10 @@
   "devAllowNoGuardian": {
     "message": "Permitir a opção 'Sem responsável' na integração",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devShowFullscreenButton": {
+    "message": "Botão “Mostrar em tela cheia”",
+    "englishSource": "Show fullscreen button"
   },
   "devNominalUnquotedPrice": {
     "message": "Valorize os tokens não cotados em US$ 1 (apenas em redes de teste)",
@@ -10203,6 +10211,373 @@
   "loginSignatureTitle": {
     "message": "Isso serve apenas para fazer seu login",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "Assistente de comandos",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "Envie, troque, faça uma ponte, ganhe ou pergunte sobre sua carteira...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "Executar",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "Pensando...",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "Expandir para várias linhas",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "Reduzir para uma única linha",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "Protegido: $kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "Formulário aberto",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "Qual rota de ponte você deseja usar?",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "Para quem você deseja enviar?",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "Vários contatos correspondem a esse nome. Qual deles?",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ está incompleto. Você quis dizer um dos seus contatos salvos?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ é um endereço incompleto. Insira um endereço completo ou escolha um contato.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "Nomes ENS como $name$ não são suportados aqui. Insira um endereço completo ou escolha um contato.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "Esse endereço pertence a uma rede Miden diferente.",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "Insira um endereço Miden ou de destino válido.",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "Especifique um endereço de destinatário ou nome de contato.",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "Não foi possível encontrar o ativo $asset$ em sua carteira.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "Qual ativo você deseja usar?",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "Quanto você deseja enviar?",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "Qual token você deseja receber?",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "Em qual cofre do Earn você deseja depositar?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "De qual posição do Earn você deseja fazer o saque?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "Não há nenhuma rota de ponte de correspondência disponível no momento.",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiSwapUnavailable": {
+    "message": "A troca não está disponível para esse par no momento.",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "Não há cofres nem posições do Earn disponíveis no momento.",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "O preço em tempo real em USD não está disponível para esse token. Insira uma quantidade do token.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "Não foi possível verificar essa solicitação com segurança. Tente reformular ou use um dos formulários abaixo.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "Essa ação não é suportada aqui. Tente “Enviar”, “Trocar”, “Bridge”, “Ganhar” ou uma pergunta sobre carteira.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "Não há nada ativo para atualizar. Digite um comando completo.",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "O proxy de IA não está configurado. Defina um endpoint ou use a barra de ações abaixo.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "O serviço de IA está temporariamente indisponível. Tente novamente ou use o formulário abaixo.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "Limite de taxa do serviço de IA atingido. Tente novamente em breve.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "Saldo da carteira",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "Total de correspondências",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "Atividade de correspondência",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "Nenhuma entrada correspondente encontrada.",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "Calculado de forma privada neste dispositivo",
+    "englishSource": "Computed privately on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "Conversa",
+    "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Assistente de Pão",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Perguntas sobre o Bread",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "Leia mais",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Como funciona o Miden?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Quão privado é isso?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Como posso verificar o que é privado?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "O que é “bridging”?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "O que são notes?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Por que preciso aceitar transferências?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Por que uma transferência ainda está pendente?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "O que acontece se eu recusar uma transferência?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Por que preciso do USDCX para pagar as taxas?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "E se eu perder meu dispositivo?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "Qual é a diferença entre mainnet e testnet?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "O que o Bread Assistant vê?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Como posso me manter seguro?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "O que posso fazer no Bread?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "O Bread envia sua pergunta ao seu serviço de IA após remover alguns detalhes. Não mencione senhas e frases de recuperação no chat.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Não mencione senhas, chaves privadas e frases de recuperação em chats.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Reduzir sua mensagem para $limit$ caracteres ou menos.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Política de privacidade da Bridge",
+    "englishSource": "Bridge privacy policy"
+  },
+  "commandAiPlanTitle": {
+    "message": "Plano de ação",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "Etapa $current$ de $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "Etapa $num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "Ativo",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "A seguir",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "Concluído",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "Confirme esta etapa na caixa de diálogo abaixo e, em seguida, prossiga.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "Etapa enviada! Pronto para a próxima etapa.",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "Todas as etapas concluídas",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "Próxima etapa",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "Continuar",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "Concluir o plano",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "Pare",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "Saída anterior",
+    "englishSource": "Previous output"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "Envie 10 USDCx para John",
+    "englishSource": "Send 10 USDCx to John"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "Transfira 1 ETH e troque-o por USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "Resuma minhas atividades da última semana",
+    "englishSource": "Summarize my last week activity"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "Faça 10 USDCx renderem da maneira mais eficiente",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "Transfira 1 ETH, troque por USDCx e coloque no cofre de maior rendimento",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "Quanto USDCx eu enviei este mês?",
+    "englishSource": "How much USDCx did I send this month?"
   },
   "midenNameUnsupportedNetwork": {
     "message": "O nome do meio não está disponível nesta rede.",

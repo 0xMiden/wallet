@@ -5,6 +5,7 @@
  */
 
 import { generateTransactionsLoop } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, RegisterNameTransaction } from '../db/types';
 
 const txStore: ITransaction[] = [];
@@ -55,6 +56,15 @@ jest.mock('../activity/notes', () => ({ importAllNotes: jest.fn(async () => {}) 
 
 jest.mock('lib/miden/sync-lock', () => ({ syncUnderBoundedLock: jest.fn(async () => {}) }));
 
+const mockRefreshVerificationBaseFee = jest.fn(async (): Promise<number | null> => 2);
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: jest.fn(() => 'rpc-a|testnet'),
+  getNativeAssetIdSync: jest.fn(() => 'mtst1miden'),
+  getVerificationBaseFeeSync: jest.fn(() => 2),
+  isVerificationBaseFeeKnownAbsent: jest.fn(() => false),
+  refreshVerificationBaseFee: () => mockRefreshVerificationBaseFee()
+}));
+
 const mockGuard = jest.fn(async (_tx: object): Promise<void> => {
   callOrder.push('guard');
 });
@@ -62,7 +72,7 @@ jest.mock('lib/miden/name/guard', () => ({
   assertMidenNameRegistrationLive: (tx: object) => mockGuard(tx)
 }));
 
-const mockNewTransaction = jest.fn(async (..._args: object[]) => {
+const mockNewTransaction = jest.fn(async (..._args: unknown[]) => {
   callOrder.push('newTransaction');
   return makeResult();
 });
@@ -72,7 +82,7 @@ jest.mock('../back/miden-client-proxy', () => ({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    newTransaction: (...args: object[]) => mockNewTransaction(...args)
+    newTransaction: (...args: unknown[]) => mockNewTransaction(...args)
   }
 }));
 
@@ -171,8 +181,70 @@ describe('non-guardian register-name leaf', () => {
 
     expect(callOrder).toEqual(['guard', 'newTransaction']);
     expect(mockGuard).toHaveBeenCalledWith(expect.objectContaining({ id: row.id, type: 'register-name' }));
-    expect(mockNewTransaction).toHaveBeenCalledWith('acc-1', REQUEST_BYTES, true, signCallback, undefined, undefined);
+    expect(mockNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      REQUEST_BYTES,
+      true,
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function)
+    );
     expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
+  });
+
+  it('stamps submit evidence and enters Unconfirmed on an indefinite submit outcome', async () => {
+    const row = queueRegisterName();
+    const txHex = `0x${'ab'.repeat(32)}`;
+    mockNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const stamp = args[4] as (stage: string, detail?: { evidence?: Record<string, unknown> }) => Promise<void>;
+      await stamp('submitting', { evidence: { transactionId: txHex, refBlock: 100 } });
+      throw new Error(
+        `submission of transaction ${txHex} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`
+      );
+    });
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored?.attemptId).toEqual(expect.any(String));
+    expect(stored?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: stored?.attemptId,
+        source: 'stage',
+        transactionId: txHex,
+        refBlock: 100
+      })
+    ]);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('records kill evidence on submitEvidence when aborted after crossing submit', async () => {
+    const row = queueRegisterName();
+    const txHex = `0x${'cd'.repeat(32)}`;
+    mockNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const stamp = args[4] as (stage: string, detail?: { evidence?: Record<string, unknown> }) => Promise<void>;
+      await stamp('submitting', { evidence: { transactionId: txHex, refBlock: 101 } });
+      throw new OperationAbortedError('op-kill', 'deadline');
+    });
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.nextEligibleAt).toBeUndefined();
+    expect(stored?.attemptId).toEqual(expect.any(String));
+    expect(stored?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: stored?.attemptId,
+        source: 'stage',
+        transactionId: txHex,
+        refBlock: 101,
+        endedAt: expect.any(Number),
+        endedBy: 'kill'
+      })
+    ]);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
   });
 
   it('marks the row Failed with no write when the guard throws', async () => {
@@ -188,5 +260,25 @@ describe('non-guardian register-name leaf', () => {
     // Terminal: no requeue cooldown and the bytes stay on the row.
     expect(stored?.nextEligibleAt).toBeUndefined();
     expect(stored?.requestBytes).toBe(REQUEST_BYTES);
+  });
+
+  it.each([
+    ['empty requestBytes', (row: RegisterNameTransaction) => ({ ...row, requestBytes: new Uint8Array() })],
+    ['missing approvedOutputNoteIds', (row: RegisterNameTransaction) => ({ ...row, approvedOutputNoteIds: [] })]
+  ])('refuses %s before chain-fee read, guard, or newTransaction', async (_label, mutate) => {
+    mockRefreshVerificationBaseFee.mockResolvedValueOnce(null);
+    const row = mutate(queueRegisterName());
+    txStore[0] = row;
+
+    await generateTransactionsLoop(signCallback, false, provider);
+
+    expect(mockRefreshVerificationBaseFee).not.toHaveBeenCalled();
+    expect(mockGuard).not.toHaveBeenCalled();
+    expect(mockNewTransaction).not.toHaveBeenCalled();
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+    const stored = txStore.find(r => r.id === row.id);
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.proposalEffectRefused).toBe(true);
+    expect(stored?.nextEligibleAt).toBeUndefined();
   });
 });

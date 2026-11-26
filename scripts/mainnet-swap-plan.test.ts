@@ -3,6 +3,7 @@ import {
   chooseMainnetSwapLoop,
   planMainnetSwapLoop,
   swapSearchAmounts,
+  SWAP_MIN_BASE_UNITS,
   realizedSwapLoss,
   type SwapHolding,
   type SwapLoopCandidate
@@ -120,6 +121,19 @@ describe('nightly swap cost gate', () => {
     const c = candidate();
     c.native.decimals = 12;
     expect(planMainnetSwapLoop(c).worstCaseLossUsdMicros).toBe(2_006n);
+  });
+  it('rejects the dust-sized WBTC loop that left the return leg unquotable', () => {
+    const usdc = { ...holding('usdc'), decimals: 6, usdMicros: 1_000_000n };
+    const wbtc = { ...holding('wbtc'), decimals: 8, usdMicros: 57_952_000_000n };
+    const c = candidate();
+    c.forward = { ...c.forward, offered: usdc, requested: wbtc, offer: 1_000_549n, minimumReceive: 1_728n };
+    c.reverse = { ...c.reverse, offered: wbtc, requested: usdc, offer: 1_728n, minimumReceive: 996_298n };
+    expect(() => planMainnetSwapLoop(c)).toThrow(/dust/);
+  });
+  it('never searches amounts under the dust floor', () => {
+    const wbtc = { ...holding('wbtc'), decimals: 8, usdMicros: 57_952_000_000n };
+    expect(swapSearchAmounts(wbtc)).toEqual([]);
+    expect(swapSearchAmounts(holding('a')).every(amount => amount >= SWAP_MIN_BASE_UNITS)).toBe(true);
   });
   it('selects the lowest loss then the lowest principal, independent of registry order', () => {
     const costly = planMainnetSwapLoop(candidate());

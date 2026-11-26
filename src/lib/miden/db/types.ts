@@ -772,19 +772,26 @@ export interface IRegisterNameExtraInputs {
   deliveryNoteId?: string;
   /** Id of the consume row that claims the delivery note. */
   claimTxId?: string;
+  /** How many failed claim attempts this registration has made. */
+  claimAttempts?: number;
   /** First block of the next delivery scan. */
   deliveryScanFrom?: number;
   /** Wall-clock time (ms since epoch) of the last phase change. */
   phaseUpdatedAt: number;
 }
 
+/** Link from a consume row (or one of its batched notes) to a `register-name` row. */
+export interface IMidenNameClaimLink {
+  label: string;
+  /** Id of the `register-name` row. */
+  registerTxId: string;
+}
+
 /** `extraInputs` shape for a consume row that claims a Miden Name delivery note. */
 export interface IConsumeMidenNameExtraInputs {
-  midenNameClaim: {
-    label: string;
-    /** Id of the `register-name` row. */
-    registerTxId: string;
-  };
+  midenNameClaim?: IMidenNameClaimLink;
+  /** Per-note claim links for batch consume rows (`noteIds`), keyed by lowercased note id. */
+  midenNameClaims?: Record<string, IMidenNameClaimLink>;
 }
 
 /**
@@ -950,7 +957,8 @@ export interface IConsumeGcPurchaseExtraInputs {
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
   Partial<IConsumeSwapSettleExtraInputs> &
-  Partial<IConsumeGcPurchaseExtraInputs>;
+  Partial<IConsumeGcPurchaseExtraInputs> &
+  Partial<IConsumeMidenNameExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -2145,6 +2153,8 @@ export class RegisterNameTransaction implements ITransaction {
   transactionId?: string;
   outputNoteIds?: string[];
   requestBytes: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds: string[];
   status: ITransactionStatus;
   initiatedAt: number;
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
@@ -2165,6 +2175,7 @@ export class RegisterNameTransaction implements ITransaction {
     this.secondaryAccountId = args.registryAccountId;
     this.noteType = NoteTypeEnum.Public;
     this.requestBytes = args.requestBytes;
+    this.approvedOutputNoteIds = [args.registrationNoteId];
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

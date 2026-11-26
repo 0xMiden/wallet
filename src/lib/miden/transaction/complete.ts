@@ -44,7 +44,8 @@ import {
   stampPostSubmitStage,
   swapOrderExpiresAt,
   undeliveredDisplayMessage,
-  updateTransactionStatus
+  updateTransactionStatus,
+  verifiedLandingRowFields
 } from './helper';
 import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -83,6 +84,7 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   IConsumeMidenNameExtraInputs,
+  IMidenNameClaimLink,
   INoteDeliveryState,
   IRegisterNameExtraInputs,
   isOpenSettlementClaim,
@@ -260,6 +262,21 @@ const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
     .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
     .count()) > 0;
 
+const midenNameClaimLinksOf = (
+  extraInputs: Partial<IConsumeMidenNameExtraInputs> | undefined
+): IMidenNameClaimLink[] => {
+  const byRegisterTxId = new Map<string, IMidenNameClaimLink>();
+  if (extraInputs?.midenNameClaim) {
+    byRegisterTxId.set(extraInputs.midenNameClaim.registerTxId, extraInputs.midenNameClaim);
+  }
+  if (extraInputs?.midenNameClaims) {
+    for (const link of Object.values(extraInputs.midenNameClaims)) {
+      byRegisterTxId.set(link.registerTxId, link);
+    }
+  }
+  return [...byRegisterTxId.values()];
+};
+
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
   // The tail's read when it ran, else one now; each part rethrows in the step where it always surfaced.
   const read = consumeCompletionRead(id, result);
@@ -268,12 +285,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
   const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  // A consume that claims a Miden Name delivery note carries a link to its
-  // `register-name` row. That note holds a non-fungible asset only.
+  // A consume that claims one or more Miden Name delivery notes carries links
+  // to their `register-name` rows. Those notes hold non-fungible assets only.
   const nameClaimInputs: Partial<IConsumeMidenNameExtraInputs> | undefined = dbTransaction?.extraInputs;
-  const midenNameClaim = nameClaimInputs?.midenNameClaim;
+  const midenNameClaims = midenNameClaimLinksOf(nameClaimInputs);
   let displayMessage = reclaimed ? 'Reclaimed' : 'Received';
-  if (midenNameClaim) displayMessage = 'Name received';
+  if (midenNameClaims.length > 0) displayMessage = 'Name received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const { resultBytes, deliveries } = await withCompletionStep('result_serialize', async () => keptOrThrow(bytes));
   // A GC purchase consumed the whole sale note, but received only what its fill bought; the rest went back out as
@@ -341,12 +358,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
   }
 
-  // Miden Name claim: the name is now in the account, so move the linked
+  // Miden Name claim: the name is now in the account, so move each linked
   // `register-name` row to `owned`. The tracker also gets `owned` from this
   // consume row, so a failure here must not fail the consume.
-  if (midenNameClaim) {
+  for (const claim of midenNameClaims) {
     try {
-      await patchRegisterNameExtraInputs(midenNameClaim.registerTxId, { phase: 'owned' });
+      await patchRegisterNameExtraInputs(claim.registerTxId, { phase: 'owned' });
     } catch (err) {
       console.warn('[miden-name] owned patch failed (non-fatal)', err);
     }
@@ -1159,9 +1176,29 @@ export const canMoveMidenNamePhase = (current: MidenNamePhase, next: MidenNamePh
 export type RegisterNameExtraInputsPatch = Partial<
   Pick<
     IRegisterNameExtraInputs,
-    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'deliveryScanFrom'
+    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'claimAttempts' | 'deliveryScanFrom'
   >
 >;
+
+const nextRegisterNameExtraInputs = (
+  tx: ITransaction | undefined,
+  patch: RegisterNameExtraInputsPatch,
+  options: { expectPhase?: MidenNamePhase; defaultPhase?: (current: MidenNamePhase) => MidenNamePhase } = {}
+): IRegisterNameExtraInputs | undefined => {
+  if (!tx || tx.type !== 'register-name' || tx.restoredFromBackup === true) return undefined;
+  const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+  if (!inputs) return undefined;
+  if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return undefined;
+  const fallbackPhase = options.defaultPhase ? options.defaultPhase(inputs.phase) : inputs.phase;
+  const nextPhase = patch.phase ?? fallbackPhase;
+  if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return undefined;
+  return {
+    ...inputs,
+    ...patch,
+    phase: nextPhase,
+    phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+  };
+};
 
 /**
  * Patch the `extraInputs` of a `register-name` row. Returns true when the patch
@@ -1179,22 +1216,50 @@ export const patchRegisterNameExtraInputs = async (
 ): Promise<boolean> => {
   let written = false;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.type !== 'register-name' || tx.restoredFromBackup === true) return;
-    const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
-    if (!inputs) return;
-    if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return;
-    const nextPhase = patch.phase ?? inputs.phase;
-    if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return;
-    const next: IRegisterNameExtraInputs = {
-      ...inputs,
-      ...patch,
-      phase: nextPhase,
-      phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
-    };
+    const next = nextRegisterNameExtraInputs(tx, patch, options);
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+    if (!next) return false;
     tx.extraInputs = next;
     written = true;
+    return undefined;
   });
   return written;
+};
+
+/**
+ * Promote a `Failed` or `Unconfirmed` `register-name` row whose registration
+ * note is proven on chain to `Completed` atomically with advancing its phase (`requested` →
+ * `submitted`, or the phase in `patch`). Returns the updated `extraInputs` when
+ * written, or `undefined` when declined.
+ */
+export const promoteLandedRegisterNameRow = async (
+  id: string,
+  patch: RegisterNameExtraInputsPatch = {},
+  options: { expectPhase?: MidenNamePhase } = {}
+): Promise<IRegisterNameExtraInputs | undefined> => {
+  let reconciled: ITransaction | undefined;
+  let writtenInputs: IRegisterNameExtraInputs | undefined;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
+    const next = nextRegisterNameExtraInputs(tx, patch, {
+      ...options,
+      defaultPhase: current => (current === 'requested' ? 'submitted' : current)
+    });
+    if (!next) return false;
+    applyVerifiedLanding(tx, {
+      ...verifiedLandingRowFields(tx),
+      completedAt: tx.completedAt ?? Math.floor(Date.now() / 1000),
+      extraInputs: next
+    });
+    reconciled = tx;
+    writtenInputs = next;
+    return undefined;
+  });
+
+  if (reconciled !== undefined) {
+    reportVerifiedLanding(reconciled);
+  }
+  return writtenInputs;
 };
 
 /**
@@ -1232,14 +1297,10 @@ export const completeRegisterNameTransaction = async (tx: ITransaction, result: 
   // a Completed row in phase `requested`. Read the row again: the in-memory copy
   // is from the time when the loop picked the row.
   const freshRow = await Repo.transactions.where({ id: tx.id }).first();
-  const freshInputs: IRegisterNameExtraInputs | undefined = freshRow?.extraInputs;
-  const submittedInputs: IRegisterNameExtraInputs | undefined =
-    freshInputs && freshRow?.restoredFromBackup !== true && canMoveMidenNamePhase(freshInputs.phase, 'submitted')
-      ? { ...freshInputs, phase: 'submitted', phaseUpdatedAt: Date.now() }
-      : undefined;
+  const submittedInputs = nextRegisterNameExtraInputs(freshRow, { phase: 'submitted' });
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-    ...landedFee(readLandedResultFields(result, tx.id)),
+    ...landedFee(readLandedResultFields(result, tx.id, tx)),
     displayMessage: 'Name requested',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,

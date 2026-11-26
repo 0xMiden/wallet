@@ -272,7 +272,7 @@ const readCustom = (transaction: ITransaction, result: TransactionResult): Lande
       // and read the handle themselves only where a read failed here. Interpreted on a copy: the interpretation writes
       // into the row it is given, and on a consume-shaped result names the sender as `secondaryAccountId`, which the
       // relays still read as the recipient.
-      const landed = readLandedResultFields(result, transaction.id);
+      const landed = readLandedResultFields(result, transaction.id, transaction);
       let interpreted: ReturnType<typeof interpretTransactionResult> | undefined;
       try {
         interpreted = interpretTransactionResult({ ...transaction }, result);
@@ -388,7 +388,7 @@ const readSwap = (tx: SwapTransaction, result: TransactionResult): LandedRead<Sw
       const fromResult = swapOrderOf(split);
       // Read before the decode the completion may wait for: it waits on the WASM lock and can retire the client, so
       // the write stores the values read here, not reads of a result whose handles may no longer answer.
-      const feeFields = feeFieldsFromResult(result, tx.id);
+      const feeFields = feeFieldsFromResult(result, tx.id, tx);
       const transactionId = executedTx.id().toHex();
       const resultBytes = result.serialize();
       return { fromResult, feeFields, transactionId, resultBytes };
@@ -423,7 +423,7 @@ const readEarnDeposit = (tx: EarnDepositTransaction, result: TransactionResult):
       const noteId = extractFullNote(result, tx.id)?.id().toString();
       return {
         outputNoteIds: noteId ? [noteId] : [],
-        feeFields: feeFieldsFromResult(result, tx.id),
+        feeFields: feeFieldsFromResult(result, tx.id, tx),
         transactionId: executedTx.id().toHex(),
         resultBytes: result.serialize()
       };

@@ -15,12 +15,19 @@ jest.mock('../spending-limits/queue', () => ({
   spendsOf: (row: { faucetId: string; amount: bigint }) => [{ faucetId: row.faucetId, amount: row.amount }]
 }));
 
+let modifyPutCount = 0;
+
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: ({ id }: { id: string }) => ({
-      modify: async (fn: (row: ITransaction) => void) => {
-        const row = mockRows.find(candidate => candidate.id === id);
-        if (row) fn(row);
+      modify: async (fn: (row: ITransaction) => void | false) => {
+        const idx = mockRows.findIndex(candidate => candidate.id === id);
+        if (idx < 0) return;
+        const clone = { ...mockRows[idx]! };
+        if (fn(clone) !== false) {
+          modifyPutCount += 1;
+          mockRows[idx] = clone;
+        }
       }
     })
   }
@@ -44,6 +51,7 @@ const REQUEST = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockRows.length = 0;
+  modifyPutCount = 0;
 });
 
 describe('initiateRegisterNameTransaction', () => {
@@ -81,6 +89,7 @@ describe('initiateRegisterNameTransaction', () => {
         faucetId: 'mtst1miden',
         secondaryAccountId: 'mtst1registry',
         requestBytes: REQUEST.requestBytes,
+        approvedOutputNoteIds: [REQUEST.registrationNoteId],
         status: ITransactionStatus.Queued,
         displayMessage: 'Registering name',
         displayIcon: 'SEND',
@@ -115,7 +124,7 @@ describe('tagConsumeAsMidenNameClaim', () => {
     expect(mockRows[0]?.extraInputs).toEqual({ other: 1, midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } });
   });
 
-  it('does not tag a row of an other type', async () => {
+  it('does not tag a row of an other type and returns false from .modify()', async () => {
     mockRows.push({
       id: 'send-1',
       type: 'send',
@@ -124,7 +133,84 @@ describe('tagConsumeAsMidenNameClaim', () => {
       initiatedAt: 1,
       displayIcon: 'SEND'
     });
-    await tagConsumeAsMidenNameClaim('send-1', 'alice', 'reg-1');
+    await expect(tagConsumeAsMidenNameClaim('send-1', 'alice', 'reg-1')).resolves.toBe(false);
     expect(mockRows[0]?.extraInputs).toBeUndefined();
+    expect(modifyPutCount).toBe(0);
+  });
+
+  it('writes per-note midenNameClaims keyed by normalized noteId on batch consume rows', async () => {
+    mockRows.push({
+      id: 'batch-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      noteId: '0xAlice',
+      noteIds: ['0xAlice', '0xBob'],
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayIcon: 'RECEIVE'
+    });
+    await expect(tagConsumeAsMidenNameClaim('batch-1', 'alice', 'reg-a', '0xAlice')).resolves.toBe(true);
+    await expect(tagConsumeAsMidenNameClaim('batch-1', 'bob', 'reg-b', '0xBOB')).resolves.toBe(true);
+    expect(mockRows[0]?.extraInputs).toEqual({
+      midenNameClaims: {
+        '0xalice': { label: 'alice', registerTxId: 'reg-a' },
+        '0xbob': { label: 'bob', registerTxId: 'reg-b' }
+      }
+    });
+  });
+
+  it('writes both midenNameClaim and normalized midenNameClaims on single-note rows when noteId is given', async () => {
+    mockRows.push({
+      id: 'single-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      noteId: '0xDelivery',
+      noteIds: ['0xDelivery'],
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayIcon: 'RECEIVE'
+    });
+    await expect(tagConsumeAsMidenNameClaim('single-1', 'alice', 'reg-a', '0xDELIVERY')).resolves.toBe(true);
+    expect(mockRows[0]?.extraInputs).toEqual({
+      midenNameClaim: { label: 'alice', registerTxId: 'reg-a' },
+      midenNameClaims: { '0xdelivery': { label: 'alice', registerTxId: 'reg-a' } }
+    });
+    const putsBefore = modifyPutCount;
+    await expect(tagConsumeAsMidenNameClaim('single-1', 'alice', 'reg-a', '0xDelivery')).resolves.toBe(true);
+    expect(modifyPutCount).toBe(putsBefore);
+  });
+
+  it('declines and skips .modify() puts on backup rows, missing noteIds, and conflicting claims', async () => {
+    mockRows.push(
+      {
+        id: 'backup-1',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xnote',
+        noteIds: ['0xnote'],
+        status: ITransactionStatus.Failed,
+        restoredFromBackup: true,
+        initiatedAt: 1,
+        displayIcon: 'RECEIVE'
+      },
+      {
+        id: 'batch-2',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xone',
+        noteIds: ['0xone', '0xtwo'],
+        status: ITransactionStatus.Queued,
+        initiatedAt: 1,
+        displayIcon: 'RECEIVE',
+        extraInputs: {
+          midenNameClaims: { '0xone': { label: 'alice', registerTxId: 'reg-1' } }
+        }
+      }
+    );
+    await expect(tagConsumeAsMidenNameClaim('backup-1', 'alice', 'reg-1', '0xnote')).resolves.toBe(false);
+    await expect(tagConsumeAsMidenNameClaim('batch-2', 'bob', 'reg-2', '0xmissing')).resolves.toBe(false);
+    await expect(tagConsumeAsMidenNameClaim('batch-2', 'mallory', 'reg-other', '0xone')).resolves.toBe(false);
+    await expect(tagConsumeAsMidenNameClaim('batch-2', 'alice', 'reg-1')).resolves.toBe(false);
+    expect(modifyPutCount).toBe(0);
   });
 });

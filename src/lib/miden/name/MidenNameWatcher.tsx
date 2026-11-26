@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 
 import { useMidenContext } from 'lib/miden/front/client';
+import { subscribeEffectiveEndpoints } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 
 import { isMidenNameSupported } from './config';
@@ -40,9 +41,10 @@ export function MidenNameWatcher(): null {
   const { signTransaction } = useMidenContext();
   const signRef = useRef(signTransaction);
   signRef.current = signTransaction;
+  const supported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
 
   useEffect(() => {
-    if (!isMidenNameSupported()) return undefined;
+    if (!supported) return undefined;
     let disposed = false;
 
     const tick = async () => {
@@ -80,7 +82,7 @@ export function MidenNameWatcher(): null {
       disposed = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [supported]);
 
   return null;
 }

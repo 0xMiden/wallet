@@ -30,6 +30,7 @@ import {
   serveTestDappOnLoopback
 } from './test-dapp-server';
 import type { ReactDappWindowApi, ReactTree } from '../test-dapp/react-protocol';
+import packageJson from '../../../package.json';
 
 const roots = resolvePackageRoots();
 const PAGE_DIR = path.resolve(__dirname, '../test-dapp');
@@ -303,7 +304,11 @@ describe('React page server', () => {
       react: versionOf(reactRoots.react),
       reactDom: versionOf(reactRoots['react-dom']),
       adapterReact: versionOf(reactRoots['@miden-sdk/miden-wallet-adapter-react'])
-    }).toEqual({ react: '18.2.0', reactDom: '18.2.0', adapterReact: '0.18.0' });
+    }).toEqual({
+      react: '18.2.0',
+      reactDom: '18.2.0',
+      adapterReact: packageJson.devDependencies['@miden-sdk/miden-wallet-adapter-react']
+    });
     expect(reactRoots.zustand).toBe(
       path.dirname(
         createRequire(path.join(reactRoots['@miden-sdk/react'], 'package.json')).resolve('zustand/package.json')

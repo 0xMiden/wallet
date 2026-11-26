@@ -5,16 +5,22 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { keptLandedTransactionId, keptValue, landedFee, readLandedResultFields } from './landed-result-fields';
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
+import { RegisterNameTransaction } from '../db/types';
+import { canonicalFeeSponsorshipNoteId } from '../sdk/fee-sponsorship';
 
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
-  getBech32AddressFromAccountId: (id: string) => id
+  getBech32AddressFromAccountId: (id: string) => id,
+  canonicalWalletAccountId: (id: string) => id
 }));
 // A chain that charges, so the fee read finds the kernel's note.
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => 'native',
   getVerificationBaseFeeSync: () => 10000
+}));
+jest.mock('../sdk/fee-sponsorship', () => ({
+  canonicalFeeSponsorshipNoteId: jest.fn(() => 'sponsor-note')
 }));
 
 const feeNote = {
@@ -135,4 +141,48 @@ it('rethrows an eviction the fee read kept as the same object, without retiring'
   }
   expect(thrown).toBe(eviction);
   expect(retire).not.toHaveBeenCalled();
+});
+
+it('forwards the originating transaction to feeFieldsFromResult so register-name companion fees are included', () => {
+  jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsor-note');
+  const regNote = {
+    id: () => ({ toString: () => 'reg-note' }),
+    metadata: () => ({ tag: () => ({ asU32: () => 0 }) }),
+    assets: () => ({
+      fungibleAssets: () => [{ faucetId: () => 'pay', amount: () => 20_000_000n }],
+      nonFungibleAssets: () => []
+    })
+  };
+  const sponsorNote = {
+    id: () => ({ toString: () => 'sponsor-note' }),
+    metadata: () => ({ tag: () => ({ asU32: () => 0 }) }),
+    assets: () => ({
+      fungibleAssets: () => [{ faucetId: () => 'native', amount: () => 210n }],
+      nonFungibleAssets: () => []
+    })
+  };
+  const tx = new RegisterNameTransaction({
+    accountId: 'acct',
+    label: 'alice',
+    network: 'testnet',
+    paymentFaucetId: 'pay',
+    registryAccountId: 'registry',
+    priceBaseUnits: 20_000_000n,
+    networkFeeBaseUnits: 210n,
+    requestBytes: new Uint8Array([1]),
+    registrationNoteId: 'reg-note',
+    reclaimHeight: 1300,
+    builtAtBlock: 1000
+  });
+  const result: TransactionResult = Object.assign(Object.create(null), {
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => 'landed-reg-id' }),
+      outputNotes: () => ({ notes: () => [regNote, sponsorNote, feeNote] })
+    }),
+    serialize: () => new Uint8Array([7])
+  });
+
+  const fields = readLandedResultFields(result, tx.id, tx);
+
+  expect(landedFee(fields)).toEqual({ feeAmount: 310n, feeFaucetId: 'native' });
 });

@@ -4,6 +4,9 @@ export const SWAP_LOSS_CAP = 2_000_000n;
 // Same worst-case bound as the wallet's FEE_RESERVE_MULTIPLE, not the usual observed fee.
 export const SWAP_TX_FEE_MULTIPLE = 30n;
 
+// Guard against illiquid dust sizes: a 1728-sat WBTC leg (about $1) timed out its return quote at execution once.
+export const SWAP_MIN_BASE_UNITS = 100_000n;
+
 export interface SwapHolding {
   faucetId: string;
   symbol: string;
@@ -77,6 +80,8 @@ export function planMainnetSwapLoop(candidate: SwapLoopCandidate): SwapLoopPlan 
     validateHolding(leg.requested);
     if (!leg.full || !leg.settlementsRunning) throw new Error('Swap cannot fully settle now');
     if (leg.offer <= 0n || leg.minimumReceive <= 0n) throw new Error('Invalid swap amount');
+    if (leg.offer < SWAP_MIN_BASE_UNITS || leg.minimumReceive < SWAP_MIN_BASE_UNITS)
+      throw new Error('Swap leg is dust-sized and may not be quotable');
     const input = swapValue(leg.offered, leg.offer);
     if (swapValue(leg.offered, leg.offer, false) < 1_000_000n) throw new Error('Swap below $1 minimum');
     const output = swapValue(leg.requested, leg.minimumReceive, false);
@@ -143,5 +148,5 @@ export function swapSearchAmounts(holding: SwapHolding): bigint[] {
         cents => (cents * 10_000n * scale + holding.usdMicros - 1n) / holding.usdMicros
       )
     )
-  ].filter(amount => amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
+  ].filter(amount => amount >= SWAP_MIN_BASE_UNITS && amount <= holding.balance && swapValue(holding, amount) <= SWAP_LOSS_CAP);
 }

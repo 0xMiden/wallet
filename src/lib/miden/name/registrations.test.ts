@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { ITransaction, ITransactionStatus, MidenNamePhase, RegisterNameTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -11,10 +12,25 @@ import {
   useOwnedMidenName
 } from './registrations';
 
+jest.mock('lib/dexie-live-query', () => {
+  const actual = jest.requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query');
+  return {
+    ...actual,
+    subscribeToLiveQuery: jest.fn(actual.subscribeToLiveQuery)
+  };
+});
+
 let mockNetwork = 'testnet';
 let mockSupported = true;
+const endpointListeners = new Set<() => void>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveNetworkName: () => mockNetwork
+  getEffectiveNetworkName: () => mockNetwork,
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    endpointListeners.add(listener);
+    return () => {
+      endpointListeners.delete(listener);
+    };
+  }
 }));
 jest.mock('./config', () => ({
   isMidenNameSupported: () => mockSupported
@@ -97,6 +113,35 @@ describe('phaseOf', () => {
   it('gives requested for a row with no extraInputs', () => {
     expect(phaseOf(row({}))).toBe('requested');
   });
+
+  it('keeps a Failed row awaiting verdict non-terminal instead of mapping to failed', () => {
+    const pendingVerdict = registerRow('alice', { phase: 'requested', status: ITransactionStatus.Failed });
+    pendingVerdict.submitEvidence = [
+      {
+        attemptId: 'a1',
+        capturedAt: 1,
+        source: 'stage',
+        transactionId: '0x1',
+        initialCommitment: '0x2',
+        finalCommitment: '0x3',
+        initialNonce: '4',
+        outputNoteIds: ['0xnote-alice'],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x4'
+      }
+    ];
+    expect(phaseOf(pendingVerdict)).toBe('requested');
+
+    const submittedVerdict = registerRow('alice', { phase: 'submitted', status: ITransactionStatus.Failed });
+    submittedVerdict.submitEvidence = pendingVerdict.submitEvidence;
+    expect(phaseOf(submittedVerdict)).toBe('submitted');
+
+    const provenDead = registerRow('alice', { phase: 'requested', status: ITransactionStatus.Failed });
+    provenDead.submitEvidence = pendingVerdict.submitEvidence;
+    provenDead.neverCommittedAt = 100;
+    expect(phaseOf(provenDead)).toBe('failed');
+  });
 });
 
 describe('uiStateOf', () => {
@@ -172,6 +217,7 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
 
   it('gives no owned label when the network is not supported', async () => {
     mockSupported = false;
+    jest.mocked(subscribeToLiveQuery).mockClear();
     await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
     const { result, unmount } = renderHook(() => ({
       list: useMidenNameRegistrations(ACCOUNT),
@@ -179,6 +225,7 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
     }));
     await waitFor(() => expect(result.current.list.loaded).toBe(true));
     expect(result.current.owned).toBeUndefined();
+    expect(subscribeToLiveQuery).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -186,6 +233,130 @@ describe('useMidenNameRegistrations / useOwnedMidenName', () => {
     const { result, unmount } = renderHook(() => useMidenNameRegistrations(undefined));
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.rows).toEqual([]);
+    unmount();
+  });
+
+  it('synchronously resets rows and owned name on the transition render frame when accountId changes', async () => {
+    await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
+    const frames: { accountId: string | undefined; rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { rerender, unmount } = renderHook(
+      ({ accountId }: { accountId: string | undefined }) => {
+        const list = useMidenNameRegistrations(accountId);
+        const owned = useOwnedMidenName(accountId);
+        frames.push({ accountId, rowsLen: list.rows.length, loaded: list.loaded, owned });
+        return { list, owned };
+      },
+      { initialProps: { accountId: ACCOUNT as string | undefined } }
+    );
+
+    await waitFor(() =>
+      expect(frames.at(-1)).toEqual({ accountId: ACCOUNT, rowsLen: 1, loaded: true, owned: 'alice' })
+    );
+
+    frames.length = 0;
+    rerender({ accountId: 'mtst1other' });
+    // First render frame for the new account must not expose the previous account's rows or owned name.
+    expect(frames[0]).toEqual({ accountId: 'mtst1other', rowsLen: 0, loaded: false, owned: undefined });
+
+    await waitFor(() =>
+      expect(frames.at(-1)).toEqual({ accountId: 'mtst1other', rowsLen: 0, loaded: true, owned: undefined })
+    );
+    unmount();
+  });
+
+  it('reacts to endpoint-support toggles without remounting and clears state on the transition frame', async () => {
+    mockSupported = false;
+    await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
+    const frames: { rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { result, unmount } = renderHook(() => {
+      const list = useMidenNameRegistrations(ACCOUNT);
+      const owned = useOwnedMidenName(ACCOUNT);
+      frames.push({ rowsLen: list.rows.length, loaded: list.loaded, owned });
+      return { list, owned };
+    });
+
+    await waitFor(() => expect(result.current.list.loaded).toBe(true));
+    expect(result.current.list.rows).toHaveLength(0);
+    expect(result.current.owned).toBeUndefined();
+
+    frames.length = 0;
+    mockSupported = true;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: false, owned: undefined });
+    await waitFor(() => expect(result.current.owned).toBe('alice'));
+    expect(result.current.list.rows).toHaveLength(1);
+
+    frames.length = 0;
+    mockSupported = false;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: true, owned: undefined });
+    expect(result.current.list.loaded).toBe(true);
+    expect(result.current.owned).toBeUndefined();
+    unmount();
+  });
+
+  it('clears rows and owned name on the transition frame when the network changes while support stays true', async () => {
+    await Repo.transactions.bulkAdd([
+      registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }),
+      registerRow('bob', { phase: 'owned', status: ITransactionStatus.Completed, network: 'devnet' })
+    ]);
+    const frames: { rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { result, unmount } = renderHook(() => {
+      const list = useMidenNameRegistrations(ACCOUNT);
+      const owned = useOwnedMidenName(ACCOUNT);
+      frames.push({ rowsLen: list.rows.length, loaded: list.loaded, owned });
+      return { list, owned };
+    });
+    await waitFor(() => expect(result.current.owned).toBe('alice'));
+
+    frames.length = 0;
+    mockNetwork = 'devnet';
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: false, owned: undefined });
+    expect(frames.map(frame => frame.owned)).not.toContain('alice');
+    await waitFor(() => expect(result.current.owned).toBe('bob'));
+    expect(result.current.list.rows).toHaveLength(1);
+    unmount();
+  });
+
+  it('does not show the pre-drop rows again when support returns after the rows changed', async () => {
+    await Repo.transactions.add(registerRow('alice', { phase: 'owned', status: ITransactionStatus.Completed }));
+    const frames: { rowsLen: number; loaded: boolean; owned: string | undefined }[] = [];
+
+    const { result, unmount } = renderHook(() => {
+      const list = useMidenNameRegistrations(ACCOUNT);
+      const owned = useOwnedMidenName(ACCOUNT);
+      frames.push({ rowsLen: list.rows.length, loaded: list.loaded, owned });
+      return { list, owned };
+    });
+    await waitFor(() => expect(result.current.owned).toBe('alice'));
+
+    mockSupported = false;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(result.current.owned).toBeUndefined();
+
+    await Repo.transactions.clear();
+    frames.length = 0;
+    mockSupported = true;
+    await act(async () => {
+      for (const listener of endpointListeners) listener();
+    });
+    expect(frames[0]).toEqual({ rowsLen: 0, loaded: false, owned: undefined });
+    expect(frames.map(frame => frame.owned)).not.toContain('alice');
+    await waitFor(() => expect(result.current.list.loaded).toBe(true));
+    expect(result.current.list.rows).toHaveLength(0);
+    expect(result.current.owned).toBeUndefined();
     unmount();
   });
 });
