@@ -9,10 +9,14 @@ import { navigate } from 'lib/woozie';
 
 import AdvancedSettings from './AdvancedSettings';
 
+let mockExtension = true;
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => mockExtension }));
+
 // The nominal-price switch persists in localStorage, which jsdom keeps across tests.
 afterEach(() => {
   setNominalUnquotedPriceSetting(false);
   localStorage.removeItem('show_fullscreen_button_setting');
+  mockExtension = true;
 });
 
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
@@ -110,7 +114,6 @@ describe('AdvancedSettings (page)', () => {
     expect(isNominalUnquotedPriceEnabled()).toBe(false);
   });
 
-  // The indicator is aria-hidden, so the row itself has to carry the state.
   it('persists the fullscreen button preference from Advanced Settings', async () => {
     await renderWithResolvedKey();
     const row = screen.getByRole('button', { name: 'devShowFullscreenButton' });
@@ -125,6 +128,13 @@ describe('AdvancedSettings (page)', () => {
     expect(localStorage.getItem('show_fullscreen_button_setting')).toBe('off');
   });
 
+  it('only offers the fullscreen button preference in the extension', async () => {
+    mockExtension = false;
+    await renderWithResolvedKey();
+    expect(screen.queryByRole('button', { name: 'devShowFullscreenButton' })).toBeNull();
+  });
+
+  // The indicator is aria-hidden, so the row itself has to carry the state.
   it('reports the nominal unquoted price state on the row', async () => {
     await renderWithResolvedKey();
     const row = screen.getByTestId('advanced-nominal-unquoted-price');

@@ -7,19 +7,18 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { isExtension } from 'lib/platform';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useShowFullscreenButton } from 'lib/settings/fullscreen-button';
 
 export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCard?: boolean }): ReactElement | null {
   const { t } = useTranslation();
   const { popup, sidePanel, confirmWindow } = useAppEnv();
-  const { config } = useBridgeConfigSnapshot({ load: false });
+  const showFullscreenButton = useShowFullscreenButton();
   const [error, setError] = useState(false);
   const [opening, setOpening] = useState(false);
   const openingRef = useRef(false);
   const descriptionId = useId();
 
-  if (!isExtension() || confirmWindow || (!popup && !sidePanel)) return null;
-  if (sidePanel && config?.features.openFullscreen === false) return null;
+  if (!showFullscreenButton || !isExtension() || confirmWindow || (!popup && !sidePanel)) return null;
 
   const open = async () => {
     if (openingRef.current) return;
