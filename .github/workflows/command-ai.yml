@@ -5,6 +5,8 @@ on:
     paths:
       - 'services/command-ai/**'
       - 'src/lib/command-ai/help-facts.json'
+      - 'src/lib/command-ai/redactor.ts'
+      - 'src/lib/command-ai/schema.ts'
       - 'scripts/command-ai-eval/**'
       - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/command-ai.yml'
