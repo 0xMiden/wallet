@@ -107,7 +107,7 @@ export interface ListenAddress {
   port: number;
 }
 
-/** The wallet build honors only an http loopback `MIDEN_WALLET_API_URL`; any other URL leaves it on the network's own service. */
+/** The wallet build honors only an http loopback `MIDEN_WALLET_API_URL`; any other URL leaves it on the network's service. */
 function requireWalletReachableUrl(baseUrl: string): void {
   const url = new URL(baseUrl);
   if (url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname)) {

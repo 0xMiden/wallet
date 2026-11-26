@@ -148,9 +148,9 @@ describe('the wallet-api define baked into the build', () => {
   });
 
   it('names a rebuild that keeps a custom expected URL', () => {
-    expect(() => assertExtensionWalletApiMatches(extension(['http://127.0.0.1:8787']), 'http://localhost:9000')).toThrow(
-      /MIDEN_WALLET_API_URL=http:\/\/localhost:9000 yarn test:e2e:blockchain:build/
-    );
+    expect(() =>
+      assertExtensionWalletApiMatches(extension(['http://127.0.0.1:8787']), 'http://localhost:9000')
+    ).toThrow(/MIDEN_WALLET_API_URL=http:\/\/localhost:9000 yarn test:e2e:blockchain:build/);
   });
 
   it('fails bundles that disagree with each other', () => {
