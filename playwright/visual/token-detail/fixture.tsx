@@ -40,8 +40,8 @@ export const useMidenContext = (): never => {
 };
 export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
-  isLoading: false,
-  readFailed: params.has('stale'),
+  isLoading: params.has('unavailable'),
+  readFailed: params.has('unavailable'),
   balanceReadInFlight: params.has('updating')
 });
 // Two claimable notes and one claiming note of this token, and a claiming note of another faucet.

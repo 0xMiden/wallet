@@ -571,14 +571,14 @@ describe('TokenDetail', () => {
       expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUpdating');
     });
 
-    it('says the amount is the last confirmed one when the refresh failed, never zero', () => {
+    it('leaves a shown amount alone when a stale failure flag lingers, never calling it stale or zero', () => {
       renderPage({ balanceStatus: { readFailed: true } });
 
       expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
-      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceStale');
+      expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
     });
 
-    it('says the balance could not be loaded when the first read failed, never stale or zero', () => {
+    it('says the balance could not be loaded when the first read failed, ', () => {
       renderPage({ balanceStatus: { isLoading: true, readFailed: true, balanceReadInFlight: true } });
 
       expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUnavailable');

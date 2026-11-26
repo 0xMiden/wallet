@@ -168,18 +168,17 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const toClaim = pendingTotal(representedItems.filter(isThisToken), ['pending', 'failed']);
   const claiming = pendingTotal(representedItems.filter(isThisToken), ['claiming']);
   const hasClaimingNote = representedItems.some(item => isThisToken(item) && item.status === 'claiming');
-  // The amount stays the last confirmed one. Before any amount has landed (the skeleton) a failed read
-  // says so plainly, and nothing else is claimed about an amount that does not exist.
+  // The amount stays the last confirmed one. Before any amount has landed (the skeleton) a failed first
+  // read says so plainly. Once an amount shows, the store clears its failure flag by design, so a
+  // refresh that fails leaves the amount as it was and only an active read is worth saying.
   const balanceState =
     balance === null
       ? balanceReadFailed
         ? 'unavailable'
         : undefined
-      : balanceReadFailed
-        ? 'stale'
-        : balanceReadInFlight || hasClaimingNote
-          ? 'updating'
-          : undefined;
+      : balanceReadInFlight || hasClaimingNote
+        ? 'updating'
+        : undefined;
 
   const handleBack = () => goBack();
 
@@ -255,13 +254,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               )}
               {balanceState && (
                 <p role="status" data-testid="token-detail-balance-state">
-                  {t(
-                    balanceState === 'unavailable'
-                      ? 'tokenDetailBalanceUnavailable'
-                      : balanceState === 'stale'
-                        ? 'tokenDetailBalanceStale'
-                        : 'tokenDetailBalanceUpdating'
-                  )}
+                  {t(balanceState === 'unavailable' ? 'tokenDetailBalanceUnavailable' : 'tokenDetailBalanceUpdating')}
                 </p>
               )}
             </div>

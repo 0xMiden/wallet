@@ -152,8 +152,8 @@ test('shows pending claim lines beside the available balance and the reconciling
   test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline has no pending lines');
   const project = testInfo.project.name;
   const mode = project.endsWith('dark') ? 'dark' : 'light';
-  const stateCopy = { updating: 'Updating balance', stale: 'Last confirmed balance. Could not refresh.' };
-  for (const state of ['updating', 'stale'] as const) {
+  const stateCopy = { updating: 'Updating balance', unavailable: 'Could not load balance.' };
+  for (const state of ['updating', 'unavailable'] as const) {
     const query = ['pending', state, 'sidePanel'];
     if (mode === 'dark') query.push('dark');
     if (project.startsWith('mobile')) query.push('mobile');
