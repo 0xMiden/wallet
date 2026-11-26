@@ -59,6 +59,7 @@ function Probe({ requested = scope }: { requested?: typeof scope }) {
         coverage: portfolio.coverage,
         coverageKey: portfolio.coverageKey,
         assets: portfolio.assets.map(asset => asset.tokenId),
+        actionBalances: portfolio.actionBalances?.map(asset => asset.tokenId) ?? null,
         canRecord: portfolio.canRecord,
         empty: portfolio.empty,
         allocation: 'allocation' in portfolio ? portfolio.allocation : undefined
@@ -99,6 +100,22 @@ it('derives the separate 24h market-price move from current quantities, not obse
   );
   view.rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
   expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
+});
+
+it('keeps an older proof on the figure and withholds it from an action', () => {
+  const prove = (capturedAt: number) =>
+    tagBalanceSnapshot(
+      rows,
+      { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt },
+      scope.accountId
+    );
+  prove(Date.now() - 2 * 15 * 60_000);
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"assets":["priced"]');
+  expect(screen.getByRole('status').textContent).toContain('"actionBalances":[]');
+  prove(Date.now());
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"actionBalances":["priced"]');
 });
 
 it('keeps current token identities when quote service is loading or failed, without publishing cached fiat', () => {

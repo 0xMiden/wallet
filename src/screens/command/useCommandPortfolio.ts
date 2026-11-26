@@ -116,6 +116,8 @@ export function useCommandPortfolio(scope: AccountScope) {
   const coverage: 'complete' | 'partial' = partial ? 'partial' : 'complete';
   return {
     assets: proven && hiddenReady ? assets : [],
+    /** The rows an action may spend from: only a proof at most CURRENT_MS old, never the older one the figure shows. */
+    actionBalances: current && hiddenReady ? assets : [],
     allocation,
     tokenPrices,
     livePrices,
