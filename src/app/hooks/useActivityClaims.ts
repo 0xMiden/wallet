@@ -214,9 +214,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     .join(',');
   const [heldTxIds, setHeldTxIds] = useState<ReadonlySet<string>>(new Set());
   const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, RetryFailure>>(new Map());
-  // Rows the queue put back after a Guardian 409 (#1666), as of the last emission for this slot: another account,
-  // endpoint or network reuses no wait, and nothing watched means none is known.
-  const [guardianWait, setGuardianWait] = useState<{ key: string; txIds: ReadonlySet<string> }>({
+  // Queue waits belong to the account, endpoint and network that observed the row.
+  const [queueWait, setQueueWait] = useState<{
+    key: string;
+    guardian: ReadonlySet<string>;
+    automaticRetry: ReadonlySet<string>;
+  }>({ key, guardian: new Set(), automaticRetry: new Set() });
+  const [failedClaims, setFailedClaims] = useState<{ key: string; txIds: ReadonlySet<string> }>({
     key,
     txIds: new Set()
   });
@@ -225,7 +229,12 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
 
   useEffect(() => {
     if (!watchedTxIds) {
-      setGuardianWait(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
+      setQueueWait(previous =>
+        previous.guardian.size === 0 && previous.automaticRetry.size === 0
+          ? previous
+          : { key, guardian: new Set(), automaticRetry: new Set() }
+      );
+      setFailedClaims(previous => (previous.txIds.size === 0 ? previous : { key, txIds: new Set() }));
       setSubmissionByTx(previous => (previous.size === 0 ? previous : new Map()));
       setHoldByTx(previous => (previous.size === 0 ? previous : new Map()));
       return;
@@ -240,16 +249,30 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       const present = new Set(rows.map(tx => tx.id));
       const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt' | 'submission'>>();
       const failedRows = new Map<string, ITransaction>();
+      const failedClaimIds = new Set<string>();
       const held = new Set<string>();
-      const waiting = new Set<string>();
+      const guardian = new Set<string>();
+      const automaticRetry = new Set<string>();
       const submissions = new Map<string, SubmissionFeedback>();
       const holds = new Map<string, number>();
       const nowSec = nowSeconds();
       for (const tx of rows) {
         const feedback = shownSubmissionFeedback(tx);
         if (feedback !== undefined) submissions.set(tx.id, feedback);
-        if (tx.status === ITransactionStatus.Queued && tx.guardianBusy === true) {
-          waiting.add(tx.id);
+        if (tx.status === ITransactionStatus.Queued) {
+          if (tx.guardianBusy === true) guardian.add(tx.id);
+          else if (
+            tx.type === 'consume' &&
+            tx.consumeEntryPoint === 'claim_all' &&
+            tx.lastDeferral !== undefined &&
+            tx.lastDeferral !== 'wallet_locked' &&
+            tx.awaitingRecoverySeed !== true &&
+            Number.isFinite(tx.nextEligibleAt) &&
+            tx.stageTimestamps?.syncing === undefined
+          ) {
+            // Requeue clears the stage stamps. Pickup stamps syncing before the status advances.
+            automaticRetry.add(tx.id);
+          }
         } else if (tx.status === ITransactionStatus.Completed) {
           settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt, submission: undefined });
         } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
@@ -263,15 +286,21 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
               submission: feedback
             });
             failedRows.set(tx.id, tx);
+            if (tx.type === 'consume') failedClaimIds.add(tx.id);
           }
         }
       }
+      setFailedClaims(previous =>
+        previous.key === key && sameIds(previous.txIds, failedClaimIds) ? previous : { key, txIds: failedClaimIds }
+      );
       setSubmissionByTx(previous => (sameFeedback(previous, submissions) ? previous : submissions));
       setHoldByTx(previous => (sameHolds(previous, holds) ? previous : holds));
       // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
       setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
-      setGuardianWait(previous =>
-        previous.key === key && sameIds(previous.txIds, waiting) ? previous : { key, txIds: waiting }
+      setQueueWait(previous =>
+        previous.key === key && sameIds(previous.guardian, guardian) && sameIds(previous.automaticRetry, automaticRetry)
+          ? previous
+          : { key, guardian, automaticRetry }
       );
       // A refusal describes the hold it met: it ends with that hold, and once the row moves on it must not return with
       // a later one.
@@ -347,7 +376,10 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     const rowFields = (
       status: PendingActivityStatus,
       txId: string | undefined
-    ): Pick<PendingActivityItem, 'held' | 'retryError' | 'failure' | 'guardianBusy' | 'submission' | 'holdUntil'> => {
+    ): Pick<
+      PendingActivityItem,
+      'held' | 'retryError' | 'failure' | 'guardianBusy' | 'automaticRetryQueued' | 'submission' | 'holdUntil'
+    > => {
       if (txId === undefined) return {};
       const submission = submissionByTx.get(txId);
       const holdUntil = holdByTx.get(txId);
@@ -355,10 +387,11 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       if (status === 'failed') return { ...hold, ...(submission === undefined ? {} : { submission }) };
       if (status !== 'claiming') return {};
       if (!heldTxIds.has(txId)) {
-        const guardianBusy = guardianWait.key === key && guardianWait.txIds.has(txId);
-        if (!guardianBusy && submission === undefined) return {};
+        const guardianBusy = queueWait.key === key && queueWait.guardian.has(txId);
+        const automaticRetryQueued = queueWait.key === key && queueWait.automaticRetry.has(txId);
         return {
           ...(guardianBusy ? { guardianBusy: true as const } : {}),
+          ...(automaticRetryQueued ? { automaticRetryQueued: true as const } : {}),
           ...(submission !== undefined ? { submission } : {})
         };
       }
@@ -375,9 +408,12 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     };
     const result = new Map<string, PendingActivityItem>();
     for (const note of claim.safeClaimableNotes) {
+      // The note snapshot can still say claiming after its watched claim has settled.
+      const failedClaim =
+        failedClaims.key === key && note.claimingTxId !== undefined && failedClaims.txIds.has(note.claimingTxId);
       let status: PendingActivityStatus = 'pending';
       switch (true) {
-        case note.isBeingClaimed:
+        case note.isBeingClaimed && !failedClaim:
           status = 'claiming';
           break;
         // The check holds back a note until its state is known; a cached note cannot be accepted, so it stays listed.
@@ -387,7 +423,7 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
         case claim.invalidNoteIds.has(note.id):
           status = 'unavailable';
           break;
-        case claim.retriableNoteIds.has(note.id):
+        case failedClaim || claim.retriableNoteIds.has(note.id):
           status = 'failed';
           break;
       }
@@ -435,7 +471,8 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     claim.retriableTxIds,
     attempts,
     heldTxIds,
-    guardianWait,
+    queueWait,
+    failedClaims,
     submissionByTx,
     holdByTx,
     key,
@@ -465,7 +502,14 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
     // cannot start a claim. The live read replaces it within one poll lap.
     if (note.fromCache) return;
     const item = items.find(candidate => candidate.note.id === note.id);
-    if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.has(note.id)) return;
+    if (
+      !item ||
+      (item.status !== 'pending' && item.status !== 'failed') ||
+      item.note.fromCache ||
+      item.holdUntil !== undefined ||
+      busy.has(note.id)
+    )
+      return;
     // The card withholds Accept, so this is a tap that raced the balance landing.
     if (item.cannotPayFee === true) return;
     busy.add(note.id);
@@ -512,7 +556,13 @@ export function useActivityClaims(sharedRead?: ScopedClaimableNotesRead) {
       // Same gate as `accept`: unconfirmed cache entries are never claimed.
       if (note.fromCache) return false;
       const item = items.find(candidate => candidate.note.id === note.id);
-      return item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.has(note.id);
+      return (
+        item !== undefined &&
+        (item.status === 'pending' || item.status === 'failed') &&
+        !item.note.fromCache &&
+        item.holdUntil === undefined &&
+        !busy.has(note.id)
+      );
     });
     if (accepted.length === 0) return;
     for (const note of accepted) busy.add(note.id);

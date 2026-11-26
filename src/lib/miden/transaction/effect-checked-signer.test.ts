@@ -13,7 +13,7 @@ import {
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import { withEffectCheckedSigner, type RawSigner } from './effect-checked-signer';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { IApprovedCustomEffects, ITransaction, ITransactionStatus } from '../db/types';
+import { IApprovedCustomEffects, ITransaction, ITransactionStatus, RegisterNameTransaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -242,6 +242,72 @@ describe('reviewed USDCx signing fee budget', () => {
         throw new Error('SDK callback failed');
       })
     ).rejects.toBe(trap);
+    expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+describe('register-name signing', () => {
+  const registerTx = (networkFeeBaseUnits = 210n) =>
+    new RegisterNameTransaction({
+      accountId: 'bech32:acct-a',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'bech32:usdcx',
+      registryAccountId: 'bech32:registry',
+      priceBaseUnits: 1000n,
+      networkFeeBaseUnits,
+      requestBytes: new Uint8Array([1, 2, 3]),
+      registrationNoteId: 'reg-note',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000
+    });
+
+  it('signs when canonical companion fits networkFeeBaseUnits even when kernel 0xfee is larger', async () => {
+    givenSigning(
+      summaryInputs(
+        summary('acct-a', {
+          removed: [fa('usdcx', 1000n + 10n + 50n)],
+          added: [],
+          inputs: [],
+          outputs: [note([fa('usdcx', 1000n)], 'reg-note'), note([fa('usdcx', 10n)], 'sponsor'), feeNote(50n)]
+        })
+      )
+    );
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(registerTx(10n), sign, signer => signer('pk', 'aa'))).resolves.toBe(SIGNATURE);
+    expect(sign).toHaveBeenCalledWith('pk', 'aa');
+  });
+
+  it('refuses signing without delegating when companion exceeds networkFeeBaseUnits or creates an unapproved note', async () => {
+    givenSigning(
+      summaryInputs(
+        summary('acct-a', {
+          removed: [fa('usdcx', 1000n + 11n + 50n)],
+          added: [],
+          inputs: [],
+          outputs: [note([fa('usdcx', 1000n)], 'reg-note'), note([fa('usdcx', 11n)], 'sponsor'), feeNote(50n)]
+        })
+      )
+    );
+    const sign = baseSigner();
+    await expect(withEffectCheckedSigner(registerTx(10n), sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+      ProposalEffectRefusedError
+    );
+    expect(sign).not.toHaveBeenCalled();
+
+    givenSigning(
+      summaryInputs(
+        summary('acct-a', {
+          removed: [fa('usdcx', 1000n + 10n + 50n)],
+          added: [],
+          inputs: [],
+          outputs: [note([fa('usdcx', 1000n)], 'reg-note'), note([fa('usdcx', 10n)], 'other-note'), feeNote(50n)]
+        })
+      )
+    );
+    await expect(withEffectCheckedSigner(registerTx(10n), sign, signer => signer('pk', 'aa'))).rejects.toBeInstanceOf(
+      ProposalEffectRefusedError
+    );
     expect(sign).not.toHaveBeenCalled();
   });
 });

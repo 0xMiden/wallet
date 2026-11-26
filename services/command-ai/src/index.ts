@@ -262,7 +262,12 @@ ${helpFacts.instructions}
 
 ${Object.entries(helpFacts.topics)
   .map(([topic, fact]) => `${topic}: ${fact}`)
-  .join('\n')}`;
+  .join('\n')}
+
+Choose Verify for how to check or be sure a payment is private, even after Privacy. Explain Public/Private and explorer limits.
+Choose Safety for questions about sharing secrets, even with support. Choose Recovery for how to restore wallet access.
+State the validator caveat as written. Infer no other access, public recipient, or unlinkability.
+Choose Assistant for what the AI can see. Help sends no chat or wallet history.`;
 
 class HttpError extends Error {
   readonly status: number;

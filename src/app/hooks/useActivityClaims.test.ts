@@ -6,7 +6,7 @@ import { Receive } from 'app/pages/Receive';
 import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
-import type { ISubmitEvidence } from 'lib/miden/db/types';
+import type { ISubmitEvidence, ITransaction } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
@@ -36,7 +36,11 @@ type MockRow = {
   completedAt?: number;
   held?: boolean;
   guardianBusy?: true;
-  lastDeferral?: 'guardian_backpressure';
+  awaitingRecoverySeed?: true;
+  consumeEntryPoint?: ITransaction['consumeEntryPoint'];
+  lastDeferral?: ITransaction['lastDeferral'];
+  nextEligibleAt?: number;
+  stageTimestamps?: ITransaction['stageTimestamps'];
   stage?: 'submitting';
   type?: 'consume';
   error?: string;
@@ -1924,6 +1928,41 @@ describe('live claim failures through PendingActivityCard and Notice', () => {
     ]);
   });
 
+  it('settles a stale claim card and only enables Retry after the Guardian hold clears', async () => {
+    const txId = 'tx-interrupted';
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: txId }];
+    render(React.createElement(ClaimCards));
+    open();
+
+    settle([{ id: txId, status: 1, type: 'consume' }]);
+    expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+
+    const capturedAt = Math.floor(Date.now() / 1000) - GUARDIAN_PENDING_HOLD_SEC + 30;
+    settle([
+      {
+        id: txId,
+        status: 3,
+        type: 'consume',
+        error: 'Transaction was interrupted when the browser closed',
+        submitEvidence: [{ attemptId: 'interrupted', capturedAt, source: 'stage', candidateKept: true }]
+      }
+    ]);
+    expect(screen.queryByRole('button', { name: 'activityAcceptingTransfer' })).not.toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'retry' });
+    expect(retry).toBeDisabled();
+    expect(retry).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByTestId('guardian-hold-notice')).toHaveTextContent('guardianHoldNotice');
+    await click('Accept All');
+    expect(mockQueueMany).not.toHaveBeenCalled();
+    expect(mockQueue).not.toHaveBeenCalled();
+
+    advance(31_000);
+    expect(screen.queryByTestId('guardian-hold-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent('noteClaimFailedRetry');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
+  });
+
   it('reports a real queued attempt whose watched row becomes failed while mounted', async () => {
     render(React.createElement(ClaimCards));
     open();
@@ -2363,7 +2402,7 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
     });
   });
 
-  it('keeps the plain claim, with no submission verdict, when the stored submit error is unrecognized', async () => {
+  it('shows a failed claim with no submission verdict when the stored submit error is unrecognized', async () => {
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-unrecognized' }];
     const { result } = renderHook(() => useActivityClaims());
     await latestSubscription().query();
@@ -2378,7 +2417,7 @@ describe('proof submission feedback on Activity claims (#1689)', () => {
       }
     ]);
 
-    expect(result.current.items[0]).toMatchObject({ status: 'claiming' });
+    expect(result.current.items[0]).toMatchObject({ status: 'failed' });
     expect(result.current.items[0]?.submission).toBeUndefined();
   });
 });
@@ -2645,12 +2684,71 @@ describe('a failed claim follows its row (#2060)', () => {
     await act(async () => {
       await result.current.accept(note);
     });
+    expect(mockQueue).toHaveBeenCalledTimes(1);
+
+    settle([proven('tx-one', { candidateKept: undefined })]);
+    await act(async () => {
+      await result.current.accept(note);
+    });
 
     expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-two' });
     expect(result.current.items[0]?.submission).toBeUndefined();
     await latestSubscription().query();
     expect(mockAnyOf).toHaveBeenLastCalledWith('id', ['tx-two']);
   });
+});
+
+it('shows a scheduled Claim All retry without offering another claim', async () => {
+  render(React.createElement(ClaimCards));
+  fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
+  await settleDeliverySenders();
+  expect(mockQueueMany).toHaveBeenCalledTimes(1);
+
+  const row = { id: 'tx-batch', type: 'consume', consumeEntryPoint: 'claim_all' } as const;
+  settle([{ ...row, status: 0 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  const retry = {
+    ...row,
+    lastDeferral: 'node_unreachable',
+    nextEligibleAt: Math.floor(Date.now() / 1000) + 60
+  } as const;
+  for (const waiting of [
+    { ...retry, lastDeferral: 'wallet_locked' },
+    { ...retry, awaitingRecoverySeed: true },
+    { ...retry, consumeEntryPoint: 'claim' },
+    { ...retry, guardianBusy: true },
+    { ...retry, nextEligibleAt: undefined }
+  ] as const) {
+    settle([{ ...waiting, status: 0 }]);
+    expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  }
+  settle([{ ...retry, status: 0 }]);
+  expect(screen.getByText('activityClaimQueuedRetry')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'activityClaimQueued' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
+  await settleDeliverySenders();
+  expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  expect(mockQueue).not.toHaveBeenCalled();
+  expect(mockRequeue).not.toHaveBeenCalled();
+
+  settle([{ ...retry, status: 0, nextEligibleAt: Math.floor(Date.now() / 1000) - 1 }]);
+  expect(screen.getByText('activityClaimQueuedRetry')).toBeVisible();
+
+  settle([{ ...retry, status: 0, stageTimestamps: { syncing: Date.now() } }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  settle([{ ...retry, status: 1 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  settle([{ ...retry, status: 3 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
 });
 
 describe('Guardian wait on Activity claims (#1666)', () => {

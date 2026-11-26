@@ -8157,6 +8157,14 @@
     "message": "Acceptation…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Demande en attente",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Demande en attente. Le portefeuille réessaiera automatiquement.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transferts",
     "englishSource": "Transfers"
