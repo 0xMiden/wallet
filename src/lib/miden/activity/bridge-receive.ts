@@ -22,6 +22,10 @@ import {
 } from 'lib/bridge/providers/xreserve/cctp-status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
+import { RelayExpiredError, RelayNotSubmittedError, RelayRevertedError } from 'lib/evm-relay/errors';
+import { RELAY_FINAL_JOB_RETENTION_SECONDS, type RelayJobCheck } from 'lib/evm-relay/submit';
+import type { RelayJobRef } from 'lib/evm-relay/types';
+import { getMessage } from 'lib/i18n/core';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import {
@@ -60,6 +64,7 @@ import { updateBridgedReceivePhase } from '../transaction/complete';
 
 const SUBMISSION_LOCK = 'bridge-receive-submission';
 const INTERRUPTED_BEFORE_HASH = 'Bridge submission was interrupted before a transaction hash was recorded.';
+const EPOCH_INTERRUPTED_BEFORE_INTENT = 'Bridge submission was interrupted before an intent was recorded.';
 
 /**
  * A restored bridge row's delivery cannot be confirmed: the tracking state that
@@ -90,6 +95,131 @@ function firstString(source: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+/**
+ * One read of the relay job of a row (`check`, a GET that signs nothing), or undefined when this wallet does not read
+ * it: the source is not the relay address of an account of this wallet, the job is for another chain than the row,
+ * the relay does not serve the chain, or the reference is not valid.
+ */
+async function checkRowRelayJob(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  job: RelayJobRef,
+  rowChainId: number | undefined
+): Promise<RelayJobCheck | undefined> {
+  // Loaded on use: the relay source reads the wallet store, which the service worker does not load with this module.
+  const { buildRelaySubmitter, findRelaySource } = await import('lib/evm-relay/source');
+  const source = findRelaySource(inputs.sourceAddress);
+  if (source === null) return undefined;
+  if (rowChainId !== undefined && rowChainId !== job.chainId) {
+    console.warn('[bridge-receive] relay job is for another chain', row.id);
+    return undefined;
+  }
+  try {
+    return await buildRelaySubmitter(source, job.chainId).check(job);
+  } catch (error) {
+    console.warn('[bridge-receive] relay job not readable', row.id, error);
+    return undefined;
+  }
+}
+
+type RelayJobFailure = NonNullable<Parameters<typeof updateBridgedReceivePhase>[2]>;
+
+function relayFailure(messageKey: string, cause: Error): RelayJobFailure {
+  return {
+    error: getMessage(messageKey),
+    errorId: 'raw_bridge_deposit_failed',
+    failure: { step: 'wallet_deposit', cause, requestClient: 'relay' }
+  };
+}
+
+/**
+ * The failure of a row whose relay job ended with no executed batch, in the words of the deposit screen: the funds
+ * are still at the relay address. Undefined for every other state. The relay deletes a final job
+ * `RELAY_FINAL_JOB_RETENTION_SECONDS` after it became final, and the job was posted after the row was created, so a
+ * `not-submitted` read from then on is not trusted: the job can have executed.
+ */
+function relayJobFailure(
+  row: ITransaction,
+  job: RelayJobRef,
+  checked: RelayJobCheck,
+  nowSec: number
+): RelayJobFailure | undefined {
+  switch (checked.state) {
+    case 'reverted':
+      return relayFailure('depositFlowRelayReverted', new RelayRevertedError(job.id, checked.hash));
+    case 'expired':
+      return relayFailure('depositFlowRelayExpired', new RelayExpiredError(job.id, checked.hash));
+    case 'not-submitted':
+      if (nowSec >= row.initiatedAt + RELAY_FINAL_JOB_RETENTION_SECONDS) return undefined;
+      return relayFailure('depositFlowRelayExpired', new RelayNotSubmittedError(job));
+    case 'succeeded':
+    case 'pending':
+    case 'unknown':
+    default:
+      return undefined;
+  }
+}
+
+/** A write lands only while the row still holds `job` and no source hash: no other writer moved it on. */
+function holdsRelayJob(job: RelayJobRef): (current: ITransaction) => boolean {
+  return current => {
+    const inputs: IBridgedReceiveExtraInputs | undefined = current.extraInputs;
+    return inputs?.phase === 'submitting' && !inputs.evmTxHash && inputs.relayJob?.id === job.id;
+  };
+}
+
+/**
+ * agglayer: the row's relay job, read once for this pass. `succeeded`: the screen's own write after a mined deposit,
+ * the hash on the row; the next pass follows it on the hash path. `reverted`, `expired`, `not-submitted`: the row
+ * fails. `pending`, `unknown`: the row stays as it is, and the delivery window ends it.
+ */
+async function reconcileAgglayerRelayJob(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  job: RelayJobRef
+): Promise<void> {
+  const rowChainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+  const checked = await checkRowRelayJob(row, inputs, job, rowChainId);
+  if (checked === undefined) return;
+  const canUpdate = holdsRelayJob(job);
+  if (checked.state === 'succeeded') {
+    await updateBridgedReceivePhase(row.id, 'submitting', { evmTxHash: checked.hash }, undefined, { canUpdate });
+    return;
+  }
+  const failure = relayJobFailure(row, job, checked, Math.floor(Date.now() / 1000));
+  if (failure !== undefined) await updateBridgedReceivePhase(row.id, 'failed', failure, undefined, { canUpdate });
+}
+
+/**
+ * epoch: the row's relay job, read once for this pass. The Epoch SDK stops before it asks for an allocation when a
+ * send fails, so the row cannot deliver: it fails when the job is final. `reverted`, `expired`, `not-submitted`: in
+ * the words of the deposit screen (the funds are still at the relay address). `succeeded`: as interrupted before an
+ * intent was recorded; a deposit that executed is in a lock of The Compact, which the locked-funds scan of Settings
+ * finds. `pending`, `unknown`: the row stays as it is, and the delivery window ends it.
+ */
+async function reconcileEpochRelayJob(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  job: RelayJobRef,
+  orphanCheck: BridgeOrphanCheck
+): Promise<void> {
+  const checked = await checkRowRelayJob(row, inputs, job, inputs.sourceChainId);
+  if (checked === undefined) return;
+  const canUpdate = holdsRelayJob(job);
+  if (checked.state === 'succeeded') {
+    await updateBridgedReceivePhase(
+      row.id,
+      'failed',
+      { error: EPOCH_INTERRUPTED_BEFORE_INTENT, failure: { step: 'submission_interrupted', orphanCheck } },
+      undefined,
+      { canUpdate }
+    );
+    return;
+  }
+  const failure = relayJobFailure(row, job, checked, Math.floor(Date.now() / 1000));
+  if (failure !== undefined) await updateBridgedReceivePhase(row.id, 'failed', failure, undefined, { canUpdate });
+}
+
 async function reconcileAgglayerRow(
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
@@ -116,14 +246,17 @@ async function reconcileAgglayerRow(
   };
   if (!(await originalStillBound())) return;
   if (!inputs.evmTxHash) {
+    if (inputs.phase !== 'submitting') return;
     // A relay job that the deposit screen stored can still execute after its page closed. Do not fail such a row as
-    // interrupted: the delivery window ends it.
-    if (inputs.phase === 'submitting' && inputs.relayJob === undefined) {
-      await updateBridgedReceivePhase(row.id, 'failed', {
-        error: INTERRUPTED_BEFORE_HASH,
-        failure: { step: 'submission_interrupted', orphanCheck }
-      });
+    // interrupted: read the job.
+    if (inputs.relayJob !== undefined) {
+      await reconcileAgglayerRelayJob(row, inputs, inputs.relayJob);
+      return;
     }
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: INTERRUPTED_BEFORE_HASH,
+      failure: { step: 'submission_interrupted', orphanCheck }
+    });
     return;
   }
 
@@ -185,12 +318,16 @@ async function reconcileEpochRow(
   orphanCheck: BridgeOrphanCheck
 ): Promise<void> {
   if (!inputs.intentNonce) {
-    if (inputs.phase === 'submitting') {
-      await updateBridgedReceivePhase(row.id, 'failed', {
-        error: 'Bridge submission was interrupted before an intent was recorded.',
-        failure: { step: 'submission_interrupted', orphanCheck }
-      });
+    if (inputs.phase !== 'submitting') return;
+    // A relay send whose outcome the Epoch store did not know: its job can still execute.
+    if (inputs.relayJob !== undefined) {
+      await reconcileEpochRelayJob(row, inputs, inputs.relayJob, orphanCheck);
+      return;
     }
+    await updateBridgedReceivePhase(row.id, 'failed', {
+      error: EPOCH_INTERRUPTED_BEFORE_INTENT,
+      failure: { step: 'submission_interrupted', orphanCheck }
+    });
     return;
   }
 

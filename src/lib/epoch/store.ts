@@ -10,6 +10,9 @@ import {
   recordBridgeSourceAttempt,
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
+import { openRelayJobError } from 'lib/evm-relay/errors';
+import { type OpenRelayJobWatch, watchOpenRelayJobs } from 'lib/evm-relay/open-jobs';
+import type { RelayJobRef } from 'lib/evm-relay/types';
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
 import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -198,6 +201,18 @@ function relaySdkAccount(connection: EvmConnection, sourceAddress: string): { ac
   return { account: sourceAddress, chainId: connection.chainId };
 }
 
+/**
+ * The relay job that a relay send of this attempt left open (`RelayUnknownOutcomeError`, `RelayStillPendingError`), or
+ * undefined. The cause chain of `err` is read first. The Epoch SDK gives a send error back as a new error with the
+ * text alone, so the attempt's watch of open jobs is read next; the last job is the last send.
+ */
+function openRelayJobOf(err: unknown, watch: OpenRelayJobWatch | undefined): RelayJobRef | undefined {
+  const typed = openRelayJobError(err);
+  if (typed !== undefined) return typed.job;
+  const jobs = watch?.jobs() ?? [];
+  return jobs[jobs.length - 1];
+}
+
 function assertOwnedEpochQuote(row: ITransaction, operation: BridgeOperationSnapshot, quote: Quote): void {
   assertBridgeOperationCurrent(row, operation);
   const { review } = operation;
@@ -298,6 +313,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     const sourceChainId = quote.params.sourceChainId;
     const request = latestRequest;
     let claimedOperation: BridgeOperationSnapshot | undefined;
+    let relayWatch: OpenRelayJobWatch | undefined;
     try {
       if (tagged && row && operation) {
         assertOwnedEpochQuote(row, operation, quote);
@@ -382,6 +398,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         ...quote.params,
         preFetchedQuote: { ...quote, params: quote.params }
       };
+      // The SDK gives a send error back as its own text, so the open relay job of a send comes from this watch.
+      if (connection.isRelay && isAddress(sourceAddress, { strict: false })) {
+        relayWatch = watchOpenRelayJobs(sourceChainId, sourceAddress);
+      }
       const intent = claimedOperation
         ? await buildEVMToMidenIntent(sdk, buildParams, assertOwnedCurrent)
         : await buildEVMToMidenIntent(sdk, buildParams);
@@ -403,6 +423,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         if (!tagged || request === latestRequest) set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId && !tagged) {
           const stranded = intent.strandedDeposit;
+          // A relay send whose outcome is not known can still execute, so the row keeps its job and stays open. A
+          // deposit that the lock already shows is stranded, and the stranded rule below decides.
+          const openJob = stranded ? undefined : openRelayJobOf(undefined, relayWatch);
+          if (openJob !== undefined) {
+            await updateBridgedReceivePhase(bridgeReceiveTxId, 'submitting', { relayJob: openJob });
+            return;
+          }
           const params = quote.params;
           // The deposit landed but has no allocation: keep what the sponsor needs to register it again or to
           // withdraw it, so the row offers recovery instead of a plain failure (#2120).
@@ -475,11 +502,22 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         return;
       }
       if (bridgeReceiveTxId) {
+        // A relay send whose outcome is not known can still execute: the row keeps its job and stays open, as a
+        // tagged attempt does.
+        const openJob = openRelayJobOf(err, relayWatch);
+        if (openJob !== undefined) {
+          await updateBridgedReceivePhase(bridgeReceiveTxId, 'submitting', { relayJob: openJob }).catch(
+            () => undefined
+          );
+          return;
+        }
         await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
           error: message,
           failure: { step: 'epoch_execute', cause: err }
         }).catch(() => undefined);
       }
+    } finally {
+      relayWatch?.stop();
     }
   },
 

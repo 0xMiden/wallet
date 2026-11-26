@@ -18,6 +18,7 @@ a transaction row here: the bridge flow does both.
 createRelaySubmitter({ chain, address, sign }): RelaySubmitter
 submitter.submit(calls: BatchCall[], options?: RelaySubmitOptions): Promise<RelayResult> // { id, hash }
 submitter.resume(job: RelayJobRef): Promise<RelayResult>
+submitter.check(job: RelayJobRef): Promise<RelayJobCheck>
 ```
 
 - `chain` is the relay values of the remote config for one chain (`getRelayChain`), `address` is the account's
@@ -103,19 +104,54 @@ follows the job to its final state as usual. `not_found` or another failed read:
 | `pending` after 10 minutes | `RelayStillPendingError` (`job`, `txHash`). Not a failure of the job: call `resume(job)` later |
 | The relay no longer knows a job that it answered before | `RelayUnknownOutcomeError` (`job`) |
 
-### `resume(job)`
+### `check(job)`
 
-`resume` follows a job that an earlier submit gave to `onJob`. It signs nothing. It reads the job by id:
+`check` reads a job that an earlier submit gave to `onJob` ONCE, with no wait. It signs nothing: it is one
+`GET /v1/relay/{id}?chainId=` with the guard `assertRelayJobMatches`. A caller that must not wait (a reconcile pass)
+uses it; a caller that can wait uses `resume`.
 
-- found: it follows the job to its final state, with the same results and errors as `submit`;
-- `not_found`, and now is at most `deadline + 120 s` (`RELAY_RESUME_GRACE_SECONDS`): `RelayUnknownOutcomeError`. The
-  outcome is still not known; try again later;
-- `not_found`, and now is more than `deadline + 120 s`: `RelayNotSubmittedError`. The batch can no longer execute:
-  the relay refuses a deadline less than 60 seconds ahead, and Calibur refuses a batch after its deadline;
-- any other failed read: `RelayUnknownOutcomeError`.
+```ts
+type RelayJobCheck =
+  | { state: 'succeeded'; hash: Hash } // the mined hash
+  | { state: 'reverted'; hash: Hex } // the mined hash
+  | { state: 'expired'; hash: Hex } // the relayer's cancel transaction; the batch never executes
+  | { state: 'pending'; hash: Hex } // the last hash
+  | { state: 'unknown'; cause: unknown }
+  | { state: 'not-submitted' };
+```
+
+- found: its state and hash. An answer for another job id is a failed read;
+- `not_found`, and now is at most `deadline + 120 s` (`RELAY_RESUME_GRACE_SECONDS`): `unknown`. The outcome is still
+  not known; read again later;
+- `not_found`, and now is more than `deadline + 120 s`: `not-submitted`. The batch can no longer execute: the relay
+  refuses a deadline less than 60 seconds ahead, and Calibur refuses a batch after its deadline;
+- any other failed read: `unknown`, with the error as `cause`.
 
 A job reference for another chain, an id that is not a hash or a deadline that is not a safe integer of 0 or more
-throws a `TypeError`.
+throws a `TypeError` before the read.
+
+### `resume(job)`
+
+`resume` follows a job that an earlier submit gave to `onJob`. It signs nothing. It is `check` and then the wait of
+`submit`, so the two share one rule:
+
+- found: it follows the job to its final state, with the same results and errors as `submit`;
+- `unknown`: `RelayUnknownOutcomeError` (its `cause` is the cause of the check);
+- `not-submitted`: `RelayNotSubmittedError`.
+
+### Open jobs (`open-jobs.ts`)
+
+A `submit` that rejects with `RelayUnknownOutcomeError` or `RelayStillPendingError` also reports the job to each open
+watch of its chain and address. A flow whose relay error does not come back to it as a typed error (the Epoch SDK
+gives a send error back as a new error with the text alone) starts a watch before it sends and reads it after:
+
+```ts
+watchOpenRelayJobs(chainId, address): OpenRelayJobWatch // { jobs(): RelayJobRef[]; stop(): void }
+openRelayJobError(error): RelayUnknownOutcomeError | RelayStillPendingError | undefined // errors.ts
+```
+
+`openRelayJobError` walks the `cause` chain (at most 16 links), as viem keeps a provider error as a `cause`. A watch
+sees only the reports of its own chain and address while it is open, in this realm.
 
 ### What a caller stores, and when a new review is safe
 
@@ -126,9 +162,11 @@ throws a `TypeError`.
 - A new review is safe after `RelayNotSubmittedError`, `RelayExpiredError`, `RelayRevertedError`, and after a refusal
   that the submitter passes on (the job was not stored). `relayErrorAction` gives `review-again` for the first three
   and for `stale_request` and `simulation_failed`.
-- Known limit: the relay deletes a final job 24 hours after it became final. A `resume` more than 24 hours after the
-  job became final can thus read `not_found` and report `RelayNotSubmittedError` for a job that executed. Resume a
-  stored reference within 24 hours of its deadline.
+- Known limit: the relay deletes a final job 24 hours after it became final (`RELAY_FINAL_JOB_RETENTION_SECONDS`). A
+  `resume` or `check` more than 24 hours after the job became final can thus read `not_found` and report
+  `RelayNotSubmittedError` (`not-submitted`) for a job that executed. Resume a stored reference within 24 hours of its
+  deadline. A caller that knows a time before the POST (the creation of its row) trusts `not-submitted` only until that
+  time plus 24 hours.
 
 ### The fee rule
 
@@ -198,6 +236,7 @@ findRelaySource(address: string): RelaySource | null // an account of the store 
 relayServesChain(chainId: number): boolean           // relay entry + base URL + a wallet chain definition with an RPC
 buildRelayProvider(source, chainId, hooks?): RelayProvider
 buildRelayWalletClient(source, chainId, hooks?): WalletClient
+buildRelaySubmitter(source, chainId): RelaySubmitter  // for `check` and `resume` of a stored job
 ```
 
 - The relay is off when `getRelayConfig()` or `getRelayBaseUrl()` is null. These read the realm's config snapshot as
@@ -232,6 +271,14 @@ The EVM-collateral deposit of `solveIntent` (Epoch SDK 2.0.1) calls these on the
 | `switchChain` (only in the no-lock execution path) | `wallet_switchEthereumChain` to its own chain is `null`; another chain is refused with 4200 |
 | Reads (`allowance`, `getCode`, forced-withdrawal status, lock balances, receipt wait with 3 confirmations) | The SDK's own HTTP public clients on `walletClient.chain.rpcUrls.default`, not the wallet client |
 
+The SDK gives a send error back as a new `CompactSDKError` with the text alone, so the typed relay error does not
+reach `executeEVMToMiden`. The store starts a watch of the open jobs of the relay source (`watchOpenRelayJobs`) before
+the solve, and reads the cause chain too (`openRelayJobError`). A solve that failed with an open relay job and with no
+deposit in the lock (the stranded rule of `buildEVMToMidenIntent`) does not fail an untagged row: the row stays
+`submitting` and the store writes the job on it (`relayJob`). A tagged row takes its existing `uncertain` source
+attempt. The store status is `failed` with the SDK text in both cases, as before. The reconciler then reads the job
+(see below), and the locked-funds scan of Settings finds a deposit in a lock of The Compact.
+
 Recovery (`initateDepositWithdrawal`, `disableForcedWithdrawal`, `withdrawToken`, the `register` of a retry) uses
 `writeContract`, which is `eth_chainId` and one `eth_sendTransaction`. No call of these paths needs a signature that
 the relay key cannot give. The relay does not answer EIP-5792 on purpose: after a failed `wallet_sendCalls` the SDK
@@ -239,6 +286,37 @@ sends the same calls again one by one, which can run a deposit twice when the ba
 
 The Compact, the deposit token and the Compact's `register` are targets of the batch: a chain whose `allowedTargets`
 is not null must name them.
+
+### The reconciler and a stored job (`lib/miden/activity/bridge-receive.ts`)
+
+A `bridged-receive` row in `submitting` with a `relayJob` and no `evmTxHash` (Agglayer: the deposit screen wrote the
+job in `onJob`; Epoch: the store wrote it, see above) is not failed as interrupted. Each reconcile pass reads the job
+ONCE with `check` (never `resume`: a pass does not wait), through `buildRelaySubmitter`, and only when:
+
+- no deposit flow holds the submission lock (the screen follows its own job while it is open);
+- the row is not restored from a backup (the reconciler fails such a row before any read) and is inside its delivery
+  window;
+- the row's `sourceAddress` is the relay address of an account of this wallet (`findRelaySource`, after the pass's
+  `initBridgeConfig()`), and the job is for the row's source chain.
+
+Nothing is signed. A write lands only while the row still holds the same job and no hash (`canUpdate`).
+
+| Job (`check`) | Agglayer row | Epoch row |
+| --- | --- | --- |
+| `succeeded` | `evmTxHash` = the mined hash, phase stays `submitting` (the screen's own write after a mined deposit); the next pass follows the hash path (receipt, then the indexer) | `failed`, "interrupted before an intent was recorded": the SDK never asked for an allocation; a deposit that executed is in a lock of The Compact, which the Settings scan finds |
+| `reverted` | `failed`, `depositFlowRelayReverted` | same as Agglayer |
+| `expired` | `failed`, `depositFlowRelayExpired` | same as Agglayer |
+| `not-submitted`, row younger than 24 hours | `failed`, `depositFlowRelayExpired` (the screen's text for `RelayNotSubmittedError`) | same as Agglayer |
+| `not-submitted`, row 24 hours old or more | no change: the job can have executed and been deleted | no change |
+| `pending`, `unknown` | no change | no change |
+
+A failure has the screen's `errorId` (`raw_bridge_deposit_failed`) and failure source (`wallet_deposit`, request
+client `relay`, the typed relay error as `cause`). A row that no pass settles ends at its delivery window
+(`BRIDGE_DELIVERY_TIMED_OUT`).
+
+Known limit: the Agglayer indexer lists the deposits of a destination by their source hash only, and the reconciler has
+no other way to find a deposit. A row whose job the relay deleted (24 hours after it became final) and whose hash was
+never written thus waits for its delivery window, also when the deposit landed.
 
 ### One batch for several calls (`sendCalls`)
 

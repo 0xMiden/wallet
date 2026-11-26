@@ -263,6 +263,25 @@ export function relaySubmitFailure(error: unknown): RelaySubmitFailure {
  */
 export type RelayErrorAction = 'review-again' | 'wait' | 'stop';
 
+/** The most links of a cause chain that `openRelayJobError` reads. */
+const MAX_CAUSE_LINKS = 16;
+
+/**
+ * The relay error that left a job open (`RelayUnknownOutcomeError`, `RelayStillPendingError`) in the cause chain of
+ * `error`, the error itself included, or undefined. viem wraps a provider error in its own RPC error types and keeps
+ * the provider error as a `cause`. The walk stops after 16 links and at a link that it already read.
+ */
+export function openRelayJobError(error: unknown): RelayUnknownOutcomeError | RelayStillPendingError | undefined {
+  const seen = new Set<unknown>();
+  let link: unknown = error;
+  while (link !== null && typeof link === 'object' && !seen.has(link) && seen.size < MAX_CAUSE_LINKS) {
+    if (link instanceof RelayUnknownOutcomeError || link instanceof RelayStillPendingError) return link;
+    seen.add(link);
+    link = Reflect.get(link, 'cause');
+  }
+  return undefined;
+}
+
 /** What the caller does after a failed relay call. See `RelayErrorAction`. */
 export function relayErrorAction(error: unknown): RelayErrorAction {
   if (

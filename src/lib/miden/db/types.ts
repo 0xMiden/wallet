@@ -456,8 +456,9 @@ export interface IBridgedReceiveExtraInputs {
   outputSymbol?: string;
   evmTxHash?: string;
   /**
-   * agglayer from a relay source: the relay job of the deposit batch. The deposit screen writes it before the relay
-   * POST, so a lost answer leaves a job that `resume` can follow. Absent on a deposit from an external wallet.
+   * A deposit from a relay source: the relay job of the deposit batch. agglayer: the deposit screen writes it before the
+   * relay POST, so a lost answer leaves a job that the reconciler reads (`check`). epoch: the Epoch store writes it when
+   * a relay send ended with its outcome not known. Absent on a deposit from an external wallet.
    */
   relayJob?: RelayJobRef;
   intentNonce?: string;

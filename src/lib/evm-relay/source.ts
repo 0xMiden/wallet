@@ -8,14 +8,14 @@ import type { Address, Chain, WalletClient } from 'viem';
 import { evmRpcChain } from 'lib/evm/rpc-chain';
 import type { RelayChainConfig } from 'lib/remote-config/schema';
 import { getRelayChain, getRelayConfig } from 'lib/remote-config/values';
-import type { WalletAccount } from 'lib/shared/types';
+import type { RelaySignRequest, RelaySignResult, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
 import { getRelayBaseUrl } from './base-url';
 import { RelayUnavailableError } from './errors';
 import { lowerAddress } from './parse';
 import { createRelayProvider, createRelayWalletClient, type RelayProvider } from './provider';
-import type { RelaySubmitOptions } from './submit';
+import { createRelaySubmitter, type RelaySubmitOptions, type RelaySubmitter } from './submit';
 
 /** The relay address of an account and the account that signs for it. The address is in lower case. */
 export interface RelaySource {
@@ -84,12 +84,16 @@ function requireRelayChain(chainId: number): RelayChainParts {
   return parts;
 }
 
+function signerOf(source: RelaySource): (request: RelaySignRequest) => Promise<RelaySignResult> {
+  return request => useWalletStore.getState().signRelay(source.accountPublicKey, request);
+}
+
 function providerFor(source: RelaySource, parts: RelayChainParts, hooks: RelaySubmitOptions): RelayProvider {
   return createRelayProvider({
     chain: parts.relayChain,
     address: source.address,
     rpcUrl: parts.rpcUrl,
-    sign: request => useWalletStore.getState().signRelay(source.accountPublicKey, request),
+    sign: signerOf(source),
     beforeSign: hooks.beforeSign,
     onJob: hooks.onJob,
     fee: hooks.fee
@@ -107,6 +111,16 @@ export function buildRelayProvider(
   hooks: RelaySubmitOptions = {}
 ): RelayProvider {
   return providerFor(source, requireRelayChain(chainId), hooks);
+}
+
+/**
+ * The relay submitter of `source` on `chainId`, for a flow that follows a stored job (`check`, `resume`) and sends
+ * nothing itself. A `submit` signs through the store's `signRelay` action, as the provider does. Throws
+ * `RelayUnavailableError` (`not_configured`) when the relay does not serve the chain.
+ */
+export function buildRelaySubmitter(source: RelaySource, chainId: number): RelaySubmitter {
+  const parts = requireRelayChain(chainId);
+  return createRelaySubmitter({ chain: parts.relayChain, address: source.address, sign: signerOf(source) });
 }
 
 /** A viem `WalletClient` over `buildRelayProvider`, on the wallet's chain definition with the wallet's RPC. */
