@@ -158,6 +158,7 @@ jobs:
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           FEATURE_ELIGIBILITY_URL: ${{ needs.setup.outputs.eligibility_url }}
+          COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 

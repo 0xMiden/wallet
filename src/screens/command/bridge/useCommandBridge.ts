@@ -59,9 +59,11 @@ export function useCommandBridge() {
     if (locked) clearDraft('bridge');
   }, [locked, clearDraft]);
   const scope = configKey([account?.publicKey, getEffectiveNetworkName(), getEffectiveRpcUrl(), locked]);
+  const initialDraft = drafts.readDraft('bridge');
+  const autoReviewPending = useRef(Boolean(initialDraft?.autoReview));
   const [selection, setSelection] = useState<CommandDrafts['bridge']>(
     () =>
-      drafts.readDraft('bridge') ?? {
+      initialDraft ?? {
         direction: 'in',
         route: '',
         amount: '',
@@ -198,6 +200,7 @@ export function useCommandBridge() {
       admittedRowId.current
     )
       return;
+    autoReviewPending.current = false;
     invalidate();
     setQuote(null);
     const updated = { ...selected.current, ...next };
@@ -286,7 +289,7 @@ export function useCommandBridge() {
       /* An incomplete quote or selection is not consent. */
     }
   }
-  const reviewTransfer = () => {
+  const reviewTransfer = useCallback(() => {
     if (!canReview || !current.current || pending.current || admittedRowId.current) return;
     const captured: ReviewedTransfer = structuredClone({ ...current.current, quote: quote ?? undefined });
     try {
@@ -297,8 +300,16 @@ export function useCommandBridge() {
     }
     consent.current = captured;
     setReview(captured);
-  };
+  }, [canReview, quote]);
+
+  useEffect(() => {
+    if (!autoReviewPending.current || !canReview || review || operationId || isSubmitting) return;
+    autoReviewPending.current = false;
+    reviewTransfer();
+  }, [canReview, review, operationId, isSubmitting, reviewTransfer]);
+
   const back = useCallback(() => {
+    autoReviewPending.current = false;
     if (operationId || pending.current) {
       invalidate();
       exit();

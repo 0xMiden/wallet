@@ -1,5 +1,5 @@
 import type { TestInfo } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { privateKeyToAccount, privateKeyToAddress } from 'viem/accounts';
 import { expect } from '@playwright/test';
@@ -18,12 +18,17 @@ import {
   saveMainnetNearCheckpoint,
   type MainnetNearCheckpoint
 } from './mainnet-near-checkpoint';
+import { sanitizedTail } from '../../../scripts/mainnet-log-tail.mjs';
 import { verifyRetiredNearReturnAbsence } from './mainnet-near-return-absence';
 import { nearNativeRequestDiagnostic } from './mainnet-near-native-request-diagnostic';
 import { armRecallBlocks } from './recall';
 import { loadMainnetSwapCheckpoint } from './mainnet-swap-checkpoint';
 import { loadMainnetEpochCheckpoint } from './mainnet-epoch-checkpoint';
-import { cappedMainnetRecoveryBudget, realizedMainnetLoopLoss, remainingMainnetLoopBudget } from './mainnet-loop-budget';
+import {
+  cappedMainnetRecoveryBudget,
+  realizedMainnetLoopLoss,
+  remainingMainnetLoopBudget
+} from './mainnet-loop-budget';
 import { canonicalMainnetLoopFaucet } from './mainnet-loop-config';
 import { restoreMainnetLoopGuardian } from './mainnet-loop-wallet';
 import { loadMainnetOneClickSetup } from './mainnet-one-click-config';
@@ -99,8 +104,53 @@ const auditedUnspentNearNonce = new Map([
   ['44970377919', 85],
   ['45055827591', 87],
   ['45072272341', 87],
-  ['45092013711', 87]
+  ['45092013711', 87],
+  // Stopped in preflight before any quote; 90 is the nonce its funded predecessor left, balances equal the checkpoint.
+  ['45334301017', 90]
 ]);
+
+const unquotedUnspentNearRuns = new Set(['45334301017']);
+
+const STAGE_FILE = 'test-results/mainnet-near-forward-stage.json';
+
+// Keeps the discarded cause of a blocked stage in the public stage file and the process log; the caller still throws its own generic error.
+// A generic wrapper carries the real error as its cause, so the deepest one is recorded: the stage can be recorded twice.
+export function recordNearStageCause(error: unknown): void {
+  let cause: string;
+  try {
+    const secrets = Object.entries(process.env)
+      .filter(([key]) => key.startsWith('E2E_MAINNET_'))
+      .map(([, value]) => value ?? '');
+    let root = error;
+    for (let depth = 0; depth < 5 && root instanceof Error && root.cause !== undefined; depth++) root = root.cause;
+    const raw = root instanceof Error ? `${root.name}: ${root.message.split('\n')[0]}` : String(root).split('\n')[0];
+    cause = sanitizedTail(raw ?? '', secrets)
+      .replace(/https?:\/\/\S+/gi, '[url]')
+      .replace(/\?\S+/g, '?[query]')
+      .replace(/\s+/g, ' ')
+      .slice(0, 300);
+    console.error(`Native NEAR stage cause: ${cause}`);
+  } catch {
+    try {
+      console.error(`Native NEAR stage cause: unprintable ${Object.prototype.toString.call(error)}`);
+    } catch {
+      // Diagnostics cannot change the funding gate or the original error.
+    }
+    return;
+  }
+  try {
+    let existing = {};
+    try {
+      existing = JSON.parse(readFileSync(STAGE_FILE, 'utf8'));
+    } catch {
+      // No earlier stage record.
+    }
+    mkdirSync('test-results', { recursive: true });
+    writeFileSync(STAGE_FILE, JSON.stringify({ ...existing, cause }), { mode: 0o600 });
+  } catch {
+    // An unwritable stage file still leaves the cause in the process log.
+  }
+}
 
 export async function runMainnetNearStage(
   wallet: GuardianAwareWalletPage,
@@ -202,7 +252,8 @@ export async function runMainnetNearStage(
           AbortSignal.timeout(1_100_000),
           keyPair
         );
-      } catch {
+      } catch (error) {
+        recordNearStageCause(error);
         throw new Error(
           'Original native NEAR recovery blocked; retain its original public checkpoint, never renew uncertain authority'
         );
@@ -274,7 +325,8 @@ export async function runMainnetNearStage(
         }
       );
       observe({ outcome: 'bridge_completion_asserted' });
-    } catch {
+    } catch (error) {
+      recordNearStageCause(error);
       throw new Error(
         'Native NEAR stage blocked; retain original public authority and never retry uncertain submissions'
       );
@@ -1169,9 +1221,12 @@ export async function runMainnetNearReverse(
     returnStage = 'sender-entered';
     try {
       await sender.send(buildMainnetEvmTransfer(evm, quote.quote.depositAddress, quote.quote.amountIn), activeSignal);
-    } catch {
+    } catch (error) {
       senderRejected = true;
-      throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry');
+      recordNearStageCause(error);
+      throw new Error('Native NEAR return blocked; inspect only its original public signed journal, never retry', {
+        cause: error
+      });
     }
     // The page's own status is evidence only: the transfer is already broadcast, so a slow row never fails the leg.
     await expect(wallet.page.getByTestId('near-intents-deposit-status'))
@@ -1235,7 +1290,7 @@ export async function verifyUnstartedNearForward(
     expectedNonce === undefined ||
     state.authorizationRunId !== state.sourceRunId ||
     state.phase !== 'forward-authorized' ||
-    !quote ||
+    (!quote && !unquotedUnspentNearRuns.has(state.sourceRunId)) ||
     state.sendAuthority ||
     state.forwardMidenTxId ||
     state.forwardEvmTxHash ||
@@ -1257,7 +1312,7 @@ export async function verifyUnstartedNearForward(
     state.evm.chainId !== 42161 ||
     !Number.isFinite(windowEnd) ||
     Date.now() <= windowEnd ||
-    Date.now() <= Date.parse(quote.deadline) ||
+    (quote && Date.now() <= Date.parse(quote.deadline)) ||
     (await wallet.getAccountAddress()) !== state.account
   )
     throw new Error('Original NEAR pre-authorization is live or has an unresolved execution fingerprint');
@@ -1281,6 +1336,7 @@ export async function verifyUnstartedNearForward(
     (await client.getTransactionCount({ address: account, blockTag: 'pending' })) !== expectedNonce
   )
     throw new Error('Original NEAR EVM inventory or unused nonce changed');
+  if (!quote) return;
   const status = await fetchOneClickStatus(
     {
       serviceUrl: state.serviceUrl,

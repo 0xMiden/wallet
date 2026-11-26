@@ -164,9 +164,28 @@ describe('durable nightly swap authorization', () => {
     recovery.reverseRequestAuthority.minimumReceive = '1006899';
     const path = join(dir, 'state.json');
     saveMainnetSwapCheckpoint(path, recovery);
-    expect(loadMainnetSwapCheckpoint(path)).toMatchObject({ reverseMinimum: '1007000', recoveryReturnMinimum: '1006899' });
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject({
+      reverseMinimum: '1007000',
+      recoveryReturnMinimum: '1006899'
+    });
     expect(() => saveMainnetSwapCheckpoint(path, { ...recovery, recoveryReturnMinimum: '1006898' })).toThrow();
     expect(() => saveMainnetSwapCheckpoint(path, { ...recovery, recoveryReturnAuthorizedAt: undefined })).toThrow();
+  });
+  it('accepts a stored first recovery minimum at most 5000 micros under the wallet minimum only', () => {
+    const state = withGrantedReturn();
+    state.request = { ...state.request, symbol: 'USDT', decimals: 6 };
+    state.reverseMinimum = '995100';
+    state.reverseRequestAuthority.minimumReceive = '995001';
+    const path = join(dir, 'state.json');
+    const recovery = { ...state, recoveryReturnMinimum: '995001' };
+    saveMainnetSwapCheckpoint(path, recovery);
+    expect(loadMainnetSwapCheckpoint(path)).toMatchObject({
+      reverseMinimum: '995100',
+      recoveryReturnMinimum: '995001'
+    });
+    const low = { ...recovery, recoveryReturnMinimum: '994999' };
+    low.reverseRequestAuthority = { ...low.reverseRequestAuthority, minimumReceive: '994999' };
+    expect(() => saveMainnetSwapCheckpoint(path, low)).toThrow();
   });
   const withReplacement = () => {
     const previous = withGrantedReturn();
