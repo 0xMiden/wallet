@@ -35,7 +35,7 @@ import {
  * both propose and one loses with another error and keeps a Failed row: a known limit (repo CLAUDE.md, "One note,
  * several devices", Known limits). Two auto-consumers that see the same note within seconds are exactly that race, so
  * this spec allows a Failed claim row only when the other device completed every note it names, records each such
- * row, and fails on any other Failed row.
+ * row, and fails on any other Failed row, including a row that names no note.
  *
  * Asserted: every note is claimed exactly once over both devices (one Completed row of the device that made it), no
  * claim row stays in progress, neither device lists a note, and the native vault on both devices equals the
@@ -162,6 +162,11 @@ test.describe('Multi-device claims: auto-consume on two devices', () => {
         const sinceBaseline = (row: ClaimRow): boolean => (row.initiatedAt ?? 0) >= baselineSec;
         const failedA = rowsA.filter(row => row.status === 'Failed' && sinceBaseline(row));
         const failedB = rowsB.filter(row => row.status === 'Failed' && sinceBaseline(row));
+        // A row that names no note is vacuously explained by every() in the helper, so it is refused here.
+        expect(
+          [...failedA, ...failedB].filter(row => row.type === 'consume' && isOwnRow(row) && row.noteIds.length === 0),
+          'a Failed claim row must name the note it claimed'
+        ).toEqual([]);
         expect(
           [...unexplainedFailedClaims(failedA, [rowsB]), ...unexplainedFailedClaims(failedB, [rowsA])],
           'a Failed claim is allowed only when the other device completed every note it names (known limit)'
@@ -184,7 +189,9 @@ test.describe('Multi-device claims: auto-consume on two devices', () => {
           row => row.type === 'consume' && isOwnRow(row) && row.status === 'Completed' && sinceBaseline(row)
         );
         expect(
-          completed.filter(row => !row.noteIds.every(noteId => grantNotes.some(n => namesNote([noteId], n)))),
+          completed.filter(
+            row => row.noteIds.length === 0 || !row.noteIds.every(noteId => grantNotes.some(n => namesNote([noteId], n)))
+          ),
           'after the baseline, the only completed claims are claims of the granted notes'
         ).toEqual([]);
         const { fees, withoutFee } = feesOf(completed, nativeFaucetId);
