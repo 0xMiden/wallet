@@ -1,0 +1,81 @@
+name: Issue 2332 Activity claim card visual proof
+
+on:
+  push:
+    branches: [ci/2332-claim-card-visual-8c4a2867-261126]
+
+permissions:
+  contents: read
+
+jobs:
+  claim-card-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CANDIDATE: 8c4a286716c1ba2062a468c569760aa3b73fa974
+      BASELINE: e4fc96346060a535a5687500d06a3f253d89ba88
+      OVERLAY_SHA256: 3d2e5dbcae8cacf73db0156ff7b3b58ff716a4527ba44b630aff105b7e97068e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - name: Bind exact source and test overlay
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$CANDIDATE" HEAD
+          test "$(git rev-parse "$CANDIDATE^")" = "$BASELINE"
+          specs=(playwright.claim-card-visual.config.ts playwright/visual/claim-card/{fixture.tsx,index.html,main.tsx,visual.spec.ts,vite.config.mts})
+          printf '%s\n' .github/workflows/2332-claim-card-visual-proof.yml "${specs[@]}" | sort > "$RUNNER_TEMP/allowed"
+          git diff --name-only "$CANDIDATE" HEAD | sort | diff "$RUNNER_TEMP/allowed" -
+          git diff --exit-code "$BASELINE" "$CANDIDATE" -- "${specs[@]}" package.json yarn.lock
+          git diff --full-index --binary --no-color "$CANDIDATE" HEAD -- "${specs[@]}" > "$RUNNER_TEMP/overlay.patch"
+          printf '%s  %s\n' "$OVERLAY_SHA256" "$RUNNER_TEMP/overlay.patch" | sha256sum --check
+          mkdir "$RUNNER_TEMP/claim-card-proof"
+          cp "$RUNNER_TEMP/overlay.patch" "$RUNNER_TEMP/claim-card-proof/overlay.patch"
+          printf 'proof=%s\nsource=%s\nbaseline=%s\noverlay_sha256=%s\n' "$GITHUB_SHA" "$CANDIDATE" "$BASELINE" "$OVERLAY_SHA256" \
+            | tee "$RUNNER_TEMP/claim-card-proof/source.txt" >> "$GITHUB_STEP_SUMMARY"
+          git checkout --detach "$CANDIDATE"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: timeout 6m yarn install --frozen-lockfile --non-interactive --network-timeout 60000
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 5
+        run: yarn playwright install --with-deps chromium
+      - name: Capture exact source and verify expected cases
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/claim-card-proof"
+          for role in baseline candidate; do
+            if [[ "$role" == baseline ]]; then
+              sha="$BASELINE"
+              captures=2
+            else
+              sha="$CANDIDATE"
+              captures=4
+            fi
+            git checkout --detach "$sha"
+            test "$(git rev-parse HEAD)" = "$sha"
+            git diff --exit-code
+            git apply --check "$RUNNER_TEMP/overlay.patch"
+            git apply "$RUNNER_TEMP/overlay.patch"
+            printf '%s=%s tree=%s\n' "$role" "$sha" "$(git rev-parse "HEAD^{tree}")" | tee -a "$proof/source.txt" >> "$GITHUB_STEP_SUMMARY"
+            mkdir "$proof/$role"
+            PLAYWRIGHT_JSON_OUTPUT_FILE="$proof/$role/results.json" CLAIM_CARD_CAPTURE="$role" \
+              yarn playwright test --config playwright.claim-card-visual.config.ts --workers=1 --retries=0 --reporter=list,json \
+              2>&1 | tee "$proof/$role/playwright.log"
+            cp -R test-results/claim-card-visual/. "$proof/$role/"
+            test "$(find "$proof/$role" -name 'claim-card-*.png' | wc -l)" -eq "$captures"
+            git apply --reverse "$RUNNER_TEMP/overlay.patch"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: 2332-claim-card-visual
+          path: ${{ runner.temp }}/claim-card-proof/
+          if-no-files-found: error
+          retention-days: 7
