@@ -9,6 +9,7 @@ import { SWRConfig } from 'swr';
 
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import * as nativeMetadata from 'lib/miden/metadata/native';
+import { TOKENS_METADATA_OVERRIDES_STORAGE_KEY } from 'lib/miden/metadata/overrides';
 import {
   TOKENS_BASE_METADATA_STORAGE_KEY,
   TOKENS_METADATA_SCHEMA_STORAGE_KEY,
@@ -1127,20 +1128,30 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     }
   });
 
-  it('reads v2 persisted token metadata on cold launch before Zustand hydrates', async () => {
+  it('reads v2 persisted token metadata and overrides on cold launch before Zustand hydrates', async () => {
     _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
     _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
-      'usdc-faucet': { symbol: 'USDC', name: 'USD Coin', decimals: 6 }
+      'usdc-faucet': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+      'ovrd-base-faucet': { symbol: 'OLD', name: 'Old Coin', decimals: 6 }
     };
-    _g.__cnSwrTest.consumableNotes = [makeNote('usdc-note-1', 'usdc-faucet', '5000000')];
+    _g.__cnSwrTest.kv[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'ovrd-base-faucet': { symbol: 'OVRD', name: 'Overridden Coin' }
+    };
+    _g.__cnSwrTest.consumableNotes = [
+      makeNote('usdc-note-1', 'usdc-faucet', '5000000'),
+      makeNote('usdc-note-ovrd', 'ovrd-base-faucet', '2000000')
+    ];
 
     const wrapper = createWrapper();
     const { result } = renderHook(() => useClaimableNotes('pk-meta-a'), { wrapper });
 
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(32);
     });
-    expect(result.current.data?.map(n => n.id)).toEqual(['usdc-note-1']);
+    expect(result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([
+      ['usdc-note-1', 'USDC'],
+      ['usdc-note-ovrd', 'OVRD']
+    ]);
     expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
     expect(
       _g.__cnSwrTest.fetchFromStorageCalls.filter((key: string) => key === TOKENS_BASE_METADATA_STORAGE_KEY)
@@ -1282,7 +1293,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
 
     const { result } = renderHook(() => useClaimableNotes('pk-meta-b'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
@@ -1306,13 +1317,14 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('n-nan', 'usdc-nan', '100')];
     const hNan = renderHook(() => useClaimableNotes('pk-meta-nan'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hNan.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
     hNan.unmount();
 
     // 2) Legacy < 2 schema version must be rejected.
+    __resetClaimableNotesCacheForTests();
     mockRunWhenClientIdle.mockReset();
     _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION - 1;
     _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
@@ -1321,26 +1333,28 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('n-v1', 'usdc-v1', '100')];
     const hV1 = renderHook(() => useClaimableNotes('pk-meta-v1'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hV1.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
     hV1.unmount();
 
     // 3) Array in TOKENS_BASE_METADATA_STORAGE_KEY must be ignored (!Array.isArray).
+    __resetClaimableNotesCacheForTests();
     mockRunWhenClientIdle.mockReset();
     _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
     _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = [{ symbol: 'ARR', name: 'Array Coin', decimals: 6 }];
     _g.__cnSwrTest.consumableNotes = [makeNote('n-arr', '0', '100')];
     const hArr = renderHook(() => useClaimableNotes('pk-meta-arr'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hArr.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
     hArr.unmount();
 
     // 4) Malformed AssetMetadata entries (decimals < 0, float, > 255, non-string symbol) must be dropped.
+    __resetClaimableNotesCacheForTests();
     mockRunWhenClientIdle.mockReset();
     _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
     _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
@@ -1357,19 +1371,20 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     ];
     const hBad = renderHook(() => useClaimableNotes('pk-meta-bad'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hBad.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
     hBad.unmount();
 
     // 5) Storage read error in readStoredV2Metadata must safely return an empty Map.
+    __resetClaimableNotesCacheForTests();
     mockRunWhenClientIdle.mockReset();
     _g.__cnSwrTest.fetchFromStorageFailKey = TOKENS_METADATA_SCHEMA_STORAGE_KEY;
     _g.__cnSwrTest.consumableNotes = [makeNote('n-storage-err', 'f-err', '100')];
     const hErr = renderHook(() => useClaimableNotes('pk-meta-storage-err'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hErr.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
@@ -1491,6 +1506,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.extensionClaimableNotes = null;
 
     // 5) Valid own '__proto__' entry in v2 storage and Zustand cache round-trips cleanly via Map/ownRecordValue.
+    __resetClaimableNotesCacheForTests();
     mockRunWhenClientIdle.mockReset();
     _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
     _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = JSON.parse(
@@ -1499,7 +1515,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('n-proto', '__proto__', '100')];
     const hProto = renderHook(() => useClaimableNotes('pk-proto'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(32);
     });
     expect(hProto.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['n-proto', 'PROTO']]);
     expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
@@ -1533,7 +1549,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('n-ovrd', 'overridden-faucet', '100')];
     const hOvrd = renderHook(() => useClaimableNotes('pk-override-only'), { wrapper: createWrapper() });
     await act(async () => {
-      await flushMicrotasks(12);
+      await flushMicrotasks(24);
     });
     expect(hOvrd.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);

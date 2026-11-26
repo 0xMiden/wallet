@@ -140,6 +140,25 @@ function parseNotes(
   return parsed;
 }
 
+interface StoredV2MetadataSnapshot {
+  metadata: Map<string, AssetMetadata>;
+  overrides: TokenMetadataOverrides;
+}
+
+interface PendingStoredV2Waiter {
+  coordinator: CacheKeyRefreshCoordinator;
+  displayFaucets: Set<string>;
+  prefetchFaucets: Set<string>;
+  fetchMetadata: (id: string) => Promise<AssetMetadata>;
+  setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>;
+}
+
+let storedV2Snapshot: StoredV2MetadataSnapshot | null = null;
+let storedV2Hydrated = false;
+let storedV2HydrationPromise: Promise<void> | null = null;
+let storedV2HydrationGeneration = 0;
+const pendingStoredV2Waiters = new Map<string, PendingStoredV2Waiter>();
+
 async function readStoredV2Metadata(): Promise<Map<string, AssetMetadata>> {
   try {
     const version = await fetchFromStorage<unknown>(TOKENS_METADATA_SCHEMA_STORAGE_KEY);
@@ -160,50 +179,56 @@ async function readStoredV2Metadata(): Promise<Map<string, AssetMetadata>> {
   }
 }
 
-async function buildMetadataMapFromCache(
+async function readStoredV2Snapshot(): Promise<StoredV2MetadataSnapshot> {
+  const metadata = await readStoredV2Metadata();
+  if (metadata.size === 0) {
+    return { metadata, overrides: {} };
+  }
+  const overrides = await getTokenMetadataOverrides().catch((): TokenMetadataOverrides => ({}));
+  return { metadata, overrides };
+}
+
+function buildMetadataMapFromCache(
   notes: ParsedNote[],
-  cache: Record<string, AssetMetadata> | undefined,
-  loadStoredV2: () => Promise<Map<string, AssetMetadata>>
-): Promise<Map<string, AssetMetadata>> {
-  const map = new Map<string, AssetMetadata>();
+  cache: Record<string, AssetMetadata> | undefined
+): {
+  metadataByFaucetId: Map<string, AssetMetadata>;
+  missingFromCacheFaucets: string[];
+} {
+  const metadataByFaucetId = new Map<string, AssetMetadata>();
+  const missingFromCache = new Set<string>();
   const nativeId = getNativeAssetIdSync();
-  const missingFromRef: ParsedNote[] = [];
   for (const n of notes) {
     if (n.faucetId === nativeId) {
-      map.set(n.faucetId, getNativeDisplayMetadataSync(ownRecordValue(cache, n.faucetId), n.faucetId));
+      metadataByFaucetId.set(n.faucetId, getNativeDisplayMetadataSync(ownRecordValue(cache, n.faucetId), n.faucetId));
     } else {
       const cached = ownRecordValue(cache, n.faucetId);
-      if (isValidAssetMetadata(cached)) map.set(n.faucetId, cached);
-      else missingFromRef.push(n);
+      if (isValidAssetMetadata(cached)) {
+        metadataByFaucetId.set(n.faucetId, cached);
+      } else {
+        const storedEntry = storedV2Snapshot?.metadata.get(n.faucetId);
+        if (storedEntry) {
+          metadataByFaucetId.set(n.faucetId, applyOwnOverrideFor(n.faucetId, storedEntry, storedV2Snapshot?.overrides));
+        } else {
+          missingFromCache.add(n.faucetId);
+        }
+      }
     }
   }
-  if (missingFromRef.length > 0) {
-    const [stored, overrides] = await Promise.all([
-      loadStoredV2(),
-      getTokenMetadataOverrides().catch((): TokenMetadataOverrides => ({}))
-    ]);
-    for (const n of missingFromRef) {
-      const entry = stored.get(n.faucetId);
-      if (entry) map.set(n.faucetId, applyOwnOverrideFor(n.faucetId, entry, overrides));
-    }
-  }
-  return map;
+  return { metadataByFaucetId, missingFromCacheFaucets: Array.from(missingFromCache) };
 }
 
 /** Missing means no faucet record: an entry an override made is shown meanwhile, and the record must still come. */
-async function findMissingFaucetIds(
-  notes: ParsedNote[],
-  loadStoredV2: () => Promise<Map<string, AssetMetadata>>
-): Promise<string[]> {
+function findMissingFaucetIds(notes: ParsedNote[]): string[] {
   const missing = new Set<string>();
   const nativeId = getNativeAssetIdSync();
-  let storedV2: Map<string, AssetMetadata> | null = null;
   for (const n of notes) {
-    if (n.faucetId !== nativeId && !isValidAssetMetadata(faucetMetadataOf(n.faucetId))) {
-      if (!storedV2) storedV2 = await loadStoredV2();
-      if (!storedV2.has(n.faucetId)) {
-        missing.add(n.faucetId);
-      }
+    if (
+      n.faucetId !== nativeId &&
+      !isValidAssetMetadata(faucetMetadataOf(n.faucetId)) &&
+      !storedV2Snapshot?.metadata.has(n.faucetId)
+    ) {
+      missing.add(n.faucetId);
     }
   }
   return Array.from(missing);
@@ -720,7 +745,109 @@ function syncCoordinatorErrorRecovery(cacheKey: string, entry: CacheKeyRefreshCo
   entry.removeWakeListeners = undefined;
 }
 
+function scheduleMetadataPrefetch(
+  missingFaucetIds: readonly string[],
+  fetchMetadata: (id: string) => Promise<AssetMetadata>,
+  setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>
+): void {
+  const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
+  if (toFetchMetadataIds.length === 0) return;
+  for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
+  runWhenClientIdle(async () => {
+    try {
+      const fetched = new Map<string, AssetMetadata>();
+      for (const id of toFetchMetadataIds) {
+        try {
+          fetched.set(id, await fetchMetadata(id));
+        } catch (e) {
+          console.warn('Metadata fetch failed for', id, e);
+        }
+      }
+      if (fetched.size > 0) {
+        await persistMetadataIfAny(Object.fromEntries(fetched), setTokensBaseMetadata);
+        // Surface the newly described notes right away instead of waiting out dedupingInterval.
+        requestNotesRefresh();
+      }
+    } finally {
+      for (const id of toFetchMetadataIds) inFlightMetadataFaucets.delete(id);
+    }
+  });
+}
+
+function ensureStoredV2HydrationForKey(
+  cacheKey: string,
+  coordinator: CacheKeyRefreshCoordinator,
+  displayFaucets: readonly string[],
+  prefetchFaucets: readonly string[],
+  fetchMetadata: (id: string) => Promise<AssetMetadata>,
+  setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>
+): void {
+  if (storedV2Hydrated) return;
+  if (displayFaucets.length === 0 && prefetchFaucets.length === 0) {
+    pendingStoredV2Waiters.delete(cacheKey);
+    return;
+  }
+  if ((activeCacheKeyCounts.get(cacheKey) ?? 0) === 0 || coordinatorsByKey.get(cacheKey) !== coordinator) {
+    return;
+  }
+  pendingStoredV2Waiters.set(cacheKey, {
+    coordinator,
+    displayFaucets: new Set(displayFaucets),
+    prefetchFaucets: new Set(prefetchFaucets),
+    fetchMetadata,
+    setTokensBaseMetadata
+  });
+  if (storedV2HydrationPromise) return;
+
+  const generation = storedV2HydrationGeneration;
+  storedV2HydrationPromise = readStoredV2Snapshot().then(
+    snapshot => {
+      if (generation !== storedV2HydrationGeneration) return;
+      storedV2Snapshot = snapshot;
+      storedV2Hydrated = true;
+      storedV2HydrationPromise = null;
+      const waiters = Array.from(pendingStoredV2Waiters.entries());
+      pendingStoredV2Waiters.clear();
+      for (const [waiterCacheKey, waiter] of waiters) {
+        const isActive =
+          (activeCacheKeyCounts.get(waiterCacheKey) ?? 0) > 0 &&
+          coordinatorsByKey.get(waiterCacheKey) === waiter.coordinator &&
+          waiter.coordinator.subscribers.size > 0;
+        if (!isActive) continue;
+
+        let hasNewlyHydratedDisplay = false;
+        for (const faucetId of waiter.displayFaucets) {
+          if (snapshot.metadata.has(faucetId)) {
+            hasNewlyHydratedDisplay = true;
+            break;
+          }
+        }
+        if (hasNewlyHydratedDisplay) {
+          void requestCoordinatedRefresh(waiterCacheKey);
+        }
+
+        const stillMissing: string[] = [];
+        for (const faucetId of waiter.prefetchFaucets) {
+          if (!snapshot.metadata.has(faucetId) && !isValidAssetMetadata(faucetMetadataOf(faucetId))) {
+            stillMissing.push(faucetId);
+          }
+        }
+        if (stillMissing.length > 0) {
+          scheduleMetadataPrefetch(stillMissing, waiter.fetchMetadata, waiter.setTokensBaseMetadata);
+        }
+      }
+    },
+    () => {
+      if (generation !== storedV2HydrationGeneration) return;
+      storedV2Hydrated = true;
+      storedV2HydrationPromise = null;
+      pendingStoredV2Waiters.clear();
+    }
+  );
+}
+
 function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator): void {
+  pendingStoredV2Waiters.delete(cacheKey);
   entry.unsubscribeRefresh?.();
   entry.unsubscribeRefresh = undefined;
   if (entry.errorRetryTimer) {
@@ -746,6 +873,11 @@ function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator)
 
 /** Test-only: drops the in-memory half of the cache and refresh coordinators. */
 export function __resetClaimableNotesCacheForTests(): void {
+  storedV2HydrationGeneration += 1;
+  storedV2Snapshot = null;
+  storedV2Hydrated = false;
+  storedV2HydrationPromise = null;
+  pendingStoredV2Waiters.clear();
   claimableNotesMemCache.clear();
   writtenClaimableNotes.clear();
   inFlightMetadataFaucets.clear();
@@ -1001,45 +1133,30 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       }
       const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, entry)).filter(isListedClaimableNote);
 
-      let storedV2Promise: Promise<Map<string, AssetMetadata>> | null = null;
-      const loadStoredV2 = () => {
-        if (!storedV2Promise) storedV2Promise = readStoredV2Metadata();
-        return storedV2Promise;
-      };
-
-      // 2) Seed metadata map from cache (and baked-in MIDEN)
-      const metadataByFaucetId = await buildMetadataMapFromCache(
+      // 2) Seed metadata map from memory and any already-hydrated v2 storage snapshot (non-blocking).
+      const { metadataByFaucetId, missingFromCacheFaucets } = buildMetadataMapFromCache(
         parsedNotes,
-        allTokensBaseMetadataRef.current,
-        loadStoredV2
+        allTokensBaseMetadataRef.current
       );
 
-      // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
+      // 3) Schedule background v2 metadata hydration and/or RPC pre-fetch for unknown tokens (non-blocking).
       // This doesn't "warm up" the WASM client: it fetches token metadata (symbol, decimals)
       // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
-      const missingFaucetIds = await findMissingFaucetIds(parsedNotes, loadStoredV2);
-      const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
-      if (toFetchMetadataIds.length > 0) {
-        for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
-        runWhenClientIdle(async () => {
-          try {
-            const fetched = new Map<string, AssetMetadata>();
-            for (const id of toFetchMetadataIds) {
-              try {
-                fetched.set(id, await fetchMetadata(id));
-              } catch (e) {
-                console.warn('Metadata fetch failed for', id, e);
-              }
-            }
-            if (fetched.size > 0) {
-              await persistMetadataIfAny(Object.fromEntries(fetched), setTokensBaseMetadata);
-              // Surface the newly described notes right away instead of waiting out dedupingInterval.
-              requestNotesRefresh();
-            }
-          } finally {
-            for (const id of toFetchMetadataIds) inFlightMetadataFaucets.delete(id);
-          }
-        });
+      const missingFaucetIds = findMissingFaucetIds(parsedNotes);
+      if (!storedV2Hydrated && (missingFromCacheFaucets.length > 0 || missingFaucetIds.length > 0)) {
+        ensureStoredV2HydrationForKey(
+          cacheKey,
+          entry,
+          missingFromCacheFaucets,
+          missingFaucetIds,
+          fetchMetadata,
+          setTokensBaseMetadata
+        );
+      } else {
+        pendingStoredV2Waiters.delete(cacheKey);
+        if (missingFaucetIds.length > 0) {
+          scheduleMetadataPrefetch(missingFaucetIds, fetchMetadata, setTokensBaseMetadata);
+        }
       }
       // 4) Return notes with available metadata immediately, in a fixed order (see
       // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
