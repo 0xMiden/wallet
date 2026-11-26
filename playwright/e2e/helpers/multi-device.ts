@@ -534,7 +534,7 @@ export async function assertBackupReachesWalletApi(
   if (outcome === 'disabled') {
     throw new Error(
       'The running extension has no wallet-api base URL (the backup refresh answered "disabled"). ' +
-        `Rebuild with "MIDEN_WALLET_API_URL=${walletApi.baseUrl} yarn test:e2e:multi-device:build".`
+        `Rebuild with "E2E_NETWORK=testnet MIDEN_WALLET_API_URL=${walletApi.baseUrl} yarn test:e2e:blockchain:build".`
     );
   }
   if (sent === 0) {
