@@ -2,7 +2,7 @@
 
 ## 1.18.2 (TBD)
 
-- [FIX][ci] Require private MidenFi signer setup to pass in both dApp E2E account modes.
+- [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
 
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
 
