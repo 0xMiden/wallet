@@ -42,6 +42,7 @@ import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { basketChange24h, basketKlines } from 'lib/prices/basket';
+import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { fetchKlineSeries } from 'lib/prices/feed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -97,6 +98,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const allTokensMetadata = useAllTokensBaseMetadata();
   const { data: balances, isLoading: balancesLoading } = useAllBalances(account.publicKey, allTokensMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Reads the stored feed run into this realm, so quoteMayArrive knows what it already ruled out.
+  useCachedDisplayQuotes();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const token = balances?.find(b => b.tokenId === tokenId);

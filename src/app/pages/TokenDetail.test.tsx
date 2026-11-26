@@ -11,12 +11,14 @@ import {
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest, normalizedFaucetId } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { _resetDisplayFeedForTest } from 'lib/prices/display-feed';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -432,8 +434,8 @@ function configure(o: Overrides = {}) {
         ]
       : o.klineData;
   mockUseRetryableSWR.mockImplementation((_key: unknown, fetcher: () => unknown) => {
-    // Cover the inline `() => fetchKlineData(symbol, timeframe)` closure.
-    fetcher();
+    // Cover the inline `() => fetchKlineData(symbol, timeframe)` closure. A rejection is SWR's error state.
+    Promise.resolve(fetcher()).catch(() => undefined);
     return { data };
   });
 }
@@ -454,6 +456,7 @@ beforeEach(() => {
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
   jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(null);
   resetHiddenTokens();
+  _resetDisplayFeedForTest();
   mockReadStorage.mockReset();
   // Unread by default: most cases never look at the row, and a read settling after a synchronous
   // case ends would update the page outside act().
@@ -672,6 +675,23 @@ describe('TokenDetail', () => {
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
     }
+  });
+
+  // A cold page: only the stored feed run knows that no market quotes ETH, so the page must read it.
+  it('drops the fiat dash when the stored feed already ruled the market out', async () => {
+    const feedKey = `display_feed_v1:${getEffectiveNetworkName()}`;
+    mockReadStorage.mockImplementation(key =>
+      key === feedKey
+        ? Promise.resolve({ fetchedAt: Date.now(), baskets: {}, unquoted: ['ETH'] })
+        : new Promise(() => {})
+    );
+    const view = renderPage({ tokenPrices: {} });
+    await act(async () => {});
+    view.rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toBeNull();
   });
 
   // The E2E fixture has no market quote, even when the nominal display setting is on.
