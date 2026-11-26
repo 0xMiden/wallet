@@ -763,6 +763,17 @@ export interface PeerPaybackWatchReport {
   sampleErrors: string[];
 }
 
+/** The progress bar that the Pending list shows while it fetches its history and notes (`ClaimsLoadingBar`). */
+const PENDING_LOADING_BAR = '[role="progressbar"][aria-label="Fetching your transaction history and notes"]';
+
+/**
+ * The Pending list is on screen and has finished its fetch, so a missing card is a real read. The header renders
+ * before the list's data arrives, so a loading list is no sample.
+ */
+export function pendingListRendered(view: { url: string; viewButtons: number; loadingBars: number }): boolean {
+  return view.url.includes('filter=pending') && view.viewButtons > 0 && view.loadingBars === 0;
+}
+
 /**
  * Sample the other device while a peer payback can be on it. Each lap reads the
  * service worker's note list, the seen-note record, the Pending list on screen
@@ -827,8 +838,11 @@ export class PeerPaybackWatch {
     const { notes } = await readSyncNotes(this.wallet);
     const seen = await readSeenNoteIds(this.wallet);
     const ledger = await readSwapLedger(this.wallet);
-    const listLive =
-      page.url().includes('filter=pending') && (await page.getByTestId('activity-view-button').count()) > 0;
+    const listLive = pendingListRendered({
+      url: page.url(),
+      viewButtons: await page.getByTestId('activity-view-button').count(),
+      loadingBars: await page.locator(PENDING_LOADING_BAR).count()
+    });
     const nowSeconds = Math.floor(Date.now() / 1000);
     this.samples += 1;
     const paybacks = notes.filter(note => sameFaucetId(note.faucetId, this.requestFaucetId));

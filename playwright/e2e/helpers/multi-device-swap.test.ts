@@ -9,6 +9,7 @@ import {
   leadingAmount,
   ownClaimsOfNote,
   parseFillProgress,
+  pendingListRendered,
   PEER_SWAP_PAYBACK_HOLD_SECONDS,
   sameFaucetId,
   statusName,
@@ -273,5 +274,20 @@ describe('statusName', () => {
       'Unconfirmed',
       undefined
     ]);
+  });
+});
+
+describe('pendingListRendered', () => {
+  const url = 'chrome-extension://id/fullpage.html#/history?filter=pending';
+
+  it('takes a list that still fetches for no sample, even when its header shows', () => {
+    expect(pendingListRendered({ url, viewButtons: 1, loadingBars: 1 })).toBe(false);
+    expect(pendingListRendered({ url, viewButtons: 1, loadingBars: 0 })).toBe(true);
+  });
+
+  it('needs the Pending filter and the header', () => {
+    const noFilter = 'chrome-extension://id/fullpage.html#/history';
+    expect(pendingListRendered({ url: noFilter, viewButtons: 1, loadingBars: 0 })).toBe(false);
+    expect(pendingListRendered({ url, viewButtons: 0, loadingBars: 0 })).toBe(false);
   });
 });
