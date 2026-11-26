@@ -6109,11 +6109,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(events).toEqual(['executing', 'execute', 'proving', 'gate']);
     });
 
-    it('marks activeContext settled before sendResponse on pre-gate eviction so resumed work emits no late stage events (#2325)', async () => {
+    it('sets activeContext.gateClosed before sendResponse when evicted on parked gate open so resumed guardianPipeline emits no late retract (#2325)', async () => {
       const { events, gates } = await arrange([1_000], 1_000);
       const miden: any = await import('lib/miden/sdk/miden-client');
       const lateAfterResponse: any[] = [];
       const sendResponse = jest.fn();
+      let gateEntered!: () => void;
+      const enteredGate = new Promise<void>(resolve => {
+        gateEntered = resolve;
+      });
+      let releaseOpenGate!: () => void;
+      const openGateReleased = new Promise<void>(resolve => {
+        releaseOpenGate = resolve;
+      });
 
       G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
         if (m?.type === 'OFFSCREEN_STAGE_EVENT' || m?.type === OFFSCREEN_SUBMIT_GATE) {
@@ -6126,23 +6134,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         if (m?.type === OFFSCREEN_SUBMIT_GATE) {
           gates.push(m);
           events.push(m.action === 'retract' ? 'gate:retract' : 'gate');
+          if (m.action !== 'retract') {
+            gateEntered();
+            await openGateReleased;
+          }
           return { ok: true };
         }
         return undefined;
-      });
-
-      const baseExec = G.__off.guardianExecuteRequest;
-      let releaseExec!: () => void;
-      let execEntered!: () => void;
-      const enteredExec = new Promise<void>(resolve => {
-        execEntered = resolve;
-      });
-      G.__off.guardianExecuteRequest = jest.fn(async (...args: any[]) => {
-        execEntered();
-        await new Promise<void>(resolve => {
-          releaseExec = resolve;
-        });
-        return baseExec(...args);
       });
 
       capturedListener!(
@@ -6154,18 +6152,18 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         {},
         sendResponse
       );
-      await enteredExec;
+      await enteredGate;
       miden.__evictHolder();
       await waitForReply(sendResponse);
 
-      releaseExec();
+      releaseOpenGate();
       await miden.__lastRunning()?.catch(() => {});
       await flush();
 
       expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
-      expect(gates.filter(g => g.action === 'retract')).toHaveLength(0);
+      expect(gates.filter(g => g.action === 'retract')).toHaveLength(1);
       expect(lateAfterResponse).toEqual([]);
-      expect(events).toEqual(['executing', 'execute']);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract']);
     });
   });
 
