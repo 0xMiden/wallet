@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEAT][all] Deposit from another chain with a deposit address: the Deposit flow shows the account's own EVM address, the user sends tokens to it from any wallet or exchange, and Bread bridges them to Miden through the relay with no connected wallet and no EVM gas from the user. Home shows a row for a deposit that waits for its funds. The connect-wallet flow stays available.
 - [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch of raw calls that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden with no EVM gas from the user. The service knows no bridge, has no login and keeps only its nonce counter and the open relays.
 - [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; an EIP-1193 provider relays the transactions of a bridge flow through the relay service; and the remote config gains the `relay` section behind `features.relayDeposit`.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
