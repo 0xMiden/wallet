@@ -1,6 +1,18 @@
 import { COMMAND_AI_JSON_SCHEMA, parseAiCompilerOutput } from './schema';
 
 describe('command-ai schema', () => {
+  it('accepts bounded plain text only on a known help topic', () => {
+    const help = { op: 'explain', topic: 'Privacy', answer: 'Check what is visible on the public chain.' };
+    expect(parseAiCompilerOutput({ result: help })).toEqual(help);
+    expect(parseAiCompilerOutput({ ...help, topic: 'Other' })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, answer: ' '.repeat(10) })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, answer: 'a'.repeat(851) })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, answer: 'See https://example.invalid' })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, answer: '<ADDR_1>' })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, answer: '[Click](mailto:example@example.invalid)' })).toBeNull();
+    expect(parseAiCompilerOutput({ ...help, action: 'send' })).toBeNull();
+  });
+
   it('parses envelope-wrapped set_intent payloads', () => {
     const parsed = parseAiCompilerOutput({
       result: {

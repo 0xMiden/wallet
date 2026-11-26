@@ -123,6 +123,91 @@ async function seedChartPreview(page: Page, accountId: string) {
   );
 }
 
+test('Bread answers questions without moving the composer while the model replies', async ({
+  extensionContext,
+  extensionId
+}, info) => {
+  test.setTimeout(250_000);
+  await importWallet(extensionContext, extensionId);
+  const command = await extensionContext.newPage();
+  await command.setViewportSize({ width: 390, height: 844 });
+  await command.addInitScript(() => {
+    localStorage.setItem('bread_command_ai_proxy_url', 'http://127.0.0.1:47989');
+  });
+  let finishReply!: () => void;
+  const pendingReply = new Promise<void>(resolve => {
+    finishReply = resolve;
+  });
+  let requests = 0;
+  await command.route('http://127.0.0.1:47989/v1/compile', async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'POST',
+          'access-control-allow-headers': 'content-type'
+        }
+      });
+      return;
+    }
+    requests++;
+    const first = requests === 1;
+    expect(route.request().postDataJSON()).toEqual(
+      first
+        ? { redactedText: 'How private is it?', helpContext: null }
+        : { redactedText: 'How can I check?', helpContext: 'Privacy' }
+    );
+    if (!first) await pendingReply;
+    await route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' },
+      json: {
+        output: {
+          result: {
+            op: 'explain',
+            topic: first ? 'Privacy' : 'Verify',
+            answer: first
+              ? 'Private notes keep their contents off the public chain. The sending account is still public.'
+              : 'Check the Public or Private choice before you confirm.'
+          }
+        }
+      }
+    });
+  });
+
+  try {
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    const input = command.getByTestId('command-ai-input');
+    const submit = command.getByTestId('command-ai-submit');
+    const answer = command.getByTestId('command-ai-help-answer');
+    await input.fill('How private is it?');
+    await input.press('Enter');
+    await expect(answer).toContainText('Private notes keep their contents off the public chain.');
+    await expect(answer).toBeInViewport();
+    await captureCommand(command, info, 'command-ai-privacy-answer-390x844');
+
+    await input.fill('How can I check?');
+    const composerBefore = await submit.boundingBox();
+    const answerBefore = await answer.boundingBox();
+    await input.press('Enter');
+    await expect(submit).toHaveAttribute('aria-busy', 'true');
+    await expect(answer).toContainText('The sending account is still public.');
+    expect(await submit.boundingBox()).toEqual(composerBefore);
+    expect(await answer.boundingBox()).toEqual(answerBefore);
+    expect(await command.getByTestId('command-ai-bar').locator('form').getAttribute('class')).toContain(
+      'command-ai-wave-busy'
+    );
+
+    finishReply();
+    await expect(answer).toContainText('Check the Public or Private choice before you confirm.');
+    await expect(command.getByTestId('command-workbench')).toHaveCount(0);
+    expect(requests).toBe(2);
+  } finally {
+    finishReply();
+    await command.close();
+  }
+});
+
 test('compact launcher opens the real Command workspace and preserves a minimized unsigned Send draft', async ({
   extensionContext,
   extensionId

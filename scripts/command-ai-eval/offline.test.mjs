@@ -9,3 +9,10 @@ test('offline privacy redaction and provenance eval suite passes with 0 leaks ac
   assert.equal(summary.redactionFailures, 0, summary.errors.join('\n'));
   assert.equal(summary.provenanceFailures, 0, summary.errors.join('\n'));
 });
+
+test('synthetic questions preserve redaction and never need wallet state', async () => {
+  const summary = await runEval({ offlineOnly: true, questions: true });
+  assert.equal(summary.totalCases, 19);
+  assert.equal(summary.redactionFailures, 0, summary.errors.join('\n'));
+  assert.equal(summary.provenanceFailures, 0, summary.errors.join('\n'));
+});

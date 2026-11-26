@@ -1,0 +1,227 @@
+[
+  {
+    "id": "miden",
+    "prompt": "How does Miden work?",
+    "expectedRedacted": "How does Miden work?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Miden"
+    },
+    "answerContains": [
+      "proof"
+    ]
+  },
+  {
+    "id": "note",
+    "prompt": "Is a note like a payment message?",
+    "expectedRedacted": "Is a note like a payment message?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Notes"
+    }
+  },
+  {
+    "id": "accept",
+    "prompt": "Someone sent me money. Why is there an accept step?",
+    "expectedRedacted": "Someone sent me money. Why is there an accept step?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Accept"
+    },
+    "answerContains": [
+      "accept"
+    ]
+  },
+  {
+    "id": "privacy",
+    "prompt": "How private are private payments?",
+    "expectedRedacted": "How private are private payments?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Privacy"
+    },
+    "answerContains": [
+      "public",
+      "validator"
+    ]
+  },
+  {
+    "id": "privacy-bounds",
+    "prompt": "Can anyone see the sender and amount of a private payment?",
+    "expectedRedacted": "Can anyone see the sender and amount of a private payment?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Privacy"
+    },
+    "answerContains": [
+      "sender",
+      "public"
+    ]
+  },
+  {
+    "id": "verify",
+    "prompt": "How can I be sure a payment is private?",
+    "expectedRedacted": "How can I be sure a payment is private?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Verify"
+    },
+    "answerContains": [
+      "public",
+      "private"
+    ]
+  },
+  {
+    "id": "privacy-follow-up",
+    "prompt": "How can I check?",
+    "expectedRedacted": "How can I check?",
+    "helpContext": "Privacy",
+    "expected": {
+      "op": "explain",
+      "topic": "Verify"
+    },
+    "answerContains": [
+      "public",
+      "private"
+    ]
+  },
+  {
+    "id": "bridge",
+    "prompt": "Can you explain crossing over to another chain?",
+    "expectedRedacted": "Can you explain crossing over to another chain?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Bridge"
+    }
+  },
+  {
+    "id": "bridge-visibility",
+    "prompt": "Can the bridge provider see the transfer?",
+    "expectedRedacted": "Can the bridge provider see the transfer?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Bridge"
+    },
+    "answerContains": [
+      "see"
+    ]
+  },
+  {
+    "id": "pending",
+    "prompt": "Why has my transfer not shown up yet?",
+    "expectedRedacted": "Why has my transfer not shown up yet?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Pending"
+    }
+  },
+  {
+    "id": "decline",
+    "prompt": "If I decline a transfer does it refund the sender?",
+    "expectedRedacted": "If I decline a transfer does it refund the sender?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Decline"
+    },
+    "answerContains": [
+      "refund"
+    ]
+  },
+  {
+    "id": "fee",
+    "prompt": "Why would I need another token just to pay a fee?",
+    "expectedRedacted": "Why would I need another token just to pay a fee?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Fees"
+    },
+    "answerContains": [
+      "usdcx"
+    ]
+  },
+  {
+    "id": "loss",
+    "prompt": "What if my phone breaks and I have a private account?",
+    "expectedRedacted": "What if my phone breaks and I have a private account?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Recovery"
+    }
+  },
+  {
+    "id": "testnet",
+    "prompt": "Are testnet funds real money?",
+    "expectedRedacted": "Are testnet funds real money?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Network"
+    },
+    "answerContains": [
+      "testnet"
+    ]
+  },
+  {
+    "id": "assistant",
+    "prompt": "Does the assistant see my chat or wallet history?",
+    "expectedRedacted": "Does the assistant see my chat or wallet history?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Assistant"
+    },
+    "answerContains": [
+      "question"
+    ]
+  },
+  {
+    "id": "safety",
+    "prompt": "Is it okay to share my recovery phrase with support?",
+    "expectedRedacted": "Is it okay to share my recovery phrase with support?",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Safety"
+    }
+  },
+  {
+    "id": "mixed",
+    "prompt": "Explain bridging and then bridge my funds for me.",
+    "expectedRedacted": "Explain bridging and then bridge my funds for me.",
+    "helpContext": null,
+    "expected": {
+      "op": "explain",
+      "topic": "Bridge"
+    }
+  },
+  {
+    "id": "send-control",
+    "prompt": "Send all my USDCX to Alice",
+    "expectedRedacted": "Send all my USDCX to <CONTACT_1>",
+    "helpContext": null,
+    "expected": {
+      "op": "set_intent"
+    }
+  },
+  {
+    "id": "balance-control",
+    "prompt": "What is my balance?",
+    "expectedRedacted": "What is my balance?",
+    "helpContext": null,
+    "expected": {
+      "op": "query_ledger"
+    }
+  }
+]

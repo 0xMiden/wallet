@@ -1,4 +1,4 @@
-import { type AiCompilerOutput, parseAiCompilerOutput } from './schema';
+import { type AiCompilerOutput, type CommandHelpTopic, parseAiCompilerOutput } from './schema';
 
 export const COMMAND_AI_PROXY_STORAGE_KEY = 'bread_command_ai_proxy_url';
 
@@ -40,6 +40,7 @@ export interface RedactedClarificationSnapshot {
 export interface CompileCommandRequest {
   redactedText: string;
   snapshot?: RedactedClarificationSnapshot;
+  helpContext?: CommandHelpTopic | null;
   endpoint?: string;
   signal?: AbortSignal;
 }
@@ -84,19 +85,23 @@ export async function compileCommandPrompt(req: CompileCommandRequest): Promise<
   req.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
   try {
-    const response = await fetch(`${endpoint}/v1/compile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      // Stateless request: never attach wallet identity, addresses, cookies, or credentials.
-      credentials: 'omit',
-      body: JSON.stringify({
-        redactedText: req.redactedText,
-        ...(req.snapshot ? { snapshot: req.snapshot } : {})
-      }),
-      signal: controller.signal
-    });
+    const send = (context: { helpContext?: CommandHelpTopic | null; snapshot?: RedactedClarificationSnapshot }) =>
+      fetch(`${endpoint}/v1/compile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        body: JSON.stringify({ redactedText: req.redactedText, ...context }),
+        signal: controller.signal
+      });
+    let response = await send(
+      req.helpContext !== undefined ? { helpContext: req.helpContext } : req.snapshot ? { snapshot: req.snapshot } : {}
+    );
+    if (response.status === 400 && req.helpContext !== undefined) {
+      const detail = await response.json().catch(() => null);
+      if (detail?.error === 'bad_request' && detail.message === 'Unexpected field: helpContext.') {
+        response = await send({});
+      }
+    }
 
     if (response.status === 429) {
       throw new CommandAiClientError('rate_limited', 'AI command service rate limited');

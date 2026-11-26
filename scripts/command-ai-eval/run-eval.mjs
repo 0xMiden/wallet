@@ -23,6 +23,7 @@ function loadTsModule(relPath, moduleMocks = {}) {
     if (spec in moduleMocks) return moduleMocks[spec];
     if (spec.startsWith('.')) {
       const target = path.resolve(path.dirname(fullPath), spec);
+      if (target.endsWith('.json')) return require(target);
       const tsPath = target.endsWith('.ts') ? target : `${target}.ts`;
       return loadTsModule(path.relative(ROOT, tsPath), moduleMocks);
     }
@@ -42,30 +43,39 @@ const DEFAULT_CONTEXT = {
   heldNicheTickers: [{ symbol: 'ZORK', tokenId: 'faucet-zork' }]
 };
 
-export async function runEval({ offlineOnly = true, model = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b' } = {}) {
+export async function runEval({
+  offlineOnly = true,
+  questions = false,
+  model = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b'
+} = {}) {
   const schemaMod = loadTsModule('src/lib/command-ai/schema.ts');
   const redactorMod = loadTsModule('src/lib/command-ai/redactor.ts', {
     './schema': schemaMod
   });
   const proxyMod = offlineOnly ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
 
-  const cases = JSON.parse(readFileSync(path.join(__dirname, 'cases.json'), 'utf8'));
+  const cases = JSON.parse(readFileSync(path.join(__dirname, questions ? 'questions.json' : 'cases.json'), 'utf8'));
   let redactionFailures = 0;
   let provenanceFailures = 0;
   let modelFailures = 0;
   const errors = [];
   const latencies = [];
+  let maxPromptTokens = 0;
 
   for (const testCase of cases) {
     const redaction = redactorMod.redactPrompt(testCase.prompt, DEFAULT_CONTEXT);
     if (redaction.redactedText !== testCase.expectedRedacted) {
       redactionFailures += 1;
-      errors.push(`[REDACT FAIL] ${testCase.id}: got ${JSON.stringify(redaction.redactedText)}, want ${JSON.stringify(testCase.expectedRedacted)}`);
+      errors.push(
+        `[REDACT FAIL] ${testCase.id}: got ${JSON.stringify(redaction.redactedText)}, want ${JSON.stringify(testCase.expectedRedacted)}`
+      );
     }
     for (const forbidden of testCase.forbiddenSubstrings ?? []) {
       if (redaction.redactedText.toLowerCase().includes(forbidden.toLowerCase())) {
         redactionFailures += 1;
-        errors.push(`[LEAK FAIL] ${testCase.id}: leaked ${JSON.stringify(forbidden)} in ${JSON.stringify(redaction.redactedText)}`);
+        errors.push(
+          `[LEAK FAIL] ${testCase.id}: leaked ${JSON.stringify(forbidden)} in ${JSON.stringify(redaction.redactedText)}`
+        );
       }
     }
 
@@ -93,10 +103,12 @@ export async function runEval({ offlineOnly = true, model = process.env.COMMAND_
         const res = await proxyMod.compileWithGroq({
           redactedText: redaction.redactedText,
           snapshot: testCase.snapshot,
+          helpContext: testCase.helpContext,
           apiKey: process.env.GROQ_API_KEY,
           model
         });
         latencies.push(Date.now() - t0);
+        maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
         const parsed = schemaMod.parseAiCompilerOutput(res.output);
         if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
           modelFailures += 1;
@@ -107,20 +119,34 @@ export async function runEval({ offlineOnly = true, model = process.env.COMMAND_
         const matchesOp = parsed.op === exp.op;
         const matchesAction = !exp.action || parsed.action === exp.action;
         const matchesAsset =
-          !exp.asset ||
-          (parsed.asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.asset.toUpperCase();
+          !exp.asset || (parsed.asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.asset.toUpperCase();
         const matchesToAsset =
-          !exp.to_asset ||
-          (parsed.to_asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.to_asset.toUpperCase();
+          !exp.to_asset || (parsed.to_asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.to_asset.toUpperCase();
         const matchesQuery = !exp.query || parsed.query === exp.query;
+        const matchesTopic = !exp.topic || parsed.topic === exp.topic;
+        const answerCoversFacts =
+          !testCase.answerContains ||
+          testCase.answerContains.every(term => parsed.answer?.toLowerCase().includes(term));
         const matchesEarnOp = !exp.earn_op || parsed.earn_op === exp.earn_op;
         const matchesAmountKind =
           exp.amountKind === undefined ||
           (exp.amountKind === null ? parsed.amount === null : parsed.amount?.kind === exp.amountKind);
 
-        if (!matchesOp || !matchesAction || !matchesAsset || !matchesToAsset || !matchesQuery || !matchesEarnOp || !matchesAmountKind) {
+        if (
+          !matchesOp ||
+          !matchesAction ||
+          !matchesAsset ||
+          !matchesToAsset ||
+          !matchesQuery ||
+          !matchesTopic ||
+          !answerCoversFacts ||
+          !matchesEarnOp ||
+          !matchesAmountKind
+        ) {
           modelFailures += 1;
-          errors.push(`[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(exp)}`);
+          errors.push(
+            `[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(exp)}`
+          );
         }
       } catch (err) {
         modelFailures += 1;
@@ -135,6 +161,7 @@ export async function runEval({ offlineOnly = true, model = process.env.COMMAND_
     redactionFailures,
     provenanceFailures,
     modelFailures,
+    maxPromptTokens: maxPromptTokens || null,
     errors,
     p95LatencyMs:
       latencies.length > 0
@@ -144,8 +171,11 @@ export async function runEval({ offlineOnly = true, model = process.env.COMMAND_
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  if (process.argv.includes('--require-live') && !process.env.GROQ_API_KEY?.trim()) {
+    throw new Error('The live evaluation requires its model credential.');
+  }
   const offlineOnly = process.argv.includes('--offline') || !process.env.GROQ_API_KEY;
-  const summary = await runEval({ offlineOnly });
+  const summary = await runEval({ offlineOnly, questions: process.argv.includes('--questions') });
   for (const err of summary.errors) console.error(err);
   console.log(JSON.stringify({ ...summary, errors: undefined }, null, 2));
   if (summary.redactionFailures > 0 || summary.provenanceFailures > 0 || summary.modelFailures > 0) {

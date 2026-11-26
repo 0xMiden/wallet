@@ -371,6 +371,7 @@ export function verifyProvenance(output: AiCompilerOutput, map: RedactionMap): b
       );
     case 'cancel':
     case 'unsupported':
+    case 'explain':
       return true;
   }
 }

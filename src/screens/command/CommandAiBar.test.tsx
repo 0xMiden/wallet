@@ -197,6 +197,25 @@ function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
 }
 
 describe('CommandAiBar', () => {
+  it('keeps obvious secrets out of the compiler', () => {
+    renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    fireEvent.change(input, { target: { value: 'My password is example-placeholder' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiHelpSecret');
+    expect(compileCommandPrompt).not.toHaveBeenCalled();
+  });
+
+  it('never uses a topic suggestion to start or cancel a wallet action', async () => {
+    jest.mocked(compileCommandPrompt).mockResolvedValueOnce({ op: 'cancel' });
+    renderBar();
+    fireEvent.click(screen.getByRole('button', { name: 'commandAiHelpBrowse' }));
+    fireEvent.click(screen.getByRole('button', { name: 'commandAiHelpBridgeTitle' }));
+    await screen.findByTestId('command-ai-error');
+    expect(screen.getByTestId('command-ai-help-topics')).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('asks the model for a help topic without sending a pending clarification', async () => {
     jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
       op: 'set_intent',
@@ -217,12 +236,12 @@ describe('CommandAiBar', () => {
         op: 'explain',
         topic: 'Privacy',
         answer: 'A private payment keeps its amount off the public chain.'
-      } as never)
+      })
       .mockResolvedValueOnce({
         op: 'explain',
         topic: 'Verify',
         answer: 'Check the Public or Private choice before you send.'
-      } as never);
+      });
     renderBar();
     const input = screen.getByTestId('command-ai-input');
     const submit = (value: string) => {
@@ -263,7 +282,7 @@ describe('CommandAiBar', () => {
         query: 'balance',
         asset: null,
         counterparty_ref: null,
-        direction: null,
+        direction: 'all',
         window: 'all_time'
       })
       .mockImplementationOnce(() => new Promise(() => {}));
