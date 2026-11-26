@@ -184,99 +184,6 @@ const reviseTransactionPut = (
   });
 };
 
-const HISTORY_STREAM_CHANNEL_PREFIX = 'miden-tx-history-streams:';
-
-export type HistoryStreamMutationKind = 'mutation' | 'fallback';
-
-export interface TransactionMutationState {
-  mutationSeq: number;
-  inFlight: boolean;
-  fallbackSeq: number;
-  fallbackInFlight: boolean;
-}
-
-const transactionMutationSeqByDb = new Map<string, number>();
-const transactionMutationInFlightByDb = new Map<string, number>();
-const fallbackExposureSeqByDb = new Map<string, number>();
-const fallbackExposureInFlightByDb = new Map<string, number>();
-
-const bumpDbCounter = (map: Map<string, number>, dbName: string, delta: number): void => {
-  const next = (map.get(dbName) ?? 0) + delta;
-  if (next <= 0 && delta < 0) map.delete(dbName);
-  else map.set(dbName, next);
-};
-
-export const historyStreamChannelName = (dbName: string): string => `${HISTORY_STREAM_CHANNEL_PREFIX}${dbName}`;
-
-export const getTransactionMutationState = (
-  table: TransactionTable<ITransaction, string>
-): TransactionMutationState => {
-  const dbName = table.db?.name;
-  if (!dbName) {
-    return { mutationSeq: 0, inFlight: false, fallbackSeq: 0, fallbackInFlight: false };
-  }
-  return {
-    mutationSeq: transactionMutationSeqByDb.get(dbName) ?? 0,
-    inFlight: (transactionMutationInFlightByDb.get(dbName) ?? 0) > 0,
-    fallbackSeq: fallbackExposureSeqByDb.get(dbName) ?? 0,
-    fallbackInFlight: (fallbackExposureInFlightByDb.get(dbName) ?? 0) > 0
-  };
-};
-
-const rowNeedsFallbackOrNegativeStream = (row: unknown): boolean => {
-  if (typeof row !== 'object' || row === null) return true;
-  const completedAt = Reflect.get(row, 'completedAt');
-  return typeof completedAt !== 'number' || !Number.isFinite(completedAt) || completedAt <= 0;
-};
-
-const classifyTransactionMutationKind = (req: Parameters<DBCoreTable['mutate']>[0]): HistoryStreamMutationKind => {
-  if (req.type === 'add') {
-    return req.values.some(rowNeedsFallbackOrNegativeStream) ? 'fallback' : 'mutation';
-  }
-  if (req.type === 'put') {
-    if (req.updates !== undefined || req.values.some(rowNeedsFallbackOrNegativeStream)) return 'fallback';
-    return 'mutation';
-  }
-  return 'mutation';
-};
-
-const notifyHistoryStreamMutation = (dbName: string, kind: HistoryStreamMutationKind): void => {
-  if (typeof BroadcastChannel !== 'function') return;
-  let channel: BroadcastChannel | undefined;
-  try {
-    channel = new BroadcastChannel(historyStreamChannelName(dbName));
-    channel.postMessage({ kind });
-  } catch {
-    // Ignore channel errors in restricted or mock environments; local counters remain authoritative in-process.
-  } finally {
-    try {
-      channel?.close();
-    } catch {
-      // Ignore close errors.
-    }
-  }
-};
-
-const executeTransactionMutate = (
-  table: DBCoreTable,
-  req: Parameters<DBCoreTable['mutate']>[0]
-): Promise<DBCoreMutateResponse> => {
-  if (req.type === 'add') {
-    const rows: readonly ITransaction[] = req.values;
-    const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
-    if (unplaceable !== undefined) {
-      throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
-    }
-    const revisions = new Map<string, string>();
-    return table.mutate({
-      ...req,
-      values: rows.map(row => withEvidenceRevision(row, revisions))
-    });
-  }
-  if (req.type === 'put') return reviseTransactionPut(table, req);
-  return table.mutate(req);
-};
-
 /**
  * Declares every version this app has ever shipped, against whichever Dexie instance it is
  * handed. Applied once below to build the real, shared `db` - and again by `createSchemaFor`,
@@ -537,45 +444,23 @@ function defineSchema(target: Dexie): void {
       table: name => {
         const table = down.table(name);
         if (name !== Table.Transactions) return table;
-        const dbName = target.name;
         return {
           ...table,
           mutate: req => {
-            const kind = classifyTransactionMutationKind(req);
-            bumpDbCounter(transactionMutationSeqByDb, dbName, 1);
-            bumpDbCounter(transactionMutationInFlightByDb, dbName, 1);
-            if (kind === 'fallback') {
-              bumpDbCounter(fallbackExposureSeqByDb, dbName, 1);
-              bumpDbCounter(fallbackExposureInFlightByDb, dbName, 1);
-            }
-            notifyHistoryStreamMutation(dbName, kind);
-            let settled = false;
-            const settle = () => {
-              if (settled) return;
-              settled = true;
-              bumpDbCounter(transactionMutationInFlightByDb, dbName, -1);
-              bumpDbCounter(transactionMutationSeqByDb, dbName, 1);
-              if (kind === 'fallback') {
-                bumpDbCounter(fallbackExposureInFlightByDb, dbName, -1);
-                bumpDbCounter(fallbackExposureSeqByDb, dbName, 1);
+            if (req.type === 'add') {
+              const rows: readonly ITransaction[] = req.values;
+              const unplaceable = rows.find(row => !isPlaceableInitiatedAt(row.initiatedAt));
+              if (unplaceable !== undefined) {
+                throw new Error(`transaction ${unplaceable.id} has an unplaceable initiatedAt`);
               }
-              notifyHistoryStreamMutation(dbName, kind);
-            };
-            try {
-              return executeTransactionMutate(table, req).then(
-                res => {
-                  settle();
-                  return res;
-                },
-                err => {
-                  settle();
-                  throw err;
-                }
-              );
-            } catch (err) {
-              settle();
-              throw err;
+              const revisions = new Map<string, string>();
+              return table.mutate({
+                ...req,
+                values: rows.map(row => withEvidenceRevision(row, revisions))
+              });
             }
+            if (req.type === 'put') return reviseTransactionPut(table, req);
+            return table.mutate(req);
           }
         };
       }
