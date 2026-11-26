@@ -52,8 +52,6 @@ export async function runEval({
   const redactorMod = loadTsModule('src/lib/command-ai/redactor.ts', {
     './schema': schemaMod
   });
-  const proxyMod = offlineOnly ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
-
   const cases = JSON.parse(readFileSync(path.join(__dirname, questions ? 'questions.json' : 'cases.json'), 'utf8'));
   let redactionFailures = 0;
   let provenanceFailures = 0;
@@ -61,6 +59,22 @@ export async function runEval({
   const errors = [];
   const latencies = [];
   let maxPromptTokens = 0;
+  const proxyMod =
+    offlineOnly || questions ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
+  const worker =
+    offlineOnly || !questions
+      ? null
+      : loadTsModule('services/command-ai/src/index.ts').createService({
+          fetchImpl: async (...args) => {
+            const response = await fetch(...args);
+            const { usage } = await response
+              .clone()
+              .json()
+              .catch(() => ({}));
+            maxPromptTokens = Math.max(maxPromptTokens, usage?.prompt_tokens ?? 0);
+            return response;
+          }
+        });
 
   for (const testCase of cases) {
     const redaction = redactorMod.redactPrompt(testCase.prompt, DEFAULT_CONTEXT);
@@ -97,16 +111,34 @@ export async function runEval({
       errors.push(`[PROVENANCE FAIL] ${testCase.id}: accepted hallucinated refs`);
     }
 
-    if (!offlineOnly && proxyMod) {
+    if (worker || proxyMod) {
       const t0 = Date.now();
       try {
-        const res = await proxyMod.compileWithGroq({
-          redactedText: redaction.redactedText,
-          snapshot: testCase.snapshot,
-          helpContext: testCase.helpContext,
-          apiKey: process.env.GROQ_API_KEY,
-          model
-        });
+        const res = worker
+          ? await worker
+              .fetch(
+                new Request('https://command-ai.test/v1/compile', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ redactedText: redaction.redactedText, helpContext: testCase.helpContext })
+                }),
+                {
+                  ALLOWED_ORIGINS: '[]',
+                  GROQ_API_KEY: process.env.GROQ_API_KEY,
+                  COMMAND_AI_MODEL: model,
+                  COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
+                }
+              )
+              .then(async response => {
+                if (!response.ok) throw new Error(`Worker returned ${response.status}`);
+                return response.json();
+              })
+          : await proxyMod.compileWithGroq({
+              redactedText: redaction.redactedText,
+              snapshot: testCase.snapshot,
+              apiKey: process.env.GROQ_API_KEY,
+              model
+            });
         latencies.push(Date.now() - t0);
         maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
         const parsed = schemaMod.parseAiCompilerOutput(res.output);

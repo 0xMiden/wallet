@@ -107,7 +107,10 @@ describe('command-ai client', () => {
         json: async () => ({ error: 'bad_request', message: 'Unexpected field: helpContext.' })
       })
       .mockResolvedValueOnce({ status: 200, ok: true, text: async () => '{"output":{"op":"cancel"}}' })
-      .mockResolvedValueOnce({ status: 400, json: async () => ({ error: 'bad_request', message: 'Invalid snapshot.' }) });
+      .mockResolvedValueOnce({
+        status: 400,
+        json: async () => ({ error: 'bad_request', message: 'Invalid snapshot.' })
+      });
     global.fetch = fetchMock as unknown as typeof fetch;
     const request = { redactedText: 'cancel', helpContext: 'Privacy', endpoint: 'http://127.0.0.1:8787' } as const;
 

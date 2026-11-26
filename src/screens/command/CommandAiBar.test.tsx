@@ -206,6 +206,20 @@ describe('CommandAiBar', () => {
     expect(compileCommandPrompt).not.toHaveBeenCalled();
   });
 
+  it('answers a recovery question without treating it as a pasted secret', async () => {
+    jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
+      op: 'explain',
+      topic: 'Recovery',
+      answer: 'A current backup may help you restore account data.'
+    });
+    renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    fireEvent.change(input, { target: { value: 'What if my recovery phrase is lost?' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(await screen.findByTestId('command-ai-help-answer')).toHaveTextContent('commandAiHelpRecoveryTitle');
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
+  });
+
   it('never uses a topic suggestion to start or cancel a wallet action', async () => {
     jest.mocked(compileCommandPrompt).mockResolvedValueOnce({ op: 'cancel' });
     renderBar();

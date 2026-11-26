@@ -25,7 +25,7 @@ export const COMMAND_HELP_TOPICS = {
 
 export function containsCommandSecret(input: string): boolean {
   if (
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|private key|recovery phrase|seed phrase)\s*(?:[:=]|is\s+)\s*\S/i.test(
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|private key|recovery phrase|seed phrase)\s*[:=]\s*\S|^\s*(?:my\s+)?(?:password|private key|recovery phrase|seed phrase)\s+is\s+\S/im.test(
       input
     )
   ) {
