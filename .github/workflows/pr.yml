@@ -477,7 +477,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7]
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-2404-x64-16x
     env:
       JEST_COVERAGE_SHARD: '1'
     steps:
@@ -523,7 +523,9 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          bash scripts/ci/run-jest-shard.sh "$SHARD" "$SHARDS" --coverage --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          jest_execution=--maxWorkers=6
+          if [[ "$SHARD" == "$SHARDS" ]]; then jest_execution=--runInBand; fi
+          bash scripts/ci/run-jest-shard.sh "$SHARD" "$SHARDS" "$jest_execution" --coverage --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
           node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
