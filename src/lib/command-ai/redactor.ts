@@ -130,6 +130,7 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
   const addrPatterns = [
     /\b(?:mm1|mtst1|mdev1|mlcl1)[0-9a-zA-Z_]{4,}\b/g,
     /\b0x[0-9a-fA-F]{4,}\b/gi,
+    /\b[0-9a-f]{64}\b/gi,
     /\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9-]{2,})*\.eth\b/gi,
     /\bbc1[ac-hj-np-z02-9]{11,71}\b/gi,
     /\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b/g,
