@@ -21,6 +21,7 @@
  * `waitForTransaction` and every reconciler. Restore accepts only receipt statuses.
  */
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { RANGE_ANY, readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import {
   type IBridgeInInfo,
   type IConsumedAssetTotal,
@@ -571,14 +572,15 @@ async function findGuardianReceipt(restored: ITransaction): Promise<ITransaction
   // The account commitment after a transaction names that one transaction. A receipt with no notes has only it.
   const commitment = restored.finalAccountCommitment;
   if (commitment) {
-    const match = await Repo.transactions
-      .filter(
-        row =>
-          row.recovered === true &&
-          row.recovery?.finalCommitment === commitment &&
-          sameWalletAccountId(row.accountId, restored.accountId)
-      )
-      .first();
+    const [match] = await readTransactionIndexChunks(
+      Repo.transactions,
+      [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+      row =>
+        row.recovered === true &&
+        row.recovery?.finalCommitment === commitment &&
+        sameWalletAccountId(row.accountId, restored.accountId),
+      { limit: 1 }
+    );
     if (match) return match;
   }
   const notes = restored.type === 'consume' ? restored.noteIds : restored.outputNoteIds;
@@ -784,7 +786,11 @@ function needsFinalAccountCommitment(tx: ITransaction): boolean {
  */
 export async function recordFinalAccountCommitments(): Promise<void> {
   try {
-    const rows = await Repo.transactions.filter(needsFinalAccountCommitment).toArray();
+    const rows = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusIndexSpecs([ITransactionStatus.Completed]),
+      needsFinalAccountCommitment
+    );
     for (const tx of rows) {
       if (tx.resultBytes === undefined) continue;
       let commitment: string;
@@ -841,9 +847,11 @@ async function flushPass(session: BackupSession): Promise<number> {
   }
 
   // Append new terminal rows in time order.
-  const candidates = await Repo.transactions
-    .filter(tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined)
-    .toArray();
+  const candidates = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusIndexSpecs([ITransactionStatus.Completed, ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]),
+    tx => isAppendableRow(tx) && history.assigned[tx.id] === undefined
+  );
   assertSessionLive(session);
   candidates.sort(
     (a, b) =>

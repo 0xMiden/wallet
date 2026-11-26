@@ -189,19 +189,21 @@ const positionLockKey = (owner: string, marketUid: string): string =>
 
 /** Read under the position lock: a withdrawal waits until every earlier one from its position is terminal. */
 async function withdrawalInFlight(owner: string, marketUid: string): Promise<boolean> {
-  const rows = await Repo.transactions
-    .filter(tx => {
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-withdraw']),
+    tx => {
       const inputs: IEarnWithdrawExtraInputs | undefined = tx.extraInputs;
       return (
-        tx.type === 'earn-withdraw' &&
         NON_TERMINAL_WITHDRAW_PHASES.has(inputs?.phase ?? '') &&
         typeof inputs?.evmOwner === 'string' &&
         inputs.evmOwner.toLowerCase() === owner.toLowerCase() &&
         typeof inputs.marketUid === 'string' &&
         inputs.marketUid.toLowerCase() === marketUid.toLowerCase()
       );
-    })
-    .toArray();
+    },
+    { limit: 1 }
+  );
   return rows.length > 0;
 }
 

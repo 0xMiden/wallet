@@ -10,8 +10,19 @@ import { IHistoryEntry } from './IHistoryEntry';
 import { epochReturnDisplay, epochReturnNote, useEpochReturnState } from './useEpochReturnState';
 
 jest.mock('lib/epoch/return-state', () => ({ readEpochNoteState: jest.fn() }));
-jest.mock('lib/miden/repo', () => ({ transactions: {} }));
-jest.mock('lib/dexie-live-query', () => ({ subscribeToLiveQuery: () => () => undefined }));
+let capturedLiveQuery: (() => unknown) | undefined;
+let mockRepoTransactions: unknown = {};
+jest.mock('lib/miden/repo', () => ({
+  get transactions() {
+    return mockRepoTransactions;
+  }
+}));
+jest.mock('lib/dexie-live-query', () => ({
+  subscribeToLiveQuery: (query: () => unknown) => {
+    capturedLiveQuery = query;
+    return () => undefined;
+  }
+}));
 
 const mockRead = jest.mocked(readEpochNoteState);
 
@@ -123,5 +134,57 @@ describe('useEpochReturnState page visibility', () => {
     rerender();
     await act(async () => undefined);
     expect(mockRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('narrows claim liveQuery onto noteId and noteIds when indexed and falls back on stripped mocks', async () => {
+    const actualRepo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+    const prevTransactions = mockRepoTransactions;
+    mockRepoTransactions = actualRepo.transactions;
+    try {
+      await actualRepo.transactions.clear();
+      await actualRepo.transactions.bulkAdd([
+        {
+          id: 'claim-both',
+          type: 'consume',
+          accountId: 'acct-1',
+          status: ITransactionStatus.Completed,
+          initiatedAt: 100,
+          completedAt: 100,
+          displayIcon: 'RECEIVE',
+          noteId: 'note-1',
+          noteIds: ['note-1']
+        },
+        {
+          id: 'unrelated-send',
+          type: 'send',
+          accountId: 'acct-1',
+          status: ITransactionStatus.Completed,
+          initiatedAt: 101,
+          completedAt: 101,
+          displayIcon: 'SEND'
+        }
+      ]);
+      const whereSpy = jest.spyOn(actualRepo.transactions, 'where');
+      capturedLiveQuery = undefined;
+      renderHook(() => useEpochReturnState(bridgeEntry(), 'acct-1', false));
+      expect(capturedLiveQuery).toBeDefined();
+      const rows = (await capturedLiveQuery!()) as Array<{ id: string }>;
+      expect(rows.map(r => r.id)).toEqual(['claim-both']);
+      expect(whereSpy.mock.calls.map(([arg]) => arg)).toEqual(['noteId', 'noteIds']);
+      whereSpy.mockRestore();
+      await actualRepo.transactions.clear();
+
+      const fallbackWhere = jest.fn(() => ({
+        filter: () => ({ toArray: async () => [] })
+      }));
+      mockRepoTransactions = { where: fallbackWhere };
+      capturedLiveQuery = undefined;
+      renderHook(() => useEpochReturnState(bridgeEntry(), 'acct-1', false));
+      expect(capturedLiveQuery).toBeDefined();
+      await capturedLiveQuery!();
+      expect(fallbackWhere).toHaveBeenCalledWith({ accountId: 'acct-1' });
+    } finally {
+      mockRepoTransactions = prevTransactions;
+    }
   });
 });

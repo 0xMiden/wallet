@@ -910,4 +910,48 @@ describe('history sync', () => {
     await expect(flushHistory(session)).resolves.toBe(0);
     await expect(chunkRows(0)).resolves.toEqual(['mine']);
   });
+
+  it('recordFinalAccountCommitments and flushPass read via indexes in chunks without Repo.transactions.filter and yield mid-scan', async () => {
+    const bulk: ITransaction[] = Array.from({ length: 130 }, (_, i) =>
+      row(`bulk-${String(i).padStart(3, '0')}`, {
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1_700_000_000 + i,
+        completedAt: 1_700_000_000 + i
+      })
+    );
+    await Repo.transactions.bulkAdd(bulk);
+
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+    let writePromise: Promise<string> | undefined;
+    let writeDone = false;
+    let cursorOpensAfterWrite = 0;
+    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+    Repo.transactions.core.openCursor = req => {
+      if (writeDone) {
+        cursorOpensAfterWrite += 1;
+      } else if (!writePromise) {
+        writePromise = Dexie.ignoreTransaction(() =>
+          Repo.transactions.add(
+            row('concurrent-backup-write', { status: ITransactionStatus.Queued, completedAt: undefined })
+          )
+        ).then(id => {
+          writeDone = true;
+          return id;
+        });
+      }
+      return origOpenCursor(req);
+    };
+
+    try {
+      await flushHistory(session);
+      expect(filterSpy).not.toHaveBeenCalled();
+      expect(writePromise).toBeDefined();
+      await writePromise;
+      expect(writeDone).toBe(true);
+      expect(cursorOpensAfterWrite).toBeGreaterThan(0);
+    } finally {
+      Repo.transactions.core.openCursor = origOpenCursor;
+      filterSpy.mockRestore();
+    }
+  });
 });

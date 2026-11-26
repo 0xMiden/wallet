@@ -1340,21 +1340,30 @@ describe('useEarnPositions', () => {
       });
 
       it('a settled send row triggers no read', async () => {
-        renderOnPage();
-        await advance(5_000);
-        expect(reads()).toBe(1);
+        const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+        try {
+          renderOnPage();
+          await advance(5_000);
+          expect(reads()).toBe(1);
 
-        mockEarnDepositRows.push({
-          id: 'send-1',
-          type: 'send',
-          accountId: 'miden-account',
-          initiatedAt: 1,
-          extraInputs: { epochStatus: 'confirmed', phase: 'received' }
-        });
-        await act(emitDbChange);
-        await advance(60_000);
-        expect(reads()).toBe(1);
-        expect(Repo.transactions.where).toHaveBeenCalledWith('type');
+          const sendRow = {
+            id: 'send-1',
+            type: 'send',
+            accountId: 'miden-account',
+            initiatedAt: 1,
+            extraInputs: { epochStatus: 'confirmed', phase: 'received' }
+          };
+          mockEarnDepositRows.push(sendRow);
+          await act(emitDbChange);
+          await advance(60_000);
+          expect(reads()).toBe(1);
+          expect(filterSpy).toHaveBeenCalled();
+          expect(
+            filterSpy.mock.calls.every(([predicate]) => !predicate(sendRow as Parameters<typeof predicate>[0]))
+          ).toBe(true);
+        } finally {
+          filterSpy.mockRestore();
+        }
       });
 
       it("reads nothing when another account's Earn row settles", async () => {

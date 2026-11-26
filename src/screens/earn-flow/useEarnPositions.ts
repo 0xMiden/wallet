@@ -163,7 +163,11 @@ function settlementOf(tx: ITransaction): string | undefined {
  * about a live position.
  */
 async function readSettledEarnRows(accountId: string): Promise<Set<string>> {
-  const rows = await Repo.transactions.where('type').anyOf('earn-deposit', 'earn-withdraw').toArray();
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-deposit', 'earn-withdraw']),
+    tx => !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
+  );
   const settled = new Set<string>();
   for (const tx of rows) {
     if (tx.restoredFromBackup || !compareAccountIds(tx.accountId, accountId)) continue;

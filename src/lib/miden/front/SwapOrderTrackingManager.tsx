@@ -113,15 +113,18 @@ interface PollableOrder {
 type RecoveredPollableOrder = PollableOrder & { recovered: RecoveredSwapOrderRef };
 
 async function findPollableOrders(): Promise<PollableOrder[]> {
-  const Repo = await import('lib/miden/repo');
-  const swaps = await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'swap' &&
-        tx.extraInputs?.orderId != null &&
-        (tx.restoredFromBackup !== true || recoveredSwapOrderRef(tx) !== undefined)
-    )
-    .toArray();
+  const [Repo, { readTransactionIndexChunks, typeIndexSpecs }] = await Promise.all([
+    import('lib/miden/repo'),
+    import('lib/miden/db/index-query')
+  ]);
+  const swaps = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['swap']),
+    tx =>
+      tx.type === 'swap' &&
+      tx.extraInputs?.orderId != null &&
+      (tx.restoredFromBackup !== true || recoveredSwapOrderRef(tx) !== undefined)
+  );
 
   const pollable = new Map<string, PollableOrder>();
   for (const tx of swaps) {

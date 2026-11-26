@@ -476,9 +476,17 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey, rotationReq
       try {
         // Under the rotation lock, so no rotation queues beside the import and none already live lands after it.
         await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
-          const live = await Repo.transactions
-            .filter(r => isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey))
-            .first();
+          const [live] = await readTransactionIndexChunks(
+            Repo.transactions,
+            statusTypeIndexSpecs([
+              [ITransactionStatus.Queued, 'replace-hot-key'],
+              [ITransactionStatus.GeneratingTransaction, 'replace-hot-key'],
+              [ITransactionStatus.Queued, 'consume'],
+              [ITransactionStatus.GeneratingTransaction, 'consume']
+            ]),
+            r => isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey),
+            { limit: 1 }
+          );
           if (live) throw new Error(t('hotKeyRotationImportBusy'));
           await importHotKeyPair(accountPublicKey, keyPairPayload);
         });

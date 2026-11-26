@@ -5,7 +5,7 @@
 // the entries' evidence, and the landed write the account's other rows.
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 
-import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
+import { RANGE_ANY, readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -59,11 +59,13 @@ export type RowOutcome =
   | { kind: 'never-committed'; judgement: RowJudgement; baseline: string }
   | { kind: 'pending'; judgement: RowJudgement; baseline: string };
 
-/** Every row of `row`'s account that was not restored, scanned rather than indexed: dApp rows store the bare address. */
+/** Every row of `row`'s account that was not restored, chunk-scanned: dApp rows store the bare address. */
 export const accountRowsOf = async (row: ITransaction): Promise<ITransaction[]> =>
-  Repo.transactions
-    .filter(other => other.restoredFromBackup !== true && sameWalletAccountId(other.accountId, row.accountId))
-    .toArray();
+  readTransactionIndexChunks(
+    Repo.transactions,
+    [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+    other => other.restoredFromBackup !== true && sameWalletAccountId(other.accountId, row.accountId)
+  );
 
 const accountEvidenceKey = (rows: readonly ITransaction[]): string =>
   JSON.stringify(
