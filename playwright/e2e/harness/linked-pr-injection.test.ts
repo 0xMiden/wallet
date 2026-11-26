@@ -415,7 +415,9 @@ const publishedCheckoutInstall = (file: string, step: Step): boolean =>
 const linkedRuntimeExemptJobs = new Set([
   'command-ai.yml check',
   'deploy-command-ai.yml deploy',
+  'deploy-evm-relay.yml deploy',
   'deploy-wallet-api.yml deploy',
+  'evm-relay.yml check',
   'wallet-api.yml check'
 ]);
 
@@ -458,7 +460,9 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     for (const name of [
       'command-ai.yml check',
       'deploy-command-ai.yml deploy',
+      'deploy-evm-relay.yml deploy',
       'deploy-wallet-api.yml deploy',
+      'evm-relay.yml check',
       'wallet-api.yml check'
     ]) {
       const [file, id] = name.split(' ');
