@@ -1788,6 +1788,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Zaakceptowano",
   "activityAcceptingTransfer": "Akceptowanie…",
+  "activityClaimQueued": "Roszczenie w kolejce",
+  "activityClaimQueuedRetry": "Żądanie w kolejce. Portfel automatycznie ponowi próbę.",
   "transfersSection": "Transfery",
   "activityUnread": "Nieprzeczytane",
   "revealRecoveryPhrase": "Ujawnij frazę odzyskiwania",

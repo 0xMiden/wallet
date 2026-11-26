@@ -1789,6 +1789,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Kabul Edildi",
   "activityAcceptingTransfer": "Kabul ediliyor…",
+  "activityClaimQueued": "Talep kuyruğunda",
+  "activityClaimQueuedRetry": "Talep kuyruğa alındı. Cüzdan otomatik olarak yeniden deneyecektir.",
   "transfersSection": "Transferler",
   "activityUnread": "Okunmadı",
   "revealRecoveryPhrase": "Kurtarma ifadesini göster",

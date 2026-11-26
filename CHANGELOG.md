@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Show when Claim All is waiting for an automatic retry.
 - [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
 - [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
 - [FIX][all] Give Bread Command clearer guidance for questions about sharing recovery phrases.

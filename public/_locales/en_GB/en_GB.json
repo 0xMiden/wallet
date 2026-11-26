@@ -1790,6 +1790,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Accepted",
   "activityAcceptingTransfer": "Accepting…",
+  "activityClaimQueued": "Claim queued",
+  "activityClaimQueuedRetry": "Claim queued. The wallet will retry automatically.",
   "transfersSection": "Transfers",
   "activityUnread": "Unread",
   "revealRecoveryPhrase": "Reveal recovery phrase",
