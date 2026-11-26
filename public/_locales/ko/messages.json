@@ -10570,5 +10570,329 @@
   "commandAiSamplePrompt6": {
     "message": "이번 달에 USDCx를 얼마나 보냈나요?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowTitle": {
+    "message": "입금",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "입금 내역 확인",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "입금 세부 정보",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "$token$ 입금",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "입금 금액",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$ USD",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$ on $network$",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ on $network$, 변경",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "브리지 수수료",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "변경",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "도착:",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "네트워크 가스",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "Bread 제공",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "귀하는",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "귀하는 다음을 전송합니다",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "입금 한도 초과",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "Partner 메인넷은 입금 후 지갑 잔액을 약 $cap$로 제한합니다.",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "슬라이드를 밀어 입금 주소를 표시하세요",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowYouSendFrom": {
+    "message": "<b>$amount$</b>를 $network$에서 전송합니다.",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "수수료는 이 예치금의 $percent$%입니다.",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "예치금이 클수록 손실 비율은 낮아집니다.",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "복사된 금액",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "복사 금액",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "이 주소로",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "주소 복사",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "QR 코드",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "사용자의 Bread EVM 주소",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "입금 대기 중",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "Bread를 떠나셔도 됩니다. 저희가 알려드리겠습니다.",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "입금을 기다리고 있습니다. 입금이 확인되는 대로 다음 단계로 진행하겠습니다.",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "입금 감지됨",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "Miden으로 브리징하세요. Bread는 계속 열어두세요.",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "입금 감지됨. Miden으로 브리징 중.",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "이 입금 기능을 사용할 수 없습니다",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "해당 토큰이나 네트워크가 이 주소와 일치하지 않았습니다.",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "$expected$ 중 $received$를 수령했습니다.",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "나머지는 이 주소로 보내거나, 도착한 금액을 입금해 주십시오.",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "대신 $amount$을 입금하십시오",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "스캔하여 전송",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "다른 기기의 지갑으로 스캔하십시오.",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "열기",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "주소와 금액은 자동으로 입력됩니다. 해당 앱에서 확인만 하면 됩니다.",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "경로 선택",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "$fee$ 수수료",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "수수료 없음",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "가장 많이 받은",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "가장 빠른",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$ 미만",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPendingReceived": {
+    "message": "입금 완료. 탭하여 완료하세요.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ from $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "입금 내역을 확인했습니다. 탭하여 내역을 확인하세요.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
+  "depositFlowRelayReverted": {
+    "message": "입금 거래가 온체인에서 실패했기 때문에, 아무것도 브릿지되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "입금은 마감 시간 전에 전송되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다. 다시 시도해 주십시오.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "릴레이가 입금을 전송하지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다. 나중에 다시 시도해 주십시오.",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "Bread에 입금하기",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "브리지 포털에서",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "아직 이용 불가",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "$token$로 도착합니다.",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "bridge.miden.xyz 열기",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "실시간 경로 없음",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "포털",
+    "englishSource": "Portal"
   }
 }

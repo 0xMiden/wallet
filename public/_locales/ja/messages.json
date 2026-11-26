@@ -10570,5 +10570,329 @@
   "commandAiSamplePrompt6": {
     "message": "今月、USDCxをいくら送金しましたか？",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowTitle": {
+    "message": "預入",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "入金の確認",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "預入の詳細",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "$token$を預け入れる",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "預入金額",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$米ドル",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$ on $network$",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ on $network$、変更",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "ブリッジ手数料",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "変更",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "到着",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "ネットワークガス",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "Breadによる支払い",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "受け取る",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "送信する",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "預入上限について",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "Partner Mainnetでは、入金後、ウォレットの残高は$cap$程度に制限されます。",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "スライドして入金アドレスを表示",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowYouSendFrom": {
+    "message": "$amount$ </b> を <b> 宛てに $network$ から送信します。",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "手数料は、この入金額の$percent$％です。",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "預入額が大きいほど、失われる割合は小さくなります。",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "コピーされた金額",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "コピー金額",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "このアドレスへ",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "アドレスをコピー",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "QRコード",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "あなたのBread EVMアドレス",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "ご入金をお待ちしております",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "Breadを退会することも可能です。その際は通知いたします。",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "ご入金をお待ちしております。確認でき次第、手続きを進めます。",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "入金が検出されました",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "Midenへのブリッジ。Breadは開いたままにしておいてください。",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "入金が検出されました。Midenへのブリッジング中。",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "この入金機能は使用できません",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "このアドレスは、トークンまたはネットワークと一致しませんでした。",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "$expected$のうち$received$を受領しました",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "残りはこのアドレスに送付するか、届いた分を預けてください。",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "代わりに$amount$を預け入れてください",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "スキャンして送信",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "別のデバイス上のウォレットでスキャンしてください。",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "開く",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "アドレスと金額は自動的に入力されます。そのアプリ内で確認を行ってください。",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "ルートを選択してください",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "$fee$手数料",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "手数料なし",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "最も多く寄せられた質問",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "最速",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$未満",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPendingReceived": {
+    "message": "入金が確認されました。タップして完了してください。",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$（$network$ からの）",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "ご入金を確認しました。タップして追跡してください。",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
+  "depositFlowRelayReverted": {
+    "message": "入金の取引がチェーン上で失敗したため、ブリッジは行われませんでした。お客様の資金は依然として入金アドレスに残っています。",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "入金は期限内に送信されませんでした。お客様の資金は依然として入金アドレスに残っています。もう一度お試しください。",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "リレーによる入金は送信されませんでした。お客様の資金は依然として入金アドレスに残っています。後ほど再度お試しください。",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "Breadへの入金",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "ブリッジポータル上で",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "まだ利用不可",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "$token$として到着する",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "bridge.miden.xyz を開く",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "ライブルートなし",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "ポータル",
+    "englishSource": "Portal"
   }
 }

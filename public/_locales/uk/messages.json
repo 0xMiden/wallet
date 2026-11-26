@@ -10572,5 +10572,329 @@
   "commandAiSamplePrompt6": {
     "message": "Скільки USDCx я надіслав цього місяця?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowTitle": {
+    "message": "Депозит",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "Переглянути депозит",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "Деталі депозиту",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "Внести $token$",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "Сума депозиту",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$ USD",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$ на $network$",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ у мережі $network$, зміна",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "Комісія за міст",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "Зміна",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "Надходить у",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "Мережевий газ",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "Оплачено Bread",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "Ви отримуєте",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "Ви надсилаєте",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "Щодо ліміту депозиту",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "Мережа Partner Mainnet обмежує баланс вашого гаманця сумою приблизно $cap$ після внесення депозиту.",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "Проведіть пальцем, щоб показати адресу для депозиту",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowYouSendFrom": {
+    "message": "Ви надсилаєте <b>$amount$</b> з $network$",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "Комісія становить $percent$ % від цього депозиту",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "Чим більший депозит, тим менша частка втрачається.",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "Скопійована сума",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "Скопіювати суму",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "На цю адресу",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "Скопіювати адресу",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "QR-код",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "Ваша адреса Bread EVM",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "Очікування вашого депозиту",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "Ви можете залишити Bread. Ми повідомимо вас про це.",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "Чекаємо на ваш депозит. Ми продовжимо роботу, щойно його побачимо.",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "Виявлено депозит",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "Перехід до Miden. Залишайте Bread відкритим.",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "Виявлено депозит. Здійснюється перехід до Miden.",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "Ми не можемо використовувати цей депозит",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "Токен або мережа не відповідали цій адресі.",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "Отримано $received$ з $expected$",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "Надішліть решту на цю адресу або внесіть на депозит те, що надійшло.",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "Замість цього внесіть $amount$",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "Відскануйте, щоб надіслати",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "Відскануйте за допомогою гаманця на іншому вашому пристрої.",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "Відкрити в",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "Адреса та сума заповнюються автоматично. Ви підтверджуєте операцію в цьому додатку.",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "Оберіть маршрут",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "Комісія $fee$",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "Без комісії",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "Найпопулярніші",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "Найшвидше",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$ менше",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPendingReceived": {
+    "message": "Депозит отримано. Натисніть, щоб завершити.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ з $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Ми бачимо ваш депозит. Натисніть, щоб стежити за ним.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
+  "depositFlowRelayReverted": {
+    "message": "Транзакція депозиту в ланцюгу не відбулася, тому нічого не було переведено. Ваші кошти все ще знаходяться на вашій депозитній адресі.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "Депозит не було надіслано до закінчення встановленого терміну. Ваші кошти все ще знаходяться на вашій депозитній адресі. Спробуйте ще раз.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "Релей не надіслав депозит. Ваші кошти все ще знаходяться на вашій депозитній адресі. Спробуйте ще раз пізніше.",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "Депозит у Bread",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "На порталі Bridge",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "Поки що недоступно",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "Надходить як $token$",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "Відкриває bridge.miden.xyz",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "Відсутність маршруту в режимі реального часу",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "Портал",
+    "englishSource": "Portal"
   }
 }
