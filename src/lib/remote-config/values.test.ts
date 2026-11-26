@@ -461,7 +461,8 @@ describe('the deposit-address relay', () => {
       domainName: 'Calibur',
       domainVersion: '1.0.0'
     },
-    maxFee: { '0x0000000000000000000000000000000000000000': '1000000000000000' }
+    maxFee: { '0x0000000000000000000000000000000000000000': '1000000000000000' },
+    feeRecipient: '0xfefefefefefefefefefefefefefefefefefefefe'
   };
   // A chain this build does not know: the document can name it, but no getter finds it.
   const UNKNOWN_RELAY: RelayChainConfig = { ...SEPOLIA_RELAY, key: 'newchain', chainId: 999_999 };
@@ -471,6 +472,7 @@ describe('the deposit-address relay', () => {
   it('selects the section while the switch is on', () => {
     expect(selectRelayConfig(on)).toEqual(RELAY);
     expect(selectRelayChain(on, 11155111)).toEqual(SEPOLIA_RELAY);
+    expect(selectRelayChain(on, 11155111)?.feeRecipient).toBe('0xfefefefefefefefefefefefefefefefefefefefe');
   });
 
   it('selects null while no document is accepted, or while the switch is off or absent', () => {

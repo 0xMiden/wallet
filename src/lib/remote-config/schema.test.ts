@@ -319,6 +319,14 @@ describe('features.relayDeposit and the relay section', () => {
     expect(parsed?.relay?.chains[0]?.maxFee).toEqual({ [NATIVE]: max });
   });
 
+  it('reads an optional fee recipient in lowercase, and leaves it out when the chain has none', () => {
+    const recipient = '0xFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFeFe';
+    const parsed = parseBridgeConfig(on(relay({ chains: { sepolia: chain({ feeRecipient: recipient }) } })), 'testnet');
+    expect(parsed?.relay?.chains[0]?.feeRecipient).toBe(recipient.toLowerCase());
+    const without = parseBridgeConfig(on(relay()), 'testnet');
+    expect(without?.relay?.chains[0]).not.toHaveProperty('feeRecipient');
+  });
+
   it('names a chain that the document lists but this build leaves out, with its chain id', () => {
     const chains = { ...doc().supportedEvmChains, newchain: { chainId: 999_999, bridges: {} } };
     const parsed = parseBridgeConfig(
@@ -388,7 +396,10 @@ describe('features.relayDeposit and the relay section', () => {
     ['a negative fee', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '-1' } }) } })],
     ['a decimal fee', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: '1.5' } }) } })],
     ['a fee as a number', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: 1000 } }) } })],
-    ['a fee of 2^256', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: (2n ** 256n).toString() } }) } })]
+    ['a fee of 2^256', relay({ chains: { sepolia: chain({ maxFee: { [NATIVE]: (2n ** 256n).toString() } }) } })],
+    ['a zero fee recipient', relay({ chains: { sepolia: chain({ feeRecipient: NATIVE }) } })],
+    ['a fee recipient that is not an address', relay({ chains: { sepolia: chain({ feeRecipient: '0x1234' }) } })],
+    ['a null fee recipient', relay({ chains: { sepolia: chain({ feeRecipient: null }) } })]
   ])('rejects a section with %s', (_name, section) => {
     expect(parseBridgeConfig(on(section), 'testnet')).toBeNull();
   });

@@ -309,6 +309,11 @@ export interface RelayChainConfig {
    * in lowercase; the zero address is the chain's native coin. A token without an entry is not accepted as a fee.
    */
   maxFee: Record<EvmAddress, string>;
+  /**
+   * The only fee recipient that the wallet pays in `deduct` mode. Never the zero address. A chain without it does not
+   * take `deduct` mode: the wallet refuses a relayer that asks for a fee there.
+   */
+  feeRecipient?: EvmAddress;
 }
 
 /** The deposit-address relay service (`services/evm-relay`). */
@@ -635,7 +640,9 @@ function relayChains(value: unknown, documentChains: unknown): RelayChainConfig[
       chainId,
       executor: nonZeroEvmAddress(chain.executor),
       calibur: relayCalibur(chain.calibur),
-      maxFee: relayMaxFee(chain.maxFee)
+      maxFee: relayMaxFee(chain.maxFee),
+      // The fee recipient receives funds, so the zero address is refused.
+      ...(chain.feeRecipient === undefined ? {} : { feeRecipient: nonZeroEvmAddress(chain.feeRecipient) })
     };
   });
   return new Set(chains.map(chain => chain.chainId)).size === chains.length ? chains : invalid();
