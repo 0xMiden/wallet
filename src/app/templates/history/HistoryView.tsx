@@ -24,6 +24,7 @@ import { markActivityRead, useActivityReadState } from 'lib/settings/activity-re
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 
+import { type ActivityCounterpartyName, activityDappCounterpartyName } from './activityGroups';
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import { historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryItem from './HistoryItem';
@@ -45,6 +46,7 @@ import {
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];
+  counterpartyNameOf?: ActivityCounterpartyName;
   initialLoading: boolean;
   hideLoadingSpinner?: boolean;
   loadMore: (page: number) => Promise<void>;
@@ -121,7 +123,8 @@ function buildRowProps(
   bridgeConfig: BridgeConfigSnapshot,
   entry: IHistoryEntry,
   t: (k: string, opts?: Record<string, unknown>) => string,
-  tokenId?: string
+  tokenId?: string,
+  counterpartyNameOf?: ActivityCounterpartyName
 ) {
   // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
@@ -280,6 +283,7 @@ function buildRowProps(
   const swapPlacement = isSwap
     ? t('swapPlacedAt', { time: Number.isFinite(placedAt.getTime()) ? format(placedAt, 'HH:mm') : t('unknown') })
     : undefined;
+  const counterparty = activityDappCounterpartyName(entry, counterpartyNameOf);
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -296,7 +300,7 @@ function buildRowProps(
             .filter(Boolean)
             .join(' · ')
         : entry.secondaryAddress
-          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${counterparty ?? shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -508,6 +512,7 @@ export function shortAddr(addr: string): string {
 const HistoryView = memo<HistoryViewProps>(
   ({
     entries,
+    counterpartyNameOf,
     initialLoading,
     hideLoadingSpinner,
     loadMore,
@@ -689,7 +694,7 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(bridgeConfig, entry, t, tokenId);
+                const props = buildRowProps(bridgeConfig, entry, t, tokenId, counterpartyNameOf);
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

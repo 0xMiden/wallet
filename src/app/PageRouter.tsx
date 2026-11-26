@@ -221,7 +221,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   // One activity group's own page: the feed narrowed to that counterparty or category. `:id` is
-  // the counterparty's address and is absent for a category group (`/activity/group/swap`).
+  // the counterparty's address or dApp origin. A category group needs only its kind.
   [
     '/activity/group/:kind/:id?',
     onlyReady(({ kind, id }) => (

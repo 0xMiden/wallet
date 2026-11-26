@@ -1239,6 +1239,8 @@ export interface ITransaction {
    * carry nor restore it.
    */
   dappOrigins?: string[];
+  /** Local Activity attribution to the approved origin that created this row. */
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -1533,6 +1535,7 @@ export class Transaction implements ITransaction {
   heldNoteIds?: string[];
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1600,6 +1603,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
@@ -1672,6 +1676,7 @@ export class ConsumeTransaction implements ITransaction {
   feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
