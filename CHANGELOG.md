@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch of raw calls that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden with no EVM gas from the user. The service knows no bridge, has no login and keeps only its nonce counter and the open relays.
 - [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; an EIP-1193 provider relays the transactions of a bridge flow through the relay service; and the remote config gains the `relay` section behind `features.relayDeposit`.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
@@ -14,8 +15,6 @@
 
 ## 1.18.2 (TBD)
 
-- [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden through Agglayer with no EVM gas from the user. The service has no login, takes no calldata from the client and keeps only its nonce counter and the open relays.
-- [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; and the remote config gains the `relay` section behind `features.relayDeposit`.
 - [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
 - [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
 - [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
