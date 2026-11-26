@@ -1,7 +1,10 @@
 import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 
+import { findRelaySource, relayServesChain } from 'lib/evm-relay/source';
+import { CHAIN } from 'lib/evm-relay/testing';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+import type { RelayChainConfig } from 'lib/remote-config/schema';
+import { getEpochAllocatorUrl, getRelayChain } from 'lib/remote-config/values';
 
 import { buildEpochWalletClient, getEvmConnection } from './client';
 import { ensureEpochSmartAccount, getEpochReadOnlySdk, getEpochSdk, getEpochSigningSdk, resetEpochSdk } from './sdk';
@@ -18,9 +21,14 @@ jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   }))
 }));
 jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
-jest.mock('lib/remote-config/values', () =>
-  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
-);
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock(),
+  getRelayChain: jest.fn(() => null)
+}));
+jest.mock('lib/evm-relay/source', () => ({
+  findRelaySource: jest.fn(() => null),
+  relayServesChain: jest.fn(() => true)
+}));
 
 jest.mock('@reown/appkit/react', () => ({ useAppKitAccount: jest.fn() }));
 jest.mock('./client', () => ({
@@ -230,5 +238,74 @@ describe('the SDK bound to an expected account', () => {
 
     expect(buildEpochWalletClient).toHaveBeenCalledTimes(1);
     expect(buildEpochWalletClient).toHaveBeenCalledWith(EVM_ADDRESS, expect.anything());
+  });
+});
+
+describe('the SDK of a relay source', () => {
+  const RELAY = '0x00000000000000000000000000000000000000aa';
+  // A new object for each call: the SDK cache compares the relay entry by identity.
+  const relayChain = (): RelayChainConfig => ({ ...CHAIN, key: 'sepolia', chainId: 11155111 });
+
+  beforeEach(() => {
+    resetEpochSdk();
+    jest.mocked(EpochIntentSDK).mockClear();
+    jest.mocked(buildEpochWalletClient).mockClear();
+    jest.mocked(getEvmConnection).mockReset();
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue(TEST_ALLOCATOR_URL);
+    jest.mocked(findRelaySource).mockReturnValue({ accountPublicKey: 'miden-account', address: RELAY });
+    jest.mocked(relayServesChain).mockReturnValue(true);
+    jest.mocked(getRelayChain).mockReturnValue(relayChain());
+  });
+  afterAll(() => {
+    jest.mocked(findRelaySource).mockReturnValue(null);
+    jest.mocked(getRelayChain).mockReturnValue(null);
+  });
+
+  it('builds with no wallet connection, on the source chain, and caches it under its own key', async () => {
+    const chain = relayChain();
+    jest.mocked(getRelayChain).mockReturnValue(chain);
+
+    const sdk = await getEpochSdk({ account: RELAY, chainId: 11155111 });
+
+    expect(sdk).not.toBeNull();
+    expect(getEvmConnection).not.toHaveBeenCalled();
+    expect(buildEpochWalletClient).toHaveBeenCalledWith(RELAY, { chainOverride: 11155111 });
+    expect(await getEpochSdk({ account: RELAY, chainId: 11155111 })).toBe(sdk);
+    expect(EpochIntentSDK).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds again for another allocator, chain or relay entry of the config', async () => {
+    const first = await getEpochSdk({ account: RELAY, chainId: 11155111 });
+    const otherAllocator = await getEpochSdk({ account: RELAY, chainId: 11155111, allocatorUrl: 'https://moved.test' });
+    expect(otherAllocator).not.toBe(first);
+    jest.mocked(getRelayChain).mockReturnValue(relayChain());
+    expect(await getEpochSdk({ account: RELAY, chainId: 11155111 })).not.toBe(first);
+    expect(EpochIntentSDK).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives nothing when the relay does not serve the chain', async () => {
+    jest.mocked(relayServesChain).mockReturnValue(false);
+    await expect(getEpochSdk({ account: RELAY, chainId: 8453 })).resolves.toBeNull();
+
+    jest.mocked(relayServesChain).mockReturnValue(true);
+    jest.mocked(getRelayChain).mockReturnValue(null);
+    await expect(getEpochSdk({ account: RELAY, chainId: 8453 })).resolves.toBeNull();
+    expect(EpochIntentSDK).not.toHaveBeenCalled();
+  });
+
+  it('keeps the connected-wallet rules for an address that is not a relay source, and for a Miden flow', async () => {
+    jest.mocked(findRelaySource).mockReturnValue(null);
+    jest.mocked(getEvmConnection).mockResolvedValue({ isNative: false });
+    await expect(getEpochSdk({ account: RELAY })).resolves.toBeNull();
+
+    jest.mocked(findRelaySource).mockReturnValue({ accountPublicKey: 'miden-account', address: RELAY });
+    await expect(getEpochSdk({ account: RELAY, forMidenFlow: true })).resolves.toBeNull();
+    expect(getEvmConnection).toHaveBeenCalledTimes(2);
+  });
+
+  it('is forgotten on reset', async () => {
+    const first = await getEpochSdk({ account: RELAY, chainId: 11155111 });
+    resetEpochSdk();
+    expect(await getEpochSdk({ account: RELAY, chainId: 11155111 })).not.toBe(first);
   });
 });

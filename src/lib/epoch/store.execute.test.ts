@@ -17,6 +17,7 @@ const mockConnection = jest.fn();
 const mockSwitchWebWalletChain = jest.fn();
 jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
+  getEvmSourceConnection: (...args: unknown[]) => mockConnection(...args),
   switchWebWalletChain: (...args: unknown[]) => mockSwitchWebWalletChain(...args)
 }));
 const mockGetEpochSdk = jest.fn(async (_opts?: { allocatorUrl?: string }) => ({}));
@@ -209,6 +210,62 @@ it('fails the tracking row at the execute, with what failed it, when the deposit
   expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
     error: 'Wallet did not switch',
     failure: { step: 'epoch_execute', cause }
+  });
+});
+
+describe('a relay source', () => {
+  const RELAY = '0x00000000000000000000000000000000000000aa';
+  const relayQuote: EVMToMidenQuote = { ...quote, params: { ...quote.params, evmSourceAddress: RELAY } };
+  const relayConnection = { address: RELAY, chainId: 11155111, isNative: false, isRelay: true };
+
+  beforeEach(() => {
+    mockConnection.mockReset().mockResolvedValue(relayConnection);
+  });
+
+  it('reads the reviewed source, switches no wallet chain, and binds the SDK to the relay address', async () => {
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+
+    expect(mockConnection).toHaveBeenCalledWith(RELAY, 11155111);
+    expect(mockSwitchWebWalletChain).not.toHaveBeenCalled();
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: RELAY, chainId: 11155111 }));
+    expect(mockRegister).toHaveBeenCalledWith(RELAY, 'nonce-1', expect.anything());
+  });
+
+  it('reports a refused solve with no wallet request client', async () => {
+    mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: 'refused' });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+
+    expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+      error: 'refused',
+      failure: { step: 'epoch_solve', cause: 'refused' }
+    });
+  });
+
+  it('polls the intent status of the relay address with the relay SDK', async () => {
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    mockGetEpochSdk.mockClear();
+
+    await useEpochStore.getState().poll();
+
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: RELAY, chainId: 11155111 }));
+  });
+
+  it('binds no account for an external wallet, and none for a source that is not an address', async () => {
+    mockConnection.mockResolvedValue({ address: '0xowner', isNative: true });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
+
+    mockGetEpochSdk.mockClear();
+    mockConnection.mockResolvedValue({ ...relayConnection, address: '0xowner' });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
   });
 });
 

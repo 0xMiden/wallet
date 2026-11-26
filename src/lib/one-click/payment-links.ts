@@ -1,41 +1,43 @@
 import { formatUnits } from 'viem';
 
+import {
+  evmPaymentLinksOf,
+  trustCoinOfEvmChain,
+  trustPaymentLink,
+  type WalletPaymentLink
+} from 'lib/evm/payment-links';
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 
 import { isValidNearIntentsRefundAddress, normalizeNearIntentsAddress } from './address';
 
-export type PaymentWalletId = 'trust' | 'metamask' | 'rainbow' | 'phantom';
-
-export interface WalletPaymentLink {
-  wallet: PaymentWalletId;
-  url: string;
-}
+export type { PaymentWalletId, WalletPaymentLink } from 'lib/evm/payment-links';
 
 interface EvmPaymentChain {
   chainId: number;
   trustCoin: number;
 }
 
-// Trust coin IDs are not EVM chain IDs. See trustwallet/wallet-core/registry.json.
+/** The EVM chain id of a 1Click blockchain name, with its Trust coin id (`trustCoinOfEvmChain`). */
 function evmChain(blockchain: string): EvmPaymentChain | undefined {
+  const chainId = evmChainIdOf(blockchain);
+  if (chainId === undefined) return undefined;
+  const trustCoin = trustCoinOfEvmChain(chainId);
+  return trustCoin === undefined ? undefined : { chainId, trustCoin };
+}
+
+function evmChainIdOf(blockchain: string): number | undefined {
   switch (blockchain) {
     case 'eth':
-      return { chainId: 1, trustCoin: 60 };
+      return 1;
     case 'base':
-      return { chainId: 8453, trustCoin: 8453 };
+      return 8453;
     case 'arb':
-      return { chainId: 42161, trustCoin: 10042221 };
+      return 42161;
     case 'op':
-      return { chainId: 10, trustCoin: 10000070 };
+      return 10;
     default:
       return undefined;
   }
-}
-
-function trustLink(asset: string, address: string, amount: string, memo?: string): WalletPaymentLink {
-  const query = new URLSearchParams({ asset, address, amount });
-  if (memo) query.set('memo', memo);
-  return { wallet: 'trust', url: `trust://send?${query}` };
 }
 
 /** Build payment URLs only for known source chains. Amounts come from the saved quote in base units. */
@@ -59,23 +61,14 @@ export function depositPaymentLinks(tracking: IOneClickTrackingData, now = Date.
     if (token !== undefined && !isValidNearIntentsRefundAddress('evm', token)) return [];
     // An asset with no contract must be the native coin, not a token with missing metadata.
     if (token === undefined && (origin.symbol !== 'ETH' || origin.decimals !== 18)) return [];
-    const trust = trustLink(token ? `c${chain.trustCoin}_t${token}` : `c${chain.trustCoin}`, address, amount, memo);
-    if (memo) return [trust];
-    const path = token
-      ? `${token}@${chain.chainId}/transfer?${new URLSearchParams({ address, uint256: units })}`
-      : `${address}@${chain.chainId}?${new URLSearchParams({ value: units })}`;
-    return [
-      trust,
-      { wallet: 'metamask', url: `metamask://send/${path}` },
-      { wallet: 'rainbow', url: `ethereum:${path}` }
-    ];
+    return evmPaymentLinksOf({ ...chain, token, to: address, units, amount, memo });
   }
   switch (origin.blockchain) {
     case 'btc': {
       if (token !== undefined || origin.symbol !== 'BTC' || origin.decimals !== 8 || memo) return [];
       const bitcoinAddress = normalizeNearIntentsAddress('bitcoin', address);
       return isValidNearIntentsRefundAddress('bitcoin', bitcoinAddress)
-        ? [trustLink('c0', bitcoinAddress, amount)]
+        ? [trustPaymentLink('c0', bitcoinAddress, amount)]
         : [];
     }
     case 'sol': {
@@ -86,13 +79,13 @@ export function depositPaymentLinks(tracking: IOneClickTrackingData, now = Date.
       if (token) query.set('spl-token', token);
       if (memo) query.set('memo', memo);
       return [
-        trustLink(token ? `c501_t${token}` : 'c501', address, amount, memo),
+        trustPaymentLink(token ? `c501_t${token}` : 'c501', address, amount, memo),
         { wallet: 'phantom', url: `solana:${address}?${query}` }
       ];
     }
     case 'near':
       if (token !== undefined || origin.symbol !== 'NEAR' || origin.decimals !== 24) return [];
-      return isValidNearIntentsRefundAddress('near', address) ? [trustLink('c397', address, amount, memo)] : [];
+      return isValidNearIntentsRefundAddress('near', address) ? [trustPaymentLink('c397', address, amount, memo)] : [];
     default:
       return [];
   }
