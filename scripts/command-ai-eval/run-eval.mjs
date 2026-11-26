@@ -115,13 +115,14 @@ export async function runEval({
           './help-safety.mjs': { hasUnsafeSharingAdvice }
         }).createService({
           fetchImpl: async (...args) => {
+            providerFailureDetail = undefined;
             const response = await fetch(...args);
-            const { usage, choices } = await response
+            const data = await response
               .clone()
               .json()
-              .catch(() => ({}));
-            maxPromptTokens = Math.max(maxPromptTokens, usage?.prompt_tokens ?? 0);
-            const finishReason = choices?.[0]?.finish_reason;
+              .catch(() => null);
+            maxPromptTokens = Math.max(maxPromptTokens, data?.usage?.prompt_tokens ?? 0);
+            const finishReason = data?.choices?.[0]?.finish_reason;
             providerFailureDetail = !response.ok
               ? `provider HTTP ${response.status}`
               : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
