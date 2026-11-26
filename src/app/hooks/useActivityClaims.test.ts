@@ -36,6 +36,7 @@ type MockRow = {
   completedAt?: number;
   held?: boolean;
   guardianBusy?: true;
+  awaitingRecoverySeed?: true;
   consumeEntryPoint?: ITransaction['consumeEntryPoint'];
   lastDeferral?: ITransaction['lastDeferral'];
   nextEligibleAt?: number;
@@ -2668,8 +2669,19 @@ it('shows a scheduled Claim All retry without offering another claim', async () 
   expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
 
   const retry = { ...row, lastDeferral: 'node_unreachable', nextEligibleAt: Math.floor(Date.now() / 1000) + 60 } as const;
+  for (const waiting of [
+    { ...retry, lastDeferral: 'wallet_locked' },
+    { ...retry, awaitingRecoverySeed: true },
+    { ...retry, consumeEntryPoint: 'claim' },
+    { ...retry, guardianBusy: true },
+    { ...retry, nextEligibleAt: undefined }
+  ] as const) {
+    settle([{ ...waiting, status: 0 }]);
+    expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  }
   settle([{ ...retry, status: 0 }]);
   expect(screen.getByText('activityClaimQueuedRetry')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'activityClaimQueued' })).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));

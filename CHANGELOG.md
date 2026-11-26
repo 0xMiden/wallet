@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Show when Claim All is waiting for an automatic retry.
+
 ## 1.18.2 (TBD)
 
 - [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
