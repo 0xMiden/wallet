@@ -12,7 +12,7 @@ import {
   markEarnWithdrawNotSent,
   markEarnWithdrawAccepted
 } from 'lib/miden/activity';
-import { hasTransactionIndex, readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import {
   ITransactionStatus,
   type IBridgeInInfo,
@@ -831,13 +831,11 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
 
 /** Repair stale/restored rows locally before attempting any polling ownership. */
 export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<void> {
-  const rows = hasTransactionIndex('type', Repo.transactions)
-    ? await readTransactionIndexChunks(
-        Repo.transactions,
-        typeIndexSpecs(['earn-withdraw']),
-        hasEarnWithdrawRecoveryWork
-      )
-    : await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-withdraw']),
+    hasEarnWithdrawRecoveryWork
+  );
   for (const row of rows) {
     if (!hasEarnWithdrawRecoveryWork(row)) continue;
     await resumeEarnWithdrawal(row.id, deps).catch((error: unknown) =>

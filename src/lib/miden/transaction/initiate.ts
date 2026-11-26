@@ -563,17 +563,15 @@ export async function enqueueRotationFundingClaim(
 ): Promise<string | null> {
   let txId: string | null = null;
   await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
-    const [rotation] = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? await readTransactionIndexChunks(
-          Repo.transactions,
-          statusTypeIndexSpecs([
-            [ITransactionStatus.Queued, 'replace-hot-key'],
-            [ITransactionStatus.GeneratingTransaction, 'replace-hot-key']
-          ]),
-          row => isLiveRotationRow(row, accountPublicKey),
-          { limit: 1 }
-        )
-      : [await Repo.transactions.filter(row => isLiveRotationRow(row, accountPublicKey)).first()];
+    const [rotation] = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'replace-hot-key'],
+        [ITransactionStatus.GeneratingTransaction, 'replace-hot-key']
+      ]),
+      row => isLiveRotationRow(row, accountPublicKey),
+      { limit: 1 }
+    );
     if (rotation) return;
     txId = await initiateRotationFundingClaim(accountPublicKey, notes, opts);
   });

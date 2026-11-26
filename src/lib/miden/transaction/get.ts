@@ -3,12 +3,15 @@ import Dexie, { type Table } from 'dexie';
 
 import {
   type ChunkReadOptions,
+  countIndexEntriesUpTo,
   DEFAULT_READ_CHUNK_SIZE,
+  equalIndexSpec,
   hasTransactionIndex,
   RANGE_ANY,
   RANGE_BOUND,
-  RANGE_EQUAL,
   readTransactionIndexChunks,
+  statusIndexSpecs,
+  statusTypeIndexSpecs,
   yieldToEventLoop
 } from 'lib/miden/db/index-query';
 import * as Repo from 'lib/miden/repo';
@@ -45,23 +48,15 @@ const readByStatusIndex = async (
   filterRow: (row: ITransaction) => boolean = () => true,
   options?: ChunkReadOptions
 ): Promise<ITransaction[]> =>
-  readTransactionIndexChunks(
-    Repo.transactions,
-    statuses.map(status => ({
-      indexName: 'status',
-      range: { type: RANGE_EQUAL, lower: status, upper: status }
-    })),
-    filterRow,
-    options
-  );
+  readTransactionIndexChunks(Repo.transactions, statusIndexSpecs(statuses), filterRow, options);
 
-export const hasQueuedTransactions = async () => {
-  if (hasTransactionIndex('status', Repo.transactions)) {
-    return (await Repo.transactions.where('status').equals(ITransactionStatus.Queued).limit(1).count()) > 0;
-  }
-  const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  return tx.length > 0;
-};
+export const hasQueuedTransactions = async () =>
+  (await countIndexEntriesUpTo(
+    Repo.transactions,
+    'status',
+    equalIndexSpec('status', ITransactionStatus.Queued).range,
+    1
+  )) > 0;
 
 export const getUncompletedTransactions = async (address: string, tokenId?: string) => {
   const statuses = [ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction];
@@ -69,45 +64,28 @@ export const getUncompletedTransactions = async (address: string, tokenId?: stri
 };
 
 const getTransactionsInStatuses = async (statuses: ITransactionStatus[], accountId: string, tokenId?: string) => {
-  const statusIndexed = hasTransactionIndex('status', Repo.transactions);
-  let txs = statusIndexed
-    ? await readByStatusIndex(
-        statuses,
-        tx => compareAccountIds(tx.accountId, accountId) && (!tokenId || matchesTokenId(tx, tokenId))
-      )
-    : await Repo.transactions.filter(rec => statuses.includes(rec.status)).toArray();
+  const txs = await readByStatusIndex(
+    statuses,
+    tx => compareAccountIds(tx.accountId, accountId) && (!tokenId || matchesTokenId(tx, tokenId))
+  );
   // Same tie-break as the processing loop's picker, for the same reason and so the two
   // agree: `initiatedAt` is whole seconds, so rows queued in the same second tie and a
   // stable sort falls back to Dexie's primary-key order over random `uuid()`s. Without
   // this, the queue a caller reads here could be ordered differently from the order the
   // loop will actually process.
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0));
-  if (!statusIndexed) {
-    txs = txs.filter(tx => compareAccountIds(tx.accountId, accountId));
-    if (tokenId) {
-      txs = txs.filter(tx => matchesTokenId(tx, tokenId));
-    }
-  }
 
   return txs;
 };
 
 export const getTransactionsInProgress = async (): Promise<Transaction[]> => {
-  const txs = hasTransactionIndex('status', Repo.transactions)
-    ? await readByStatusIndex([ITransactionStatus.GeneratingTransaction])
-    : await Repo.transactions.filter(rec => rec.status === ITransactionStatus.GeneratingTransaction).toArray();
+  const txs = await readByStatusIndex([ITransactionStatus.GeneratingTransaction]);
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return txs;
 };
 
 export const getAllUncompletedTransactions = async () => {
-  const txs = hasTransactionIndex('status', Repo.transactions)
-    ? await readByStatusIndex([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])
-    : await Repo.transactions
-        .filter(
-          rec => rec.status === ITransactionStatus.GeneratingTransaction || rec.status === ITransactionStatus.Queued
-        )
-        .toArray();
+  const txs = await readByStatusIndex([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction]);
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return txs;
 };
@@ -126,39 +104,25 @@ export const isRotationAwaitingFunding = async (accountPublicKey: string, rotati
  * (possibly partial) work, not the backup's.
  */
 export const hasRestoredTransactionsOf = async (accountPublicKey: string): Promise<boolean> => {
-  if (hasTransactionIndex('id', Repo.transactions)) {
-    const matches = await readTransactionIndexChunks(
-      Repo.transactions,
-      [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
-      tx =>
-        tx.restoredFromBackup === true && tx.recovered !== true && sameWalletAccountId(tx.accountId, accountPublicKey),
-      { limit: 1 }
-    );
-    return matches.length > 0;
-  }
-  return (
-    (await Repo.transactions
-      .filter(
-        tx =>
-          tx.restoredFromBackup === true && tx.recovered !== true && sameWalletAccountId(tx.accountId, accountPublicKey)
-      )
-      .first()) !== undefined
+  const matches = await readTransactionIndexChunks(
+    Repo.transactions,
+    [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+    tx =>
+      tx.restoredFromBackup === true && tx.recovered !== true && sameWalletAccountId(tx.accountId, accountPublicKey),
+    { limit: 1 }
   );
+  return matches.length > 0;
 };
 
 export const getFailedTransactions = async () => {
-  const transactions = hasTransactionIndex('status', Repo.transactions)
-    ? await readByStatusIndex([ITransactionStatus.Failed])
-    : await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Failed).toArray();
+  const transactions = await readByStatusIndex([ITransactionStatus.Failed]);
   transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return transactions;
 };
 
 /** Rows waiting for the node's verdict on an unknown submit outcome (#1081). */
 export const getUnconfirmedTransactions = async () => {
-  const transactions = hasTransactionIndex('status', Repo.transactions)
-    ? await readByStatusIndex([ITransactionStatus.Unconfirmed])
-    : await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Unconfirmed).toArray();
+  const transactions = await readByStatusIndex([ITransactionStatus.Unconfirmed]);
   transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return transactions;
 };
@@ -728,9 +692,7 @@ export const getCompletedTransactions = async (
 ) => {
   // No page size: callers of the full list keep the single scan. A limit is what makes the read bounded.
   if (limit === undefined) {
-    let transactions = hasTransactionIndex('status', Repo.transactions)
-      ? await readByStatusIndex([ITransactionStatus.Completed])
-      : await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Completed).toArray();
+    let transactions = await readByStatusIndex([ITransactionStatus.Completed]);
     if (includeFailed) {
       transactions = transactions.concat(await getFailedTransactions(), await getUnconfirmedTransactions());
     }
@@ -756,7 +718,7 @@ export const getCompletedTransactions = async (
   return read.rows;
 };
 
-const NOTE_HOLDING_STATUS_TYPES: ReadonlyArray<readonly [ITransactionStatus, string]> = [
+const NOTE_HOLDING_STATUS_TYPES: ReadonlyArray<readonly [ITransactionStatus, ITransaction['type']]> = [
   [ITransactionStatus.Queued, 'consume'],
   [ITransactionStatus.Queued, 'execute'],
   [ITransactionStatus.GeneratingTransaction, 'consume'],
@@ -777,95 +739,102 @@ const NOTE_HOLDING_STATUS_TYPES: ReadonlyArray<readonly [ITransactionStatus, str
  */
 export const getNoteHoldingTransactions = async (address: string): Promise<ITransaction[]> => {
   const nowSec = Math.floor(Date.now() / 1000);
-  if (
-    !hasTransactionIndex('[status+type]', Repo.transactions) ||
-    !hasTransactionIndex('[status+completedAt]', Repo.transactions)
-  ) {
-    const rows = await Repo.transactions.filter(tx => isNoteHoldingRow(tx, nowSec)).toArray();
-    const holding = rows.filter(tx => sameWalletAccountId(tx.accountId, address));
-    holding.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0));
-    return holding;
-  }
 
   const matchesAccountAndHoldsNotes = (tx: ITransaction): boolean =>
     sameWalletAccountId(tx.accountId, address) && isNoteHoldingRow(tx, nowSec);
 
   const liveAndVerdictRows = await readTransactionIndexChunks(
     Repo.transactions,
-    NOTE_HOLDING_STATUS_TYPES.map(([status, type]) => ({
-      indexName: '[status+type]',
-      range: { type: RANGE_EQUAL, lower: [status, type], upper: [status, type] }
-    })),
+    statusTypeIndexSpecs(NOTE_HOLDING_STATUS_TYPES),
     matchesAccountAndHoldsNotes
   );
 
   const minCompletedAt = nowSec - COMPLETED_HOLD_GRACE_SEC;
-  const recentCompletedCount = await Repo.transactions
-    .where('[status+completedAt]')
-    .between(
-      [ITransactionStatus.Completed, minCompletedAt],
-      [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-      false,
-      true
-    )
-    .count();
-
   let recentHeldRows: ITransaction[] = [];
-  if (recentCompletedCount > 0) {
-    const useHeldNoteIndex =
-      recentCompletedCount > DEFAULT_READ_CHUNK_SIZE && hasTransactionIndex('heldNoteIds', Repo.transactions);
-    let scanHeldIndex = false;
-    if (useHeldNoteIndex) {
-      const heldEntryCount = await Repo.transactions.where('heldNoteIds').aboveOrEqual('').count();
-      if (heldEntryCount === 0) {
-        recentHeldRows = [];
+  if (!hasTransactionIndex('[status+completedAt]', Repo.transactions)) {
+    recentHeldRows = await readTransactionIndexChunks(
+      Repo.transactions,
+      [
+        {
+          indexName: '[status+completedAt]',
+          range: {
+            type: RANGE_BOUND,
+            lower: [ITransactionStatus.Completed, minCompletedAt],
+            upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+            lowerOpen: true,
+            upperOpen: false
+          }
+        }
+      ],
+      matchesAccountAndHoldsNotes
+    );
+  } else {
+    const recentCompletedCount = await Repo.transactions
+      .where('[status+completedAt]')
+      .between(
+        [ITransactionStatus.Completed, minCompletedAt],
+        [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+        false,
+        true
+      )
+      .count();
+
+    if (recentCompletedCount > 0) {
+      const useHeldNoteIndex =
+        recentCompletedCount > DEFAULT_READ_CHUNK_SIZE && hasTransactionIndex('heldNoteIds', Repo.transactions);
+      let scanHeldIndex = false;
+      if (useHeldNoteIndex) {
+        const heldEntryCount = await Repo.transactions.where('heldNoteIds').aboveOrEqual('').count();
+        if (heldEntryCount === 0) {
+          recentHeldRows = [];
+        } else {
+          scanHeldIndex = heldEntryCount < recentCompletedCount;
+          recentHeldRows = await readTransactionIndexChunks(
+            Repo.transactions,
+            [
+              scanHeldIndex
+                ? {
+                    indexName: 'heldNoteIds',
+                    range: {
+                      type: RANGE_BOUND,
+                      lower: '',
+                      upper: Dexie.maxKey,
+                      lowerOpen: false,
+                      upperOpen: true
+                    }
+                  }
+                : {
+                    indexName: '[status+completedAt]',
+                    range: {
+                      type: RANGE_BOUND,
+                      lower: [ITransactionStatus.Completed, minCompletedAt],
+                      upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+                      lowerOpen: true,
+                      upperOpen: false
+                    }
+                  }
+            ],
+            matchesAccountAndHoldsNotes
+          );
+        }
       } else {
-        scanHeldIndex = heldEntryCount < recentCompletedCount;
         recentHeldRows = await readTransactionIndexChunks(
           Repo.transactions,
           [
-            scanHeldIndex
-              ? {
-                  indexName: 'heldNoteIds',
-                  range: {
-                    type: RANGE_BOUND,
-                    lower: '',
-                    upper: Dexie.maxKey,
-                    lowerOpen: false,
-                    upperOpen: true
-                  }
-                }
-              : {
-                  indexName: '[status+completedAt]',
-                  range: {
-                    type: RANGE_BOUND,
-                    lower: [ITransactionStatus.Completed, minCompletedAt],
-                    upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-                    lowerOpen: true,
-                    upperOpen: false
-                  }
-                }
+            {
+              indexName: '[status+completedAt]',
+              range: {
+                type: RANGE_BOUND,
+                lower: [ITransactionStatus.Completed, minCompletedAt],
+                upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+                lowerOpen: true,
+                upperOpen: false
+              }
+            }
           ],
           matchesAccountAndHoldsNotes
         );
       }
-    } else {
-      recentHeldRows = await readTransactionIndexChunks(
-        Repo.transactions,
-        [
-          {
-            indexName: '[status+completedAt]',
-            range: {
-              type: RANGE_BOUND,
-              lower: [ITransactionStatus.Completed, minCompletedAt],
-              upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-              lowerOpen: true,
-              upperOpen: false
-            }
-          }
-        ],
-        matchesAccountAndHoldsNotes
-      );
     }
   }
 

@@ -6,7 +6,7 @@ import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader 
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import { hasTransactionIndex, readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import {
   recordPortfolioObservation,
@@ -133,20 +133,18 @@ export function CommandPortfolio({
 
   useEffect(() => {
     let cancelled = false;
-    const loadRows = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? readTransactionIndexChunks(
-          Repo.transactions,
-          statusTypeIndexSpecs([
-            [ITransactionStatus.Completed, 'consume'],
-            [ITransactionStatus.Completed, 'bridged-receive'],
-            [ITransactionStatus.Completed, 'earn-withdraw'],
-            [ITransactionStatus.Completed, 'send'],
-            [ITransactionStatus.Completed, 'bridged-send'],
-            [ITransactionStatus.Completed, 'earn-deposit']
-          ]),
-          row => compareAccountIds(row.accountId, stableScope.accountId)
-        )
-      : Repo.transactions.toArray();
+    const loadRows = readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Completed, 'consume'],
+        [ITransactionStatus.Completed, 'bridged-receive'],
+        [ITransactionStatus.Completed, 'earn-withdraw'],
+        [ITransactionStatus.Completed, 'send'],
+        [ITransactionStatus.Completed, 'bridged-send'],
+        [ITransactionStatus.Completed, 'earn-deposit']
+      ]),
+      row => compareAccountIds(row.accountId, stableScope.accountId)
+    );
     void loadRows
       .then(rows => {
         if (!cancelled) setActivityRows({ key, rows });

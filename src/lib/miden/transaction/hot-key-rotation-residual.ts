@@ -3,7 +3,7 @@
 // completes the row. A node discard is a verdict: that row never lands, so it is a record, not work.
 
 import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
-import { hasTransactionIndex, readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import * as Repo from 'lib/miden/repo';
 
 import { isNodeDiscardedRow } from './constants';
@@ -35,13 +35,11 @@ export async function findFailedHotKeyRotations(accountPublicKey: string): Promi
     tx.restoredFromBackup !== true &&
     !isNodeDiscardedRow(tx) &&
     sameWalletAccountId(tx.accountId, accountPublicKey);
-  const rows = hasTransactionIndex('[status+type]', Repo.transactions)
-    ? await readTransactionIndexChunks(
-        Repo.transactions,
-        statusTypeIndexSpecs([[ITransactionStatus.Failed, 'replace-hot-key']]),
-        matches
-      )
-    : await Repo.transactions.filter(matches).toArray();
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusTypeIndexSpecs([[ITransactionStatus.Failed, 'replace-hot-key']]),
+    matches
+  );
   const rotations: FailedHotKeyRotation[] = [];
   for (const row of rows.sort((a, b) => b.initiatedAt - a.initiatedAt)) {
     const newHotPublicKey: unknown = row.extraInputs?.newHotPublicKey;

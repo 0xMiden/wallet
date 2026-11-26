@@ -92,38 +92,94 @@ export function historyRowFromCursor(cursor: DBCoreCursor): ITransaction {
   return value;
 }
 
-function keyTypeRank(v: unknown): number {
-  if (typeof v === 'number') return 0;
-  if (v instanceof Date) return 1;
-  if (typeof v === 'string') return 2;
-  if (Array.isArray(v)) return 3;
-  return 4;
-}
-
-function compareIdbKeys(a: unknown, b: unknown): number {
+export function compareIdbKeys(a: unknown, b: unknown): number {
   if (typeof indexedDB !== 'undefined' && typeof indexedDB.cmp === 'function') {
     return indexedDB.cmp(a, b);
   }
-  const ra = keyTypeRank(a);
-  const rb = keyTypeRank(b);
-  if (ra !== rb) return ra < rb ? -1 : 1;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const len = Math.min(a.length, b.length);
-    for (let i = 0; i < len; i += 1) {
-      const diff = compareIdbKeys(a[i], b[i]);
-      if (diff !== 0) return diff;
+  return (Dexie as unknown as { cmp: (x: unknown, y: unknown) => number }).cmp(a, b);
+}
+
+function isIndexableIdbKey(value: unknown): boolean {
+  if (typeof value === 'number') return !Number.isNaN(value);
+  if (typeof value === 'string') return true;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return true;
+  if (Array.isArray(value)) return value.every(isIndexableIdbKey);
+  return false;
+}
+
+function readRecordPath(obj: unknown, path: string): unknown {
+  let current: unknown = obj;
+  for (const segment of path.split('.')) {
+    if (typeof current !== 'object' || current === null) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function extractIndexKeys(row: ITransaction, indexName: string): unknown[] {
+  if (indexName.startsWith('[') && indexName.endsWith(']')) {
+    const parts = indexName
+      .slice(1, -1)
+      .split('+')
+      .map(part => readRecordPath(row, part));
+    return parts.every(isIndexableIdbKey) ? [parts] : [];
+  }
+  const value = readRecordPath(row, indexName);
+  if (Array.isArray(value)) return value.filter(isIndexableIdbKey);
+  return isIndexableIdbKey(value) ? [value] : [];
+}
+
+function keyMatchesRange(key: unknown, range: DBCoreKeyRange): boolean {
+  if (range.type === RANGE_ANY) return true;
+  if (range.type === RANGE_EQUAL) {
+    if (!isIndexableIdbKey(range.lower)) return false;
+    return compareIdbKeys(key, range.lower) === 0;
+  }
+  if (range.type === RANGE_BOUND) {
+    if (range.lower !== undefined) {
+      if (!isIndexableIdbKey(range.lower)) return false;
+      const cmpLower = compareIdbKeys(key, range.lower);
+      if (range.lowerOpen ? cmpLower <= 0 : cmpLower < 0) return false;
     }
-    return a.length < b.length ? -1 : a.length > b.length ? 1 : 0;
+    if (range.upper !== undefined) {
+      if (!isIndexableIdbKey(range.upper)) return false;
+      const cmpUpper = compareIdbKeys(key, range.upper);
+      if (range.upperOpen ? cmpUpper >= 0 : cmpUpper > 0) return false;
+    }
+    return true;
   }
-  if (a instanceof Date && b instanceof Date) {
-    const ta = a.getTime();
-    const tb = b.getTime();
-    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  return false;
+}
+
+function matchesIndexSpec(row: ITransaction, spec: TransactionIndexRangeSpec): boolean {
+  return extractIndexKeys(row, spec.indexName).some(key => keyMatchesRange(key, spec.range));
+}
+
+async function readMockSpecMatches(
+  table: TransactionTable<ITransaction, string>,
+  predicate: (row: ITransaction) => boolean,
+  limit?: number
+): Promise<ITransaction[]> {
+  if (limit !== undefined && limit <= 0) return [];
+  const cap = limit !== undefined && Number.isFinite(limit) ? Math.max(0, limit) : undefined;
+  let matches: ITransaction[];
+  if (typeof table.filter === 'function') {
+    const collection = table.filter(predicate);
+    if (typeof collection?.toArray === 'function') {
+      matches = await collection.toArray();
+    } else if (cap === 1 && typeof collection?.first === 'function') {
+      const first = await collection.first();
+      return first === undefined ? [] : [first];
+    } else {
+      return [];
+    }
+  } else if (typeof table.toArray === 'function') {
+    matches = (await table.toArray()).filter(predicate);
+  } else {
+    return [];
   }
-  if ((typeof a === 'number' && typeof b === 'number') || (typeof a === 'string' && typeof b === 'string')) {
-    return a < b ? -1 : a > b ? 1 : 0;
-  }
-  return 0;
+  return cap !== undefined ? matches.slice(0, cap) : matches;
 }
 
 function compareCursorKeyAndPk(keyA: unknown, pkA: unknown, keyB: unknown, pkB: unknown): number {
@@ -249,6 +305,93 @@ function readSpecChunk(
     });
 }
 
+export async function countIndexEntriesUpTo(
+  table: TransactionTable<ITransaction, string>,
+  indexName: string,
+  range: DBCoreKeyRange,
+  maxCount?: number
+): Promise<number> {
+  if (maxCount !== undefined && maxCount <= 0) return 0;
+  if (!hasTransactionIndex(indexName, table)) {
+    const matches = await readMockSpecMatches(table, row => matchesIndexSpec(row, { indexName, range }), maxCount);
+    return matches.length;
+  }
+
+  const index = resolveCoreIndex(table, indexName);
+  const targetLimit = maxCount ?? Infinity;
+
+  if (targetLimit <= DEFAULT_READ_CHUNK_SIZE) {
+    const runQuery = (trans: Transaction): Promise<number> =>
+      table.core
+        .query({
+          trans: trans.idbtrans,
+          values: false,
+          limit: targetLimit,
+          query: { index, range }
+        })
+        .then(res => res.result.length);
+    const outerTx = Dexie.currentTransaction;
+    return outerTx !== null ? runQuery(outerTx) : table.db.transaction('r', table, runQuery);
+  }
+
+  let total = 0;
+  let resumeAfter: CursorPosition | undefined;
+
+  const countChunk = (trans: Transaction): Promise<boolean> =>
+    table.core
+      .openCursor({
+        trans: trans.idbtrans,
+        values: false,
+        reverse: false,
+        query: { index, range }
+      })
+      .then(cursor => {
+        if (cursor === null) return true;
+        const ready =
+          resumeAfter !== undefined
+            ? advanceCursorToTarget(cursor, resumeAfter, false, false, index.isPrimaryKey !== true)
+            : Promise.resolve(true);
+        return ready.then(alive => {
+          if (!alive) return true;
+          const chunkLimit = Math.min(DEFAULT_READ_CHUNK_SIZE, targetLimit - total);
+          let visited = 0;
+          let nextResume: CursorPosition | undefined;
+          return cursor
+            .start(() => {
+              if (cursor.done) return;
+              visited += 1;
+              if (visited >= chunkLimit) {
+                nextResume = { key: cursor.key, primaryKey: cursor.primaryKey };
+                cursor.stop();
+                return;
+              }
+              cursor.continue();
+            })
+            .then(() => {
+              total += visited;
+              if (cursor.done === true || total >= targetLimit) return true;
+              resumeAfter = nextResume;
+              return false;
+            });
+        });
+      });
+
+  const outerTx = Dexie.currentTransaction;
+  if (outerTx !== null) {
+    while (!(await countChunk(outerTx))) {
+      // Caller owns the active transaction; keep all chunks inside it without yielding.
+    }
+    return total;
+  }
+
+  for (;;) {
+    const done = await table.db.transaction('r', table, countChunk);
+    if (done) break;
+    await yieldToEventLoop();
+  }
+  return total;
+}
+
 export async function readTransactionIndexChunks(
   table: TransactionTable<ITransaction, string>,
   specs: readonly TransactionIndexRangeSpec[],
@@ -256,6 +399,13 @@ export async function readTransactionIndexChunks(
   options?: ChunkReadOptions
 ): Promise<ITransaction[]> {
   if (specs.length === 0) return [];
+  if (!specs.every(spec => hasTransactionIndex(spec.indexName, table))) {
+    return readMockSpecMatches(
+      table,
+      row => specs.some(spec => matchesIndexSpec(row, spec)) && filterRow(row),
+      options?.limit
+    );
+  }
   const chunkSize = options?.chunkSize ?? DEFAULT_READ_CHUNK_SIZE;
   const maxResults = options?.limit ?? Infinity;
   const results: ITransaction[] = [];

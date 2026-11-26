@@ -7,7 +7,7 @@ import {
 } from '@epoch-protocol/epoch-intents-sdk';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
-import { hasTransactionIndex, readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
@@ -494,13 +494,11 @@ interface ReconcileEarnDepositsDeps extends EarnDepositPollDeps {
 /** Restart eligible deposits through the same owned polling path as initiation. */
 export async function reconcileEarnDeposits(deps: ReconcileEarnDepositsDeps = {}): Promise<void> {
   const startStatusPoll = deps.startStatusPoll ?? pollEarnIntentStatus;
-  const rows = hasTransactionIndex('[status+type]', Repo.transactions)
-    ? await readTransactionIndexChunks(
-        Repo.transactions,
-        statusTypeIndexSpecs([[ITransactionStatus.Completed, 'earn-deposit']]),
-        tx => !tx.restoredFromBackup
-      )
-    : await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusTypeIndexSpecs([[ITransactionStatus.Completed, 'earn-deposit']]),
+    tx => !tx.restoredFromBackup
+  );
   for (const row of rows) {
     if (row.type !== 'earn-deposit' || row.status !== ITransactionStatus.Completed || row.restoredFromBackup) continue;
     const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;

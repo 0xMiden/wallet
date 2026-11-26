@@ -193,16 +193,14 @@ const ensureRotationTx = async (
     }
     // A live device revocation is never the activation: the gate waits for it, so no activation is queued beside
     // a signer change already in flight.
-    const live = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? await readTransactionIndexChunks(
-          Repo.transactions,
-          statusTypeIndexSpecs([
-            [ITransactionStatus.Queued, 'replace-hot-key'],
-            [ITransactionStatus.GeneratingTransaction, 'replace-hot-key']
-          ]),
-          r => isLiveRotationRow(r, accountPublicKey)
-        )
-      : await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).toArray();
+    const live = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'replace-hot-key'],
+        [ITransactionStatus.GeneratingTransaction, 'replace-hot-key']
+      ]),
+      r => isLiveRotationRow(r, accountPublicKey)
+    );
     const existing = live.find(
       row => isActivationRow(row, accountPublicKey) && row.extraInputs?.rotationRequest === rotationRequest
     );
@@ -210,17 +208,15 @@ const ensureRotationTx = async (
       txId = existing.id;
       return;
     }
-    const [liveFunding] = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? await readTransactionIndexChunks(
-          Repo.transactions,
-          statusTypeIndexSpecs([
-            [ITransactionStatus.Queued, 'consume'],
-            [ITransactionStatus.GeneratingTransaction, 'consume']
-          ]),
-          r => isLiveRotationFundingRow(r, accountPublicKey),
-          { limit: 1 }
-        )
-      : [await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first()];
+    const [liveFunding] = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'consume'],
+        [ITransactionStatus.GeneratingTransaction, 'consume']
+      ]),
+      r => isLiveRotationFundingRow(r, accountPublicKey),
+      { limit: 1 }
+    );
     if (live.length > 0 || liveFunding !== undefined) {
       deferred = true;
       return;
@@ -233,11 +229,9 @@ const ensureRotationTx = async (
       txId = failed.id;
       return;
     }
-    const activationRows = hasTransactionIndex('type', Repo.transactions)
-      ? await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['replace-hot-key']), r =>
-          isActivationRow(r, accountPublicKey)
-        )
-      : await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray();
+    const activationRows = await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['replace-hot-key']), r =>
+      isActivationRow(r, accountPublicKey)
+    );
     const activationMode = mode ?? resumableActivationMode(activationRows, rotationRequest);
     if (activationMode === null) return;
     txId = await initiateReplaceHotKeyTransaction(

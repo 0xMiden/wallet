@@ -33,9 +33,7 @@ export async function findUnsavedSwitchRow(
   endpoint: string
 ): Promise<UnsavedSwitchRow | undefined> {
   const matches = (tx: ITransaction) => isUnsavedSwitchTo(tx, accountPublicKey, endpoint);
-  const rows = hasTransactionIndex('type', Repo.transactions)
-    ? await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['switch-guardian']), matches)
-    : await Repo.transactions.filter(matches).toArray();
+  const rows = await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['switch-guardian']), matches);
   const newest = rows.sort((a, b) => b.initiatedAt - a.initiatedAt)[0];
   const previous: unknown = newest?.extraInputs?.previousGuardianEndpoint;
   if (!newest || typeof previous !== 'string') return undefined;

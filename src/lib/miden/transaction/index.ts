@@ -11,7 +11,7 @@ import { configKey } from 'lib/bridge/core/routes';
 import { assertBridgeOperationCurrent, bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
 import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import { getMessage } from 'lib/i18n/core';
-import { hasTransactionIndex, readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import {
   clearGuardianServiceFor,
   getOrCreateMultisigService,
@@ -5711,9 +5711,11 @@ export const generateTransactionsLoop = async (
   }
 
   // Find transactions waiting to process
-  const queuedTransactions = hasTransactionIndex('status', Repo.transactions)
-    ? await readTransactionIndexChunks(Repo.transactions, statusIndexSpecs([ITransactionStatus.Queued]), () => true)
-    : await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const queuedTransactions = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusIndexSpecs([ITransactionStatus.Queued]),
+    () => true
+  );
   // `initiatedAt` is whole SECONDS, so rows queued in the same second tie -- and a
   // stable sort then preserves whatever order Dexie handed back, which is primary-key
   // order over random `uuid()`s. FIFO was approximate and a deliberate enqueue order

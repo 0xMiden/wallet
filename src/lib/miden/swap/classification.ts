@@ -1,10 +1,5 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
-import {
-  DEFAULT_READ_CHUNK_SIZE,
-  hasTransactionIndex,
-  readTransactionIndexChunks,
-  statusTypeIndexSpecs
-} from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import { isLiveTransaction, type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -85,27 +80,11 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
     compareAccountIds(tx.accountId, accountId) &&
     isSwapTransaction(tx);
 
-  if (!hasTransactionIndex('[status+type]', Repo.transactions)) {
-    const rows = await Repo.transactions.filter(matches).toArray();
-    return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
-  }
-  const swapCount = await Repo.transactions
-    .where('[status+type]')
-    .equals([ITransactionStatus.Completed, 'swap'])
-    .count();
-  if (swapCount === 0) return [];
-  const rows =
-    swapCount <= DEFAULT_READ_CHUNK_SIZE
-      ? await Repo.transactions
-          .where('[status+type]')
-          .equals([ITransactionStatus.Completed, 'swap'])
-          .filter(matches)
-          .toArray()
-      : await readTransactionIndexChunks(
-          Repo.transactions,
-          statusTypeIndexSpecs([[ITransactionStatus.Completed, 'swap']]),
-          matches
-        );
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusTypeIndexSpecs([[ITransactionStatus.Completed, 'swap']]),
+    matches
+  );
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
 

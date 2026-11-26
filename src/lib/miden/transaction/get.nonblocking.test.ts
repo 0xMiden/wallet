@@ -5,6 +5,7 @@ import { localSwapOrders } from 'lib/miden/swap/classification';
 
 import {
   getAllUncompletedTransactions,
+  getCompletedTransactions,
   getCompletedTransactionsPage,
   getFailedTransactions,
   getNoteHoldingTransactions,
@@ -14,6 +15,15 @@ import {
   hasQueuedTransactions,
   hasRestoredTransactionsOf
 } from './get';
+import {
+  compareIdbKeys,
+  countIndexEntriesUpTo,
+  equalIndexSpec,
+  RANGE_ANY,
+  RANGE_BOUND,
+  readTransactionIndexChunks,
+  statusTypeIndexSpecs
+} from '../db/index-query';
 import { type ISubmitEvidence, type ITransaction, ITransactionStatus } from '../db/types';
 
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -563,6 +573,301 @@ describe('non-blocking transaction store reads (#2327)', () => {
     } finally {
       isolated.close();
       await Dexie.delete(name);
+    }
+  });
+
+  it('readTransactionIndexChunks handles stripped mocks with undefined completedAt, heldNoteIds arrays, dotted paths, compound ranges, and limit', async () => {
+    const rows: ITransaction[] = [
+      makeTx('swap-match', {
+        type: 'swap',
+        status: ITransactionStatus.Completed,
+        completedAt: undefined,
+        extraInputs: { swapOrderTxId: 'order-1' } as ITransaction['extraInputs']
+      }),
+      makeTx('held-match-1', {
+        type: 'execute',
+        status: ITransactionStatus.Completed,
+        completedAt: 200,
+        heldNoteIds: ['note-a', 'note-b']
+      }),
+      makeTx('held-match-2', {
+        type: 'execute',
+        status: ITransactionStatus.Completed,
+        completedAt: 250,
+        heldNoteIds: ['note-b', 'note-c']
+      }),
+      makeTx('no-completed-ts', {
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        completedAt: undefined,
+        heldNoteIds: undefined
+      })
+    ];
+
+    const filterOnlyMock = {
+      filter: (pred: (row: ITransaction) => boolean) => ({
+        toArray: async () => rows.filter(pred)
+      })
+    } as unknown as Dexie.Table<ITransaction, string>;
+
+    const toArrayOnlyMock = {
+      toArray: async () => rows
+    } as unknown as Dexie.Table<ITransaction, string>;
+
+    const swaps = await readTransactionIndexChunks(
+      filterOnlyMock,
+      statusTypeIndexSpecs([[ITransactionStatus.Completed, 'swap']]),
+      () => true
+    );
+    expect(swaps.map(r => r.id)).toEqual(['swap-match']);
+
+    const byDotted = await readTransactionIndexChunks(
+      toArrayOnlyMock,
+      [equalIndexSpec('extraInputs.swapOrderTxId', 'order-1')],
+      () => true
+    );
+    expect(byDotted.map(r => r.id)).toEqual(['swap-match']);
+
+    const byHeld = await readTransactionIndexChunks(
+      filterOnlyMock,
+      [
+        {
+          indexName: 'heldNoteIds',
+          range: { type: RANGE_BOUND, lower: 'note-b', upper: Dexie.maxKey, lowerOpen: false, upperOpen: true }
+        }
+      ],
+      () => true,
+      { limit: 1 }
+    );
+    expect(byHeld).toHaveLength(1);
+    expect(byHeld[0]?.id).toBe('held-match-1');
+
+    const byCompletedBound = await readTransactionIndexChunks(
+      filterOnlyMock,
+      [
+        {
+          indexName: '[status+completedAt]',
+          range: {
+            type: RANGE_BOUND,
+            lower: [ITransactionStatus.Completed, 150],
+            upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+            lowerOpen: true,
+            upperOpen: false
+          }
+        }
+      ],
+      () => true
+    );
+    expect(byCompletedBound.map(r => r.id)).toEqual(['held-match-1', 'held-match-2']);
+
+    const anyById = await readTransactionIndexChunks(
+      filterOnlyMock,
+      [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+      tx => tx.id === 'no-completed-ts'
+    );
+    expect(anyById.map(r => r.id)).toEqual(['no-completed-ts']);
+  });
+
+  it('hasQueuedTransactions uses a bounded key-only lookup without core.count and works on a stripped mock without .where', async () => {
+    await Repo.transactions.bulkPut([
+      makeTx('done-1', { status: ITransactionStatus.Completed }),
+      makeTx('queued-1', { status: ITransactionStatus.Queued, completedAt: undefined })
+    ]);
+
+    const countSpy = jest.spyOn(Repo.transactions.core, 'count');
+    try {
+      expect(await hasQueuedTransactions()).toBe(true);
+      expect(countSpy).not.toHaveBeenCalled();
+    } finally {
+      countSpy.mockRestore();
+    }
+
+    const origDesc = Object.getOwnPropertyDescriptor(Repo.transactions, 'schema');
+    const whereSpy = jest.spyOn(Repo.transactions, 'where').mockImplementation((() => {
+      throw new Error('must not call where on stripped mock');
+    }) as never);
+    Object.defineProperty(Repo.transactions, 'schema', { value: undefined, configurable: true });
+    try {
+      expect(await hasQueuedTransactions()).toBe(true);
+    } finally {
+      if (origDesc) {
+        Object.defineProperty(Repo.transactions, 'schema', origDesc);
+      } else {
+        delete (Repo.transactions as unknown as Record<string, unknown>).schema;
+      }
+      whereSpy.mockRestore();
+    }
+  });
+
+  it('localSwapOrders reads 1..64 completed swaps in a single read without calling core.count', async () => {
+    const swaps = Array.from({ length: 5 }, (_, i) =>
+      makeTx(`swap-${i}`, {
+        type: 'swap',
+        status: ITransactionStatus.Completed,
+        extraInputs: { orderId: `order-${i}`, swapType: 'pswap' } as ITransaction['extraInputs']
+      })
+    );
+    await Repo.transactions.bulkPut(swaps);
+
+    const countSpy = jest.spyOn(Repo.transactions.core, 'count');
+    const probe = installCoreReadProbe(Repo.transactions);
+    try {
+      const orders = await localSwapOrders('mtst1acct');
+      expect(orders).toHaveLength(5);
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(probe.cursorCalls).toBe(1);
+    } finally {
+      probe.restore();
+      countSpy.mockRestore();
+    }
+  });
+
+  it('countIndexEntriesUpTo chunks counts > 64 without core.count and yields for concurrent writes', async () => {
+    await Repo.transactions.bulkPut(
+      Array.from({ length: 150 }, (_, i) =>
+        makeTx(`cnt-${i}`, {
+          status: ITransactionStatus.Completed,
+          type: 'send'
+        })
+      )
+    );
+
+    const countSpy = jest.spyOn(Repo.transactions.core, 'count');
+    let writePromise: Promise<string> | undefined;
+    let writeDone = false;
+    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+    let cursorOpens = 0;
+    Repo.transactions.core.openCursor = req => {
+      cursorOpens += 1;
+      if (!writePromise) {
+        writePromise = Dexie.ignoreTransaction(() =>
+          Repo.transactions.add(makeTx('cnt-concurrent', { status: ITransactionStatus.Queued, completedAt: undefined }))
+        ).then(id => {
+          writeDone = true;
+          return id;
+        });
+      }
+      return origOpenCursor(req);
+    };
+
+    try {
+      const capped = await countIndexEntriesUpTo(
+        Repo.transactions,
+        '[status+type]',
+        equalIndexSpec('[status+type]', [ITransactionStatus.Completed, 'send']).range,
+        100
+      );
+      expect(capped).toBe(100);
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(cursorOpens).toBe(2);
+      expect(writePromise).toBeDefined();
+      await writePromise;
+      expect(writeDone).toBe(true);
+
+      const fullCount = await countIndexEntriesUpTo(
+        Repo.transactions,
+        '[status+type]',
+        equalIndexSpec('[status+type]', [ITransactionStatus.Completed, 'send']).range
+      );
+      expect(fullCount).toBe(150);
+    } finally {
+      Repo.transactions.core.openCursor = origOpenCursor;
+      countSpy.mockRestore();
+    }
+  });
+
+  it('compareIdbKeys orders binary and heterogeneous keys identically via dexieCmp when indexedDB is absent', () => {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+    Object.defineProperty(globalThis, 'indexedDB', { value: undefined, configurable: true });
+    try {
+      expect(compareIdbKeys(new Uint8Array([1, 2]), new Uint8Array([1, 3]))).toBeLessThan(0);
+      expect(compareIdbKeys(new Uint8Array([1, 2]), 'abc')).toBeGreaterThan(0);
+      expect(compareIdbKeys(new Date(100), 'abc')).toBeLessThan(0);
+      expect(compareIdbKeys(5, new Date(100))).toBeLessThan(0);
+    } finally {
+      if (desc) {
+        Object.defineProperty(globalThis, 'indexedDB', desc);
+      } else {
+        delete (globalThis as unknown as Record<string, unknown>).indexedDB;
+      }
+    }
+  });
+
+  it('get.ts query helpers work via centralized fallback on a toArray-only stripped mock without .where or .filter', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    await Repo.transactions.bulkPut([
+      makeTx('held-queued', {
+        type: 'consume',
+        status: ITransactionStatus.Queued,
+        initiatedAt: nowSec - 5,
+        completedAt: undefined,
+        noteId: 'n1',
+        noteIds: ['n1']
+      }),
+      makeTx('gen-row', {
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSec - 6,
+        completedAt: undefined
+      }),
+      makeTx('failed-row', {
+        type: 'send',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 7,
+        completedAt: undefined
+      }),
+      makeTx('unconf-row', {
+        type: 'send',
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: nowSec - 8,
+        completedAt: undefined
+      }),
+      makeTx('restored-row', {
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        initiatedAt: nowSec - 20,
+        completedAt: nowSec - 18,
+        restoredFromBackup: true
+      }),
+      makeTx('held-recent', {
+        type: 'execute',
+        status: ITransactionStatus.Completed,
+        initiatedAt: nowSec - 15,
+        completedAt: nowSec - 10,
+        heldNoteIds: ['n2']
+      })
+    ]);
+
+    const origSchema = Object.getOwnPropertyDescriptor(Repo.transactions, 'schema');
+    const origFilter = Object.getOwnPropertyDescriptor(Repo.transactions, 'filter');
+    const whereSpy = jest.spyOn(Repo.transactions, 'where').mockImplementation((() => {
+      throw new Error('must not call where on stripped mock');
+    }) as never);
+    Object.defineProperty(Repo.transactions, 'schema', { value: undefined, configurable: true });
+    Object.defineProperty(Repo.transactions, 'filter', { value: undefined, configurable: true });
+    try {
+      const held = await getNoteHoldingTransactions('mtst1acct');
+      expect(held.map(tx => tx.id)).toEqual(['held-recent', 'held-queued']);
+      expect(await hasQueuedTransactions()).toBe(true);
+      expect((await getUncompletedTransactions('mtst1acct')).map(tx => tx.id)).toEqual(['gen-row', 'held-queued']);
+      expect((await getTransactionsInProgress()).map(tx => tx.id)).toEqual(['gen-row']);
+      expect((await getAllUncompletedTransactions()).map(tx => tx.id)).toEqual(['gen-row', 'held-queued']);
+      expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(true);
+      expect((await getFailedTransactions()).map(tx => tx.id)).toEqual(['failed-row']);
+      expect((await getUnconfirmedTransactions()).map(tx => tx.id)).toEqual(['unconf-row']);
+      expect((await getCompletedTransactions('mtst1acct')).map(tx => tx.id)).toEqual(['restored-row', 'held-recent']);
+    } finally {
+      if (origSchema) {
+        Object.defineProperty(Repo.transactions, 'schema', origSchema);
+      } else {
+        delete (Repo.transactions as unknown as Record<string, unknown>).schema;
+      }
+      if (origFilter) {
+        Object.defineProperty(Repo.transactions, 'filter', origFilter);
+      } else {
+        delete (Repo.transactions as unknown as Record<string, unknown>).filter;
+      }
+      whereSpy.mockRestore();
     }
   });
 });
