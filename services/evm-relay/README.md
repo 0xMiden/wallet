@@ -85,7 +85,7 @@ In `sponsor` mode a chain without `allowedTargets` pays the gas of any batch tha
 
 `/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
-The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
+The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, `evm-relay: cancelled nonce <nonce> on chain <chainId> after its deadline, attempt <n>.` for each cancel transaction, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
 
 ## Account read
 
@@ -129,7 +129,7 @@ The Sender is the Durable Object `RelaySenderObject` (binding `RELAY_SENDER`, SQ
 Its storage has two tables, created in the constructor:
 
 - `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`: `next_nonce` (the nonce after the last stored transaction), `chain_id` (the Sender refuses a job of another chain) and `relayer` (the address of the key that `next_nonce` counts for).
-- `inflight`: `id` (primary key, the batch digest), `evm_address`, `relayer` (the address of the key that signed the row), `tx_hash` (the current hash; the mined hash once final), `sent_hashes` (JSON array of every hash broadcast for the row, the current one last), `raw_tx` and `request` (the signed bytes, and JSON of `to`, `data`, `gas` and `authorization` for a fee replacement; `data` is the `execute` calldata, which holds every call of the batch in the signed order; both null once the row is final, because both hold the user's signature), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline` (unix seconds), `state` (`pending`, `succeeded` or `reverted`), `attempts` (signatures of the row), `nonce_used` (1 when a node said that a mined transaction holds the nonce), `created_at`, `signed_at` (the last signature), `updated_at` (milliseconds). A check refuses a `pending` row without `raw_tx` or `request`. Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `(relayer, nonce)`.
+- `inflight`: `id` (primary key, the batch digest), `evm_address`, `relayer` (the address of the key that signed the row), `tx_hash` (the current hash; the mined hash once final), `sent_hashes` (JSON array of every hash broadcast for the row, the current one last), `cancel_hashes` (JSON array of the hashes in `sent_hashes` that are cancel transactions; a row with one is "cancelling"), `raw_tx` and `request` (the signed bytes, and JSON of `to`, `data`, `gas` and `authorization` for a fee replacement; `data` is the `execute` calldata, which holds every call of the batch in the signed order; both null once the row is final, because both hold the user's signature), `nonce`, `max_fee`, `max_priority_fee` (decimal text, the fees of the last signature), `deadline` (unix seconds), `state` (`pending`, `succeeded`, `reverted` or `expired`), `attempts` (signatures of the row, cancels included), `nonce_used` (1 when a node said that a mined transaction holds the nonce), `created_at`, `signed_at` (the last signature), `updated_at` (milliseconds). A check refuses a `pending` row without `raw_tx` or `request`. Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `(relayer, nonce)`.
 
 No Sender is deployed yet, so the schema has no migration: `CREATE TABLE IF NOT EXISTS` builds it in a new object.
 
@@ -156,31 +156,39 @@ The alarm runs one tick. A tick does this:
 
 1. Delete the final rows whose `updated_at` is more than 24 hours ago. A pending row stays whatever its age.
 2. Read every pending row, lowest nonce first, and read the receipt of every hash in `sent_hashes` of every row with `eth_getTransactionReceipt`, in one JSON-RPC batch.
-3. When a replacement is due for a row without a receipt (below), read the fees once: `eth_feeHistory` and `eth_maxPriorityFeePerGas` in one batch. A failed fee read only stops the replacements of this tick.
+3. When a fee replacement or a cancel is due for a row without a receipt (below), read the fees once: `eth_feeHistory` and `eth_maxPriorityFeePerGas` in one batch. A failed fee read only stops the replacements and the cancels of this tick.
 4. In the exclusive section, read the pending rows again (a submit can have stored one since step 2) and, for each row:
-   - A receipt with status 1 for any of its hashes: state `succeeded`. Status 0: state `reverted`. `tx_hash` becomes the mined hash; `raw_tx` and `request` become null; `updated_at` is now. One `UPDATE` statement.
-   - No receipt and a replacement is due: sign the stored request again at the same nonce with new fees, and store the new hash, bytes and fees, the hash in `sent_hashes`, `attempts + 1` and `signed_at` in one `UPDATE` statement. Write one log line. A failed signature keeps the old bytes.
+   - A receipt for a hash in `cancel_hashes`: state `expired`, whatever the status of the receipt. A receipt for another hash (a signature of the user's batch) with status 1: state `succeeded`. Status 0: state `reverted`. `tx_hash` becomes the mined hash; `raw_tx` and `request` become null; `updated_at` is now. One `UPDATE` statement.
+   - No receipt and a cancel is due: sign a cancel transaction at the same nonce with new fees, and store the new hash, bytes and fees, the hash in `sent_hashes` and in `cancel_hashes`, `attempts + 1` and `signed_at` in one `UPDATE` statement. Write one log line. A failed signature keeps the old bytes.
+   - No receipt and a fee replacement is due: sign the stored request again at the same nonce with new fees, and store the new hash, bytes and fees, the hash in `sent_hashes`, `attempts + 1` and `signed_at` in one `UPDATE` statement. Write one log line. A failed signature keeps the old bytes.
    - No receipt otherwise: keep the stored bytes.
-5. After the section, broadcast the bytes of every row without a receipt, lowest nonce first: the same bytes again, or the replacement. A node can have lost a broadcast or dropped the transaction; the same bytes bring it back. "already known" is a success. "nonce too low" means that a mined transaction holds the nonce: the Sender sets `nonce_used` and the receipt read of a later tick finds the receipt. Any other failure changes nothing.
+5. After the section, broadcast the bytes of every row without a receipt, lowest nonce first: the same bytes again, the replacement or the cancel. A node can have lost a broadcast or dropped the transaction; the same bytes bring it back. "already known" is a success. "nonce too low" means that a mined transaction holds the nonce: the Sender sets `nonce_used` and the receipt read of a later tick finds the receipt. Any other failure changes nothing: the row keeps the stored bytes, and the next tick sends them again.
 6. In the exclusive section, arm the next alarm 30 seconds ahead while a pending row remains. With no pending row, the Sender arms nothing, so an idle service costs nothing.
 
 A tick never changes `next_nonce`. A failure of the receipt read changes no row: the tick writes `evm-relay: a Sender tick failed on chain <chainId>.` and still arms the next alarm.
 
-One tick makes one HTTP request for the receipts, one more for the fees when a replacement is due, and one `eth_sendRawTransaction` request per pending row without a receipt.
+One tick makes one HTTP request for the receipts, one more for the fees when a replacement or a cancel is due, and one `eth_sendRawTransaction` request per pending row without a receipt.
 
-**Fee replacement.** A replacement is due when the row has no receipt 3 minutes after its last signature (`REPLACE_AFTER_MS`), its batch deadline has not passed, `nonce_used` is 0, and the row was signed by the current relayer key. The new `maxPriorityFeePerGas` is the larger of the node's `eth_maxPriorityFeePerGas` and the old value plus 15 % (rounded up). The new `maxFeePerGas` is the larger of `2 × base fee + priority fee` (the rule of the relay route) and the old value plus 15 %. Nodes refuse a replacement that raises the fees by less than about 10 to 12.5 %. The request (`to`, `data`, `gas`, the authorization list) and the nonce stay the same. There is no fee ceiling and no budget. After a replacement, either transaction can be mined, so the tick reads the receipt of every hash in `sent_hashes`.
+**Fee bump.** A fee replacement and a cancel use the same fees. The new `maxPriorityFeePerGas` is the larger of the node's `eth_maxPriorityFeePerGas` and the old value plus 15 % (rounded up). The new `maxFeePerGas` is the larger of `2 × base fee + priority fee` (the rule of the relay route) and the old value plus 15 %. "The old value" is the value of the last signature of the row. Each bumped value is also at least the old value plus 1, so a fee of 0 goes up too. Nodes take a transaction at a used nonce only when both fees are higher than the old fees by at least about 10 to 12.5 %, and 15 % rounded up meets that. There is no fee ceiling and no budget.
 
-**Deadline.** After the batch deadline, `execute` reverts, so the Sender does not replace the fee. It keeps sending the same bytes until a receipt comes, because an empty nonce stops every later relay of the chain.
+**Fee replacement.** A replacement is due when the row is not cancelling, has no receipt 3 minutes after its last signature (`REPLACE_AFTER_MS`), its batch deadline has not passed, `nonce_used` is 0, and the row was signed by the current relayer key. The request (`to`, `data`, `gas`, the authorization list) and the nonce stay the same. After a replacement, either transaction can be mined, so the tick reads the receipt of every hash in `sent_hashes`.
 
-**Cleanup.** A tick and a submit delete a final row 24 hours after its `updated_at`. No alarm runs only for the cleanup. After the cleanup, `GET /v1/relay/{id}` answers `404` for the row, and the same request sent again is a new relay: a batch that succeeded then fails its simulation, because its Calibur nonce is used.
+**Deadline and cancel.** After the batch deadline, `execute` reverts, so the Sender does not replace the fee. For the first 60 seconds after the deadline (`CANCEL_AFTER_DEADLINE_MS`), it sends the same bytes again: the batch can still be mined, and then it reverts. When the deadline is more than 60 seconds in the past, the row has no receipt, `nonce_used` is 0 and the row was signed by the current relayer key, the tick signs a cancel transaction: from the relayer to the relayer, value 0, no data, gas limit 21000 (`CANCEL_GAS`), type 2, at the nonce of the row, with the bumped fees. The cancel needs no waiting time after the last signature. Like a fee replacement, its bytes, fees and hash are stored in one statement before the broadcast.
 
-**Key change.** `next_nonce` counts the nonces of one relayer account. When `RELAYER_PRIVATE_KEY` changes, the next submit sees another address than `meta.relayer`, deletes `next_nonce` and stores the new address, so its nonce is the pending count of the new account that the route read. Each row stores the address that signed it, and the pending nonce index is per relayer, so a pending row of the old key and a row of the new key can have the same nonce. The timer follows a pending row of an old key to its receipt and sends its bytes again, but never replaces its fee: the Sender has no old key to sign with.
+From then on the row is cancelling. Each tick sends the stored cancel bytes again. When a cancelling row has no receipt 3 minutes after its last signature, the tick signs a new cancel at the same nonce with bumped fees. A cancelling row never signs the user's batch again. The receipt read still covers every hash in `sent_hashes`: a receipt for a hash of the user's batch ends the row as `succeeded` or `reverted`, as before; a receipt for a cancel hash ends it as `expired`, and `txHash` is that cancel hash. The public state of a cancelling row stays `pending` until a receipt comes; its `txHash` is the last signed hash, the cancel.
+
+The cancel takes the nonce that the row holds, so it does not change `next_nonce` and reserves no new nonce. When the cancel is mined, the chain's pending count of the relayer passes that nonce, and the next submit takes `max(the pending count, next_nonce)` as before. An `expired` row is final: the address is free for a new relay at once, and the cleanup deletes the row 24 hours after it became final.
+
+A row of an old relayer key (after a key change) gets no cancel, because the Sender has no old key to sign with. It keeps sending the same bytes until a receipt comes, as before.
+
+**Cleanup.** A tick and a submit delete a final row 24 hours after its `updated_at`. No alarm runs only for the cleanup. After the cleanup, `GET /v1/relay/{id}` answers `404` for the row, and the same request sent again is a new relay. The route refuses it with `stale_request`: its deadline is near or past, or, for a batch that was executed, its Calibur sequence is used.
+
+**Key change.** `next_nonce` counts the nonces of one relayer account. When `RELAYER_PRIVATE_KEY` changes, the next submit sees another address than `meta.relayer`, deletes `next_nonce` and stores the new address, so its nonce is the pending count of the new account that the route read. Each row stores the address that signed it, and the pending nonce index is per relayer, so a pending row of the old key and a row of the new key can have the same nonce. The timer follows a pending row of an old key to its receipt and sends its bytes again, but never replaces its fee and never cancels it: the Sender has no old key to sign with.
 
 **Known limits.**
 
-- A row past its deadline whose `maxFeePerGas` is below the base fee stays pending until the base fee falls below it. Its nonce stops every later relay of the chain for that time. The relay route caps a deadline at 24 hours and 5 minutes, and the last replacement can happen just before the deadline, so the stall starts at most about 24 hours after the request, but its length has no bound. A cancel transaction (a 0-value transfer to the relayer at the same nonce, with current fees) after the deadline would bound it; this service has none.
 - A nonce that another transaction of the relayer account took (the key used outside this service) never gets a receipt for the row: the row stays pending and its address stays busy.
-- A pending row of an old relayer key can stall the same way, since the Sender cannot replace its fee.
+- A pending row of an old relayer key gets no fee replacement and no cancel, since the Sender cannot sign for it. When its `maxFeePerGas` is below the base fee, it stays pending until the base fee falls below it, and its address stays busy for that time. New relays use the nonces of the new account, so they do not wait for it.
 - The Sender records a receipt at once and keeps no signed bytes after that. A reorganisation that drops the mined transaction leaves the row final.
 - All receipt reads of one tick go in one JSON-RPC batch. A provider with a small batch limit can refuse a tick with many pending rows and many replacements.
 
@@ -237,24 +245,25 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
   salt: <0x64hex>, deadline: <JSON number; unix seconds>,
   signature: <0x130hex>,
   authorization?: { address, chainId: <number>, nonce: <number>, r: <0x64hex>, s: <0x64hex>, yParity: 0 | 1 } }
-→ 200 { id, state: "pending" | "succeeded" | "reverted", txHash }
+→ 200 { id, state: "pending" | "succeeded" | "reverted" | "expired", txHash }
 ```
 
+- `state`: `pending` until a transaction of the relay is mined. `succeeded`: the batch was executed. `reverted`: the batch transaction was mined and reverted. `expired`: the batch was not executed and never will be; the Sender cancelled it after its deadline, and `txHash` is the cancel transaction. `succeeded`, `reverted` and `expired` are final.
 - `calls` has 1 to 8 calls. `to` is not the zero address. `value` is below 2^256. Addresses and data can be in any case.
 - `id` is the EIP-712 digest of the batch, lower case. `txHash` is always present.
 - The server builds the batch from `calls` exactly as the request sends them, in the same order, and never adds, removes or changes a call. The request authenticates itself through the signature; there is no login.
 - In `deduct` mode the last call is the fee call: `buildFeeCall({ token, recipient: feeRecipient, amount })` with a token of `fees` and an amount of at least its fee. A batch needs at least one other call before it.
 - When `allowedTargets` is not null, every call goes to an address in it, except the fee call in `deduct` mode.
-- The same request sent again returns the stored relay in its current state (any of the three), not a new transaction. The id is the digest, so a request with another signature encoding of the same batch also returns it.
+- The same request sent again returns the stored relay in its current state (any of the four), not a new transaction. The id is the digest, so a request with another signature encoding of the same batch also returns it.
 - A `batchNonce` whose key is not `RELAY_NONCE_KEY` is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
 - Send `authorization` when `/v1/account` says `needsAuthorization`, with `nonce` = `authorizationNonce`. For an address that delegates already, the server ignores it.
 
-`GET /v1/relay/{id}[?chainId=<int>]` → `200 { id, state: "pending" | "succeeded" | "reverted", txHash }` or `404 not_found`.
+`GET /v1/relay/{id}[?chainId=<int>]` → `200 { id, state: "pending" | "succeeded" | "reverted" | "expired", txHash }` or `404 not_found`. The states mean the same as for `POST /v1/relay`.
 
 - `{id}` is `0x` and 64 hex characters, in any case. Another value is `404 not_found`, before the rate limit.
 - The caller IP is charged on `read:<CF-Connecting-IP>`.
 - The id does not name its chain, so the route asks the Sender of each chain of `RELAY_CONFIG` in config order until one knows the id. With `chainId`, it asks only that chain: an unknown chain is `unsupported_chain`, a bad value `invalid_request`.
-- The route reads the Sender storage only, never the chain. The timer of the Sender updates `state` and `txHash` (the hash that was mined, which can be an earlier hash than the one `POST /v1/relay` answered, after a fee replacement).
+- The route reads the Sender storage only, never the chain. The timer of the Sender updates `state` and `txHash`. While the relay is `pending`, `txHash` is the last signed hash: a fee replacement or a cancel changes it. Once final, `txHash` is the hash that was mined, which can be an earlier hash than the last one. For `expired`, it is the mined cancel.
 - A final relay is deleted 24 hours after it became final; the route then answers `404`.
 
 An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seconds> }`. Error codes and status:
@@ -352,9 +361,9 @@ The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`
 
 ### Rotate the relayer key
 
-Each Sender stores the address of the relayer key with `next_nonce`. When a submit finds another address, the Sender drops `next_nonce`, so the next nonce is the pending count of the new account on the chain. Each row records the relayer that signed it. The timer follows a pending row of the old key to its receipt and sends its stored bytes again, but it cannot replace its fee, because it cannot sign for the old key. Thus:
+Each Sender stores the address of the relayer key with `next_nonce`. When a submit finds another address, the Sender drops `next_nonce`, so the next nonce is the pending count of the new account on the chain. Each row records the relayer that signed it. The timer follows a pending row of the old key to its receipt and sends its stored bytes again, but it cannot replace its fee or cancel it after its deadline, because it cannot sign for the old key. Thus:
 
-1. Wait until no relay is `pending`, so no row of the old key waits for a fee replacement.
+1. Wait until no relay is `pending`, so no row of the old key waits for a fee replacement or a cancel.
 2. Set `EVM_RELAY_RELAYER_PRIVATE_KEY` to the new key, fund the new address, update the executor in the wallet-config `relay` section, and run the workflow.
 3. Move the remaining funds out of the old account.
 

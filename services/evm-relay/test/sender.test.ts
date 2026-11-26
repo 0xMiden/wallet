@@ -118,6 +118,7 @@ describe('RelaySender', () => {
       relayer: TEST_EXECUTOR,
       tx_hash: keccak256(raw),
       sent_hashes: JSON.stringify([keccak256(raw)]),
+      cancel_hashes: '[]',
       raw_tx: raw,
       request: JSON.stringify({ to: ADDRESS_A, data: '0xdeadbeef', gas: '240000', authorization: null }),
       nonce: 5,
@@ -269,5 +270,15 @@ describe('RelaySender', () => {
     await sender.submit(job());
     expect(() => db.run('UPDATE inflight SET raw_tx = NULL')).toThrow(/CHECK/);
     expect(() => db.run("UPDATE inflight SET state = 'succeeded', raw_tx = NULL, request = NULL")).not.toThrow();
+  });
+
+  it('allows the four states and refuses another state in SQL', async () => {
+    const { db, sender } = setup();
+    await sender.submit(job());
+    expect(() => db.run("UPDATE inflight SET state = 'cancelled', raw_tx = NULL, request = NULL")).toThrow(/CHECK/);
+    expect(() => db.run("UPDATE inflight SET state = 'expired', raw_tx = NULL, request = NULL")).not.toThrow();
+    expect(sender.get(idOf('01'))?.state).toBe('expired');
+    db.run("UPDATE inflight SET state = 'reverted'");
+    expect(sender.get(idOf('01'))?.state).toBe('reverted');
   });
 });

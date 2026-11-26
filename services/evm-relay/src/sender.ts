@@ -1,7 +1,7 @@
 // The Sender: it chooses the relayer nonce, signs the relay transaction, stores it and only then broadcasts it. A
-// timer (the Durable Object alarm) then follows each stored transaction to its receipt: it sends the same bytes again
-// and replaces the fee of a slow transaction. One Sender serves one chain. The Durable Object in sender-object.ts wraps
-// this class; the tests give its dependencies.
+// timer (the Durable Object alarm) then follows each stored transaction to its receipt: it sends the same bytes again,
+// replaces the fee of a slow transaction and cancels a transaction after its batch deadline. One Sender serves one
+// chain. The Durable Object in sender-object.ts wraps this class; the tests give its dependencies.
 import { isHex, keccak256, type TransactionSerializableEIP1559, type TransactionSerializableEIP7702 } from 'viem';
 
 import { maxFeeOf, type BroadcastOutcome, type FeeQuote, type ReceiptStatus, type RelayAuthorization } from './chain';
@@ -18,6 +18,10 @@ export const REPLACE_AFTER_MS = 3 * 60_000;
 export const FEE_BUMP_PERCENT = 15n;
 /** A tick or a submit deletes a final row whose last change is older than this. */
 export const FINAL_ROW_TTL_MS = 24 * 60 * 60_000;
+/** A pending row gets a cancel transaction when its batch deadline is more than this far in the past. */
+export const CANCEL_AFTER_DEADLINE_MS = 60_000;
+/** The gas limit of a cancel transaction: a plain transfer with no data. */
+export const CANCEL_GAS = 21_000n;
 
 export type SqlValue = string | number | null;
 
@@ -50,7 +54,11 @@ export interface SenderDeps {
   now(): number;
 }
 
-export type RelayJobState = 'pending' | 'succeeded' | 'reverted';
+/**
+ * `expired`: the batch was not executed and never will be. A cancel transaction took its relayer nonce after the
+ * batch deadline, and `txHash` is that cancel transaction.
+ */
+export type RelayJobState = 'pending' | 'succeeded' | 'reverted' | 'expired';
 
 /** The answer of the relay routes. */
 export interface RelayJob {
@@ -92,20 +100,22 @@ export type SenderDirectory = (chainId: number) => SenderClient;
 const SCHEMA = [
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
   // `relayer` is the address of the key that signed the row. `sent_hashes` is a JSON array of every hash broadcast for
-  // the row. A final row has no signed bytes and no request, because both hold the user's signature.
+  // the row. `cancel_hashes` is the JSON array of the hashes in `sent_hashes` that are cancel transactions; a row with
+  // one is cancelling. A final row has no signed bytes and no request, because both hold the user's signature.
   `CREATE TABLE IF NOT EXISTS inflight (
     id TEXT PRIMARY KEY,
     evm_address TEXT NOT NULL,
     relayer TEXT NOT NULL,
     tx_hash TEXT NOT NULL,
     sent_hashes TEXT NOT NULL,
+    cancel_hashes TEXT NOT NULL DEFAULT '[]',
     raw_tx TEXT,
     request TEXT,
     nonce INTEGER NOT NULL,
     max_fee TEXT NOT NULL,
     max_priority_fee TEXT NOT NULL,
     deadline INTEGER NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'reverted')),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'succeeded', 'reverted', 'expired')),
     attempts INTEGER NOT NULL,
     nonce_used INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -152,7 +162,15 @@ interface PendingRow {
   signedAt: number;
   /** Every hash broadcast for the row, the current one last. */
   hashes: Hex[];
+  /** The hashes of `hashes` that are cancel transactions. The row is cancelling when this is not empty. */
+  cancelHashes: Hex[];
 }
+
+/**
+ * What a tick does with a pending row that has no receipt. `cancel`: sign a cancel transaction at the row's nonce.
+ * `replace`: sign the user's batch again with higher fees. `resend`: send the stored bytes again.
+ */
+type RowAction = 'cancel' | 'replace' | 'resend';
 
 /** The signed bytes that a tick sends after its exclusive section. */
 interface Outgoing {
@@ -169,6 +187,7 @@ function stateOf(value: unknown): RelayJobState {
     case 'pending':
     case 'succeeded':
     case 'reverted':
+    case 'expired':
       return value;
     default:
       throw new Error('The stored relay has an unknown state.');
@@ -219,7 +238,8 @@ function pendingRowOf(row: Record<string, unknown>): PendingRow {
     attempts: integerOf(row.attempts),
     nonceUsed: integerOf(row.nonce_used) !== 0,
     signedAt: integerOf(row.signed_at),
-    hashes: hashesOf(row.sent_hashes)
+    hashes: hashesOf(row.sent_hashes),
+    cancelHashes: hashesOf(row.cancel_hashes)
   };
 }
 
@@ -250,13 +270,30 @@ function transactionOf(chainId: number, request: SignRequest, nonce: number, fee
   return { ...fields, type: 'eip7702', authorizationList: [authorization] };
 }
 
-/** The old fee plus FEE_BUMP_PERCENT, rounded up. */
-function bumped(fee: bigint): bigint {
-  return (fee * (100n + FEE_BUMP_PERCENT) + 99n) / 100n;
-}
-
 function larger(a: bigint, b: bigint): bigint {
   return a > b ? a : b;
+}
+
+/**
+ * The old fee plus FEE_BUMP_PERCENT, rounded up, and at least the old fee plus 1. A node takes a replacement at the
+ * same nonce only when both fees are higher than the old fees and at least about 10 % higher; the extra 1 makes a fee
+ * of 0 higher too.
+ */
+function bumped(fee: bigint): bigint {
+  return larger((fee * (100n + FEE_BUMP_PERCENT) + 99n) / 100n, fee + 1n);
+}
+
+/** The fees of a transaction that replaces the row at its nonce: the node's fees or the bumped old fees. */
+function replacementFees(row: PendingRow, quote: FeeQuote): Fees {
+  return {
+    maxFeePerGas: larger(maxFeeOf(quote), bumped(row.maxFee)),
+    maxPriorityFeePerGas: larger(quote.priorityFee, bumped(row.maxPriorityFee))
+  };
+}
+
+/** The cancel transaction of a row: 0 from the relayer to itself, with no data, at the row's nonce. */
+function cancelTransactionOf(chainId: number, relayer: Hex, nonce: number, fees: Fees): RelayTransaction {
+  return { type: 'eip1559', chainId, nonce, to: relayer, value: 0n, gas: CANCEL_GAS, ...fees };
 }
 
 /** The mined hash of the row and its status, or null when no hash of the row has a receipt. */
@@ -407,7 +444,7 @@ export class RelaySender {
       if (status !== null && status !== undefined) mined.set(hash, status);
     });
     const relayer = this.currentRelayer();
-    const due = rows.some(row => minedOf(row, mined) === null && this.replacementDue(row, relayer));
+    const due = rows.some(row => minedOf(row, mined) === null && this.actionOf(row, relayer) !== 'resend');
     const quote = due ? await this.quote(chainId) : null;
     const outgoing = await this.exclusive(() => this.apply(chainId, mined, quote, relayer));
     for (const { id, raw } of outgoing) await this.send(chainId, id, raw);
@@ -422,7 +459,10 @@ export class RelaySender {
     }
   }
 
-  /** Store the receipts and the fee replacements. Return the bytes to send. It runs only inside `exclusive`. */
+  /**
+   * Store the receipts, the fee replacements and the cancels. Return the bytes to send. It runs only inside
+   * `exclusive`.
+   */
   private async apply(
     chainId: number,
     mined: ReadonlyMap<Hex, ReceiptStatus>,
@@ -434,37 +474,103 @@ export class RelaySender {
     for (const row of this.pendingRows()) {
       const receipt = minedOf(row, mined);
       if (receipt !== null) {
-        this.finish(row.id, receipt.hash, receipt.status);
+        // A mined cancel took the nonce: the batch was not executed. Its status does not matter.
+        const state = row.cancelHashes.includes(receipt.hash) ? 'expired' : finalStateOf(receipt.status);
+        this.finish(row.id, receipt.hash, state);
         continue;
       }
-      const due = quote !== null && this.replacementDue(row, relayer);
-      const raw = due ? await this.replace(chainId, row, quote) : row.raw;
-      outgoing.push({ id: row.id, raw });
+      outgoing.push({ id: row.id, raw: await this.nextBytes(chainId, row, quote, relayer) });
     }
     return outgoing;
   }
 
-  /**
-   * True when the row has no receipt for REPLACE_AFTER_MS after its last signature. Never after the batch deadline,
-   * since `execute` would revert, never when a mined transaction holds the nonce, and never for a row of another
-   * relayer key, which the Sender cannot sign for.
-   */
-  private replacementDue(row: PendingRow, relayer: Hex | null): boolean {
-    const now = this.deps.now();
-    const stale = now - row.signedAt >= REPLACE_AFTER_MS;
-    return stale && now < row.deadline * 1000 && !row.nonceUsed && row.relayer === relayer;
+  /** The bytes to send for a row without a receipt: a new signature when one is due and the fees are known. */
+  private async nextBytes(chainId: number, row: PendingRow, quote: FeeQuote | null, relayer: Hex | null): Promise<Hex> {
+    if (quote === null) return row.raw;
+    switch (this.actionOf(row, relayer)) {
+      case 'cancel':
+        return this.cancel(chainId, row, quote);
+      case 'replace':
+        return this.replace(chainId, row, quote);
+      case 'resend':
+        return row.raw;
+    }
   }
 
-  /** Record the receipt. Drop the signed bytes and the request, which hold the user's signature. */
-  private finish(id: Hex, hash: Hex, status: ReceiptStatus): void {
+  /**
+   * What a tick does with a row that has no receipt. The Sender signs only for a row of the current relayer key, and
+   * never when a mined transaction holds the nonce. A row that is not cancelling gets a cancel when its batch deadline
+   * is more than CANCEL_AFTER_DEADLINE_MS in the past, and a fee replacement before its deadline when it has no
+   * receipt for REPLACE_AFTER_MS after its last signature. Between the two, `execute` would revert, so the row keeps
+   * its bytes. A cancelling row never signs the user's batch again: it gets a new cancel with higher fees after
+   * REPLACE_AFTER_MS.
+   */
+  private actionOf(row: PendingRow, relayer: Hex | null): RowAction {
+    if (row.relayer !== relayer || row.nonceUsed) return 'resend';
+    const now = this.deps.now();
+    const stale = now - row.signedAt >= REPLACE_AFTER_MS;
+    const deadlineMs = row.deadline * 1000;
+    switch (true) {
+      case row.cancelHashes.length > 0:
+        return stale ? 'cancel' : 'resend';
+      case now > deadlineMs + CANCEL_AFTER_DEADLINE_MS:
+        return 'cancel';
+      case stale && now < deadlineMs:
+        return 'replace';
+      default:
+        return 'resend';
+    }
+  }
+
+  /**
+   * Record the receipt and the final state. Drop the signed bytes and the request, which hold the user's signature.
+   */
+  private finish(id: Hex, hash: Hex, state: RelayJobState): void {
     this.deps.sql.run(
       `UPDATE inflight SET state = ?, tx_hash = ?, raw_tx = NULL, request = NULL, updated_at = ?
         WHERE id = ? AND state = 'pending'`,
-      finalStateOf(status),
+      state,
       hash,
       this.deps.now(),
       id
     );
+  }
+
+  /**
+   * Sign a cancel transaction at the row's nonce with higher fees, and store its bytes, its fees and its hash in
+   * `sent_hashes` and `cancel_hashes` in one statement, before the broadcast. Return the bytes to send: the cancel, or
+   * the old bytes when the signature or the write fails. `next_nonce` does not change: the cancel takes the nonce that
+   * the row holds already. `actionOf` cancels only a row of the current key, so `row.relayer` is the signer.
+   */
+  private async cancel(chainId: number, row: PendingRow, quote: FeeQuote): Promise<Hex> {
+    try {
+      const fees = replacementFees(row, quote);
+      const raw = await this.deps.sign(cancelTransactionOf(chainId, row.relayer, row.nonce, fees));
+      const txHash = keccak256(raw);
+      const cancels = [...row.cancelHashes, txHash];
+      const now = this.deps.now();
+      this.deps.sql.run(
+        `UPDATE inflight SET tx_hash = ?, sent_hashes = ?, cancel_hashes = ?, raw_tx = ?, max_fee = ?,
+          max_priority_fee = ?, attempts = ?, signed_at = ?, updated_at = ? WHERE id = ? AND state = 'pending'`,
+        txHash,
+        JSON.stringify([...row.hashes, txHash]),
+        JSON.stringify(cancels),
+        raw,
+        fees.maxFeePerGas.toString(),
+        fees.maxPriorityFeePerGas.toString(),
+        row.attempts + 1,
+        now,
+        now,
+        row.id
+      );
+      // The nonce, the chain id and the number of cancel signatures only.
+      console.warn(
+        `evm-relay: cancelled nonce ${row.nonce} on chain ${chainId} after its deadline, attempt ${cancels.length}.`
+      );
+      return raw;
+    } catch {
+      return row.raw;
+    }
   }
 
   /**
@@ -473,10 +579,7 @@ export class RelaySender {
    */
   private async replace(chainId: number, row: PendingRow, quote: FeeQuote): Promise<Hex> {
     try {
-      const fees: Fees = {
-        maxFeePerGas: larger(maxFeeOf(quote), bumped(row.maxFee)),
-        maxPriorityFeePerGas: larger(quote.priorityFee, bumped(row.maxPriorityFee))
-      };
+      const fees = replacementFees(row, quote);
       const raw = await this.deps.sign(transactionOf(chainId, requestOf(row.request), row.nonce, fees));
       const txHash = keccak256(raw);
       const attempts = row.attempts + 1;

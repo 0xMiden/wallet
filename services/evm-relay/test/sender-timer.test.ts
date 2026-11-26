@@ -16,6 +16,8 @@ import {
 } from '../../../src/lib/evm-relay/batch';
 import type { BroadcastOutcome, FeeQuote, ReceiptStatus, RelayAuthorization } from '../src/chain';
 import {
+  CANCEL_AFTER_DEADLINE_MS,
+  CANCEL_GAS,
   FINAL_ROW_TTL_MS,
   REPLACE_AFTER_MS,
   RelaySender,
@@ -80,6 +82,10 @@ class World {
   receiptError: Error | null = null;
   feeError: Error | null = null;
   sendOutcome: BroadcastOutcome = 'accepted';
+  sendError: Error | null = null;
+  signError: Error | null = null;
+  /** The stored `raw_tx` of every row at the start of each broadcast. */
+  readonly storedAtSend: unknown[][] = [];
   signDelayMs = 0;
   /** The most signatures that ran at one time. */
   maxSigning = 0;
@@ -96,6 +102,7 @@ class World {
         this.maxSigning = Math.max(this.maxSigning, this.signing);
         try {
           if (this.signDelayMs > 0) await new Promise(resolve => setTimeout(resolve, this.signDelayMs));
+          if (this.signError !== null) throw this.signError;
           return await this.key.signTransaction(transaction);
         } finally {
           this.signing -= 1;
@@ -103,6 +110,8 @@ class World {
       },
       broadcast: async (_chainId, raw) => {
         this.sent.push(raw);
+        this.storedAtSend.push(this.rows().map(row => row.raw_tx));
+        if (this.sendError !== null) throw this.sendError;
         return this.sendOutcome;
       },
       receipts: async (_chainId, hashes) => {
@@ -333,17 +342,28 @@ describe('RelaySender tick', () => {
     expect(world.sender.get(idOf('01'))).toEqual({ id: idOf('01'), state: 'succeeded', txHash: old });
   });
 
-  it('does not replace the fee after the deadline and keeps sending the same bytes', async () => {
+  it('does not replace the fee after the deadline and sends the same bytes until 60 seconds after it', async () => {
     const world = new World();
     await world.submit({ deadline: START / 1000 + 120 });
     const raw = world.sentAt(0);
-    world.now = START + REPLACE_AFTER_MS;
+    world.now = START + 120_000;
     await world.fire();
-    world.now += 10 * REPLACE_AFTER_MS;
+    // REPLACE_AFTER_MS after the signature is exactly CANCEL_AFTER_DEADLINE_MS after the deadline: not more.
+    world.now = START + 120_000 + CANCEL_AFTER_DEADLINE_MS;
+    expect(world.now).toBe(START + REPLACE_AFTER_MS);
     await world.fire();
     expect(world.sent).toEqual([raw, raw, raw]);
     expect(world.feeReads).toBe(0);
-    expect(world.rows()[0]?.attempts).toBe(1);
+    expect(world.rows()[0]).toMatchObject({ attempts: 1, cancel_hashes: '[]', state: 'pending' });
+  });
+
+  it('bumps a fee of 0 to 1, so a node takes the replacement', async () => {
+    const world = new World();
+    world.quote = { baseFee: 0n, priorityFee: 0n };
+    await world.submit({ maxFeePerGas: 0n, maxPriorityFeePerGas: 0n });
+    world.now = START + REPLACE_AFTER_MS;
+    await world.fire();
+    expect(parseTransaction(world.sentAt(1))).toMatchObject({ nonce: 5, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n });
   });
 
   it('does not replace the fee when the node says a mined transaction holds the nonce', async () => {
@@ -414,6 +434,281 @@ describe('RelaySender tick', () => {
       [idOf('01'), 5, 'reverted'],
       [idOf('02'), 6, 'pending']
     ]);
+  });
+});
+
+describe('RelaySender cancel after the deadline', () => {
+  /** The batch deadline of these tests, 120 seconds after START, in unix seconds. */
+  const DEADLINE = START / 1000 + 120;
+  /** The first time at which a cancel is due: more than CANCEL_AFTER_DEADLINE_MS after the deadline. */
+  const CANCEL_AT = DEADLINE * 1000 + CANCEL_AFTER_DEADLINE_MS + 1;
+
+  /** A world with one pending row of ADDRESS_A at nonce 5 whose deadline is DEADLINE. Returns its first hash. */
+  async function expiring(world: World): Promise<Hex> {
+    return world.submit({ deadline: DEADLINE });
+  }
+
+  /** Check that the bytes are a cancel: 0 from the relayer to itself, with no data, at nonce 5. */
+  async function expectCancel(raw: Hex, maxFeePerGas: bigint, maxPriorityFeePerGas: bigint): Promise<void> {
+    const transaction = parseTransaction(raw);
+    expect(transaction).toMatchObject({
+      type: 'eip1559',
+      chainId: 8453,
+      nonce: 5,
+      to: RELAYER_A,
+      gas: CANCEL_GAS,
+      maxFeePerGas,
+      maxPriorityFeePerGas
+    });
+    expect(transaction.value ?? 0n).toBe(0n);
+    expect(transaction.data).toBeUndefined();
+    expect(transaction.authorizationList).toBeUndefined();
+    await expect(transactionSigner(raw)).resolves.toBe(RELAYER_A);
+  }
+
+  it('signs a cancel more than 60 seconds after the deadline and stores it before the broadcast', async () => {
+    const world = new World();
+    const old = await expiring(world);
+    world.now = CANCEL_AT;
+    await world.fire();
+
+    const cancel = world.sentAt(1);
+    const hash = keccak256(cancel);
+    // The node fees are below the old fees, so the cancel takes the old fees plus 15 %.
+    await expectCancel(cancel, 2_415_000_000n, 115_000_000n);
+    expect(world.storedAtSend[1]).toEqual([cancel]);
+    expect(world.rows()[0]).toMatchObject({
+      state: 'pending',
+      nonce: 5,
+      tx_hash: hash,
+      sent_hashes: JSON.stringify([old, hash]),
+      cancel_hashes: JSON.stringify([hash]),
+      raw_tx: cancel,
+      max_fee: '2415000000',
+      max_priority_fee: '115000000',
+      attempts: 2,
+      signed_at: CANCEL_AT
+    });
+    expect(world.sender.get(idOf('01'))).toEqual({ id: idOf('01'), state: 'pending', txHash: hash });
+    expect(world.meta('next_nonce')).toBe('6');
+    expect(world.feeReads).toBe(1);
+    expect(jest.mocked(console.warn).mock.calls).toEqual([
+      ['evm-relay: cancelled nonce 5 on chain 8453 after its deadline, attempt 1.']
+    ]);
+    expect(world.alarm).toBe(CANCEL_AT + T);
+  });
+
+  it('takes the node fees for the cancel when they are higher', async () => {
+    const world = new World();
+    world.quote = { baseFee: 3_000_000_000n, priorityFee: 500_000_000n };
+    await expiring(world);
+    world.now = CANCEL_AT;
+    await world.fire();
+    await expectCancel(world.sentAt(1), 6_500_000_000n, 500_000_000n);
+    expect(world.rows()[0]).toMatchObject({ max_fee: '6500000000', max_priority_fee: '500000000' });
+  });
+
+  it('keeps the stored cancel when its broadcast fails, and sends it again at the next tick', async () => {
+    const world = new World();
+    await expiring(world);
+    world.sendError = new Error('connect failed: https://rpc.example/secret-key');
+    world.now = CANCEL_AT;
+    await world.fire();
+    const cancel = world.sentAt(1);
+    expect(world.rows()[0]).toMatchObject({ state: 'pending', raw_tx: cancel, attempts: 2 });
+
+    world.sendError = null;
+    world.now += T;
+    await world.fire();
+    expect(world.sentAt(2)).toBe(cancel);
+    expect(world.rows()[0]).toMatchObject({ state: 'pending', raw_tx: cancel, attempts: 2 });
+    expect(world.feeReads).toBe(1);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('bumps the cancel fee after the replacement interval and never signs the batch again', async () => {
+    const world = new World();
+    const old = await expiring(world);
+    world.now = CANCEL_AT;
+    await world.fire();
+    const first = world.sentAt(1);
+
+    // Before the interval, the same cancel bytes go out again.
+    world.now = CANCEL_AT + REPLACE_AFTER_MS - 1;
+    await world.fire();
+    expect(world.sentAt(2)).toBe(first);
+    expect(world.feeReads).toBe(1);
+
+    world.now = CANCEL_AT + REPLACE_AFTER_MS;
+    await world.fire();
+    const second = world.sentAt(3);
+    await expectCancel(second, 2_777_250_000n, 132_250_000n);
+    expect(world.storedAtSend[3]).toEqual([second]);
+    expect(world.rows()[0]).toMatchObject({
+      tx_hash: keccak256(second),
+      sent_hashes: JSON.stringify([old, keccak256(first), keccak256(second)]),
+      cancel_hashes: JSON.stringify([keccak256(first), keccak256(second)]),
+      attempts: 3
+    });
+    expect(jest.mocked(console.warn).mock.calls.at(-1)).toEqual([
+      'evm-relay: cancelled nonce 5 on chain 8453 after its deadline, attempt 2.'
+    ]);
+    // Every signature after the first is a cancel.
+    for (const raw of world.sent.slice(1)) expect(parseTransaction(raw).to).toBe(RELAYER_A);
+  });
+
+  it('sends the stored bytes again when the fee read fails, and cancels at a later tick', async () => {
+    const world = new World();
+    await expiring(world);
+    world.feeError = new Error('fees down');
+    world.now = CANCEL_AT;
+    await world.fire();
+    expect(world.sent).toEqual([world.sentAt(0), world.sentAt(0)]);
+    expect(world.rows()[0]?.cancel_hashes).toBe('[]');
+
+    world.feeError = null;
+    world.now += T;
+    await world.fire();
+    await expectCancel(world.sentAt(2), 2_415_000_000n, 115_000_000n);
+  });
+
+  it('keeps the old bytes when the cancel signature fails', async () => {
+    const world = new World();
+    await expiring(world);
+    world.signError = new Error('signer down');
+    world.now = CANCEL_AT;
+    await world.fire();
+    expect(world.sent).toEqual([world.sentAt(0), world.sentAt(0)]);
+    expect(world.rows()[0]).toMatchObject({ attempts: 1, cancel_hashes: '[]', state: 'pending' });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel when the node says a mined transaction holds the nonce', async () => {
+    const world = new World();
+    world.sendOutcome = 'nonce_used';
+    await expiring(world);
+    world.now = CANCEL_AT;
+    await world.fire();
+    expect(world.feeReads).toBe(0);
+    expect(world.rows()[0]).toMatchObject({ attempts: 1, cancel_hashes: '[]' });
+  });
+
+  it.each(RECEIPTS)(
+    'finishes the row as %s when the batch is mined after the cancel was sent',
+    async (status, state) => {
+      const world = new World();
+      const old = await expiring(world);
+      world.now = CANCEL_AT;
+      await world.fire();
+      const cancel = keccak256(world.sentAt(1));
+      world.status.set(old, status);
+      world.now += T;
+      await world.fire();
+      expect(world.receiptReads.at(-1)).toEqual([old, cancel]);
+      expect(world.sender.get(idOf('01'))).toEqual({ id: idOf('01'), state, txHash: old });
+      expect(world.rows()[0]).toMatchObject({ raw_tx: null, request: null });
+    }
+  );
+
+  it.each<ReceiptStatus>(['success', 'reverted'])(
+    'finishes the row as expired with the cancel hash when the cancel is mined with status %s',
+    async status => {
+      const world = new World();
+      const old = await expiring(world);
+      world.now = CANCEL_AT;
+      await world.fire();
+      const cancel = keccak256(world.sentAt(1));
+      world.status.set(cancel, status);
+      world.now += T;
+      await world.fire();
+      expect(world.receiptReads.at(-1)).toEqual([old, cancel]);
+      expect(world.sender.get(idOf('01'))).toEqual({ id: idOf('01'), state: 'expired', txHash: cancel });
+      expect(world.rows()[0]).toMatchObject({
+        state: 'expired',
+        tx_hash: cancel,
+        raw_tx: null,
+        request: null,
+        updated_at: CANCEL_AT + T
+      });
+      expect(world.alarm).toBeNull();
+    }
+  );
+
+  it('frees the address at once after expired, and deletes the row 24 hours later', async () => {
+    const world = new World();
+    await expiring(world);
+    await expect(world.sender.submit(job({ id: idOf('02') }))).resolves.toEqual({ status: 'busy', id: idOf('01') });
+    world.now = CANCEL_AT;
+    await world.fire();
+    world.status.set(keccak256(world.sentAt(1)), 'success');
+    world.now += T;
+    await world.fire();
+
+    const outcome = await world.sender.submit(job({ id: idOf('02') }));
+    expect(outcome.status === 'job' && outcome.job.state).toBe('pending');
+    expect(world.rows().map(row => [row.id, row.state])).toEqual([
+      [idOf('01'), 'expired'],
+      [idOf('02'), 'pending']
+    ]);
+
+    world.now = CANCEL_AT + T + FINAL_ROW_TTL_MS + 1;
+    await world.fire();
+    expect(world.rows().map(row => row.id)).toEqual([idOf('02')]);
+    expect(world.sender.get(idOf('01'))).toBeNull();
+  });
+
+  it.each([
+    ['the chain pending count after the cancel', 6],
+    ['an older chain pending count', 5]
+  ])('gives a later relay the next nonce after the cancel is mined, with %s', async (_name, chainNonce) => {
+    const world = new World();
+    await expiring(world);
+    world.now = CANCEL_AT;
+    await world.fire();
+    world.status.set(keccak256(world.sentAt(1)), 'success');
+    world.now += T;
+    await world.fire();
+    expect(world.meta('next_nonce')).toBe('6');
+
+    await world.submit({ id: idOf('02'), evmAddress: ADDRESS_B, chainNonce, deadline: 1_900_000_000 });
+    expect(world.rows().map(row => [row.id, row.nonce, row.state])).toEqual([
+      [idOf('01'), 5, 'expired'],
+      [idOf('02'), 6, 'pending']
+    ]);
+    expect(parseTransaction(world.sentAt(world.sent.length - 1)).nonce).toBe(6);
+    expect(world.meta('next_nonce')).toBe('7');
+  });
+
+  it('does not cancel a row of an old relayer key, and cancels a row of the new key', async () => {
+    const world = new World();
+    const old = await expiring(world);
+    world.key = KEY_B;
+    await world.submit({ id: idOf('02'), evmAddress: ADDRESS_B, chainNonce: 5, deadline: DEADLINE });
+    world.now = CANCEL_AT;
+    await world.fire();
+    expect(
+      world.rows().map(row => [row.id, row.relayer, row.attempts, JSON.parse(String(row.cancel_hashes)).length])
+    ).toEqual([
+      [idOf('01'), RELAYER_A, 1, 0],
+      [idOf('02'), RELAYER_B, 2, 1]
+    ]);
+    // The old row's bytes go out again unchanged, and it is followed to its receipt.
+    expect(world.sent.filter(raw => raw === world.sentAt(0))).toHaveLength(2);
+    world.status.set(old, 'reverted');
+    world.now += T;
+    await world.fire();
+    expect(world.sender.get(idOf('01'))).toEqual({ id: idOf('01'), state: 'reverted', txHash: old });
+  });
+
+  it('does not cancel a row of an old key when it is the only pending row', async () => {
+    const world = new World();
+    await expiring(world);
+    world.key = KEY_B;
+    world.now = CANCEL_AT + 10 * REPLACE_AFTER_MS;
+    await world.fire();
+    expect(world.feeReads).toBe(0);
+    expect(world.sent).toEqual([world.sentAt(0), world.sentAt(0)]);
+    expect(world.rows()[0]).toMatchObject({ attempts: 1, cancel_hashes: '[]', state: 'pending' });
   });
 });
 

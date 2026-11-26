@@ -1,8 +1,8 @@
 /**
  * @jest-environment node
  */
-import { describe, expect, it } from '@jest/globals';
-import type { Hex } from 'viem';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { keccak256, type Hex } from 'viem';
 
 import { bodyOf, chainEntry, createHarness, send, type Harness } from './harness';
 import type { SubmitJob } from '../src/sender';
@@ -41,6 +41,14 @@ function status(harness: Harness, id: string, query = ''): Promise<Response> {
   return send(harness, `/v1/relay/${id}${query}`, { headers: CALLER });
 }
 
+beforeEach(() => {
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 describe('GET /v1/relay/{id}', () => {
   it('finds a relay on the first chain and on a later chain', async () => {
     const { harness, base, mainnet } = await stored();
@@ -60,6 +68,31 @@ describe('GET /v1/relay/{id}', () => {
       id: ID_BASE,
       state: 'reverted',
       txHash: base
+    });
+  });
+
+  it('shows pending while a cancel is out, then expired with the cancel hash', async () => {
+    const harness = createHarness({ relayConfig: CONFIG });
+    // The Senders of the harness run at 1_700_000_000 seconds: this deadline passed 1000 seconds ago.
+    const outcome = await harness.senders.senderOf(8453).submit({ ...job(8453, ID_BASE), deadline: 1_699_999_000 });
+    if (outcome.status !== 'job') throw new Error('The relay was not stored');
+    await harness.senders.tick(8453);
+    const cancelRaw = harness.senders.broadcasts[1]?.raw;
+    if (cancelRaw === undefined) throw new Error('No cancel was sent');
+    const cancel = keccak256(cancelRaw);
+    expect(cancel).not.toBe(outcome.job.txHash);
+    await expect(bodyOf(await status(harness, ID_BASE))).resolves.toEqual({
+      id: ID_BASE,
+      state: 'pending',
+      txHash: cancel
+    });
+
+    harness.senders.receipts.set(cancel, 'success');
+    await harness.senders.tick(8453);
+    await expect(bodyOf(await status(harness, ID_BASE))).resolves.toEqual({
+      id: ID_BASE,
+      state: 'expired',
+      txHash: cancel
     });
   });
 
