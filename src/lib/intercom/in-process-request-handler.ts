@@ -217,6 +217,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.SignRelayRequest: {
+      const relaySignResult = await Actions.signRelay(req.accountPublicKey, req.request);
+      return {
+        type: WalletMessageType.SignRelayResponse,
+        result: relaySignResult
+      };
+    }
+
     case WalletMessageType.PersistNewHotKeyRequest: {
       await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
       return {

@@ -3,6 +3,10 @@
 ## 1.18.2 (TBD)
 
 - [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden through Agglayer with no EVM gas from the user. The service has no login, takes no calldata from the client and keeps only its nonce counter and the open relays.
+- [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; and the remote config gains the `relay` section behind `features.relayDeposit`.
+- [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
+
+- [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.
 - [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
 - [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.
 - [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.

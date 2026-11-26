@@ -10,11 +10,16 @@ import {
   type BackupRefreshOutcome,
   type BackupRefreshReason,
   type BackupRefreshRequest,
+  type RelaySignRequest,
+  type RelaySignResult,
+  type SignEvmRequest,
   WalletMessageType,
   WalletRequest
 } from 'lib/shared/types';
 
 import { processInProcessRequest } from './in-process-request-handler';
+
+const RELAY_RESULT: RelaySignResult = { op: 'batch', digest: `0x${'11'.repeat(32)}`, signature: '0x22' };
 
 const mockRefreshBackup = jest.fn(async (_reason: BackupRefreshReason): Promise<BackupRefreshOutcome> => 'updated');
 const mockDeleteBackup = jest.fn(async (): Promise<BackupRefreshOutcome> => 'unchanged');
@@ -29,7 +34,11 @@ const mockEstimateUsdcxBurnFee = jest.fn(async (_req: unknown) => ({
   faucetId: 'native',
   scope: 'source-scope'
 }));
+const mockSignEvm = jest.fn(async (..._args: unknown[]) => '0xsigned');
+const mockSignRelay = jest.fn(async (_accountPublicKey: string, _request: RelaySignRequest) => RELAY_RESULT);
 jest.mock('lib/miden/back/actions', () => ({
+  signEvm: (...args: unknown[]) => mockSignEvm(...args),
+  signRelay: (accountPublicKey: string, request: RelaySignRequest) => mockSignRelay(accountPublicKey, request),
   estimateUsdcxBurnFee: (req: unknown) => mockEstimateUsdcxBurnFee(req),
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes(),
   exportAccountFile: (...args: unknown[]) => mockExportAccountFile(...(args as [string, string | undefined])),
@@ -63,6 +72,30 @@ describe('processInProcessRequest', () => {
         'DesktopIntercomAdapter'
       )
     ).rejects.toThrow();
+  });
+
+  it('SignRelayRequest runs the relay sign action and returns its result', async () => {
+    const request: RelaySignRequest = { op: 'authorization', chainId: 11155111, nonce: 0 };
+    const res = await processInProcessRequest(
+      { type: WalletMessageType.SignRelayRequest, accountPublicKey: 'pk1', request },
+      'test-adapter'
+    );
+
+    expect(res).toEqual({ type: WalletMessageType.SignRelayResponse, result: RELAY_RESULT });
+    expect(mockSignRelay).toHaveBeenCalledWith('pk1', request);
+  });
+
+  it('SignEvmRequest never passes a key role on, so the relay key cannot sign a generic payload', async () => {
+    const request: SignEvmRequest = {
+      type: WalletMessageType.SignEvmRequest,
+      accountPublicKey: 'pk1',
+      operation: { op: 'typed-data', digest: `0x${'11'.repeat(32)}` }
+    };
+    // A request from an older frontend, or a hostile one, can still carry the removed field.
+    await processInProcessRequest(Object.assign({}, request, { key: 'relay' }), 'test-adapter');
+
+    expect(mockSignEvm).toHaveBeenCalledTimes(1);
+    expect(mockSignEvm.mock.calls[0]).toEqual(['pk1', request.operation]);
   });
 
   // #788 follow-up: the dead-letter drain must work on mobile/desktop, where

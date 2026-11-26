@@ -60,7 +60,7 @@ export class ResponseTooLargeError extends Error {
 const tooLarge = () => new ResponseTooLargeError();
 
 /** The body as text, refused once it passes `maxBytes` bytes; `null` for a response that offers only json(). */
-async function readCappedText(response: JsonResponse, maxBytes: number): Promise<string | null> {
+export async function readCappedText(response: JsonResponse, maxBytes: number): Promise<string | null> {
   if (response.body) {
     const reader = response.body.getReader();
     // One streaming decoder, so a character split across chunks decodes whole.
