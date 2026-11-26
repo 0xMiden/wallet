@@ -611,6 +611,32 @@ describe('mobile journey hooks and setup', () => {
     };
   }
 
+  it('reports the expected faucet and consume status without note or account IDs when funding times out', async () => {
+    jest.useFakeTimers();
+    const balances = jest.mocked(accountRows);
+    balances.mockResolvedValueOnce({
+      account: 'mtst1a',
+      displayFaucetId: null,
+      rows: [{ tokenId: 'fixture-faucet', symbol: 'TST', decimals: 8, balance: 1_000 }]
+    });
+    balances.mockResolvedValue({
+      account: 'mtst1b',
+      displayFaucetId: null,
+      rows: [{ tokenId: 'fixture-faucet', symbol: '', decimals: 8, balance: 1_000 }]
+    });
+    jest.mocked(MidenCli.prototype.mint).mockResolvedValue({ txId: 'mint', noteId: '0xAB' });
+    jest.mocked(readRows).mockResolvedValue([
+      { id: 'expected', type: 'consume', noteIds: ['ab'], status: TxStatus.Completed },
+      { id: 'other', type: 'consume', noteId: '0xCD', status: TxStatus.Failed }
+    ]);
+
+    const result = expect(prepare()).rejects.toThrow(
+      /^Funding wallet holds no TST after the claim, expected 100000000000; expected faucet row: missing symbol; expected note claim statuses: 2$/
+    );
+    await jest.advanceTimersByTimeAsync(123_000);
+    await result;
+  });
+
   it.each<{ wanted: MobileSession; returned: string }>([
     { wanted: 'auto', returned: 'AUTO' },
     { wanted: 'upon-request', returned: 'UPON_REQUEST' }

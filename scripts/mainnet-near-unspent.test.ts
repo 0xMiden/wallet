@@ -440,8 +440,10 @@ describe('native NEAR stage failure cause', () => {
   });
 });
 
-describe('quoteless NEAR preflight stop gate', () => {
-  const expectedNonce = 90;
+describe.each([
+  ['45334301017', 90],
+  ['45828549283', 100]
+])('quoteless NEAR preflight stop gate for run %s', (runId, expectedNonce) => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-11-25T06:00:00Z'));
@@ -454,7 +456,7 @@ describe('quoteless NEAR preflight stop gate', () => {
       E2E_MAINNET_GUARDIAN_KEY_PAIR: 'existing-original-secret'
     });
     const { state } = fixture();
-    state.sourceRunId = state.authorizationRunId = '45334301017';
+    state.sourceRunId = state.authorizationRunId = runId;
     delete state.forwardQuote;
     mockState.mockReturnValue(state);
     jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
