@@ -1,0 +1,88 @@
+name: PR 2298 nominal quote visual proof
+
+on:
+  push:
+    branches: [ci/2298-nominal-visual-fe1e01e0-261126]
+
+permissions:
+  contents: read
+
+jobs:
+  token-detail-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CANDIDATE: fe1e01e0fbc299857cc6ee219d19961b76425568
+      BASELINE: 1838f5af5b61314c7d54389f27eb11755a49f594
+      OVERLAY_SHA256: 463c661917d3a534dcfe3db241117bacb93094f9884ab2de79e43f1937d9020f
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Bind exact source and test overlay
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE"
+          test "$(git rev-parse "$CANDIDATE^2")" = "$BASELINE"
+          specs=(playwright/visual/token-detail/fixture.tsx playwright/visual/token-detail/visual.spec.ts)
+          printf '%s\n' .github/workflows/2298-nominal-visual-proof.yml "${specs[@]}" > "$RUNNER_TEMP/allowed"
+          git diff --name-only "$CANDIDATE" HEAD | diff "$RUNNER_TEMP/allowed" -
+          git diff --exit-code "$BASELINE" "$CANDIDATE" -- "${specs[@]}" package.json yarn.lock playwright.token-detail-visual.config.ts
+          git diff --full-index --binary --no-color "$CANDIDATE" HEAD -- "${specs[@]}" > "$RUNNER_TEMP/overlay.patch"
+          printf '%s  %s\n' "$OVERLAY_SHA256" "$RUNNER_TEMP/overlay.patch" | sha256sum --check
+          mkdir "$RUNNER_TEMP/token-detail-proof"
+          {
+            printf 'proof=%s\nsource=%s\nbaseline=%s\noverlay_sha256=%s\n' "$GITHUB_SHA" "$CANDIDATE" "$BASELINE" "$OVERLAY_SHA256"
+            cp "$RUNNER_TEMP/overlay.patch" "$RUNNER_TEMP/token-detail-proof/overlay.patch"
+          } | tee "$RUNNER_TEMP/token-detail-proof/source.txt" >> "$GITHUB_STEP_SUMMARY"
+          git checkout --detach "$CANDIDATE"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: timeout 6m yarn install --frozen-lockfile --non-interactive --network-timeout 60000
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install Chromium
+        timeout-minutes: 5
+        run: yarn playwright install --with-deps chromium
+      - name: Capture exact source and verify expected cases
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/token-detail-proof"
+          output=test-results/token-detail-visual
+          for role in baseline candidate; do
+            if [[ "$role" == baseline ]]; then
+              sha="$BASELINE"
+              capture=before
+              filter='captures a known quantity without inventing a fiat value'
+            else
+              sha="$CANDIDATE"
+              capture=after
+              filter='nominal fiat display'
+            fi
+            git checkout --detach "$sha"
+            test "$(git rev-parse HEAD)" = "$sha"
+            git diff --exit-code
+            git apply --check "$RUNNER_TEMP/overlay.patch"
+            git apply "$RUNNER_TEMP/overlay.patch"
+            printf '%s=%s tree=%s\n' "$role" "$sha" "$(git rev-parse "HEAD^{tree}")" | tee -a "$proof/source.txt" >> "$GITHUB_STEP_SUMMARY"
+            mkdir "$proof/$role"
+            PLAYWRIGHT_JSON_OUTPUT_FILE="$proof/$role/results.json" TOKEN_DETAIL_CAPTURE="$capture" \
+              yarn playwright test --config playwright.token-detail-visual.config.ts --grep "$filter" --workers=1 --retries=0 --reporter=list,json \
+              2>&1 | tee "$proof/$role/playwright.log"
+            cp -R "$output/." "$proof/$role/"
+            test "$(find "$proof/$role" -name "token-detail-nominal-*-$capture.png" | wc -l)" -eq 4
+            if [[ "$role" == candidate ]]; then
+              test "$(find "$proof/$role" -name 'token-detail-market-*-after.png' | wc -l)" -eq 4
+            fi
+            git apply --reverse "$RUNNER_TEMP/overlay.patch"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: 2298-token-detail-visual
+          path: ${{ runner.temp }}/token-detail-proof/
+          if-no-files-found: error
+          retention-days: 7

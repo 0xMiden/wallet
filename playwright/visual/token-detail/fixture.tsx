@@ -8,17 +8,17 @@ import actualPlatform from '../../../src/lib/platform';
 
 const params = new URLSearchParams(window.location.search);
 const longContent = params.has('long');
-export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
-  ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
-  : TEST_TOKEN_IETH.faucetId;
+const nominal = params.has('nominal');
+export const TOKEN_DETAIL_FIXTURE_ID =
+  params.has('missing') || nominal ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0' : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
 const token = {
   tokenId,
-  balance: 987654321.123456,
+  balance: nominal ? 12.5 : 987654321.123456,
   metadata: {
-    name: 'Synthetic Testnet Asset with a Long Display Name',
-    symbol: 'IETH',
-    decimals: 8,
+    name: nominal ? 'Synthetic Unquoted Test Asset' : 'Synthetic Testnet Asset with a Long Display Name',
+    symbol: nominal ? 'LOCAL' : 'IETH',
+    decimals: nominal ? 2 : 8,
     description: longContent
       ? 'A test-only asset description with enough words to wrap cleanly across a narrow token detail panel.'
       : 'A test-only asset used to verify token detail layout.'
@@ -27,7 +27,7 @@ const token = {
 
 const priceInfo = { price: 1234.5678, change24h: -29.6296, percentageChange24h: -2.4, kind: 'market' as const };
 const storeState = {
-  tokenPrices: { ETH: priceInfo },
+  tokenPrices: nominal ? { BTC: priceInfo } : { ETH: priceInfo },
   tokenMetadataOverrides: {},
   setTokenMetadataOverride: async () => undefined,
   clearTokenMetadataOverride: async () => undefined
@@ -95,7 +95,7 @@ export const navigate = (destination: string | { pathname: string; search?: stri
 
 export const getEffectiveNetworkName = () => MIDEN_NETWORK_NAME.TESTNET;
 export const getTestNetworkNameKey = () => 'testnet';
-export const peekTokenPriceAssets = () => new Map([[tokenId, 'ETH']]);
+export const peekTokenPriceAssets = () => new Map(nominal ? [] : [[tokenId, 'ETH']]);
 export const canOverrideMetadata = () => true;
 export const isMobile = () => params.has('mobile');
 export const isExtension = () => params.has('sidePanel');

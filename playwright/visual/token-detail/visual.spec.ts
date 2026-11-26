@@ -143,3 +143,65 @@ test('retains honest identity when metadata and native-faucet discovery are unav
   await expect(page.getByTestId('token-detail-send')).toBeVisible();
   await expect(page.getByTestId('token-detail-receive')).toBeVisible();
 });
+
+test.describe('nominal fiat display', () => {
+  test.use({ locale: 'en-US', serviceWorkers: 'block' });
+
+  const capture = process.env.TOKEN_DETAIL_CAPTURE;
+  if (capture !== 'before' && capture !== 'after') {
+    throw new Error('Set TOKEN_DETAIL_CAPTURE to before or after for the nominal case.');
+  }
+
+  test.beforeEach(async ({ page, baseURL }) => {
+    if (!baseURL) throw new Error('The nominal case requires the local token detail fixture URL.');
+    const fixtureOrigin = new URL(baseURL).origin;
+    if (fixtureOrigin !== 'http://127.0.0.1:5192') {
+      throw new Error('The nominal case can only use the local token detail fixture.');
+    }
+    await page.route('**/*', route =>
+      new URL(route.request().url()).origin === fixtureOrigin ? route.continue() : route.abort()
+    );
+    await page.addInitScript(origin => {
+      if (window.location.origin === origin) localStorage.setItem('nominal_unquoted_price_setting', 'on');
+    }, fixtureOrigin);
+  });
+
+  test('captures a known quantity without inventing a fiat value', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    const query = new URLSearchParams('nominal');
+    query.set(project.startsWith('mobile') ? 'mobile' : 'sidePanel', '');
+    if (project.endsWith('dark')) query.set('dark', '');
+    await page.goto(`/?${query}`);
+
+    const hero = page.getByTestId('token-detail-hero');
+    await expect(hero.getByText('12.50', { exact: true })).toBeVisible();
+    const fiat = hero.locator('p');
+    if (capture === 'before') {
+      await expect(fiat).toHaveText('$12.50');
+    } else {
+      await expect(fiat).toHaveCount(0);
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`token-detail-nominal-${project}-${capture}.png`),
+      animations: 'disabled',
+      caret: 'hide'
+    });
+  });
+
+  test('keeps the fiat value and price chart for a quoted asset', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    const query = new URLSearchParams();
+    query.set(project.startsWith('mobile') ? 'mobile' : 'sidePanel', '');
+    if (project.endsWith('dark')) query.set('dark', '');
+    await page.goto(`/?${query}`);
+
+    await expect(page.getByText('IETH', { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId('token-detail-hero').locator('p')).toHaveText(/^\$[0-9]/);
+    await expect(page.getByTestId('token-detail-price')).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`token-detail-market-${project}-${capture}.png`),
+      animations: 'disabled',
+      caret: 'hide'
+    });
+  });
+});
