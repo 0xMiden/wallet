@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'services/command-ai/**'
+      - 'services/command-ai-proxy/server.mjs'
+      - 'src/lib/command-ai/help-facts.json'
+      - 'src/lib/command-ai/redactor.ts'
+      - 'src/lib/command-ai/schema.ts'
+      - 'scripts/command-ai-eval/**'
       - 'scripts/feature-eligibility-deploy-source.mjs'
       - '.github/workflows/command-ai.yml'
       - '.github/workflows/deploy-command-ai.yml'
@@ -27,6 +32,8 @@ jobs:
         with:
           node-version: 22
       - uses: ./.github/actions/yarn-install
+      - name: Check Command AI fixtures offline
+        run: node --test scripts/command-ai-eval/offline.test.mjs
       - name: Type-check the Worker and its tests
         run: |
           npx tsc --noEmit -p services/command-ai/tsconfig.json

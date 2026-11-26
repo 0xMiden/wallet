@@ -16,6 +16,15 @@ describe('command-ai privacy redactor', () => {
     expect(res.redactedTokensSummary).toEqual(['AMT', 'ADDR']);
   });
 
+  it('redacts an exact-length hex token without a prefix', () => {
+    const token = 'ab'.repeat(32);
+    const note = redactPrompt('What is note ' + token + '?', { contacts });
+    expect(note.redactedText).toBe('What is note <ADDR_1>?');
+    expect(note.map.addrs.ADDR_1).toBe(token);
+    expect(redactPrompt('What is note abcdef12?', { contacts }).redactedText).toBe('What is note abcdef12?');
+    expect(redactPrompt('send 1 to 0x' + token, { contacts }).redactedText).toBe('send <AMT_1> to <ADDR_1>');
+  });
+
   it('redacts high-precision amounts and full addresses to block mempool linkage', () => {
     const res = redactPrompt('send 1.374291 ETH to 0x742d35Cc6634C0532925a3b844Bc454e4438f44e', { contacts });
     expect(res.redactedText).toBe('send <AMT_1> ETH to <ADDR_1>');
