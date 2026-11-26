@@ -107,10 +107,22 @@ export interface ListenAddress {
   port: number;
 }
 
+/** The wallet build honors only an http loopback `MIDEN_WALLET_API_URL`; any other URL leaves it on the network's own service. */
+function requireWalletReachableUrl(baseUrl: string): void {
+  const url = new URL(baseUrl);
+  if (url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname)) {
+    throw new Error(
+      `The wallet ignores ${baseUrl}: it only uses an http URL on localhost or 127.0.0.1 as its wallet-api, so its ` +
+        `backups would go to the network's own service. Use a loopback http URL, such as ${DEFAULT_WALLET_API_URL}.`
+    );
+  }
+}
+
 /** The address that `wrangler dev` listens on. A local Worker needs a loopback http URL with no path. */
 export function localListenAddress(baseUrl: string): ListenAddress {
+  requireWalletReachableUrl(baseUrl);
   const url = new URL(baseUrl);
-  if (url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname) || url.pathname !== '/') {
+  if (url.pathname !== '/') {
     throw new Error(
       `A local Worker needs a loopback http base URL with no path, such as ${DEFAULT_WALLET_API_URL}. ` +
         `Got ${baseUrl}. Set E2E_WALLET_API_EXTERNAL=true to use a Worker that runs elsewhere.`
@@ -485,6 +497,7 @@ export async function assertWalletApiAllowsExtension(
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = walletApiBaseUrl(env);
+  requireWalletReachableUrl(baseUrl);
   const origin = extensionOrigin(extensionId);
   const logHint = env.E2E_WALLET_API_LOG ? `\nWorker log: ${env.E2E_WALLET_API_LOG}.` : '';
   const health = await walletApiHealthProblem(baseUrl, fetchImpl);
@@ -670,6 +683,7 @@ export async function startWalletApiDevServer(options: StartOptions = {}): Promi
   const origin = extensionOrigin(extensionId);
 
   if (isExternalWalletApi(env)) {
+    requireWalletReachableUrl(baseUrl);
     const health = await walletApiHealthProblem(baseUrl, fetchImpl);
     if (health !== null) throw new Error(`The external wallet-api Worker is not healthy: ${health}`);
     await checkWalletApiCors({ baseUrl, origin, fetchImpl });

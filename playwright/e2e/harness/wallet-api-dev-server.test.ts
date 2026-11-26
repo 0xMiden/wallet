@@ -20,6 +20,7 @@ import {
   localWorkerConfig,
   readDevServerState,
   readWranglerVersion,
+  startWalletApiDevServer,
   stripJsonComments,
   TEMP_DIR_PREFIX,
   unpackedExtensionId,
@@ -105,10 +106,42 @@ describe('localListenAddress', () => {
     expect(localListenAddress('http://localhost')).toEqual({ host: 'localhost', port: 80 });
   });
 
-  it.each(['https://127.0.0.1:8787', 'http://10.0.0.2:8787', 'http://127.0.0.1:8787/api'])(
-    'refuses to start a local Worker for %s and names the external switch',
-    url => expect(() => localListenAddress(url)).toThrow(/E2E_WALLET_API_EXTERNAL=true/)
+  it('refuses a path and names the external switch', () =>
+    expect(() => localListenAddress('http://127.0.0.1:8787/api')).toThrow(/E2E_WALLET_API_EXTERNAL=true/));
+
+  it.each(['https://127.0.0.1:8787', 'http://10.0.0.2:8787'])(
+    'refuses %s as a URL the wallet ignores, and does not offer the external switch',
+    url => expect(() => localListenAddress(url)).toThrow(/^(?![\s\S]*E2E_WALLET_API_EXTERNAL)[\s\S]*wallet ignores/)
   );
+});
+
+describe('an external Worker', () => {
+  const countingFetch = () => {
+    const calls: string[] = [];
+    const fetchImpl = async (url: string): Promise<Response> => {
+      calls.push(url);
+      return new Response(null);
+    };
+    return { calls, fetchImpl };
+  };
+
+  it.each(['https://api.example', 'https://127.0.0.1:8787', 'http://10.0.0.2:8787'])(
+    'is refused at %s before any request',
+    async url => {
+      const { calls, fetchImpl } = countingFetch();
+      const env = { E2E_WALLET_API_URL: url, E2E_WALLET_API_EXTERNAL: 'true' };
+      await expect(startWalletApiDevServer({ env, fetchImpl, extensionId: ID })).rejects.toThrow(/wallet ignores/);
+      await expect(assertWalletApiAllowsExtension(ID, { env, fetchImpl })).rejects.toThrow(/wallet ignores/);
+      expect(calls).toEqual([]);
+    }
+  );
+
+  it.each(['http://localhost:9000', 'http://127.0.0.1:8787/backup'])('is still checked at %s', async url => {
+    const { calls, fetchImpl } = countingFetch();
+    const env = { E2E_WALLET_API_URL: url, E2E_WALLET_API_EXTERNAL: 'true' };
+    await expect(startWalletApiDevServer({ env, fetchImpl, extensionId: ID })).rejects.toThrow(/not healthy/);
+    expect(calls.length).toBe(1);
+  });
 });
 
 describe('extension origin', () => {
