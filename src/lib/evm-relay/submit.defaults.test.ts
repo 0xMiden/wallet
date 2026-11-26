@@ -7,19 +7,17 @@ import type { RelaySignResult } from 'lib/shared/types';
 
 import { batchDigest, batchNonceOf, type BatchCall } from './batch';
 import { fetchRelayAccount, fetchRelayJob, submitRelay } from './client';
-import { RELAY_DEADLINE_SECONDS, RELAY_POLL_MS, createRelayProvider } from './provider';
-import { relayRpcRead } from './rpc';
+import { RELAY_DEADLINE_SECONDS, RELAY_POLL_MS, createRelaySubmitter } from './submit';
 import { CHAIN, EXECUTOR, RELAY_ADDRESS, SALT } from './testing';
 import type { RelayAccount } from './types';
 
-// The provider's default dependencies are the relay client, the RPC read, `Date.now` and `setTimeout`.
+// The submitter's default dependencies are the relay client, `Date.now` and `setTimeout`.
 jest.mock('./client', () => ({
   ...jest.requireActual('./client'),
   fetchRelayAccount: jest.fn(),
   submitRelay: jest.fn(),
   fetchRelayJob: jest.fn()
 }));
-jest.mock('./rpc', () => ({ ...jest.requireActual('./rpc'), relayRpcRead: jest.fn() }));
 
 const NOW_SECONDS = 1_800_000_000;
 const TARGET: Address = '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582';
@@ -42,7 +40,7 @@ const ACCOUNT: RelayAccount = {
   balances: []
 };
 
-// The batch that the provider builds at NOW_SECONDS for CALLS.
+// The batch that the submitter builds at NOW_SECONDS for CALLS.
 const DIGEST = batchDigest(
   CHAIN.calibur,
   {
@@ -60,26 +58,26 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-it('uses the relay client, the RPC read and the real clock when the caller injects none', async () => {
+it('uses the relay client and the real clock when the caller injects none', async () => {
   jest.useFakeTimers({ now: NOW_SECONDS * 1000 });
-  const provider = createRelayProvider({
+  const submitter = createRelaySubmitter({
     chain: CHAIN,
     address: RELAY_ADDRESS,
-    rpcUrl: 'https://rpc.example',
     sign: async (): Promise<RelaySignResult> => ({ op: 'batch', digest: DIGEST, signature: SIGNATURE })
   });
   jest.mocked(fetchRelayAccount).mockResolvedValue(ACCOUNT);
   jest.mocked(submitRelay).mockResolvedValue({ id: DIGEST, state: 'pending', txHash: HASH });
   jest.mocked(fetchRelayJob).mockResolvedValue({ id: DIGEST, state: 'succeeded', txHash: HASH });
-  jest.mocked(relayRpcRead).mockResolvedValue('0x5');
 
-  const sent = provider.sendCalls(CALLS);
+  const sent = submitter.submit(CALLS);
   await jest.advanceTimersByTimeAsync(RELAY_POLL_MS);
-  expect(await sent).toBe(HASH);
+  expect(await sent).toEqual({ id: DIGEST, hash: HASH });
   expect(fetchRelayAccount).toHaveBeenCalledWith({ chainId: CHAIN.chainId, address: RELAY_ADDRESS });
   expect(submitRelay).toHaveBeenCalledWith(expect.objectContaining({ calls: CALLS, signature: SIGNATURE }));
   expect(fetchRelayJob).toHaveBeenCalledWith({ id: DIGEST, chainId: CHAIN.chainId });
 
-  expect(await provider.request({ method: 'eth_getBalance', params: [RELAY_ADDRESS, 'latest'] })).toBe('0x5');
-  expect(relayRpcRead).toHaveBeenCalledWith('https://rpc.example', 'eth_getBalance', [RELAY_ADDRESS, 'latest']);
+  expect(await submitter.resume({ chainId: CHAIN.chainId, id: DIGEST, deadline: NOW_SECONDS })).toEqual({
+    id: DIGEST,
+    hash: HASH
+  });
 });

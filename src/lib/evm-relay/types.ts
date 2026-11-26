@@ -1,4 +1,4 @@
-import type { Address, Hex } from 'viem';
+import type { Address, Hash, Hex } from 'viem';
 
 import type { BatchCall } from './batch';
 
@@ -42,14 +42,34 @@ export interface RelayAccount {
   balances: RelayTokenBalance[];
 }
 
-export type RelayJobState = 'pending' | 'succeeded' | 'reverted';
+/**
+ * `pending`: not final. `succeeded`, `reverted`: the batch was mined. `expired`: final; the batch was not executed and
+ * never will be, and `txHash` is the relayer's cancel transaction.
+ */
+export type RelayJobState = 'pending' | 'succeeded' | 'reverted' | 'expired';
 
 /** A relay job. `id` is the EIP-712 digest of the batch. */
 export interface RelayJob {
   id: Hex;
   state: RelayJobState;
-  /** The last transaction hash. The hash of a final job is the mined hash. */
+  /** The last transaction hash. The hash of a final job is the mined hash (the cancel transaction when `expired`). */
   txHash: Hex;
+}
+
+/**
+ * What a caller stores to follow a relay job after a lost answer or a restart. `id` is the batch digest that the
+ * wallet computed before the POST, and `deadline` is the batch deadline in unix seconds.
+ */
+export interface RelayJobRef {
+  chainId: number;
+  id: Hex;
+  deadline: number;
+}
+
+/** A relay job that succeeded. `hash` is the mined transaction hash. */
+export interface RelayResult {
+  id: Hex;
+  hash: Hash;
 }
 
 /** The signed EIP-7702 authorization that delegates the address to Calibur. */
