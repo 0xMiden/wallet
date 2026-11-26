@@ -17,13 +17,13 @@
   // GAS_MODE is "sponsor" (the relayer pays the gas) or "deduct" (each batch pays a fixed token fee to feeRecipient).
   // RELAY_CONFIG is JSON: the one Calibur pin of all chains, the optional fee recipient, and the optional `chains`
   // object with the fees and the allowed targets of a chain. The README gives its shape.
-  // The placeholder pin has a zero runtime hash, which matches no code, so the account read of each chain fails
-  // until a deploy sets the real pin.
+  // The pin is the Uniswap Calibur: the same address and the same runtime code hash on each chain that was checked
+  // (Ethereum, Base, Arbitrum One, Polygon, Sepolia).
   "vars": {
     "ALLOWED_ORIGINS": "[]",
     "DEPLOYMENT_REVISION": "unknown",
     "GAS_MODE": "sponsor",
-    "RELAY_CONFIG": "{\"calibur\":{\"address\":\"0x000000009b1d0af20d8c6d0a44e162d11f9b8f00\",\"runtimeHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"domainName\":\"Calibur\",\"domainVersion\":\"1.0.0\"}}"
+    "RELAY_CONFIG": "{\"calibur\":{\"address\":\"0x000000009b1d0af20d8c6d0a44e162d11f9b8f00\",\"runtimeHash\":\"0x7fa1bd2edb51499cb83a324acd9d0f35b31774cf8894e26fc13ac0474f4f57a4\",\"domainName\":\"Calibur\",\"domainVersion\":\"1.0.0\"}}"
   },
   // Secrets. Set them with `wrangler secret put`. Do not put them in vars.
   // RELAYER_PRIVATE_KEY: the key of the relayer account that executes the batches and pays the gas.

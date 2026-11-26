@@ -236,11 +236,11 @@ test('renders the committed config with an absolute entry and the release variab
   assert.deepEqual(rendered.durable_objects, committed.durable_objects);
   assert.deepEqual(rendered.migrations, committed.migrations);
   assert.equal(rendered.name, committed.name);
-  // The committed object keeps its placeholders: one Calibur pin whose zero runtime hash matches no code.
+  // The committed object keeps its defaults: the one Calibur pin, with the hash of the Uniswap Calibur runtime code.
   assert.deepEqual(JSON.parse(committed.vars.RELAY_CONFIG), {
     calibur: {
       address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
-      runtimeHash: `0x${'00'.repeat(32)}`,
+      runtimeHash: '0x7fa1bd2edb51499cb83a324acd9d0f35b31774cf8894e26fc13ac0474f4f57a4',
       domainName: 'Calibur',
       domainVersion: '1.0.0'
     }
