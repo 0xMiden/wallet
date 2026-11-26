@@ -73,6 +73,7 @@ import {
   CustomTransactionEffectsChangedError,
   isUnconfirmedFailure,
   STALE_PROOF_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
 import { noteDeliveryWriteCount } from './helper';
@@ -80,7 +81,7 @@ import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
-import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { markErrorBeforeSubmit, markLockEvictedError } from '../sdk/sdk-error-code';
 import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -4042,6 +4043,128 @@ describe('guardian offscreen submit gate (#1644)', () => {
       repo.transactions.where.mockImplementation(realWhereImpl);
       clearGuardianAccountLocks();
     }
+  });
+
+  it('marks pre-gate offscreen Guardian send kill as preSubmitKill without kill evidence and allows unacknowledged retry (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new OperationAbortedError('op-gate-shut', 'deadline'));
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('gate-shut-kill-send', sendRow);
+
+    await generateTransaction(buildTx('gate-shut-kill-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === 'gate-shut-kill-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.cancelledInFlightAt).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+
+    await requeueFailedTransaction('gate-shut-kill-send');
+    const requeued = txStore.find(r => r.id === 'gate-shut-kill-send')!;
+    expect(requeued.status).toBe(ITransactionStatus.Queued);
+    expect((requeued as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+  });
+
+  it('marks pre-leaf Guardian send abort during proposal creation as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-kill-send', sendRow);
+    service.createSendProposal.mockRejectedValueOnce(new OperationAbortedError('op-preleaf', 'deadline'));
+
+    await generateTransaction(buildTx('preleaf-kill-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-kill-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.cancelledInFlightAt).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('marks pre-leaf Guardian send lock eviction as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-evict-send', sendRow);
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('evicted pre-leaf'));
+    markLockEvictedError(evicted);
+    service.createSendProposal.mockRejectedValueOnce(evicted);
+
+    await generateTransaction(buildTx('preleaf-evict-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-evict-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('keeps kill evidence and candidate hold when a lock-evicted offscreen Guardian send already opened the gate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = true;
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('post-open leaf eviction'));
+    markLockEvictedError(evicted);
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(evicted);
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('postopen-evict-send', sendRow);
+
+    await generateTransaction(buildTx('postopen-evict-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'postopen-evict-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'stage', endedBy: 'kill', candidateKept: true })])
+    );
+  });
+
+  it('abandons candidate, avoids candidateKept, and records unabandoned candidate when lock eviction hits after proposal creation (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-postprop-evict', sendRow);
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('evicted during request signing'));
+    markLockEvictedError(evicted);
+    service.signAndCreateTransactionRequest.mockRejectedValueOnce(evicted);
+    service.abandonCandidate.mockRejectedValueOnce(new Error('guardian abandon unreachable'));
+
+    await generateTransaction(
+      buildTx('preleaf-postprop-evict', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    const finalRow = txStore.find(r => r.id === 'preleaf-postprop-evict')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.guardianCandidate).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
   });
 });
 

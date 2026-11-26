@@ -82,6 +82,7 @@ import {
   STALE_PROOF_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_STUCK_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
@@ -19985,6 +19986,80 @@ describe('generateTransaction - direct switch, discarded transaction', () => {
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.extraInputs).toMatchObject({ nodeDiscarded: true });
     expect(isUnconfirmedFailure(row as never)).toBe(false);
+  });
+
+  it('marks inline direct switch killed pre-submit as preSubmitKill without kill evidence (#2325)', async () => {
+    const txId = 'switch-guardian-direct-pre-submit-kill';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const lockRace = installWasmLockAbortRace();
+    const api = makeClientApi(result);
+    const abortReason = new WasmClientPoisonedError('watchdog', new Error('mock inline direct switch eviction'));
+    let releaseExecute!: () => void;
+    const executeBlocked = new Promise<void>(resolve => {
+      releaseExecute = resolve;
+    });
+    api.transactions.executeRequest = jest.fn(async () => {
+      lockRace.abort(abortReason);
+      await executeBlocked;
+      throw abortReason;
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: api
+    });
+
+    try {
+      await generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      );
+      releaseExecute();
+      await lockRace.settleDetached();
+    } finally {
+      releaseExecute();
+      lockRace.restore();
+    }
+
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(setGuardianEndpoint).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
   });
 });
 

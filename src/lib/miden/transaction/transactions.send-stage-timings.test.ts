@@ -34,9 +34,18 @@
 
 import * as Repo from 'lib/miden/repo';
 
-import { failInterruptedTransactions, MAX_WAIT_BEFORE_CANCEL, SESSION_STARTED_AT } from './cancel';
+import {
+  cancelTransactionAfterPipelineStopped,
+  failInterruptedTransactions,
+  MAX_WAIT_BEFORE_CANCEL,
+  SESSION_STARTED_AT
+} from './cancel';
+import { TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
 import { generateTransaction } from './index';
-import { ITransactionStatus } from '../db/types';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransaction, ITransactionStatus } from '../db/types';
+import { markLockEvictedError } from '../sdk/sdk-error-code';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -855,6 +864,167 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
     expect((row.submitEvidence as Array<{ preSubmitEnd?: boolean }>)[0]?.preSubmitEnd).toBeUndefined();
+  });
+
+  it('keeps ungated consumeNoteId kills as unconfirmed kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    proxy.consumeNoteId.mockRejectedValueOnce(new OperationAbortedError('op-consume-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-ungated-consume-kill',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const consumeKill = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const liveConsume = txStore.find(r => r.id === 'tx-ungated-consume-kill')!;
+    await cancelTransactionAfterPipelineStopped(
+      liveConsume as never,
+      consumeKill,
+      liveConsume.attemptId as string | undefined
+    );
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'kill' })]);
+  });
+
+  it('marks offscreen-gated execute pre-submit kills as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      newTransaction: jest.Mock;
+    };
+    proxy.newTransaction.mockRejectedValueOnce(new OperationAbortedError('op-exec-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-gated-exec-kill',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const execKill = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const liveExec = txStore.find(r => r.id === 'tx-gated-exec-kill')!;
+    await cancelTransactionAfterPipelineStopped(liveExec as never, execKill, liveExec.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-gated-exec-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
+  });
+
+  it('marks prepared consume zero-fill pre-submit kills as preSubmitKill (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      newTransaction: jest.Mock;
+    };
+    proxy.newTransaction.mockRejectedValueOnce(new OperationAbortedError('op-reclaim-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-gated-reclaim-kill',
+      type: 'consume',
+      noteId: 'zero-fill-tip',
+      noteIds: ['zero-fill-tip'],
+      requestBytes: new Uint8Array([1]),
+      extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-gated-reclaim-kill')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-gated-reclaim-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
+  });
+
+  it('keeps ungated consumeNoteId evicted inside the leaf as kill evidence rather than preSubmitKill (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('inside consume leaf'));
+    markLockEvictedError(evicted);
+    proxy.consumeNoteId.mockRejectedValueOnce(evicted);
+
+    const tx = {
+      id: 'tx-ungated-consume-evict',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-ungated-consume-evict')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume-evict')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'kill' })]);
+  });
+
+  it('marks pre-leaf non-guardian lock eviction before execute leaf as preSubmitKill without kill evidence (#2325)', async () => {
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('pre-leaf lock eviction'));
+    markLockEvictedError(evicted);
+    mockGetMidenClient.mockRejectedValueOnce(evicted);
+
+    const tx = {
+      id: 'tx-preleaf-exec-evict',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      approvedEffects: { summary: { removed: [], created: [] } },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-preleaf-exec-evict')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-preleaf-exec-evict')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
   });
 });
 

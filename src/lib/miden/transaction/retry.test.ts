@@ -4,6 +4,7 @@ import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import {
   PROOF_FRESHNESS_UNKNOWN_ERROR,
   STALE_PROOF_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
@@ -459,6 +460,36 @@ describe('requeueFailedTransaction - ambiguous post-submit failures are not repl
       ['a crossing is recorded', { mayHaveSubmitted: true }]
     ] satisfies [string, Partial<ITransaction>][])('still asks while %s', async (_case, overrides) => {
       const row = staleSend(overrides);
+      wireRow(row);
+      await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+    });
+  });
+
+  describe('a send that failed on a confirmed pre-submit kill (#2325)', () => {
+    const killedPreSubmitSend = (overrides: Partial<ITransaction & { preSubmitKill?: true }> = {}) =>
+      failedRow({
+        type: 'send',
+        stage: 'proving',
+        transactionId: undefined,
+        error: TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+        preSubmitKill: true,
+        ...overrides
+      } as Partial<ITransaction>);
+
+    it('requeues with no acknowledgement and clears preSubmitKill', async () => {
+      const row = killedPreSubmitSend({ requestBytes: new Uint8Array([9, 9]) });
+      wireRow(row);
+      await requeueFailedTransaction('tx-1');
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.requestBytes).toBeUndefined();
+      expect((row as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    });
+
+    it('still refuses when an unresolved submitEvidence entry remains alongside preSubmitKill', async () => {
+      const row = killedPreSubmitSend({
+        submitEvidence: [{ attemptId: 'a0', capturedAt: 900, source: 'stage' }]
+      });
       wireRow(row);
       await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
       expect(row.status).toBe(ITransactionStatus.Failed);

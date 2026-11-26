@@ -207,6 +207,7 @@ import { clearConnectivityIssue, markConnectivityIssue } from '../activity/conne
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy, type SubmitGate } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -277,7 +278,10 @@ import {
   hasErrorBeforeSubmit,
   isApplyAfterSubmitError,
   isIndefiniteSubmitOutcomeError,
+  isInsideSubmitLeaf,
+  isKilledBeforeSubmit,
   isKilledPipeline,
+  isLockEvictedError,
   isPoisonedPipeline,
   isRunningPipelineKill,
   isStaleInitialCommitmentError,
@@ -285,6 +289,8 @@ import {
   isTransactionDiscardedError,
   landedOrderFacts,
   markErrorBeforeSubmit,
+  markInsideSubmitLeaf,
+  markKilledBeforeSubmit,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -2576,6 +2582,9 @@ const generateTransactionWithProvider = async (
       // 'landed-external' (not provably mine) / 'invalid' / 'not-landed' /
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only - send/swap/execute have no post-kill node identity (deferred #3b).
+      if (!isInsideSubmitLeaf(error) && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+        markKilledBeforeSubmit(error);
+      }
       if (await tryCompleteKilledConsume(transaction, error)) return;
       await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
@@ -2639,17 +2648,21 @@ const generateTransactionWithProvider = async (
             });
           }
           // A claim's own leaf keeps its fire-and-forget stamp: only a prepared request takes the gate.
-          return runStampedWriteLeaf(transaction.id, attempt, (stamp, submitGate) =>
-            preparedBytes
-              ? midenClientProxy.newTransaction(
-                  transaction.accountId,
-                  preparedBytes,
-                  transaction.delegateTransaction,
-                  signer,
-                  stamp,
-                  submitGate
-                )
-              : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, stamp)
+          return runStampedWriteLeaf(
+            transaction.id,
+            attempt,
+            (stamp, submitGate) =>
+              preparedBytes
+                ? midenClientProxy.newTransaction(
+                    transaction.accountId,
+                    preparedBytes,
+                    transaction.delegateTransaction,
+                    signer,
+                    stamp,
+                    submitGate
+                  )
+                : midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signer, stamp),
+            { gated: Boolean(preparedBytes) }
           );
         }
         case 'send': {
@@ -2790,6 +2803,9 @@ const generateTransactionWithProvider = async (
       }
     });
   } catch (error) {
+    if (!isInsideSubmitLeaf(error) && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+      markKilledBeforeSubmit(error);
+    }
     // An unknown chain fee stops the check before it reads the summary, so the write fails before its submit. The
     // Guardian leaf requeues the same failure for the same types (`isGuardianOutage`), and so does this one, with the
     // same doubling wait but a cause and streak of its own, since no guardian is involved.
@@ -3428,6 +3444,7 @@ const runWriteLeaf = async <T>(
   try {
     return await leaf();
   } catch (error) {
+    markInsideSubmitLeaf(error);
     if (
       attempt !== undefined &&
       offscreen &&
@@ -3471,6 +3488,10 @@ const runGatedWriteLeaf = async <T>({
       return await leaf();
     } catch (error) {
       submitGate.settle();
+      await submitGate.drain();
+      if (offscreen && !submitGate.opened() && isKilledPipeline(error)) {
+        markKilledBeforeSubmit(error);
+      }
       if (tagUnopenedBeforeSubmit && offscreen && !submitGate.opened()) {
         throw markErrorBeforeSubmit(error);
       }
@@ -3481,13 +3502,85 @@ const runGatedWriteLeaf = async <T>({
     }
   });
 
+const runInlineGuardianLeaf = async ({
+  txId,
+  attemptId,
+  accountId,
+  tr,
+  delegateTransaction,
+  stampStage,
+  options,
+  onSubmittingStageRecorded,
+  onSubmittingStageRetracted,
+  onPreSubmitFailure
+}: {
+  txId: string;
+  attemptId: string | undefined;
+  accountId: string;
+  tr: TransactionRequest;
+  delegateTransaction: boolean | undefined;
+  stampStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>;
+  options?: Omit<RunGuardianPipelineOptions, 'onSubmitCallReached' | 'onLockEvicted' | 'retractSubmittingStage'>;
+  onSubmittingStageRecorded?: () => void;
+  onSubmittingStageRetracted?: () => void;
+  onPreSubmitFailure?: () => void;
+}): Promise<TransactionResult> => {
+  let inlineSubmittingStageStarted = false;
+  let inlineLockEvicted = false;
+  let inlineSubmitCallReached = false;
+  let endedPreSubmit = false;
+  const wrappedSetStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+    if (stage === 'submitting') inlineSubmittingStageStarted = true;
+    await stampStage(stage, detail);
+    if (stage === 'submitting') {
+      onSubmittingStageRecorded?.();
+      // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
+      // that has not landed yet, so retire it again after the awaited stage stamp creates it.
+      if (endedPreSubmit && attemptId !== undefined) {
+        await markAttemptPreSubmitEnd(txId, attemptId);
+      }
+    }
+  };
+  const retractSubmittingStage = async (): Promise<void> => {
+    if (attemptId !== undefined) {
+      await retractSubmitCrossing(txId, attemptId, 'proving');
+    }
+    // Keep `inlineSubmittingStageStarted` true: once an inline pass entered 'submitting' and retracted before
+    // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
+    onSubmittingStageRetracted?.();
+  };
+  try {
+    return await runGuardianPipeline(accountId, tr, delegateTransaction, wrappedSetStage, {
+      ...options,
+      onSubmitCallReached: () => {
+        inlineSubmitCallReached = true;
+      },
+      onLockEvicted: () => {
+        inlineLockEvicted = true;
+      },
+      retractSubmittingStage
+    });
+  } catch (error) {
+    markInsideSubmitLeaf(error);
+    const inlineSubmitNotReached = !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted);
+    if (inlineSubmitNotReached) {
+      endedPreSubmit = true;
+      onPreSubmitFailure?.();
+      if (isKilledPipeline(error)) markKilledBeforeSubmit(error);
+    }
+    throw error;
+  }
+};
+
 const runStampedWriteLeaf = async <T>(
   txId: string,
   attempt: AttemptContext | undefined,
-  leaf: (stamp?: ReturnType<typeof stageStampFor>, submitGate?: SubmitGate) => Promise<T>
+  leaf: (stamp?: ReturnType<typeof stageStampFor>, submitGate?: SubmitGate) => Promise<T>,
+  { gated = true }: { gated?: boolean } = {}
 ): Promise<T> => {
   if (attempt === undefined) return runWriteLeaf(txId, undefined, writeLeafRunsOffscreen(), () => leaf());
   const stamp = stageStampFor(txId, attempt);
+  if (!gated) return runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp));
   const submitGate = offscreenSubmitGate(stamp, {
     retireCrossing: () => markAttemptPreSubmitEnd(txId, attempt.attemptId)
   });
@@ -3898,15 +3991,14 @@ const generateDirectSwitchGuardianTransaction = async (
         )
     });
   } else {
-    result = await runGuardianPipeline(
-      transaction.accountId,
+    result = await runInlineGuardianLeaf({
+      txId: transaction.id,
+      attemptId: attempt.attemptId,
+      accountId: transaction.accountId,
       tr,
-      transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt),
-      {
-        retractSubmittingStage: () => retractSubmitCrossing(transaction.id, attempt.attemptId, 'proving')
-      }
-    );
+      delegateTransaction: transaction.delegateTransaction,
+      stampStage: stageStampFor(transaction.id, attempt)
+    });
   }
 
   await runLandedTail(transaction, result, async () => {
@@ -5353,11 +5445,9 @@ const generateGuardianTransaction = async (
   // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
-  let inlineSubmittingStageStarted = false;
-  let inlineLockEvicted = false;
+  let submitLeafEntered = false;
   let submitStageRecorded = false;
-  let inlineSubmitCallReached = false;
-  let markPreSubmitAfterStageWrite = false;
+  let inlineSubmitNotReached = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
   // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
   // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
@@ -5368,28 +5458,6 @@ const generateGuardianTransaction = async (
   const stampStage = isReviewedNativeBridge(transaction)
     ? ownedBridgeStageStamp(transaction, baseStampStage)
     : baseStampStage;
-  const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
-    if (stage === 'submitting') inlineSubmittingStageStarted = true;
-    await stampStage(stage, detail);
-    if (stage === 'submitting') {
-      submitStageRecorded = true;
-      // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
-      // that has not landed yet, so retire it again after the awaited stage stamp creates it.
-      if (markPreSubmitAfterStageWrite && transaction.attemptId !== undefined) {
-        await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
-      }
-    }
-  };
-  // An offscreen attempt whose gate never answered yes never called submit, whatever ended it, a kill included, so
-  // its candidate is abandoned instead of held for the Guardian's grace (#1644).
-  const retractAttemptSubmittingStage = async (): Promise<void> => {
-    if (transaction.attemptId !== undefined) {
-      await retractSubmitCrossing(transaction.id, transaction.attemptId, 'proving');
-    }
-    // Keep `inlineSubmittingStageStarted` true: once an inline pass entered 'submitting' and retracted before
-    // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
-    submitStageRecorded = false;
-  };
   const attemptId = transaction.attemptId;
   const submitGate = offscreenSubmitGate(stampStage, {
     retractCrossing:
@@ -5509,6 +5577,7 @@ const generateGuardianTransaction = async (
         await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
+      submitLeafEntered = true;
       result = await runGatedWriteLeaf({
         txId: transaction.id,
         attempt,
@@ -5529,24 +5598,29 @@ const generateGuardianTransaction = async (
           )
       });
     } else {
-      result = await runGuardianPipeline(
-        transaction.accountId,
+      submitLeafEntered = true;
+      result = await runInlineGuardianLeaf({
+        txId: transaction.id,
+        attemptId,
+        accountId: transaction.accountId,
         tr,
-        transaction.delegateTransaction,
-        stampAttemptStage,
-        {
+        delegateTransaction: transaction.delegateTransaction,
+        stampStage,
+        options: {
           oneClickDeadline,
           oneClickRequired,
-          onSubmitCallReached: () => {
-            inlineSubmitCallReached = true;
-          },
-          onLockEvicted: () => {
-            inlineLockEvicted = true;
-          },
-          testAuthorizationKind,
-          retractSubmittingStage: retractAttemptSubmittingStage
+          testAuthorizationKind
+        },
+        onSubmittingStageRecorded: () => {
+          submitStageRecorded = true;
+        },
+        onSubmittingStageRetracted: () => {
+          submitStageRecorded = false;
+        },
+        onPreSubmitFailure: () => {
+          inlineSubmitNotReached = true;
         }
-      );
+      });
     }
   } catch (error) {
     submitGate.settle();
@@ -5564,13 +5638,16 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
+    if (!submitLeafEntered && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+      markKilledBeforeSubmit(error);
+    }
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
     // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
     const gateShut = offscreenDispatched && !submitGate.opened();
-    const inlineSubmitNotReached =
-      !offscreenDispatched && !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted);
-    if ((hasErrorBeforeSubmit(error) || gateShut || inlineSubmitNotReached) && transaction.attemptId !== undefined) {
-      if (inlineSubmitNotReached) markPreSubmitAfterStageWrite = true;
+    if (
+      (hasErrorBeforeSubmit(error) || gateShut || inlineSubmitNotReached || isKilledBeforeSubmit(error)) &&
+      transaction.attemptId !== undefined
+    ) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
@@ -5586,6 +5663,7 @@ const generateGuardianTransaction = async (
       !isApplyAfterSubmitError(error) &&
       !gateShut &&
       !inlineSubmitNotReached &&
+      !isKilledBeforeSubmit(error) &&
       (isKilledPipeline(error) ||
         (submitStageRecorded && !hasErrorBeforeSubmit(error)) ||
         (offscreenDispatched && !hasErrorBeforeSubmit(error)));
@@ -5599,7 +5677,7 @@ const generateGuardianTransaction = async (
         await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
       }
     }
-    if (isPoisonedPipeline(error) && !inlineSubmitNotReached && !gateShut) {
+    if (isPoisonedPipeline(error) && !inlineSubmitNotReached && !gateShut && !isKilledBeforeSubmit(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
       // chain may be about to consume. Let the next cycle's 409 pending-conflict
@@ -5672,6 +5750,7 @@ const generateGuardianTransaction = async (
           hasErrorBeforeSubmit(error) ||
           gateShut ||
           inlineSubmitNotReached ||
+          isKilledBeforeSubmit(error) ||
           (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)
         ) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult, proposalStamps);

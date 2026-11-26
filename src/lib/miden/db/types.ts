@@ -1398,6 +1398,8 @@ export interface ITransaction {
   cancelledInFlightAt?: number;
   /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
   submitEvidence?: ISubmitEvidence[];
+  /** True when the row failed on a confirmed pre-submit pipeline kill (#2325). */
+  preSubmitKill?: true;
   /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */

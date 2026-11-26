@@ -403,6 +403,46 @@ export function hasErrorBeforeSubmit(err: unknown): boolean {
   }
 }
 
+const killedBeforeSubmit = new WeakSet<object>();
+const lockEvictedErrors = new WeakSet<object>();
+const insideSubmitLeafErrors = new WeakSet<object>();
+
+/** Record a confirmed pre-submit pipeline kill (`isKilledPipeline(err)`) without mutating frozen/proxy errors. */
+export function markKilledBeforeSubmit(err: unknown): void {
+  if (typeof err === 'object' && err !== null && isKilledPipeline(err)) {
+    killedBeforeSubmit.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markKilledBeforeSubmit}. */
+export function isKilledBeforeSubmit(err: unknown): boolean {
+  return someInCauseChain(err, link => killedBeforeSubmit.has(link));
+}
+
+/** Record a real lock-eviction or replaced-client `WasmClientPoisonedError`. */
+export function markLockEvictedError(err: unknown): void {
+  if (typeof err === 'object' && err !== null) {
+    lockEvictedErrors.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markLockEvictedError}. */
+export function isLockEvictedError(err: unknown): boolean {
+  return someInCauseChain(err, link => lockEvictedErrors.has(link));
+}
+
+/** Record an error that escaped from inside a submit leaf (`runWriteLeaf` or `runInlineGuardianLeaf`). */
+export function markInsideSubmitLeaf(err: unknown): void {
+  if (typeof err === 'object' && err !== null) {
+    insideSubmitLeafErrors.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markInsideSubmitLeaf}. */
+export function isInsideSubmitLeaf(err: unknown): boolean {
+  return someInCauseChain(err, link => insideSubmitLeafErrors.has(link));
+}
+
 /**
  * A reliable 'submitting' stamp whose crossing write failed (#1081). The stamp is the submit's precondition, so the
  * leaf stopped before its submit. Not a prover failure either: nothing re-proves it, marks the prover down or takes

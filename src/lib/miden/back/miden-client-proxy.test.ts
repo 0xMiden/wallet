@@ -4037,6 +4037,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     async ({ invoke }) => {
       const { midenClientProxy } = await loadProxy(true);
       const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const { isLockEvictedError } = await import('../sdk/sdk-error-code');
       fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
         ok: false,
         op_id: env.op_id,
@@ -4051,6 +4052,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       const err = await p;
 
       expect(isWasmClientPoisonedError(err)).toBe(true);
+      expect(isLockEvictedError(err)).toBe(true);
       expect((err as { reason?: string }).reason).toBe('realm-error');
     }
   );

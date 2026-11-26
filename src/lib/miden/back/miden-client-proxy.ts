@@ -47,7 +47,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
+import { markErrorBeforeSubmit, markLockEvictedError } from 'lib/miden/sdk/sdk-error-code';
 import {
   WasmClientPoisonedError,
   isWasmClientPoisonReason,
@@ -531,7 +531,9 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // so fall back to the mechanism that bounds every wedge rather than
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
-      reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      const error = new WasmClientPoisonedError(reason, new Error(resp.error));
+      markLockEvictedError(error);
+      reject(error);
       return;
     }
     // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit

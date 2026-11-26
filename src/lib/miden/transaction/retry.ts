@@ -383,7 +383,7 @@ const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
  * earlier attempt's entry is still in doubt the row has nothing left for an acknowledgement to rule out (#2060).
  */
 const endedUnsent = (tx: ITransaction): boolean =>
-  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR) &&
+  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR || tx.preSubmitKill === true) &&
   !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
 
 interface RequeuePlan {
@@ -693,6 +693,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       dbTx.queuedSeq = nextQueuedSeq();
       dbTx.processingStartedAt = undefined;
       dbTx.attemptId = undefined;
+      dbTx.preSubmitKill = undefined;
       delete dbTx.failureDiagnostics;
       dbTx.completedAt = undefined;
       dbTx.stage = undefined;

@@ -10,7 +10,10 @@ import {
   isClientTerminatedError,
   isGuardianCanonicalizationError,
   isIndefiniteSubmitOutcomeError,
+  isInsideSubmitLeaf,
+  isKilledBeforeSubmit,
   isKilledPipeline,
+  isLockEvictedError,
   isPipelineKillLink,
   isPoisonedPipeline,
   isRealmIntactAbort,
@@ -18,11 +21,15 @@ import {
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
+  markInsideSubmitLeaf,
+  markKilledBeforeSubmit,
+  markLockEvictedError,
   pipelineKillIn,
   readWasmHandle,
   rethrowTrapOrKill,
   someInCauseChain
 } from './sdk-error-code';
+import { OperationAbortedError } from '../back/offscreen-codec';
 
 /**
  * The verbatim `Display` text miden-client produces for
@@ -930,5 +937,40 @@ describe('the errorBeforeSubmit tag (#1081)', () => {
       }
     );
     expect(hasErrorBeforeSubmit(hostile)).toBe(false);
+  });
+});
+
+describe('pre-submit kill, lock-eviction, and inside-submit-leaf WeakSet tags (#2325)', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('tracks markKilledBeforeSubmit across cause chains only when isKilledPipeline holds', () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('evicted'));
+    markKilledBeforeSubmit(poison);
+    expect(isKilledBeforeSubmit(poison)).toBe(true);
+    expect(isKilledBeforeSubmit(new Error('wrapper', { cause: poison }))).toBe(true);
+
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    markKilledBeforeSubmit(aborted);
+    expect(isKilledBeforeSubmit(aborted)).toBe(true);
+
+    const ordinary = new Error('not a kill');
+    markKilledBeforeSubmit(ordinary);
+    expect(isKilledBeforeSubmit(ordinary)).toBe(false);
+    expect(isKilledBeforeSubmit(null)).toBe(false);
+    expect(isKilledBeforeSubmit('str')).toBe(false);
+  });
+
+  it('tracks markLockEvictedError and markInsideSubmitLeaf across cause chains without mutating objects', () => {
+    const evicted = Object.freeze(new WasmClientPoisonedError('watchdog', new Error('frozen')));
+    markLockEvictedError(evicted);
+    expect(isLockEvictedError(evicted)).toBe(true);
+    expect(isLockEvictedError(new Error('wrapped', { cause: evicted }))).toBe(true);
+    expect(isLockEvictedError(new WasmClientPoisonedError('watchdog', new Error('plain')))).toBe(false);
+
+    const leafErr = Object.freeze(new Error('leaf boom'));
+    markInsideSubmitLeaf(leafErr);
+    expect(isInsideSubmitLeaf(leafErr)).toBe(true);
+    expect(isInsideSubmitLeaf(new Error('outer', { cause: leafErr }))).toBe(true);
+    expect(isInsideSubmitLeaf(new Error('other'))).toBe(false);
   });
 });
