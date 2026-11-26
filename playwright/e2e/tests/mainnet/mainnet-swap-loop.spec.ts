@@ -170,13 +170,15 @@ async function registry(wallet: GuardianAwareWalletPage) {
             })
         );
         try {
-          accepted = cachedSolverRegistry(stored.config, stored.derived, stored.tokenLists);
+          const registry = cachedSolverRegistry(stored.config, stored.derived, stored.tokenLists);
+          if (!registry.tokenListLoaded) return false;
+          accepted = registry;
           return true;
         } catch {
           return false;
         }
       },
-      { timeout: 90_000, intervals: [1_000], message: 'The accepted mainnet solver registry did not hydrate' }
+      { timeout: 90_000, intervals: [1_000], message: 'The mainnet solver registry and token list did not hydrate' }
     )
     .toBe(true);
   if (!accepted) throw new Error('No accepted mainnet solver registry');
@@ -193,7 +195,10 @@ async function registry(wallet: GuardianAwareWalletPage) {
     const asset = priceAssets.get(faucetId.split('_')[0]!) ?? token.binanceAsset;
     const priceId = asset ? PRICE_IDS[asset] : undefined;
     const usdMicros = priceId ? prices.usdMicrosById[priceId] : undefined;
-    if (!usdMicros) continue;
+    if (!usdMicros) {
+      console.log(`Swap token ${token.ticker} skipped: no USD price`);
+      continue;
+    }
     tokens.push({
       faucetId,
       hex: token.faucetId,
@@ -227,7 +232,9 @@ async function prepare(
       const offer = live.tokens.find(token => token.hex === direction[0]);
       const request = live.tokens.find(token => token.hex === direction[1]);
       if (!offer || !request || BigInt(offer.balance) === 0n) continue;
-      for (const amount of swapSearchAmounts(holding(offer))) {
+      const amounts = swapSearchAmounts(holding(offer));
+      if (!amounts.length) console.log(`Swap ${offer.symbol}/${request.symbol} skipped: no search amount fits`);
+      for (const amount of amounts) {
         attempts++;
         try {
           const forward = await readLiveSwapLeg(live.service, offer, request, amount);
@@ -252,8 +259,10 @@ async function prepare(
             swapValue(holding(offer), amount) +
               swapValue(holding(live.native), 6n * SWAP_TX_FEE_MULTIPLE * live.baseFee) >
               allowance
-          )
+          ) {
+            console.log(`Swap candidate ${offer.symbol}/${request.symbol} ${amount} skipped: over the allowance`);
             continue;
+          }
           candidates.push({ plan, offer, request });
           break;
         } catch (error) {
