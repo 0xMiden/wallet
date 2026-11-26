@@ -15,4 +15,4 @@ else
   )
 fi
 
-yarn test --runInBand --reporters=default --reporters="$PWD/scripts/ci/jest-suite-start.cjs" "${selection[@]}" "$@"
+yarn test --reporters=default --reporters="$PWD/scripts/ci/jest-suite-start.cjs" "${selection[@]}" "$@"
