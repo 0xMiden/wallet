@@ -13,8 +13,11 @@
 //
 // Usage:
 //   node scripts/dev/relay-local/probe-chains.mjs [--network testnet] [--calibur 0x<40 hex>[=0x<64 hex>]]...
-//                                                 [--chain <key>]... [--config-url <base URL>]
-// Env: RPC_URL_<chainId> replaces the public RPC of a chain. The script does not print that URL.
+//                                                 [--chain <key>]... [--config-url <base URL>] [--dev-vars <path>]
+// Without --calibur it probes the pin of the `RELAY_CONFIG` that the local Worker runs with (`.dev.vars` when it sets
+// one, else the default in services/evm-relay/wrangler.jsonc) and the prototype Calibur below.
+// RPC_URL_<chainId> in the environment, else in `.dev.vars`, replaces the public RPC of a chain. The script does not
+// print that URL.
 import { parseArgs } from 'node:util';
 import {
   createPublicClient,
@@ -28,9 +31,7 @@ import {
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
-import { CANONICAL_CALIBUR } from './lib.mjs';
-
-const PUBLISHED_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
+import { DEFAULT_DEV_VARS, PUBLISHED_BASE_URL, readDevVars, workerRelayConfig } from './lib.mjs';
 
 // Free public RPCs of the test networks that the published documents name. Mainnet chains are not in this list:
 // pass RPC_URL_<chainId> for them.
@@ -41,16 +42,28 @@ const PUBLIC_RPC = {
   5042002: 'https://rpc.testnet.arc.io'
 };
 
+const { values } = parseArgs({
+  options: {
+    network: { type: 'string', default: 'testnet' },
+    calibur: { type: 'string', multiple: true },
+    chain: { type: 'string', multiple: true },
+    'config-url': { type: 'string', default: PUBLISHED_BASE_URL },
+    'dev-vars': { type: 'string', default: process.env.RELAY_DEV_VARS ?? DEFAULT_DEV_VARS }
+  }
+});
+
 // The two Calibur deployments that the repository names. `0x00000cAb…` is the pin of the Sepolia onramp prototype,
-// with the hash in `src/lib/evm-relay/batch/testing.ts`. `0x000000009B1D…` is the address of the relay unit tests
-// (`src/lib/evm-relay/testing.ts`), which pin no real hash; its expected hash here is the one that lib.mjs pins for
-// the local test.
+// with the hash in `src/lib/evm-relay/batch/testing.ts`. The other is the pin of the local Worker: by default the
+// Uniswap Calibur `0x000000009b1d…` of wrangler.jsonc, the address of the relay unit tests
+// (`src/lib/evm-relay/testing.ts`).
+const devVars = readDevVars(values['dev-vars']);
+const workerPin = workerRelayConfig(devVars).calibur;
 const DEFAULT_CALIBURS = [
   {
     address: '0x00000cabfc76478c1537dd418ab00967cbbe4ae6',
     runtimeHash: '0xd8f2157116f6901840d009511732cb247c1ced614af48351f1c1e5d52deea1eb'
   },
-  { address: CANONICAL_CALIBUR.address, runtimeHash: CANONICAL_CALIBUR.runtimeHash }
+  { address: workerPin.address, runtimeHash: workerPin.runtimeHash }
 ];
 
 const CALIBUR_ABI = parseAbi([
@@ -62,15 +75,6 @@ const CALIBUR_ABI = parseAbi([
   'function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
 ]);
 const RELAY_NONCE_KEY = BigInt(keccak256(stringToHex('miden.relay'))) >> 64n;
-
-const { values } = parseArgs({
-  options: {
-    network: { type: 'string', default: 'testnet' },
-    calibur: { type: 'string', multiple: true },
-    chain: { type: 'string', multiple: true },
-    'config-url': { type: 'string', default: PUBLISHED_BASE_URL }
-  }
-});
 
 function calibursFromArgs() {
   if (!values.calibur) return DEFAULT_CALIBURS;
@@ -196,7 +200,7 @@ for (const [key, chain] of Object.entries(document.supportedEvmChains ?? {})) {
   console.log(`   routes: ${Object.keys(bridges).join(', ') || 'none'}`);
   console.log(`   agglayer tokens: ${tokensOf(bridges.agglayer).join('; ') || 'none'}`);
   console.log(`   epoch tokens: ${tokensOf(bridges.epoch).join('; ') || 'none'}`);
-  const fromEnv = process.env[`RPC_URL_${chainId}`];
+  const fromEnv = process.env[`RPC_URL_${chainId}`] || devVars?.[`RPC_URL_${chainId}`];
   const rpcUrl = fromEnv || PUBLIC_RPC[chainId];
   if (!rpcUrl) {
     console.log(`   no RPC: set RPC_URL_${chainId}`);

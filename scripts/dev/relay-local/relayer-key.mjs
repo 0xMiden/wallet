@@ -4,7 +4,8 @@
 // Usage:
 //   node scripts/dev/relay-local/relayer-key.mjs new [--dev-vars <path>]
 //     Makes a new random key and writes it as RELAYER_PRIVATE_KEY. When the file does not exist, it starts from
-//     services/evm-relay/.dev.vars.example. It refuses to replace a valid key that is already in the file.
+//     services/evm-relay/.dev.vars.example (placeholders for the RPC URL and the extension origin; the Calibur pin is
+//     the default in wrangler.jsonc). It refuses to replace a valid key that is already in the file.
 //   node scripts/dev/relay-local/relayer-key.mjs address [--dev-vars <path>]
 //     Prints the address of RELAYER_PRIVATE_KEY.
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -44,8 +45,12 @@ switch (positionals[0]) {
     const next = pattern.test(text) ? text.replace(pattern, line) : `${text.replace(/\n?$/, '\n')}${line}\n`;
     writeFileSync(path, next, { mode: 0o600 });
     chmodSync(path, 0o600);
+    const written = readDevVars(path);
     console.log(`Wrote a new RELAYER_PRIVATE_KEY to ${path} (mode 0600).`);
-    console.log(`Relayer address (executor): ${relayerAddressOf(readDevVars(path))}`);
+    console.log(`Relayer address (executor): ${relayerAddressOf(written)}`);
+    // The names only: an RPC URL can hold a provider key.
+    const rpcKeys = Object.keys(written).filter(key => key.startsWith('RPC_URL_'));
+    console.log(`Set the URL of ${rpcKeys.join(', ') || 'RPC_URL_<chainId>'} and ALLOWED_ORIGINS in that file.`);
     break;
   }
   default:

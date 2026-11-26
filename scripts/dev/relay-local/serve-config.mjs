@@ -3,11 +3,15 @@
 //
 // The script:
 //   1. fetches `<source>/<network>.json` (default: the published 0xMiden/wallet-config document);
-//   2. sets `features.relayDeposit: true` and writes a `relay` section. The chains, the Calibur pin and the fee values
-//      come from `RELAY_CONFIG` of the Worker's `.dev.vars`, so the wallet and the Worker use the same pin. The
-//      executor is the address of `RELAYER_PRIVATE_KEY` in that file (the key itself is never printed), or `--executor`;
+//   2. sets `features.relayDeposit: true` and writes the `relay` section, which applies to every chain of the
+//      document's `supportedEvmChains`. The Calibur pin and the fee recipient come from the `RELAY_CONFIG` that the
+//      local Worker runs with: the value in `.dev.vars` when the developer sets one, else the default in
+//      `services/evm-relay/wrangler.jsonc`. So the wallet and the Worker use the same pin. The executor is the address
+//      of `RELAYER_PRIVATE_KEY` in `.dev.vars` (the key itself is never printed), or `--executor`;
 //   3. checks the result with the wallet's own parser (`parseBridgeConfig`, bundled by esbuild) and stops on a refusal;
-//   4. serves `/<network>.json` and proxies `/icons/<file>` (the Earn vault logos, which the wallet reads relative to
+//   4. prints the chains that the local Worker serves (each `RPC_URL_<chainId>` of `.dev.vars`), and stops when the
+//      document does not list one of them;
+//   5. serves `/<network>.json` and proxies `/icons/<file>` (the Earn vault logos, which the wallet reads relative to
 //      the document's base URL) to the source.
 // Every other field of the document stays as published.
 //
@@ -16,21 +20,22 @@
 //        [--executor 0x<40 hex>] [--base-url https://...] [--version <n>] [--source <base URL>] [--check]
 // Env fallbacks: RELAY_LOCAL_NETWORK, RELAY_LOCAL_CONFIG_PORT, RELAY_DEV_VARS, RELAY_EXECUTOR, RELAY_DOCUMENT_BASE_URL,
 // RELAY_DOCUMENT_VERSION, RELAY_CONFIG_SOURCE.
-// Without a `.dev.vars` file: --chain <document chain key> (default sepolia) and --calibur 0x<address>=0x<hash>
-// (default: the Uniswap Calibur of lib.mjs), with --executor.
 import { createServer } from 'node:http';
 import { parseArgs } from 'node:util';
 
 import {
-  CANONICAL_CALIBUR,
   DEFAULT_CONFIG_PORT,
   DEFAULT_DEV_VARS,
   PUBLISHED_BASE_URL,
   getJson,
-  loadWalletParser,
+  loadWalletCode,
   portOf,
   readDevVars,
-  relayerAddressOf
+  relayChainOf,
+  relayerAddressOf,
+  servedChainIds,
+  workerGasMode,
+  workerRelayConfig
 } from './lib.mjs';
 
 // The wallet refuses a `relay.baseUrl` that is not `https:`. A loopback Worker reaches the wallet only through the
@@ -52,8 +57,6 @@ const { values } = parseArgs({
     'base-url': { type: 'string' },
     version: { type: 'string' },
     source: { type: 'string' },
-    chain: { type: 'string', multiple: true },
-    calibur: { type: 'string' },
     check: { type: 'boolean', default: false }
   }
 });
@@ -71,52 +74,19 @@ function fail(message) {
   process.exit(1);
 }
 
-/** The Worker's chains as `{ chainId, calibur, feeRecipient?, fees? }`, from `.dev.vars` or from the CLI. */
-function workerChains(devVars, document) {
-  if (devVars?.RELAY_CONFIG !== undefined) {
-    let config;
-    try {
-      config = JSON.parse(devVars.RELAY_CONFIG);
-    } catch {
-      return fail(`RELAY_CONFIG in ${devVarsPath} is not JSON`);
+/**
+ * The fee ceilings of the wallet (`relay.maxFee`): for each token, the highest fee that a `chains` entry of the
+ * Worker's `RELAY_CONFIG` names. In `sponsor` mode the Worker asks for no fee, so the map is empty.
+ */
+function maxFeeOf(chains) {
+  const maxFee = {};
+  for (const entry of Object.values(chains)) {
+    for (const [token, fee] of Object.entries(entry?.fees ?? {})) {
+      const key = token.toLowerCase();
+      if (maxFee[key] === undefined || BigInt(fee) > BigInt(maxFee[key])) maxFee[key] = String(fee);
     }
-    const chains = Object.entries(config?.chains ?? {});
-    if (chains.length === 0) fail(`RELAY_CONFIG in ${devVarsPath} names no chain`);
-    return chains.map(([chainId, chain]) => ({ chainId: Number(chainId), ...chain }));
   }
-  const [address, runtimeHash] = (
-    values.calibur ?? `${CANONICAL_CALIBUR.address}=${CANONICAL_CALIBUR.runtimeHash}`
-  ).split('=');
-  const calibur = { ...CANONICAL_CALIBUR, address, runtimeHash };
-  return (values.chain ?? ['sepolia']).map(key => {
-    const chainId = document.supportedEvmChains?.[key]?.chainId;
-    if (typeof chainId !== 'number') fail(`the document has no chain "${key}"`);
-    return { chainId, calibur };
-  });
-}
-
-/** The `relay` section of the document, keyed by the document's chain keys. */
-function relaySection(document, chains, executor) {
-  const keyOf = new Map(Object.entries(document.supportedEvmChains ?? {}).map(([key, chain]) => [chain.chainId, key]));
-  const entries = chains.map(chain => {
-    const key = keyOf.get(chain.chainId);
-    if (key === undefined) fail(`chain ${chain.chainId} is not in supportedEvmChains of ${network}.json`);
-    const entry = {
-      executor,
-      calibur: {
-        address: chain.calibur.address,
-        runtimeHash: chain.calibur.runtimeHash,
-        domainName: chain.calibur.domainName,
-        domainVersion: chain.calibur.domainVersion
-      },
-      // The fee ceilings of the wallet. In `sponsor` mode the Worker asks for no fee, so the map can stay empty. In
-      // `deduct` mode the configured fee of each token is the ceiling.
-      maxFee: chain.fees ?? {}
-    };
-    if (chain.feeRecipient !== undefined) entry.feeRecipient = chain.feeRecipient;
-    return [key, entry];
-  });
-  return { baseUrl, chains: Object.fromEntries(entries) };
+  return maxFee;
 }
 
 const fetched = await getJson(`${source}/${network}.json`);
@@ -129,36 +99,62 @@ const executor = (values.executor ?? env.RELAY_EXECUTOR ?? relayerAddressOf(devV
 if (!EVM_ADDRESS.test(executor)) {
   fail(`no executor: set RELAYER_PRIVATE_KEY in ${devVarsPath}, or pass --executor 0x<relayer address>`);
 }
-if (devVars !== null && devVars.GAS_MODE !== undefined && devVars.GAS_MODE !== 'sponsor') {
-  console.warn(`serve-config: GAS_MODE is "${devVars.GAS_MODE}"; the deposit flow takes only "sponsor" now.`);
+const gasMode = workerGasMode(devVars);
+const deduct = gasMode === 'deduct';
+if (gasMode !== 'sponsor')
+  console.warn(`serve-config: GAS_MODE is "${gasMode}"; the deposit flow takes only "sponsor".`);
+
+let worker;
+let chainIds;
+try {
+  worker = workerRelayConfig(devVars);
+  chainIds = servedChainIds(devVars);
+} catch (error) {
+  fail(error.message);
 }
 
+const relay = {
+  baseUrl,
+  executor,
+  calibur: worker.calibur,
+  maxFee: deduct ? maxFeeOf(worker.chains) : {},
+  ...(deduct && worker.feeRecipient !== undefined ? { feeRecipient: worker.feeRecipient } : {})
+};
 const document = {
   ...published,
   ...(versionOverride === undefined ? {} : { version: Number(versionOverride) }),
   features: { ...published.features, relayDeposit: true },
-  relay: relaySection(published, workerChains(devVars, published), executor)
+  relay
 };
 const body = JSON.stringify(document, null, 2);
 if (Buffer.byteLength(body) > MAX_DOCUMENT_BYTES) fail(`the document is over ${MAX_DOCUMENT_BYTES} bytes`);
 
 // The wallet's E2E build reads a loopback document with `allowLocalHttp` (src/lib/remote-config/source.ts).
-const parseBridgeConfig = await loadWalletParser();
+const { parseBridgeConfig } = await loadWalletCode();
 const parsed = parseBridgeConfig(JSON.parse(body), network, { allowLocalHttp: true });
 if (parsed === null) fail('the wallet parser refuses the document (parseBridgeConfig gave null)');
 if (parsed.features.relayDeposit !== true || parsed.relay === undefined) fail('the parsed document has no relay');
-const knownChains = new Set(Object.values(parsed.supportedEvmChains).map(chain => chain.chainId));
-for (const chain of parsed.relay.chains) {
-  // selectRelayChain (values.ts) gives null for a chain that this build does not know.
-  if (!knownChains.has(chain.chainId)) fail(`this wallet build does not know relay chain ${chain.chainId}`);
-}
 
 console.log(`Document ${network}.json version ${document.version} from ${source}`);
 console.log(`  features.relayDeposit: true, relay.baseUrl: ${parsed.relay.baseUrl}`);
-for (const chain of parsed.relay.chains) {
+console.log(`  executor ${parsed.relay.executor}`);
+console.log(
+  `  Calibur ${parsed.relay.calibur.address} ${parsed.relay.calibur.runtimeHash} ` +
+    `(${parsed.relay.calibur.domainName} ${parsed.relay.calibur.domainVersion}), from RELAY_CONFIG in ${worker.source}`
+);
+console.log(`  fee recipient ${parsed.relay.feeRecipient ?? 'none'}, maxFee ${JSON.stringify(parsed.relay.maxFee)}`);
+if (chainIds.length === 0) {
+  console.warn(`  no RPC_URL_<chainId> in ${devVarsPath}: the local Worker serves no chain`);
+}
+for (const chainId of chainIds) {
+  const chain = relayChainOf(parsed, chainId);
+  if (chain === null) fail(`the Worker serves chain ${chainId}, but ${network}.json does not list it`);
+  console.log(`  Worker chain ${chain.key} (${chainId}): the wallet reads its relay values`);
+}
+const unserved = Object.entries(parsed.supportedEvmChains).filter(([, chain]) => !chainIds.includes(chain.chainId));
+for (const [key, chain] of unserved) {
   console.log(
-    `  relay chain ${chain.key} (${chain.chainId}): executor ${chain.executor}, Calibur ${chain.calibur.address} ` +
-      `${chain.calibur.runtimeHash}, fee recipient ${chain.feeRecipient ?? 'none'}`
+    `  document chain ${key} (${chain.chainId}): no RPC_URL_${chain.chainId}, the Worker answers unsupported_chain`
   );
 }
 console.log('  the wallet parser accepts the document');

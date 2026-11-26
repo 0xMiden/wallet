@@ -221,9 +221,9 @@ Local state goes to `.wrangler/`, and local secrets go to `.dev.vars`. Git ignor
 
 ### Local end-to-end test
 
-`.dev.vars.example` lists every variable and secret of a local run, with placeholders for the key, the RPC URL and the extension origin. The runbook `scripts/dev/relay-local/README.md` tells how to test the wallet's deposit-address flow by hand against this Worker on Sepolia: it makes the relayer key (`relayer-key.mjs`), serves the testnet wallet-config document with the `relay` section (`serve-config.mjs`), builds the extension and runs a smoke check (`smoke.mjs`).
+A local Worker needs only three values in `.dev.vars`: `RELAYER_PRIVATE_KEY`, one `RPC_URL_<chainId>` for each chain to serve, and `ALLOWED_ORIGINS`. `GAS_MODE` (`sponsor`) and `RELAY_CONFIG` (the Uniswap Calibur pin) come from `wrangler.jsonc`. `.dev.vars.example` has placeholders for these three values, and a commented `RELAY_CONFIG` line that repeats the pin and adds `allowedTargets` for Sepolia; set it only to limit the sponsored gas. Start the Worker with `npx wrangler@4.151.3 dev --ip 127.0.0.1 --port 8788` in this folder.
 
-Wrangler 4.151.3 refuses the `compatibility_date` of `wrangler.jsonc` (`2026-11-20`) in a local run: its runtime supports dates up to `2026-10-26`. Until the date or the Wrangler pin changes, start the local Worker with `npx wrangler@4.151.3 dev --ip 127.0.0.1 --port 8788 --compatibility-date 2026-10-26`.
+The runbook `scripts/dev/relay-local/README.md` tells how to test the wallet's deposit-address flow by hand against this Worker on Sepolia: it makes the relayer key (`relayer-key.mjs`), serves the testnet wallet-config document with the `relay` section (`serve-config.mjs`, which copies the Calibur pin of the Worker's `RELAY_CONFIG`, so the wallet and the Worker use the same pin), builds the extension and runs a smoke check on each chain with an `RPC_URL_<chainId>` (`smoke.mjs`).
 
 ## API contract
 
