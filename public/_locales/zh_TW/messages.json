@@ -8153,6 +8153,14 @@
     "message": "正在接受…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "索賠已排入佇列",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "索取請求已排入佇列。錢包將自動重新嘗試。",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "轉帳",
     "englishSource": "Transfers"

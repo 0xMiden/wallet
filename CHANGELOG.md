@@ -3,6 +3,14 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
+- [FIX][all] Clarify what Bread Command shares when answering a help question.
+- [FIX][all] Show when Claim All is waiting for an automatic retry.
+- [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
+- [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
+- [FIX][all] Give Bread Command clearer guidance for questions about sharing recovery phrases.
+- [FIX][all] Make Bread Command name the public sender account and the wallet’s Public and Private payment choices.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
 - [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.

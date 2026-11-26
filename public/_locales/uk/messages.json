@@ -8155,6 +8155,14 @@
     "message": "Прийняття…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Заявка в черзі",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Запит поставлено в чергу. Гаманець автоматично спробує виконати його знову.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Перекази",
     "englishSource": "Transfers"

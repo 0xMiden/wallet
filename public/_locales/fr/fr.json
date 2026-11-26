@@ -1786,6 +1786,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Accepté",
   "activityAcceptingTransfer": "Acceptation…",
+  "activityClaimQueued": "Demande en attente",
+  "activityClaimQueuedRetry": "Demande en attente. Le portefeuille réessaiera automatiquement.",
   "transfersSection": "Transferts",
   "activityUnread": "Non lu",
   "revealRecoveryPhrase": "Afficher la phrase de récupération",

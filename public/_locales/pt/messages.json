@@ -8159,6 +8159,14 @@
     "message": "A aceitar…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Reivindicação em fila",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Solicitação em fila. A carteira tentará novamente automaticamente.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transferências",
     "englishSource": "Transfers"

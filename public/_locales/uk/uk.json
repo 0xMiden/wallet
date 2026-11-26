@@ -1788,6 +1788,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Прийнято",
   "activityAcceptingTransfer": "Прийняття…",
+  "activityClaimQueued": "Заявка в черзі",
+  "activityClaimQueuedRetry": "Запит поставлено в чергу. Гаманець автоматично спробує виконати його знову.",
   "transfersSection": "Перекази",
   "activityUnread": "Непрочитане",
   "revealRecoveryPhrase": "Розкрити фразу відновлення",

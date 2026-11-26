@@ -347,6 +347,89 @@ describe('ActivityGroupList', () => {
     expect(listed[1]).toHaveAttribute('href', '/activity/group/swap');
   });
 
+  it('titles a dApp group with its origin and finds it by the latest transaction contact', () => {
+    const origin = 'https://dapp.test:8443';
+    renderList([entry({ initiatingDappOrigin: origin, secondaryAddress: 'mtst1alice' })], {
+      nameOf: activityCounterpartyNames([{ address: 'mtst1alice', name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('href', '/activity/group/dapp/https%3A%2F%2Fdapp.test%3A8443');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(origin)).toBeTruthy();
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
+  it('finds a dApp group by the contact on its represented claim', () => {
+    const initiatingDappOrigin = 'https://dapp.test:8443';
+    const senderAddress = 'mtst1xyz';
+    renderList([], {
+      claims: [
+        {
+          note: {
+            id: 'claim',
+            faucetId: 'token-faucet',
+            senderAddress,
+            amount: '1',
+            isBeingClaimed: true,
+            type: 'unknown',
+            receivedAt: 1_000,
+            metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+          },
+          status: 'claiming',
+          txId: 'consume',
+          initiatingDappOrigin
+        }
+      ],
+      nameOf: activityCounterpartyNames([{ address: senderAddress, name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
+  it('labels an untimed-only dApp group with its claim sender contact', () => {
+    const aliceClaim = {
+      note: {
+        id: 'untimed-claim',
+        faucetId: 'token-faucet',
+        senderAddress: 'mtst1xyz',
+        amount: '1',
+        isBeingClaimed: true,
+        type: 'unknown' as const,
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      },
+      status: 'claiming' as const,
+      txId: 'consume',
+      initiatingDappOrigin: 'https://dapp.test:8443'
+    };
+    const bobClaim = {
+      ...aliceClaim,
+      note: { ...aliceClaim.note, id: 'bob-claim', senderAddress: 'mtst1other' },
+      txId: 'bob-consume'
+    };
+    const timedAlice = { ...aliceClaim, note: { ...aliceClaim.note, receivedAt: 1_000 } };
+    const nameOf = activityCounterpartyNames([
+      { address: 'mtst1xyz', name: 'Alice' },
+      { address: 'mtst1other', name: 'Bob' }
+    ]);
+    const props = { entries: [], nameOf, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const { rerender } = render(<ActivityGroupList {...props} claims={[aliceClaim]} />);
+
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('2 hours');
+
+    rerender(<ActivityGroupList {...props} claims={[aliceClaim, bobClaim]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('Bob');
+
+    rerender(<ActivityGroupList {...props} claims={[bobClaim, timedAlice]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice · 2 hours');
+  });
+
   it('names a known counterparty and ellipsises an unknown address', () => {
     renderList(
       [

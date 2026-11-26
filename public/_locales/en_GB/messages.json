@@ -8153,6 +8153,14 @@
     "message": "Accepting…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Claim queued",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Claim queued. The wallet will retry automatically.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transfers",
     "englishSource": "Transfers"

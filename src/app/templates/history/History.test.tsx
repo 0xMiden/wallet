@@ -583,6 +583,39 @@ describe('History', () => {
     ).toBe(true);
   });
 
+  it('projects the local initiating dApp on queued and settled rows only', async () => {
+    const granted = ['https://creator.example', 'https://waiter.example'];
+    const localAttribution = { initiatingDappOrigin: granted[0] };
+    const base = { accountId: '0xme', displayMessage: 'Transfer', displayIcon: 'DEFAULT', type: 'send' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...base, id: 'local', status: STATUS.Completed, completedAt: 400, ...localAttribution },
+      { ...base, id: 'legacy', status: STATUS.Completed, completedAt: 300, dappOrigins: granted },
+      {
+        ...base,
+        id: 'restored',
+        status: STATUS.Completed,
+        completedAt: 200,
+        restoredFromBackup: true,
+        ...localAttribution
+      },
+      { ...base, id: 'recovered', status: STATUS.Completed, completedAt: 100, recovered: true, ...localAttribution }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      { ...base, id: 'queued', status: STATUS.Queued, initiatedAt: 500, dappOrigins: granted, ...localAttribution }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(5));
+
+    const entries = new Map((mockHistoryViewProps.entries as IHistoryEntry[]).map(entry => [entry.key, entry]));
+    expect(entries.get('pending-queued')).toMatchObject({ dappOrigins: granted, ...localAttribution });
+    expect(entries.get('completed-local')).toMatchObject(localAttribution);
+    expect(entries.get('completed-legacy')).toMatchObject({ dappOrigins: granted });
+    for (const key of ['completed-legacy', 'completed-restored', 'completed-recovered']) {
+      expect(entries.get(key)).not.toHaveProperty('initiatingDappOrigin', granted[0]);
+    }
+  });
+
   it('fails closed when Arcade is requested without its origin predicate', async () => {
     await renderHistory({ filter: 'arcade' });
     await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());

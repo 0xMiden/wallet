@@ -1497,6 +1497,32 @@ describe('HistoryView claims in flight', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
 
+  it('uses the saved contact name for a transaction initiated by the dApp', () => {
+    const origin = 'https://dapp.test';
+    const secondaryAddress = 'shortaddr';
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'initiated',
+            secondaryAddress,
+            initiatingDappOrigin: origin,
+            recipientName: 'alice.miden'
+          }),
+          makeEntry({ key: 'grant', secondaryAddress, dappOrigins: [origin] })
+        ]}
+        counterpartyNameOf={address => (address === secondaryAddress ? 'Alice' : undefined)}
+        fullHistory
+      />
+    );
+
+    expect(screen.getAllByTestId('activity-row').map(row => row.getAttribute('data-subtitle'))).toEqual([
+      'to: Alice',
+      'to: shortaddr'
+    ]);
+  });
+
   it('keeps a send in flight reading "to" its recipient', () => {
     const row = renderPending({ txType: 'send' });
     expect(row).toHaveAttribute('data-subtitle', 'to: shortaddr');

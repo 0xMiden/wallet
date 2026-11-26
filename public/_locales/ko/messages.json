@@ -8153,6 +8153,14 @@
     "message": "수락 중…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "청구 대기 중",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "청구 대기 중입니다. 지갑이 자동으로 재시도합니다.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "이체",
     "englishSource": "Transfers"

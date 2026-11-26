@@ -33,6 +33,7 @@ export interface PendingActivityItem {
   note: ClaimableNoteWithMetadata;
   status: PendingActivityStatus;
   txId?: string;
+  initiatingDappOrigin?: string;
   claimedAt?: number;
   /** A claiming item whose row is Unconfirmed or Failed and still holds its notes: it offers its row's Retry, #1081. */
   held?: boolean;
@@ -44,6 +45,7 @@ export interface PendingActivityItem {
   cannotPayFee?: boolean;
   /** Its claim is queued again because the Guardian is still settling the previous change, #1666. */
   guardianBusy?: true;
+  automaticRetryQueued?: true;
   /** A stored proof-submission outcome for this claim. Absent while the submit is still in progress. */
   submission?: SubmissionFeedback;
   /** When the Guardian hold on its finished row clears, while one applies: Retry stays off until then (#2060). */
@@ -56,6 +58,7 @@ interface PendingActivityCardProps {
   onReject?: (note: ClaimableNoteWithMetadata) => void;
   onRetryHeld?: (item: PendingActivityItem) => void;
   initiallyExpanded?: boolean;
+  senderName?: string;
 }
 
 function claimActionState(item: PendingActivityItem) {
@@ -99,7 +102,8 @@ export const PendingActivityCard = ({
   onAccept,
   onReject,
   onRetryHeld,
-  initiallyExpanded = false
+  initiallyExpanded = false,
+  senderName
 }: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
@@ -116,7 +120,7 @@ export const PendingActivityCard = ({
   const detailsId = useId();
   const feeNoticeId = useId();
   const [expanded, setExpanded] = useState(initiallyExpanded);
-  const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
+  const sender = senderName ?? (note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown'));
   const amount = hasKnownScale(note.metadata)
     ? formatAmountDisplay(BigInt(note.amount), {
         decimals: note.metadata.decimals,
@@ -133,6 +137,7 @@ export const PendingActivityCard = ({
   const busy = (status === 'claiming' && !held) || status === 'checking';
   const { holdUntil } = item;
   const heldByGuardian = holdUntil !== undefined;
+  const waitingForRetry = status === 'claiming' && !held && item.automaticRetryQueued === true;
   const waitingOnGuardian = status === 'claiming' && !held && item.guardianBusy === true && submission === undefined;
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
@@ -145,7 +150,7 @@ export const PendingActivityCard = ({
       actionLabel = t('activityCheckingTransfer');
       break;
     case 'claiming':
-      actionLabel = held ? t('retry') : t('activityAcceptingTransfer');
+      actionLabel = held ? t('retry') : waitingForRetry ? t('activityClaimQueued') : t('activityAcceptingTransfer');
       break;
     case 'failed':
       actionLabel = t('retry');
@@ -168,6 +173,7 @@ export const PendingActivityCard = ({
     hint = t('guardianHoldRetryRefused', { time: formatHoldDeadline(holdUntil, { locale: getCurrentLocale() }) });
   } else if (status === 'failed' && submission?.kind !== 'guardianHold') hint = t('noteClaimFailedRetry');
   else if (waitingOnGuardian) hint = t('guardianBusyDescription');
+  else if (waitingForRetry) hint = t('activityClaimQueuedRetry');
   const negative =
     item.retryError !== undefined ||
     (submission !== undefined ? submission.kind === 'rejected' : status === 'failed' && !heldByGuardian);
@@ -337,6 +343,13 @@ export const PendingActivityCard = ({
               </Notice>
             </div>
           )}
+          {waitingForRetry && !expanded && (
+            <div className="px-4 pb-3">
+              <Notice variant="inline" tone="neutral" role="status">
+                {t('activityClaimQueuedRetry')}
+              </Notice>
+            </div>
+          )}
           {submissionText !== undefined && submission !== undefined && (
             <div className="px-4 pb-3">
               <Notice
@@ -398,8 +411,10 @@ export const PendingActivityCard = ({
               size="sm"
               className="h-12 min-w-0 flex-1 rounded-none"
               title={actionLabel}
-              disabled={(!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian}
-              isLoading={status === 'claiming' && !held}
+              disabled={
+                waitingForRetry || (!canAccept && !held && status !== 'claiming') || feeBlocked || heldByGuardian
+              }
+              isLoading={status === 'claiming' && !held && !waitingForRetry}
               aria-busy={busy}
               aria-describedby={feeBlocked ? feeNoticeId : undefined}
               onClick={() => {

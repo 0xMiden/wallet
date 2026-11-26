@@ -5257,7 +5257,7 @@ describe('HistoryDetails', () => {
     });
 
     // The app-root watcher writes `ready` on Circle's attestation; the page reads the row and polls nothing.
-    it('confirms an attested USDCx deposit while its Miden note remains pending', async () => {
+    it('shows Pending for an attested USDCx deposit until its Miden note is received', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
@@ -5270,7 +5270,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('pending');
       expect(rowByLabel('noteId')?.textContent).toContain('pending');
     });
 

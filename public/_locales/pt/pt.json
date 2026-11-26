@@ -1784,6 +1784,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Aceite",
   "activityAcceptingTransfer": "A aceitar…",
+  "activityClaimQueued": "Reivindicação em fila",
+  "activityClaimQueuedRetry": "Solicitação em fila. A carteira tentará novamente automaticamente.",
   "transfersSection": "Transferências",
   "activityUnread": "Não lida",
   "revealRecoveryPhrase": "Revelar a frase de recuperação",

@@ -67,6 +67,8 @@ export interface IHistoryEntry {
   // Optional properties
   /** Recorded request origins; display classification only, not proof of a valid game result. */
   dappOrigins?: string[];
+  /** Approved origin that created the local transaction. */
+  initiatingDappOrigin?: string;
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
   /** Failure reason (`tx.error`); set for failed transactions. */

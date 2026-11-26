@@ -461,7 +461,7 @@ describe('miden repo export/import', () => {
 
   // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted
   // on the dump itself: import drops the field too, so a round trip passes even when the export keeps it.
-  it('leaves dappOrigins out of the dump', async () => {
+  it('leaves local dApp origins out of the dump', async () => {
     await transactions.bulkAdd([
       {
         id: 'dapp-row',
@@ -471,16 +471,18 @@ describe('miden repo export/import', () => {
         initiatedAt: 5,
         completedAt: 6,
         displayIcon: 'SEND',
-        dappOrigins: ['https://dapp.example']
+        dappOrigins: ['https://dapp.example'],
+        initiatingDappOrigin: 'https://dapp.example'
       }
     ]);
 
     const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
     expect(dumped.id).toBe('dapp-row');
     expect(dumped).not.toHaveProperty('dappOrigins');
+    expect(dumped).not.toHaveProperty('initiatingDappOrigin');
   });
 
-  it('drops a dappOrigins the dump supplies', async () => {
+  it('drops dApp origins the dump supplies', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
         {
@@ -491,7 +493,8 @@ describe('miden repo export/import', () => {
           initiatedAt: 1,
           completedAt: 2,
           displayIcon: 'SEND',
-          dappOrigins: ['https://dapp.example']
+          dappOrigins: ['https://dapp.example'],
+          initiatingDappOrigin: 'https://dapp.example'
         }
       ]
     });
@@ -501,6 +504,7 @@ describe('miden repo export/import', () => {
     const [restored] = await transactions.toArray();
     expect(restored!.restoredFromBackup).toBe(true);
     expect(restored).not.toHaveProperty('dappOrigins');
+    expect(restored).not.toHaveProperty('initiatingDappOrigin');
   });
 
   it('keeps local badge provenance out of exports and ignores provenance supplied by a dump', async () => {

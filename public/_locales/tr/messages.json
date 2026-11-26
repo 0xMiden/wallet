@@ -8154,6 +8154,14 @@
     "message": "Kabul ediliyor…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Talep kuyruğunda",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Talep kuyruğa alındı. Cüzdan otomatik olarak yeniden deneyecektir.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transferler",
     "englishSource": "Transfers"

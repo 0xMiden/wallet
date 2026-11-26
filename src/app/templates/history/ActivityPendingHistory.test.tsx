@@ -14,6 +14,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
+import type { ActivityCounterpartyName } from './activityGroups';
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { ActivityFilter } from './History';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -144,9 +145,12 @@ jest.mock('lib/i18n/numbers', () => ({
 // Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
 // USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
 const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 }, ETH: { price: 1, priceChange24h: 0 } };
+const mockContacts: Array<{ address: string; name: string }> = [];
+const mockWalletState = { tokenPrices: mockTokenPrices, settings: { contacts: mockContacts }, accounts: [] };
 jest.mock('lib/store', () => ({
-  useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
+  useWalletStore: (select: (state: typeof mockWalletState) => unknown) => select(mockWalletState)
 }));
+jest.unmock('utils/string');
 const mockHistoryRenders: Array<{
   pendingItems: PendingActivityItem[];
   drawnPendingItems?: PendingActivityItem[];
@@ -154,6 +158,7 @@ const mockHistoryRenders: Array<{
   filter?: string;
   hideLoadingSpinner?: boolean;
   deferInitialLoad?: boolean;
+  counterpartyNameOf?: ActivityCounterpartyName;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -164,7 +169,8 @@ jest.mock('./History', () => ({
     filter,
     onLoadingChange,
     hideLoadingSpinner,
-    deferInitialLoad
+    deferInitialLoad,
+    counterpartyNameOf
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
@@ -173,6 +179,7 @@ jest.mock('./History', () => ({
     filter?: string;
     hideLoadingSpinner?: boolean;
     deferInitialLoad?: boolean;
+    counterpartyNameOf?: ActivityCounterpartyName;
   }) => {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       onLoadingChange(mockState.isLoadingHistory);
@@ -183,7 +190,8 @@ jest.mock('./History', () => ({
       renderPendingItem,
       filter,
       hideLoadingSpinner,
-      deferInitialLoad
+      deferInitialLoad,
+      counterpartyNameOf
     });
     return (
       <div data-testid="timeline">
@@ -222,6 +230,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCannotPayFee.mockReturnValue(false);
   mockPathname = '/history';
+  mockContacts.length = 0;
   mockItems.forEach(item => {
     item.status = 'pending';
   });
@@ -415,6 +424,40 @@ it('does not hide a transfer claimed while the decline dialog was open', async (
   rerender(<ActivityPendingHistory search="" filter="all" />);
   await act(async () => answer(true));
   expect(mockHide).not.toHaveBeenCalled();
+});
+
+it('supplies saved contact names to ordinary Activity history rows', () => {
+  const address = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqaaaa';
+  mockContacts.push({ address, name: 'Saved Alice' });
+
+  render(<ActivityPendingHistory search="Saved Alice" filter="all" />);
+
+  expect(mockHistoryRenders.at(-1)?.counterpartyNameOf?.(address)).toBe('Saved Alice');
+});
+
+it('shows the saved sender name on a verified dApp claim in Pending Activity', () => {
+  const senderAddress = 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqaaaa';
+  mockContacts.push({ address: senderAddress, name: 'Saved Alice' });
+  const [first] = mockItems;
+  if (!first) throw new Error('Missing note fixture');
+  const claim: PendingActivityItem = {
+    ...first,
+    note: { ...first.note, senderAddress, isBeingClaimed: true },
+    status: 'claiming',
+    txId: 'claim-tx',
+    initiatingDappOrigin: 'https://verified.example'
+  };
+  mockState.items = [claim];
+
+  const { rerender } = render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('pending-activity-row-subtitle')).toHaveTextContent('from: Saved Alice');
+
+  rerender(<ActivityPendingHistory search="Saved Alice" filter="pending" />);
+  expect(screen.getByTestId('pending-activity-row-subtitle')).toHaveTextContent('from: Saved Alice');
+
+  mockState.items = [{ ...claim, initiatingDappOrigin: undefined }];
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('pending-activity-row-subtitle')).toHaveTextContent('from: mtst1qqq…aaaa');
 });
 
 it('hands History a claiming note a search hides, so its consume row stays hidden, without drawing its card', () => {

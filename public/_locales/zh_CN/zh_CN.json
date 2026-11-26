@@ -1790,6 +1790,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "已接受",
   "activityAcceptingTransfer": "正在接受…",
+  "activityClaimQueued": "索赔已排队",
+  "activityClaimQueuedRetry": "索赔已排队。钱包将自动重试。",
   "transfersSection": "转账",
   "activityUnread": "未读",
   "revealRecoveryPhrase": "显示恢复短语",
