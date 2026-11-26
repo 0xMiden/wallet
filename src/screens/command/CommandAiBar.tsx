@@ -256,8 +256,7 @@ export function CommandAiBar({
     state: AiBarState;
     plan: typeof plan;
   } | null>(null);
-  const requestError =
-    requestFailure?.state === state && requestFailure.plan === plan ? requestFailure.error : null;
+  const requestError = requestFailure?.state === state && requestFailure.plan === plan ? requestFailure.error : null;
   const errorState = requestError ?? (state.kind === 'error' ? state : null);
   useUserVisibleError(errorState ? 'raw_command_ai_failed' : null, 'inline');
   const [turns, setTurns] = useState<BarTurn[]>([]);

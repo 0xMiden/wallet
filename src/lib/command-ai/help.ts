@@ -24,7 +24,9 @@ export const COMMAND_HELP_TOPICS = {
 } as const satisfies Record<CommandHelpTopic, { source: string; next?: CommandHelpTopic }>;
 
 export function containsCommandSecret(input: string): boolean {
-  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|private key|recovery phrase|seed phrase)\s*[:=]\s*\S/i.test(input)) {
+  if (
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|private key|recovery phrase|seed phrase)\s*[:=]\s*\S/i.test(input)
+  ) {
     return true;
   }
   for (const [, label, value] of input.matchAll(
