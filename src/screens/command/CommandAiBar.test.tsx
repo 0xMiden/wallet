@@ -316,6 +316,34 @@ describe('CommandAiBar', () => {
       expect(containsCommandSecret('password: lost')).toBe(true);
     });
 
+    it.each([
+      ['password', '.'],
+      ['private key', ','],
+      ['recovery phrase', ';'],
+      ['seed phrase', ':']
+    ])('blocks a later %s declaration in the same line', async (label, boundary) => {
+      const placeholder = 'example-placeholder';
+      renderBar();
+      await act(async () => {
+        submit('My seed phrase is stolen' + boundary + ' ' + label + ' is ' + placeholder);
+      });
+      expect(compileCommandPrompt).not.toHaveBeenCalled();
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiHelpSecret');
+      expect(screen.getByTestId('command-ai-input')).toHaveValue('');
+      expect(document.body.textContent).not.toContain(placeholder);
+    });
+
+    it('rejects oversized composer text and preserves it for editing', async () => {
+      const draft = 'help '.repeat(400) + '?';
+      renderBar();
+      await act(async () => {
+        submit(draft);
+      });
+      expect(compileCommandPrompt).not.toHaveBeenCalled();
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiInputTooLong');
+      expect(screen.getByTestId('command-ai-input')).toHaveValue(draft);
+    });
+
     it('characterizes the local secret branches', () => {
       const pem = '-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----';
       expect(containsCommandSecret(pem)).toBe(true);
