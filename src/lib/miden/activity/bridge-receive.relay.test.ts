@@ -69,7 +69,7 @@ const HASH: Hex = `0x${'c1'.repeat(32)}`;
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 function relayRow(
-  provider: 'agglayer' | 'epoch',
+  provider: 'agglayer' | 'epoch' | 'usdcx',
   extra: Record<string, unknown> = {},
   row: Partial<ITransaction> = {}
 ) {
@@ -375,5 +375,85 @@ describe('an Epoch row that holds a relay job', () => {
       error: 'Bridge submission was interrupted before an intent was recorded.',
       failure: { step: 'submission_interrupted', orphanCheck: 'realm_idle' }
     });
+  });
+});
+
+describe('a Circle (USDCx) row that holds a relay job', () => {
+  it('writes the hash of a job that succeeded, with a guard on the job, and keeps the row submitting', async () => {
+    rows.push(relayRow('usdcx', { sourceChainId: SEPOLIA }));
+    checkJob.mockResolvedValue({ state: 'succeeded', hash: HASH });
+
+    await reconcileBridgedReceives();
+
+    expect(buildRelaySubmitter).toHaveBeenCalledWith(SOURCE, SEPOLIA);
+    expect(checkJob).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith(
+      'usdcx-relayed',
+      'submitting',
+      { evmTxHash: HASH },
+      undefined,
+      expect.objectContaining({ canUpdate: expect.any(Function) })
+    );
+    const guard = guardOf(updatePhase.mock.calls[0]);
+    expect(guard(relayRow('usdcx'))).toBe(true);
+    expect(guard(relayRow('usdcx', { evmTxHash: HASH }))).toBe(false);
+  });
+
+  it.each<[string, RelayJobCheck, string]>([
+    ['reverted', { state: 'reverted', hash: HASH }, 'depositFlowRelayReverted'],
+    ['expired', { state: 'expired', hash: HASH }, 'depositFlowRelayExpired'],
+    ['not submitted', { state: 'not-submitted' }, 'depositFlowRelayExpired']
+  ])('fails the row of a %s job in the words of the deposit screen', async (_name, checked, key) => {
+    rows.push(relayRow('usdcx', { sourceChainId: SEPOLIA }));
+    checkJob.mockResolvedValue(checked);
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith(
+      'usdcx-relayed',
+      'failed',
+      expect.objectContaining({
+        error: `text:${key}`,
+        errorId: 'raw_bridge_deposit_failed',
+        failure: expect.objectContaining({ step: 'wallet_deposit', requestClient: 'relay' })
+      }),
+      undefined,
+      expect.objectContaining({ canUpdate: expect.any(Function) })
+    );
+  });
+
+  it.each<[string, RelayJobCheck]>([
+    ['pending', { state: 'pending', hash: HASH }],
+    ['unknown', { state: 'unknown', cause: new Error('down') }]
+  ])('keeps the row of a %s job as it is', async (_name, checked) => {
+    rows.push(relayRow('usdcx', { sourceChainId: SEPOLIA }));
+    checkJob.mockResolvedValue(checked);
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('reads no job for another chain than the row', async () => {
+    rows.push(relayRow('usdcx', { sourceChainId: BASE_SEPOLIA }));
+
+    await reconcileBridgedReceives();
+
+    expect(checkJob).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('still fails an interrupted row with no relay job', async () => {
+    rows.push(relayRow('usdcx', { sourceChainId: SEPOLIA, relayJob: undefined }));
+
+    await reconcileBridgedReceives();
+
+    expect(checkJob).not.toHaveBeenCalled();
+    expect(updatePhase).toHaveBeenCalledWith(
+      'usdcx-relayed',
+      'failed',
+      expect.objectContaining({ failure: expect.objectContaining({ step: 'submission_interrupted' }) })
+    );
   });
 });

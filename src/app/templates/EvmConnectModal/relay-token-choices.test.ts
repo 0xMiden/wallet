@@ -33,6 +33,23 @@ jest.mock('lib/remote-config/values', () => ({
   ]
 }));
 
+// Circle takes deposits on a chain only when a case turns it on: its USDC is the contract of the Epoch USDC on chain 1.
+let mockCircleChains: number[] = [];
+jest.mock('lib/usdcx/constant', () => ({
+  CIRCLE_USDC_SYMBOL: 'USDC',
+  USDCX_SYMBOL: 'USDCx',
+  usdcxSourceChains: () =>
+    new Map([
+      [1, { usdc: '0x00000000000000000000000000000000000000C0' }],
+      [8453, { usdc: '0x00000000000000000000000000000000000000e0' }]
+    ]),
+  isUsdcxRouteEnabled: (chainId: number) => mockCircleChains.includes(chainId)
+}));
+
+beforeEach(() => {
+  mockCircleChains = [];
+});
+
 const SNAPSHOT: BridgeConfigSnapshot = {
   network: 'testnet',
   status: 'ready',
@@ -74,6 +91,31 @@ describe('relayTokenChoices', () => {
     });
     expect(choices[2]?.token).toEqual({ kind: 'erc20', contractAddress: LINK });
     expect(choices[3]?.option.network).toEqual({ id: 'base', name: 'Base' });
+  });
+
+  it('offers Circle USDC first where the Circle route takes deposits, as the row of the Epoch token at its contract', () => {
+    mockCircleChains = [1, 8453];
+    const choices = relayTokenChoices(SNAPSHOT, NETWORKS, 'usdcx-faucet');
+
+    expect(choices.map(choice => choice.option.id)).toEqual([
+      '1:CIRCLE_USDC',
+      '1:ETH',
+      `1:ERC20_${LINK}`,
+      '8453:CIRCLE_USDC',
+      '8453:EPOCH_ETH',
+      '8453:EPOCH_USDC'
+    ]);
+    expect(choices[0]).toEqual({
+      chainId: AGGLAYER_CHAIN,
+      token: 'CIRCLE_USDC',
+      option: {
+        id: '1:CIRCLE_USDC',
+        symbol: 'USDC',
+        receivedSymbol: 'USDCx',
+        logoFaucetId: 'usdcx-faucet',
+        network: { id: 'ethereum', name: 'Ethereum' }
+      }
+    });
   });
 
   it('names a token on a chain by its key', () => {

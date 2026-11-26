@@ -4,6 +4,7 @@
  */
 import {
   type PendingRelayDeposit,
+  parsePendingRelayDeposit,
   parsePendingRelayDeposits,
   pendingRelayDepositsKey
 } from 'lib/evm-relay/pending-deposit';
@@ -11,8 +12,11 @@ import { fetchFromStorage, inStorageTurn, putToStorage } from 'lib/miden/front/s
 
 import type { DepositToken } from './deposit-token';
 
-/** A route that a relay source can take. */
-export type RelayRoute = PendingRelayDeposit['route'];
+/**
+ * A route that a relay source can take: Agglayer, Epoch or Circle xReserve (`usdcx`). The pending record keeps the
+ * route as an id that the relay library does not read; `decodeRoute` checks that a stored id is one of these.
+ */
+export type RelayRoute = 'agglayer' | 'epoch' | 'usdcx';
 
 /** The deposit screen's form for one pending deposit. */
 export interface RelayDepositForm {
@@ -41,6 +45,7 @@ function decodeToken(kind: string | undefined, id: string | undefined): DepositT
   switch (kind) {
     case 'ETH':
     case 'USDC':
+    case 'CIRCLE_USDC':
       return kind;
     case 'epoch':
       return id !== undefined && EPOCH_KEY.test(id) ? { kind: 'epoch', key: id } : null;
@@ -50,7 +55,6 @@ function decodeToken(kind: string | undefined, id: string | undefined): DepositT
       return { kind: 'erc20', contractAddress };
     }
     default:
-      // Circle USDC is never a relay token.
       return null;
   }
 }
@@ -59,10 +63,27 @@ function decodeRoute(route: string | undefined): RelayRoute | null {
   switch (route) {
     case 'agglayer':
     case 'epoch':
+    case 'usdcx':
       return route;
     default:
       return null;
   }
+}
+
+/** The route of a pending deposit, or null when there is no deposit or its route id is not one the screen knows. */
+export function relayRouteOf(deposit: Pick<PendingRelayDeposit, 'route'> | null): RelayRoute | null {
+  return deposit === null ? null : decodeRoute(deposit.route);
+}
+
+/** The fields of a pending deposit that the screen saves, with the route of the screen. */
+export type RelayDepositFields = Omit<PendingRelayDeposit, 'route'> & { route: RelayRoute };
+
+/**
+ * The pending deposit record of `fields`, as the strict parser of the record reads it, or null when the record cannot
+ * hold it (a route that the parser does not take, or a field that does not parse).
+ */
+export function pendingRelayDepositOf(fields: RelayDepositFields): PendingRelayDeposit | null {
+  return parsePendingRelayDeposit(fields, fields.accountPublicKey);
 }
 
 /** The form as the strings that `PendingRelayDeposit.form` keeps. */

@@ -23,7 +23,11 @@ export interface PendingRelayDeposit {
   /** The relay address, in lower case. */
   address: Address;
   chainId: number;
-  route: 'agglayer' | 'epoch';
+  /**
+   * The id of the route that the caller chose, 1 to 32 characters of `a-z`, `0-9` and `-`. This module does not
+   * read it: the relay knows no bridge. The caller checks that it is a route it knows.
+   */
+  route: string;
   /** The token to deposit. The zero address is the native coin. The address is in lower case. */
   token: { address: Address; symbol: string; decimals: number };
   /** The reviewed amount, decimal text as typed. */
@@ -92,14 +96,10 @@ function parseForm(value: unknown): Record<string, string> | null {
   return form;
 }
 
-function parseRoute(value: unknown): PendingRelayDeposit['route'] | null {
-  switch (value) {
-    case 'agglayer':
-    case 'epoch':
-      return value;
-    default:
-      return null;
-  }
+const ROUTE_ID = /^[a-z0-9-]{1,32}$/;
+
+function parseRoute(value: unknown): string | null {
+  return typeof value === 'string' && ROUTE_ID.test(value) ? value : null;
 }
 
 /**

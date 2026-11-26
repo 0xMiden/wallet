@@ -6,6 +6,7 @@ import {
   selectEpochDepositTokens,
   selectNativeEthFaucet
 } from 'lib/remote-config/values';
+import { CIRCLE_USDC_SYMBOL, isUsdcxRouteEnabled, USDCX_SYMBOL, usdcxSourceChains } from 'lib/usdcx/constant';
 import type { DepositTokenOption } from 'screens/deposit-flow/DepositTokenSheet';
 import type { BridgeNetwork } from 'screens/send-flow/bridge-networks';
 
@@ -29,16 +30,21 @@ export function relayTokenChoiceId(chainId: number, token: DepositToken): string
 
 /**
  * The tokens that a relay source can deposit, on each of `networks` (the chains that the relay serves, in order), as
- * the deposit screen offers them: native ETH where the chain has an AggLayer route, each token of the chain's Epoch
- * route, and each ERC-20 that the document lists for the AggLayer route. An Epoch token at the native address is the ETH
- * row there, and an ERC-20 that an Epoch token names is that Epoch row. Circle USDC is not a relay token.
+ * the deposit screen offers them: Circle USDC where the chain's Circle route (`bridges.usdcx`) takes deposits, native
+ * ETH where the chain has an AggLayer route, each token of the chain's Epoch route, and each ERC-20 that the document
+ * lists for the AggLayer route. An Epoch token at Circle USDC's address is the Circle USDC row there, an Epoch token at
+ * the native address is the ETH row, and an ERC-20 that an Epoch token names is that Epoch row. `usdcxFaucetId` is the
+ * Miden faucet that Circle USDC arrives in (USDCx), which keys its logo.
  */
 export function relayTokenChoices(
   snapshot: BridgeConfigSnapshot,
-  networks: readonly BridgeNetwork[]
+  networks: readonly BridgeNetwork[],
+  usdcxFaucetId?: string
 ): RelayTokenChoice[] {
+  const circleSources = usdcxSourceChains(snapshot);
   return networks.flatMap(network => {
     const { chainId } = network;
+    const circleUsdc = isUsdcxRouteEnabled(chainId, 'deposit') ? circleSources.get(chainId)?.usdc : undefined;
     const display = { id: network.id, name: network.name };
     const choice = (
       token: DepositToken,
@@ -54,10 +60,14 @@ export function relayTokenChoices(
     const epochTokens = selectEpochDepositTokens(snapshot, chainId);
     const epochAddresses = new Set(epochTokens.map(token => token.address.toLowerCase()));
     const choices: RelayTokenChoice[] = [];
+    if (circleUsdc !== undefined) {
+      choices.push(choice('CIRCLE_USDC', CIRCLE_USDC_SYMBOL, USDCX_SYMBOL, usdcxFaucetId));
+    }
     if (agglayer) {
       choices.push(choice('ETH', ETH_SYMBOL, ETH_SYMBOL, selectNativeEthFaucet(snapshot, chainId) ?? undefined));
     }
     for (const token of epochTokens) {
+      if (circleUsdc !== undefined && token.address.toLowerCase() === circleUsdc.toLowerCase()) continue;
       if (agglayer && token.address.toLowerCase() === NATIVE_TOKEN_ADDRESS) continue;
       const symbol = token.key === 'USDC' ? evmUsdcLabel(snapshot, token.symbol) : token.symbol;
       choices.push(choice({ kind: 'epoch', key: token.key }, symbol, token.midenSymbol, token.midenFaucetId));

@@ -169,16 +169,16 @@ function holdsRelayJob(job: RelayJobRef): (current: ITransaction) => boolean {
 }
 
 /**
- * agglayer: the row's relay job, read once for this pass. `succeeded`: the screen's own write after a mined deposit,
- * the hash on the row; the next pass follows it on the hash path. `reverted`, `expired`, `not-submitted`: the row
- * fails. `pending`, `unknown`: the row stays as it is, and the delivery window ends it.
+ * agglayer and usdcx: the row's relay job on `rowChainId`, read once for this pass. `succeeded`: the screen's own
+ * write after a mined deposit, the hash on the row; the next pass follows it on the hash path. `reverted`, `expired`,
+ * `not-submitted`: the row fails. `pending`, `unknown`: the row stays as it is, and the delivery window ends it.
  */
-async function reconcileAgglayerRelayJob(
+async function reconcileDepositRelayJob(
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
-  job: RelayJobRef
+  job: RelayJobRef,
+  rowChainId: number | undefined
 ): Promise<void> {
-  const rowChainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
   const checked = await checkRowRelayJob(row, inputs, job, rowChainId);
   if (checked === undefined) return;
   const canUpdate = holdsRelayJob(job);
@@ -250,7 +250,8 @@ async function reconcileAgglayerRow(
     // A relay job that the deposit screen stored can still execute after its page closed. Do not fail such a row as
     // interrupted: read the job.
     if (inputs.relayJob !== undefined) {
-      await reconcileAgglayerRelayJob(row, inputs, inputs.relayJob);
+      const rowChainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+      await reconcileDepositRelayJob(row, inputs, inputs.relayJob, rowChainId);
       return;
     }
     await updateBridgedReceivePhase(row.id, 'failed', {
@@ -433,8 +434,18 @@ async function reconcileUsdcxRow(
   inputs: IBridgedReceiveExtraInputs,
   orphanCheck: BridgeOrphanCheck
 ): Promise<void> {
-  // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
+  // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on, unless the deposit
+  // screen stored a relay job, which can still execute after its page closed.
   if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
+    if (inputs.relayJob !== undefined) {
+      await reconcileDepositRelayJob(
+        row,
+        inputs,
+        inputs.relayJob,
+        inputs.usdcxSource?.chain.id ?? inputs.sourceChainId
+      );
+      return;
+    }
     await updateBridgedReceivePhase(row.id, 'failed', {
       error: INTERRUPTED_BEFORE_HASH,
       failure: { step: 'submission_interrupted', orphanCheck, sourceRoute: recordedSourceRoute(inputs) }

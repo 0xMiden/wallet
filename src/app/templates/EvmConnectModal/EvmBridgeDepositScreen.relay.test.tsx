@@ -331,6 +331,9 @@ jest.mock('lib/evm-relay/use-relay-account', () => ({
 let mockPending: PendingRelayDeposit[] = [];
 let mockNextId = 0;
 jest.mock('lib/evm-relay/pending-deposit', () => ({
+  parsePendingRelayDeposit: jest.requireActual<typeof import('lib/evm-relay/pending-deposit')>(
+    'lib/evm-relay/pending-deposit'
+  ).parsePendingRelayDeposit,
   createPendingRelayDepositId: () => {
     mockNextId += 1;
     return `pending-${mockNextId}`;
