@@ -395,7 +395,7 @@ export function CommandAiBar({
         if (output.op === 'explain') {
           if (state.kind === 'error') setState({ kind: 'idle' });
           setHelpAnswer(output);
-          setInput('');
+          if (!helpOnly) setInput(current => (current.trim() === raw ? '' : current));
           return;
         }
         if (helpOnly) throw new CommandAiClientError('invalid_response', 'The service did not return an explanation');
