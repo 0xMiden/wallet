@@ -10852,6 +10852,45 @@
     "message": "Para yatırma işleminizi görüyoruz. Takip etmek için dokunun.",
     "englishSource": "We see your deposit. Tap to follow it."
   },
+  "depositFlowAddressExpiresIn": {
+    "message": "Adresin geçerlilik süresi",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "Adresin geçerlilik süresi $countdown$ içinde dolacak. Bread'den ayrılabilirsiniz. Sizi bilgilendireceğiz.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "$expected$'dan daha az tutar geldi",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "Geri kalanını bu adrese gönderin.",
+    "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Yeni bir para yatırma işlemi başlatarak yeni bir para yatırma adresi alın.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents bu para yatırma işlemini tamamlayamadı ve tutarı $address$ adresine iade etti.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowRelayReverted": {
     "message": "Para yatırma işlemi zincir üzerinde başarısız oldu, bu nedenle hiçbir şey köprülenmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10918,10 +10957,6 @@
       }
     }
   },
-  "depositFlowConnectWalletInstead": {
-    "message": "Bunun yerine bir cüzdan bağlayın",
-    "englishSource": "Connect a wallet instead"
-  },
   "depositFlowRouteAgglayer": {
     "message": "Agglayer",
     "englishSource": "Agglayer"
@@ -10933,6 +10968,34 @@
   "depositFlowRouteCircle": {
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearRoute": {
+    "message": "NEAR Niyetleri",
+    "englishSource": "NEAR Intents"
+  },
+  "depositFlowNearArrives": {
+    "message": "2 ila 3 dakika",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Ücrete dahil olanlar",
+    "englishSource": "Included in fee"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "Para yatırma işlemi mevcut değildir",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "Diğer ağlardan yapılan para yatırma işlemleri bu ağda henüz desteklenmemektedir.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "Bu hesabın para yatırma adresi bulunmadığından, henüz diğer ağlardan para yatırımı alamaz.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "Bu ağdan bu token'ın yatırılması henüz desteklenmemektedir.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
   },
   "depositFlowArrivesAgglayer": {
     "message": "Yaklaşık 30 dakika",

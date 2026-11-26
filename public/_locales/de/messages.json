@@ -10860,6 +10860,45 @@
     "message": "Wir sehen Ihre Einzahlung. Tippen Sie darauf, um sie zu verfolgen.",
     "englishSource": "We see your deposit. Tap to follow it."
   },
+  "depositFlowAddressExpiresIn": {
+    "message": "Die Adresse läuft in",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "Die Adresse läuft in $countdown$ ab. Sie können Bread verlassen. Wir werden Sie benachrichtigen.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "Es sind weniger als $expected$ eingegangen",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "Senden Sie den Rest an diese Adresse.",
+    "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Starten Sie eine neue Einzahlung, um eine neue Einzahlungsadresse zu erhalten.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents konnte diese Einzahlung nicht abschließen und hat den Betrag an $address$ zurückerstattet.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowRelayReverted": {
     "message": "Die Einzahlungstransaktion ist in der Blockchain fehlgeschlagen, daher wurde nichts über die Bridge übertragen. Ihr Guthaben befindet sich weiterhin auf Ihrer Einzahlungsadresse.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10926,10 +10965,6 @@
       }
     }
   },
-  "depositFlowConnectWalletInstead": {
-    "message": "Stattdessen eine Wallet verbinden",
-    "englishSource": "Connect a wallet instead"
-  },
   "depositFlowRouteAgglayer": {
     "message": "Agglayer",
     "englishSource": "Agglayer"
@@ -10941,6 +10976,34 @@
   "depositFlowRouteCircle": {
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearRoute": {
+    "message": "NEAR-Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "depositFlowNearArrives": {
+    "message": "2 bis 3 Minuten",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "In der Gebühr enthalten",
+    "englishSource": "Included in fee"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "Einzahlung ist nicht verfügbar",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "Einzahlungen aus anderen Netzwerken sind in diesem Netzwerk noch nicht möglich.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "Dieses Konto verfügt über keine Einzahlungsadresse, daher kann es noch keine Einzahlungen aus anderen Netzwerken empfangen.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "Einzahlungen dieses Tokens aus diesem Netzwerk werden noch nicht unterstützt.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
   },
   "depositFlowArrivesAgglayer": {
     "message": "Etwa 30 Minuten",

@@ -10852,6 +10852,45 @@
     "message": "Ми бачимо ваш депозит. Натисніть, щоб стежити за ним.",
     "englishSource": "We see your deposit. Tap to follow it."
   },
+  "depositFlowAddressExpiresIn": {
+    "message": "Адреса втрачає чинність через",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "Термін дії адреси закінчується через $countdown$. Ви можете залишити Bread. Ми повідомимо вас.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "Надходження менше, ніж $expected$",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "Решту надішліть на цю адресу.",
+    "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Створіть новий депозит, щоб отримати нову адресу депозиту.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents не змогла виконати цей депозит і повернула кошти на адресу $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowRelayReverted": {
     "message": "Транзакція депозиту в ланцюгу не відбулася, тому нічого не було переведено. Ваші кошти все ще знаходяться на вашій депозитній адресі.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10918,10 +10957,6 @@
       }
     }
   },
-  "depositFlowConnectWalletInstead": {
-    "message": "Підключіть гаманець замість цього",
-    "englishSource": "Connect a wallet instead"
-  },
   "depositFlowRouteAgglayer": {
     "message": "Agglayer",
     "englishSource": "Agglayer"
@@ -10933,6 +10968,34 @@
   "depositFlowRouteCircle": {
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "depositFlowNearArrives": {
+    "message": "2–3 хвилини",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Включено у комісію",
+    "englishSource": "Included in fee"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "Депозит недоступний",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "Депозити з інших мереж у цій мережі поки що недоступні.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "Цей рахунок не має адреси для депозитів, тому поки що не може приймати депозити з інших мереж.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "Внесення цього токена з цієї мережі поки що не підтримується.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
   },
   "depositFlowArrivesAgglayer": {
     "message": "Приблизно 30 хвилин",
