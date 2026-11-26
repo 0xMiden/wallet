@@ -38,6 +38,17 @@ beforeEach(() => {
   mockEnv.confirmWindow = false;
   mockExtension = true;
   mockConfig = null;
+  localStorage.removeItem('show_fullscreen_button_setting');
+});
+
+it.each([
+  ['popup', true, false],
+  ['side panel', false, true]
+] as const)('hides the fullscreen button by default in the %s', (_surface, popup, sidePanel) => {
+  mockEnv.popup = popup;
+  mockEnv.sidePanel = sidePanel;
+  render(<CommandLauncher />);
+  expect(screen.queryByRole('button', { name: 'commandOpenFullscreen' })).toBeNull();
 });
 
 it.each([

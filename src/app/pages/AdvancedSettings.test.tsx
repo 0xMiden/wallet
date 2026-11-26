@@ -10,7 +10,10 @@ import { navigate } from 'lib/woozie';
 import AdvancedSettings from './AdvancedSettings';
 
 // The nominal-price switch persists in localStorage, which jsdom keeps across tests.
-afterEach(() => setNominalUnquotedPriceSetting(false));
+afterEach(() => {
+  setNominalUnquotedPriceSetting(false);
+  localStorage.removeItem('show_fullscreen_button_setting');
+});
 
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
 // (labels rendered via `t(...)`) is assertable by key.
@@ -108,6 +111,20 @@ describe('AdvancedSettings (page)', () => {
   });
 
   // The indicator is aria-hidden, so the row itself has to carry the state.
+  it('persists the fullscreen button preference from Advanced Settings', async () => {
+    await renderWithResolvedKey();
+    const row = screen.getByRole('button', { name: 'devShowFullscreenButton' });
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('show_fullscreen_button_setting')).toBe('on');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+    expect(localStorage.getItem('show_fullscreen_button_setting')).toBe('off');
+  });
+
   it('reports the nominal unquoted price state on the row', async () => {
     await renderWithResolvedKey();
     const row = screen.getByTestId('advanced-nominal-unquoted-price');
