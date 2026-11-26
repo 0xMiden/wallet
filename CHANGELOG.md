@@ -1,8 +1,11 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
+
 ## 1.18.2 (TBD)
 
-- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes.
 - [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
 - [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
 - [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
