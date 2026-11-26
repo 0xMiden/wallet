@@ -47,7 +47,12 @@ import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
-import { activityCategoryOf, isPendingActivityEntry } from './activityGroups';
+import {
+  activityCategoryOf,
+  type ActivityCounterpartyName,
+  activityDappCounterpartyName,
+  isPendingActivityEntry
+} from './activityGroups';
 import { guardianHistoryIcon, historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -103,6 +108,7 @@ type HistoryProps = {
   predicate?: (entry: IHistoryEntry) => boolean;
   /** Narrows a complete batch after the predicate, including when it is empty. */
   filterEntries?: (entries: readonly IHistoryEntry[]) => IHistoryEntry[];
+  counterpartyNameOf?: ActivityCounterpartyName;
   /**
    * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
    * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
@@ -127,7 +133,12 @@ export interface HistoryEntriesView {
 }
 
 /** Whether an activity row answers a search; `query` is already lowercased. */
-export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string, t: (key: string) => string): boolean {
+export function historyEntryMatchesSearch(
+  entry: IHistoryEntry,
+  query: string,
+  t: (key: string) => string,
+  counterpartyNameOf?: ActivityCounterpartyName
+): boolean {
   return Boolean(
     historyEntryActionTitle(entry, t).toLowerCase().includes(query) ||
     entry.token?.toLowerCase().includes(query) ||
@@ -137,7 +148,8 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string, t
     // for one has to find it, or typing a symbol the user can see hides
     // the very row showing it.
     entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-    entry.secondaryAddress?.toLowerCase().includes(query)
+    entry.secondaryAddress?.toLowerCase().includes(query) ||
+    activityDappCounterpartyName(entry, counterpartyNameOf)?.toLowerCase().includes(query)
   );
 }
 
@@ -263,6 +275,7 @@ const History = memo<HistoryProps>(
     onInitialLoad,
     predicate,
     filterEntries,
+    counterpartyNameOf,
     renderEntries,
     pendingItems,
     drawnPendingItems,
@@ -662,7 +675,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(e => historyEntryMatchesSearch(e, query, t));
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query, t, counterpartyNameOf));
     }
     if (filter && filter !== 'all') {
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
@@ -703,6 +716,7 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
+        counterpartyNameOf={counterpartyNameOf}
         initialLoading={externalLoading || initialLoading}
         hideLoadingSpinner={hideLoadingSpinner}
         loadError={loadError}
@@ -1023,6 +1037,7 @@ async function fetchTransactionsAsHistoryEntries(
       address: address,
       key: `completed-${tx.id}`,
       dappOrigins: tx.dappOrigins,
+      initiatingDappOrigin: tx.restoredFromBackup || tx.recovered ? undefined : tx.initiatingDappOrigin,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       hotKeyAdded: tx.type === 'replace-hot-key' && tx.extraInputs?.mode === 'add',
@@ -1222,6 +1237,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     return {
       key: `pending-${tx.id}`,
       dappOrigins: tx.dappOrigins,
+      initiatingDappOrigin: tx.restoredFromBackup || tx.recovered ? undefined : tx.initiatingDappOrigin,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,

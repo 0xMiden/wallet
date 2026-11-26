@@ -7,10 +7,11 @@ import { Avatar } from 'components/ui/Avatar';
 import { ActivityGroupKind } from './activityGroups';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
-type CategoryKind = Exclude<ActivityGroupKind, 'address'>;
+type GlyphKind = Exclude<ActivityGroupKind, 'address'>;
 
 /** The glyph of each category group. An `address` group wears its counterparty's avatar instead. */
-export const KIND_ICONS: Record<CategoryKind, IconName> = {
+export const KIND_ICONS: Record<GlyphKind, IconName> = {
+  dapp: IconName.Globe,
   swap: IconName.Convert,
   faucet: IconName.Faucet,
   guardian: IconName.Key,
@@ -37,7 +38,8 @@ const GLYPH_SIZES: Record<ContactAvatarSize, string> = {
   xl: '[&>svg]:h-8 [&>svg]:w-8'
 };
 
-const KIND_COLORS: Record<CategoryKind, string> = {
+const KIND_COLORS: Record<GlyphKind, string> = {
+  dapp: 'var(--tx-other)',
   swap: 'var(--tx-swap)',
   faucet: 'var(--tx-faucet)',
   guardian: TRANSACTION_COLORS.bridge,

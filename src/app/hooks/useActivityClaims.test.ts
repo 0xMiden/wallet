@@ -42,7 +42,14 @@ type MockRow = {
   nextEligibleAt?: number;
   stageTimestamps?: ITransaction['stageTimestamps'];
   stage?: 'submitting';
-  type?: 'consume';
+  type?: 'consume' | 'execute';
+  accountId?: string;
+  noteId?: string;
+  noteIds?: string[];
+  initiatingDappOrigin?: string;
+  dappOrigins?: string[];
+  restoredFromBackup?: boolean;
+  recovered?: boolean;
   error?: string;
   rawError?: string;
   mayHaveSubmitted?: boolean;
@@ -232,7 +239,10 @@ jest.mock('lib/remote-config/values', () => ({
       .TEST_NATIVE_ETH_FAUCET
   ]
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: (ref: string) => ({ toString: () => ref }),
+  sameWalletAccountId: jest.requireActual('lib/miden/sdk/helpers').sameWalletAccountId
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => mockEndpoint.rpc,
   getEffectiveNetworkName: () => mockEndpoint.network
@@ -367,6 +377,102 @@ it('withholds Receive review acceptance when the native fee is unavailable', () 
     mockBaseFee = null;
     mockBalances.data = [];
   }
+});
+
+it('keeps the initiating dApp on a represented claim from its exact local consume row', () => {
+  const txId = 'tx-dapp-claim';
+  const initiatingDappOrigin = 'https://dapp.example:8443';
+  mockClaim.account = { publicKey: 'mtst1qabc_wallet' };
+  mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: txId }];
+  const { result } = renderHook(() => useActivityClaims());
+  const row = {
+    id: txId,
+    status: 4,
+    held: true,
+    type: 'consume' as const,
+    accountId: 'mtst1qabc',
+    noteId: note.id,
+    initiatingDappOrigin
+  };
+
+  settle([{ ...row, accountId: 'mtst1qdef' }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, id: 'tx-other' }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, noteId: 'a-different-note' }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, noteIds: [note.id, 'a-different-note'] }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, type: 'execute' }]);
+  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+
+  settle([{ ...row, initiatingDappOrigin: undefined, dappOrigins: [initiatingDappOrigin] }]);
+  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+
+  settle([{ ...row, initiatingDappOrigin: '' }]);
+  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+
+  settle([row]);
+  expect(result.current.items[0]).toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, restoredFromBackup: true }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+
+  settle([{ ...row, recovered: true }]);
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
+});
+
+it('clears the verified origin when the watched claims disappear', () => {
+  const txId = 'tx-dapp-claim';
+  const origin = 'https://dapp.example:8443';
+  const claimedNote = { ...note, isBeingClaimed: true, claimingTxId: txId };
+  mockClaim.safeClaimableNotes = [claimedNote];
+  const { result, rerender } = renderHook(() => useActivityClaims());
+
+  settle([
+    { id: txId, status: 4, type: 'consume', accountId: 'account', noteId: note.id, initiatingDappOrigin: origin }
+  ]);
+  expect(result.current.items[0].initiatingDappOrigin).toBe(origin);
+
+  mockClaim.safeClaimableNotes = [];
+  rerender();
+  expect(result.current.items).toEqual([]);
+
+  mockClaim.safeClaimableNotes = [claimedNote];
+  rerender();
+  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+});
+
+it('does not reuse a verified claim origin across RPC endpoints', () => {
+  const txId = 'tx-dapp-claim';
+  const origin = 'https://dapp.example:8443';
+  mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: txId }];
+  const { result, rerender } = renderHook(() => useActivityClaims());
+
+  settle([
+    { id: txId, status: 4, type: 'consume', accountId: 'account', noteId: note.id, initiatingDappOrigin: origin }
+  ]);
+  expect(result.current.items[0]).toHaveProperty('initiatingDappOrigin', origin);
+
+  mockEndpoint.rpc = 'rpc-other';
+  rerender();
+  expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', origin);
+
+  settle([
+    {
+      id: txId,
+      status: 4,
+      type: 'consume',
+      accountId: 'account',
+      noteId: note.id,
+      initiatingDappOrigin: 'https://other-dapp.example'
+    }
+  ]);
+  expect(result.current.items[0]).toHaveProperty('initiatingDappOrigin', 'https://other-dapp.example');
 });
 
 it('resumes a held Receive note using the original transaction id rather than queuing a second claim', async () => {

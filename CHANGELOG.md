@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, and keeps every claim note represented in token history.
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
 - [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
 - [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Show when Claim All is waiting for an automatic retry.

@@ -169,7 +169,10 @@ export const requestCustomTransaction = async (
   );
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
-  if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
+  if (dappOrigin !== undefined) {
+    transaction.dappOrigins = [dappOrigin];
+    transaction.initiatingDappOrigin = dappOrigin;
+  }
   if (approvedNftOutflow !== undefined) transaction.approvedNftOutflow = approvedNftOutflow;
   if (approvedOutflow !== undefined) transaction.approvedOutflow = approvedOutflow;
   // A measured empty list is not a spend, so it keeps the plain insert. A list that moves value
@@ -961,7 +964,10 @@ const queueConsumeRows = async (
         badgeNetwork: badgeNetwork()
       });
       if (rotationFunding) row.rotationFunding = true;
-      if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      if (dappOrigin !== undefined) {
+        row.dappOrigins = [dappOrigin];
+        row.initiatingDappOrigin = dappOrigin;
+      }
       if (entryPoint !== undefined) row.consumeEntryPoint = entryPoint;
       initializeRow?.(row);
       return row;
@@ -1132,7 +1138,10 @@ export const initiateSendTransaction = async (
   );
   if (recipientName !== undefined) dbTransaction.recipientName = recipientName;
   if (calendarRecallTarget !== undefined) dbTransaction.extraInputs.calendarRecallTarget = calendarRecallTarget;
-  if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
+  if (dappOrigin !== undefined) {
+    dbTransaction.dappOrigins = [dappOrigin];
+    dbTransaction.initiatingDappOrigin = dappOrigin;
+  }
   await queueOutgoingTransaction(
     { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
