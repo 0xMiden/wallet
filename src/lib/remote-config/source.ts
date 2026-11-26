@@ -5,7 +5,9 @@ import { type BridgeConfig, parseBridgeConfig } from './schema';
 
 /** The highest document version each network has accepted, as `{ [network]: number }`. A wallet reset keeps it. */
 export const BRIDGE_CONFIG_FLOOR_KEY = 'bridge_config_floor_v1';
-const PUBLISHED_BASE_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
+// TEMPORARY, remove before merge: this branch reads the documents of the wallet-config pull request that turns on the
+// deposit relay for testnet. The published source is 'https://raw.githubusercontent.com/0xMiden/wallet-config/main'.
+const PUBLISHED_BASE_URL = 'https://raw.githubusercontent.com/0xnullifier/wallet-config/feat/relay-section';
 
 export interface StoredBridgeConfig {
   config: BridgeConfig;

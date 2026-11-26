@@ -10,7 +10,9 @@ import {
 const NOW = 1_800_000_000_000;
 const KEY = 'bridge_config_v1:testnet';
 const FLOOR = 'bridge_config_floor_v1';
-const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+// TEMPORARY, remove before merge: the source is the wallet-config pull request branch (see `source.ts`).
+const PUBLISHED_BASE = 'https://raw.githubusercontent.com/0xnullifier/wallet-config/feat/relay-section';
+const PUBLISHED = `${PUBLISHED_BASE}/testnet.json`;
 const SERVED_BASE = 'http://127.0.0.1:8550/config';
 
 const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
@@ -112,7 +114,7 @@ afterAll(() => {
 describe('bridgeConfigUrl', () => {
   it('reads the published repo, one file per network', () => {
     expect(bridgeConfigUrl('testnet')).toBe(PUBLISHED);
-    expect(bridgeConfigUrl('devnet')).toBe('https://raw.githubusercontent.com/0xMiden/wallet-config/main/devnet.json');
+    expect(bridgeConfigUrl('devnet')).toBe(`${PUBLISHED_BASE}/devnet.json`);
   });
 
   it('reads the served document in an E2E build given MIDEN_REMOTE_CONFIG_URL', () => {
