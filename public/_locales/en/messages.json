@@ -3669,10 +3669,6 @@
     "message": "Miden network",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Change network",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Provider",
     "englishSource": "Provider"
@@ -3696,6 +3692,19 @@
   "commandBridgeTo": {
     "message": "To",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "via $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "No tokens found",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Asset, network and provider",
