@@ -224,12 +224,13 @@ export function isOwnRow(row: ClaimRow): boolean {
   return !row.restoredFromBackup && !row.recovered;
 }
 
-/** The status of a row that can still change on its own. */
+/** The status of a row that can still change on its own. A code this mirror does not name is not known to be settled. */
 export function isLiveStatus(status: ClaimRowStatus): boolean {
   switch (status) {
     case 'Queued':
     case 'GeneratingTransaction':
     case 'Unconfirmed':
+    case 'Unknown':
       return true;
     default:
       return false;

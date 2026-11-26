@@ -87,6 +87,7 @@ describe('multi-device claims helpers', () => {
       expect(isLiveStatus('Unconfirmed')).toBe(true);
       expect(isLiveStatus('Completed')).toBe(false);
       expect(isLiveStatus('Failed')).toBe(false);
+      expect(isLiveStatus('Unknown')).toBe(true);
     });
 
     it('keeps only the consume rows of this device that name the note', () => {
