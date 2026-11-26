@@ -1,3 +1,7 @@
+import helpFacts from './help-facts.json';
+
+export const COMMAND_AI_MAX_TEXT_CHARS = 2_000;
+
 export type CommandAiAction = 'send' | 'swap' | 'bridge' | 'earn' | 'receive';
 
 export type AmountExpr =
@@ -36,11 +40,14 @@ export interface PatchIntentSlots {
 export type LedgerQueryType = 'balance' | 'tx_sum' | 'tx_list';
 export type LedgerDirection = 'in' | 'out' | 'all';
 export type LedgerTimeWindow = 'today' | 'last_7d' | 'this_month' | 'prev_month' | 'all_time';
+export type CommandHelpTopic = keyof typeof helpFacts.topics;
+export const commandHelpTopicIds = Object.keys(helpFacts.topics) as CommandHelpTopic[];
 
 export type AiCompilerOutput =
   | ({ op: 'set_intent' } & IntentSlots)
   | { op: 'set_plan'; steps: IntentSlots[] }
   | { op: 'patch_slots'; patch: PatchIntentSlots }
+  | { op: 'explain'; topic: CommandHelpTopic; answer: string }
   | {
       op: 'query_ledger';
       query: LedgerQueryType;
@@ -421,6 +428,18 @@ export function parseAiCompilerOutput(raw: unknown): AiCompilerOutput | null {
     }
     case 'cancel':
       return { op: 'cancel' };
+    case 'explain': {
+      if (
+        Object.keys(candidate).length !== 3 ||
+        !isOneOf(candidate.topic, commandHelpTopicIds) ||
+        typeof candidate.answer !== 'string'
+      ) {
+        return null;
+      }
+      const answer = candidate.answer.trim();
+      if (!answer || answer.length > 850 || /[<>]|https?:\/\/|www\.|\]\(/i.test(answer)) return null;
+      return { op: 'explain', topic: candidate.topic, answer };
+    }
     case 'unsupported': {
       if (
         typeof candidate.reason !== 'string' ||
