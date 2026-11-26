@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { generateMnemonic } from '@miden/hd-key';
 import { CommandAiClientError, compileCommandPrompt } from 'lib/command-ai/client';
+import { containsCommandSecret } from 'lib/command-ai/help';
 import { executeLocalLedgerQuery } from 'lib/command-ai/local-query';
 import type { AiCompilerOutput } from 'lib/command-ai/schema';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
@@ -251,6 +252,91 @@ describe('CommandAiBar', () => {
       }
     );
 
+    it('blocks a private-key pair split by a line break', async () => {
+      const first = 'ab'.repeat(32);
+      const second = '01'.repeat(32);
+      jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Recovery',
+        answer: 'General recovery information.'
+      });
+      renderBar();
+      fireEvent.click(screen.getByTestId('command-ai-morph-toggle'));
+      const input = screen.getByTestId('command-ai-input');
+      expect(input.tagName).toBe('TEXTAREA');
+      await act(async () => {
+        fireEvent.change(input, { target: { value: 'I copied ' + first + '\n:\n' + second } });
+        expect(input).toHaveValue('I copied ' + first + '\n:\n' + second);
+        fireEvent.submit(input.closest('form')!);
+      });
+      expect(jest.mocked(compileCommandPrompt).mock.calls.length).toBe(0);
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiHelpSecret');
+      expect(input).toHaveValue('');
+      expect(document.body.textContent).not.toContain(first);
+      expect(document.body.textContent).not.toContain(second);
+      expect(containsCommandSecret('I copied 0x' + first + '\r\n:\r\n0x' + second)).toBe(true);
+    });
+
+    it('sends an exact-length hex token as a placeholder', async () => {
+      jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Notes',
+        answer: 'A note can carry a payment.'
+      });
+      renderBar();
+      submit('What is note ' + 'ab'.repeat(32) + '?');
+      expect(jest.mocked(compileCommandPrompt)).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(compileCommandPrompt)).toHaveBeenCalledWith({
+        redactedText: 'What is note <ADDR_1>?',
+        helpContext: null,
+        signal: expect.any(AbortSignal)
+      });
+      expect(await screen.findByTestId('command-ai-help-answer')).toHaveTextContent('commandAiHelpNotesTitle');
+    });
+
+    it('screens a labelled secret after a lead-in', async () => {
+      const sample = 'example-placeholder';
+      jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Safety',
+        answer: 'Keep wallet credentials private.'
+      });
+      renderBar();
+      await act(async () => {
+        submit('Hello, my password is ' + sample);
+      });
+      expect(jest.mocked(compileCommandPrompt).mock.calls.length).toBe(0);
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiHelpSecret');
+      expect(screen.getByTestId('command-ai-input')).toHaveValue('');
+      expect(document.body.textContent).not.toContain(sample);
+    });
+
+    it('keeps full labelled values blocked even if they begin with a troubleshooting word', () => {
+      expect(containsCommandSecret('My password is lost example-placeholder')).toBe(true);
+      expect(containsCommandSecret('password: lost')).toBe(true);
+    });
+
+    it.each([
+      ['password', 'My password is not working'],
+      ['private-key', 'My private key is lost'],
+      ['recovery-phrase', 'My recovery phrase is not working'],
+      ['conditional password', 'What happens if my password is wrong?'],
+      ['conditional recovery-phrase', 'What if my seed phrase is stolen?'],
+      ['conditional private-key', 'What should I do if my private key is compromised?']
+    ])('keeps %s troubleshooting eligible for help', async (_label, prompt) => {
+      jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
+        op: 'explain',
+        topic: 'Recovery',
+        answer: 'Check your recovery options without sharing credentials.'
+      });
+      renderBar();
+      await act(async () => {
+        submit(prompt);
+      });
+      expect(jest.mocked(compileCommandPrompt)).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('command-ai-help-answer')).toHaveTextContent('commandAiHelpRecoveryTitle');
+    });
+
     it('keeps ordinary recovery questions eligible for help', async () => {
       jest.mocked(compileCommandPrompt).mockResolvedValueOnce({
         op: 'explain',
@@ -387,6 +473,50 @@ describe('CommandAiBar', () => {
       expect(await screen.findByTestId('command-ai-error')).toHaveTextContent('commandAiServiceUnavailable');
 
       fireEvent.click(screen.getByTestId('command-ai-plan-' + button));
+      expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
+    });
+
+    it('keeps the active plan visible when a ledger query fails', async () => {
+      const { op: _op, ...bridge } = bridgeIntent;
+      const query: AiCompilerOutput = {
+        op: 'query_ledger',
+        query: 'balance',
+        asset: null,
+        counterparty_ref: null,
+        direction: 'all',
+        window: 'all_time'
+      };
+      jest
+        .mocked(compileCommandPrompt)
+        .mockResolvedValueOnce({ op: 'set_plan', steps: [bridge, { ...bridge, amount: { kind: 'previous_output' } }] })
+        .mockResolvedValueOnce(query)
+        .mockResolvedValueOnce(query);
+      jest
+        .mocked(executeLocalLedgerQuery)
+        .mockRejectedValueOnce(new Error('synthetic ledger failure'))
+        .mockResolvedValueOnce({
+          query: 'balance',
+          titleKey: 'commandAiQueryBalanceTitle',
+          summaryText: '25 MIDEN',
+          empty: false,
+          rows: []
+        });
+
+      renderBar();
+      submit('bridge 500 usdc to miden twice');
+      await screen.findByTestId('command-ai-plan-card');
+      await act(async () => {
+        submit('What is my balance?');
+      });
+
+      expect(executeLocalLedgerQuery).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('command-ai-error')).toHaveTextContent('commandAiServiceUnavailable');
+      expect(screen.getByTestId('command-ai-plan-step-0')).toBeInTheDocument();
+      expect(useUserVisibleError).toHaveBeenLastCalledWith('raw_command_ai_failed', 'inline');
+
+      submit('What is my balance?');
+      expect(await screen.findByTestId('command-ai-query-result')).toHaveTextContent('25 MIDEN');
+      expect(screen.queryByTestId('command-ai-plan-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('command-ai-error')).not.toBeInTheDocument();
     });
 
