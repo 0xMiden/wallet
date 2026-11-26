@@ -620,6 +620,91 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
 
+  it('drains in-flight submitGate work in finally on normal completion and awaits tracked external handlers (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    let releaseHandler!: () => void;
+    const parkedHandler = new Promise<void>(resolve => {
+      releaseHandler = resolve;
+    });
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[3] as Gate & { track?: (run: Promise<unknown>) => void };
+      gate.track?.(parkedHandler);
+      pendingGate = gate(evidence);
+      await enteredStamp;
+      return makeResult();
+    });
+
+    try {
+      let runSettled = false;
+      const run = runSend('tx-gate-finally-drain').then(
+        () => {
+          runSettled = true;
+        },
+        () => {
+          runSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(runSettled).toBe(false);
+
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(runSettled).toBe(false);
+
+      releaseHandler();
+      await run;
+      expect(await pendingGate).toBe(false);
+      const finallyRow = txStore.find(r => r.id === 'tx-gate-finally-drain')!;
+      expect(finallyRow.mayHaveSubmitted).toBeUndefined();
+      expect(finallyRow.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      releaseHandler?.();
+    }
+  });
+
   it('settles synchronously before recordLeafEnd and retires late crossings on pre-open offscreen failure (#2325)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const { hasErrorBeforeSubmit, markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
@@ -710,9 +795,21 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     });
 
     try {
-      await runSend('tx-gate-late-stamp').catch(() => undefined);
+      let runSettled = false;
+      const run = runSend('tx-gate-late-stamp').then(
+        () => {
+          runSettled = true;
+        },
+        () => {
+          runSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(runSettled).toBe(false);
       jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
       releaseStamp();
+      await run;
       expect(await pendingGate).toBe(false);
 
       const rowLate = txStore.find(r => r.id === 'tx-gate-late-stamp')!;

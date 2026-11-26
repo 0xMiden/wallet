@@ -452,6 +452,7 @@ export type SubmitGate = ((evidence?: SubmitEvidenceFields) => Promise<boolean>)
   retract?: () => Promise<boolean>;
   settle?: () => void;
   failClosed?: () => Promise<void>;
+  track?: (task: Promise<unknown>) => void;
 };
 
 /** op_id → that write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
@@ -944,14 +945,18 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
     run = () => gate(msg.evidence);
     verb = 'record';
   }
-  try {
-    if (!(await run())) return { ok: false, error: `op ${op_id} has already settled` };
-  } catch (err) {
-    return { ok: false, error: `op ${op_id} could not ${verb} its submit: ${String(err)}` };
-  }
-  if (inFlight.has(op_id)) return { ok: true };
-  if (verb === 'record') await gate.failClosed?.();
-  return { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
+  const task = (async (): Promise<OffscreenSubmitGateResponse> => {
+    try {
+      if (!(await run())) return { ok: false, error: `op ${op_id} has already settled` };
+    } catch (err) {
+      return { ok: false, error: `op ${op_id} could not ${verb} its submit: ${String(err)}` };
+    }
+    if (inFlight.has(op_id)) return { ok: true };
+    if (verb === 'record') await gate.failClosed?.();
+    return { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
+  })();
+  gate.track?.(task);
+  return task;
 }
 
 /**

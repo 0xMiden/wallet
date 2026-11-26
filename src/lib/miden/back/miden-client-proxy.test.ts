@@ -4685,12 +4685,22 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     );
   });
 
-  it('settles submitGate synchronously on takeInFlight and calls failClosed if op leaves inFlight mid-record (#2325)', async () => {
+  it('settles submitGate synchronously on takeInFlight, tracks task, and calls failClosed if op leaves inFlight mid-record (#2325)', async () => {
     const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
     let opId = '';
     let resolveRecord!: (ok: boolean) => void;
+    let releaseFailClosed!: () => void;
     const settle = jest.fn();
-    const failClosed = jest.fn(async () => {});
+    const tracked: Promise<unknown>[] = [];
+    const track = jest.fn((task: Promise<unknown>) => {
+      tracked.push(task);
+    });
+    const failClosed = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          releaseFailClosed = resolve;
+        })
+    );
     const submitGate = Object.assign(
       jest.fn(
         () =>
@@ -4698,7 +4708,7 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
             resolveRecord = resolve;
           })
       ),
-      { settle, failClosed }
+      { settle, failClosed, track }
     );
     let finishOp!: (r: unknown) => void;
     fakeChrome.runtime.sendMessage.mockImplementation(
@@ -4727,6 +4737,11 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
       op_id: opId,
       evidence: { refBlock: 4 }
     });
+    expect(track).toHaveBeenCalledTimes(1);
+    let trackedSettled = false;
+    void tracked[0]!.then(() => {
+      trackedSettled = true;
+    });
     await flush();
 
     expect(settle).not.toHaveBeenCalled();
@@ -4735,10 +4750,15 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     expect(settle).toHaveBeenCalledTimes(1);
 
     resolveRecord(true);
+    await flush();
+    expect(failClosed).toHaveBeenCalledTimes(1);
+    expect(trackedSettled).toBe(false);
+    releaseFailClosed();
     expect(await recordPending).toEqual(
       expect.objectContaining({ ok: false, error: expect.stringContaining('ended while recording its submit') })
     );
-    expect(failClosed).toHaveBeenCalledTimes(1);
+    await tracked[0];
+    expect(trackedSettled).toBe(true);
   });
 
   it('refuses action retract when the op gate has no retract handler (#2325)', async () => {

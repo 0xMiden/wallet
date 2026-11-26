@@ -3880,15 +3880,27 @@ describe('guardian offscreen submit gate (#1644)', () => {
     });
 
     try {
-      await generateTransaction(
+      let settled = false;
+      const run = generateTransaction(
         buildTx('pinless-late-stamp', sendRow) as never,
         signCallback,
         false,
         provider as never
+      ).then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
       );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
       expect(txStore.find(r => r.id === 'pinless-late-stamp')?.submitEvidence).toBeUndefined();
       repo.transactions.where.mockImplementation(realWhereImpl);
       releaseStamp();
+      await run;
       expect(await gateAnswer).toBe(false);
 
       const finalRow = txStore.find(r => r.id === 'pinless-late-stamp')!;

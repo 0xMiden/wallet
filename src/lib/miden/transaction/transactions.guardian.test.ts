@@ -12495,7 +12495,8 @@ describe('generateTransaction - Guardian routing', () => {
         await enteredStamp;
         throw markErrorBeforeSubmit(new Error('aborted direct switch while stamp pending'));
       });
-      await generateTransaction(
+      let lateSettled = false;
+      const lateRun = generateTransaction(
         {
           id: 'switch-guardian-direct-late',
           type: 'switch-guardian',
@@ -12506,9 +12507,20 @@ describe('generateTransaction - Guardian routing', () => {
         jest.fn(async () => new Uint8Array([1])),
         false,
         provider as never
-      ).catch(() => undefined);
+      ).then(
+        () => {
+          lateSettled = true;
+        },
+        () => {
+          lateSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(lateSettled).toBe(false);
       repo.transactions.where.mockImplementation(realWhereImpl);
       releaseStamp?.();
+      await lateRun;
       expect(await pendingLateGate).toBe(false);
       const lateRow = txStore.find(r => r.id === 'switch-guardian-direct-late')!;
       expect(lateRow.mayHaveSubmitted).toBeUndefined();

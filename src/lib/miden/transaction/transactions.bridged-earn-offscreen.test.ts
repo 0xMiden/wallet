@@ -587,9 +587,21 @@ describe('reviewed compact Epoch source on the existing single-key pipeline', ()
     });
 
     try {
-      await generateTransaction(txLate, signCallback, false, compactProvider).catch(() => undefined);
+      let lateSettled = false;
+      const lateRun = generateTransaction(txLate, signCallback, false, compactProvider).then(
+        () => {
+          lateSettled = true;
+        },
+        () => {
+          lateSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(lateSettled).toBe(false);
       repo.transactions.where.mockImplementation(realWhereImpl);
       releaseStamp();
+      await lateRun;
       expect(await pendingGate).toBe(false);
 
       const rowLate = txStore.find(r => r.id === 'owned-late-stamp')!;

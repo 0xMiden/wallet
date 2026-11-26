@@ -448,4 +448,22 @@ describe('retractSubmitCrossing (#2325)', () => {
       expect((await Repo.transactions.where({ id }).first())?.mayHaveSubmitted).toBeUndefined();
     }
   });
+
+  it('ignores stale delayed recordSubmitCrossing and pinGuardianCrossing once tx.attemptId cleared or rotated (#2325)', async () => {
+    for (const [id, nextAttemptId, fn] of [
+      ['tx-stale-stage-cleared', undefined, () => recordSubmitCrossing('tx-stale-stage-cleared', undefined, attempt)],
+      ['tx-stale-stage-rotated', 'a2', () => recordSubmitCrossing('tx-stale-stage-rotated', undefined, attempt)],
+      ['tx-stale-pin-cleared', undefined, () => pinGuardianCrossing('tx-stale-pin-cleared', attempt)],
+      ['tx-stale-pin-rotated', 'a2', () => pinGuardianCrossing('tx-stale-pin-rotated', attempt)]
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      await Repo.transactions.put(generating({ id, attemptId: nextAttemptId, mayHaveSubmitted: undefined }));
+      // eslint-disable-next-line no-await-in-loop
+      await fn();
+      // eslint-disable-next-line no-await-in-loop
+      const row = await Repo.transactions.where({ id }).first();
+      expect(row?.mayHaveSubmitted).toBeUndefined();
+      expect(row?.submitEvidence).toBeUndefined();
+    }
+  });
 });

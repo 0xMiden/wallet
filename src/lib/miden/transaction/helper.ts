@@ -928,6 +928,7 @@ const recordCrossing = async (
 ): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.attemptId !== attempt.attemptId) return false;
     const raised = tx.mayHaveSubmitted !== true;
     const baseEvidence = raised
       ? tx.submitEvidence?.map(({ raisedFlag: _staleFlag, ...entry }) => entry)
@@ -945,6 +946,7 @@ const recordCrossing = async (
       },
       nowSec
     );
+    return undefined;
   });
 };
 

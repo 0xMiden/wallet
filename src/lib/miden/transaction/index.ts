@@ -716,6 +716,15 @@ const offscreenSubmitGate = (
   let settled = false;
   let retractGeneration = 0;
   let pending: Promise<void> = Promise.resolve();
+  const activeHandlers = new Set<Promise<unknown>>();
+  const track = (run: Promise<unknown>): void => {
+    activeHandlers.add(run);
+    void run
+      .finally(() => {
+        activeHandlers.delete(run);
+      })
+      .catch(() => undefined);
+  };
   const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = pending.then(fn, fn);
     pending = run.then(
@@ -723,6 +732,19 @@ const offscreenSubmitGate = (
       () => undefined
     );
     return run;
+  };
+  const drain = async (): Promise<void> => {
+    while (true) {
+      const currentPending = pending;
+      const handlers = [...activeHandlers];
+      await currentPending;
+      if (handlers.length > 0) {
+        await Promise.allSettled(handlers);
+      }
+      if (pending === currentPending && activeHandlers.size === 0) {
+        break;
+      }
+    }
   };
   const retireBestEffort = async (): Promise<void> => {
     try {
@@ -775,7 +797,8 @@ const offscreenSubmitGate = (
         settled = true;
         opened = false;
         await enqueue(retireBestEffort);
-      }
+      },
+      track
     }
   );
   return {
@@ -783,7 +806,8 @@ const offscreenSubmitGate = (
     opened: () => opened,
     settle: () => {
       settled = true;
-    }
+    },
+    drain
   };
 };
 
@@ -3453,6 +3477,7 @@ const runGatedWriteLeaf = async <T>({
       throw error;
     } finally {
       submitGate.settle();
+      await submitGate.drain();
     }
   });
 
