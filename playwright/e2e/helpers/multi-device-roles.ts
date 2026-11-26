@@ -364,7 +364,8 @@ function guardianSyncStatusOf(value: unknown): GuardedAccount['guardianSyncStatu
     case 'needs-user-input':
       return value;
     default:
-      return undefined;
+      // The product blocks on any set status but 'in-sync', so a value this mirror does not name stays blocked.
+      return typeof value === 'string' && value !== '' ? 'resolving' : undefined;
   }
 }
 

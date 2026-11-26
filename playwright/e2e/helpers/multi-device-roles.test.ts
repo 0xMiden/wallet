@@ -107,13 +107,17 @@ describe('toGuardedAccount', () => {
     expect(isGuardianSyncBlocked(guarded)).toBe(false);
   });
 
-  it('drops a malformed verdict and an unknown sync status', () => {
-    const guarded = toGuardedAccount({
-      hotPublicKey: '0xhot',
-      hotKeyRotatedOut: { hotPublicKey: '0xhot' },
-      guardianSyncStatus: 'unknown'
-    });
+  it('drops a malformed verdict', () => {
+    const guarded = toGuardedAccount({ hotPublicKey: '0xhot', hotKeyRotatedOut: { hotPublicKey: '0xhot' } });
     expect(guarded).toEqual({ guardianSyncStatus: undefined, hotPublicKey: '0xhot', hotKeyRotatedOut: undefined });
+  });
+
+  it('keeps a sync status that it does not name blocked, as the product predicate does', () => {
+    const blocked = (guardianSyncStatus: unknown): boolean =>
+      isGuardianSyncBlocked(toGuardedAccount({ hotPublicKey: '0xhot', guardianSyncStatus }));
+    expect(blocked('unknown')).toBe(true);
+    expect(blocked('in-sync')).toBe(false);
+    expect(blocked(undefined)).toBe(false);
   });
 
   it('blocks a known non-in-sync status', () => {
