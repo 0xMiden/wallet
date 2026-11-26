@@ -1,6 +1,6 @@
 import { getMessage } from 'lib/i18n/core';
-import { hasTransactionIndex } from 'lib/miden/db/index-query';
-import { isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { cacheScope } from 'lib/miden-chain/native-asset';
@@ -11,18 +11,15 @@ export async function assertSwapQueueAvailable(accountId: string, scope: string)
   // Refuse unresolved outgoing work rather than guess its fees or the value of a custom request.
   // Claims can also charge vault fees, so they block admission too. Execution checks after queueing:
   // a later send, another device or a chain change cannot be reserved by this local queue.
-  const pending = hasTransactionIndex('status', Repo.transactions)
-    ? await Repo.transactions
-        .where('status')
-        .anyOf([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction, ITransactionStatus.Unconfirmed])
-        .filter(row => sameWalletAccountId(row.accountId, accountId))
-        .toArray()
-    : await Repo.transactions
-        .filter(
-          row =>
-            sameWalletAccountId(row.accountId, accountId) &&
-            (isLiveTransaction(row) || row.status === ITransactionStatus.Unconfirmed)
-        )
-        .toArray();
-  if (pending.length > 0) throw new Error(getMessage('swapPendingSpend'));
+  const [pending] = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusIndexSpecs([
+      ITransactionStatus.Queued,
+      ITransactionStatus.GeneratingTransaction,
+      ITransactionStatus.Unconfirmed
+    ]),
+    row => sameWalletAccountId(row.accountId, accountId),
+    { limit: 1 }
+  );
+  if (pending !== undefined) throw new Error(getMessage('swapPendingSpend'));
 }

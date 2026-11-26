@@ -7,7 +7,7 @@ import {
 import { assertCompactEpochScope, assertEpochReviewedOutput } from 'lib/epoch/bridge';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
 import { getMessage } from 'lib/i18n/core';
-import { hasTransactionIndex, readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import type { HotKeyActivationMode, IOneClickTrackingData } from 'lib/miden/db/types';
 import { ClaimFeeNote, claimFeeDecisions, isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
@@ -1508,24 +1508,15 @@ export const initiateSwitchGuardianTransaction = async (
   // which is why `compareAccountIds` exists. A scan of the transaction table is
   // what `getAllUncompletedTransactions` already does per queue lap.
   return Repo.db.transaction('rw', Repo.transactions, async () => {
-    const inFlightRows = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? await Repo.transactions
-          .where('[status+type]')
-          .anyOf([
-            [ITransactionStatus.Queued, 'switch-guardian'],
-            [ITransactionStatus.GeneratingTransaction, 'switch-guardian']
-          ])
-          .filter(row => !row.restoredFromBackup)
-          .toArray()
-      : await Repo.transactions
-          .filter(
-            row =>
-              row.type === 'switch-guardian' &&
-              !row.restoredFromBackup &&
-              (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction)
-          )
-          .toArray();
-    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, storedAccountId));
+    const [inFlight] = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'switch-guardian'],
+        [ITransactionStatus.GeneratingTransaction, 'switch-guardian']
+      ]),
+      row => !row.restoredFromBackup && compareAccountIds(row.accountId, storedAccountId),
+      { limit: 1 }
+    );
     if (inFlight) {
       // Returning the live id is right only for a genuine duplicate - the same
       // rotation, asked for twice. When the in-flight row targets a DIFFERENT
@@ -1752,16 +1743,15 @@ async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
       row.extraInputs?.revokedSignerCommitment === transaction.extraInputs?.revokedSignerCommitment &&
       row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
       row.extraInputs?.threshold === transaction.extraInputs?.threshold;
-    const existing = hasTransactionIndex('[status+type]', Repo.transactions)
-      ? await Repo.transactions
-          .where('[status+type]')
-          .anyOf([
-            [ITransactionStatus.Queued, transaction.type],
-            [ITransactionStatus.GeneratingTransaction, transaction.type]
-          ])
-          .filter(matchExisting)
-          .first()
-      : await Repo.transactions.filter(matchExisting).first();
+    const [existing] = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, transaction.type],
+        [ITransactionStatus.GeneratingTransaction, transaction.type]
+      ]),
+      matchExisting,
+      { limit: 1 }
+    );
     if (existing) {
       // One live rotation per account, run in the mode it was queued with: a Replace cuts every other
       // device off and an Add keeps them, so returning one for the other would let the recovery seed
