@@ -1,5 +1,5 @@
 import type { AssetAmount, ViewNote } from 'app/confirm/decode';
-import type { ITransaction, IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
+import type { IRegisterNameExtraInputs, ITransaction, IUsdcxNetworkFeeBudget } from 'lib/miden/db/types';
 import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getSdkSyncedNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -8,15 +8,22 @@ import { currentUsdcxFeeScope } from './fee-scope';
 
 export type SponsorshipNote = Pick<ViewNote, 'id' | 'amounts' | 'opaque'> & { nfts: readonly unknown[] };
 
-export interface UsdcxSponsorshipApproval {
+export interface SponsorshipApproval {
   accountId: string;
-  faucetId: string;
+  targetAccountId: string;
   noteId: string;
-  budget: IUsdcxNetworkFeeBudget;
+  feeFaucetId: string;
+  maxAmount: bigint;
+  capKernelFee: boolean;
+  missingNoteMessage: string;
+  ambiguousMessage: string;
 }
 
+const isValidFeeAmountString = (amount: unknown): amount is string =>
+  typeof amount === 'string' && /^(0|[1-9]\d{0,18})$/.test(amount);
+
 /** Missing old-row consent is not replaced by a new estimate at signing time. No WASM is used here. */
-export function usdcxSponsorshipApprovalOf(transaction: ITransaction): UsdcxSponsorshipApproval | undefined {
+function usdcxApprovalOf(transaction: ITransaction): SponsorshipApproval | undefined {
   if (transaction.type !== 'bridged-send' || transaction.extraInputs?.provider !== 'usdcx') return undefined;
   const ids = transaction.approvedOutputNoteIds;
   if (ids?.length !== 1) return undefined;
@@ -30,7 +37,54 @@ export function usdcxSponsorshipApprovalOf(transaction: ITransaction): UsdcxSpon
     throw new Error('The USDCx burn has no matching approved note');
   const budget = burn.networkFeeBudget;
   if (!isCurrentUsdcxFeeBudget(budget)) throw new Error('The USDCx burn has no current reviewed native fee budget');
-  return { accountId: transaction.accountId, faucetId: transaction.faucetId, noteId: burn.noteId, budget };
+  return {
+    accountId: transaction.accountId,
+    targetAccountId: transaction.faucetId,
+    noteId: burn.noteId,
+    feeFaucetId: budget.faucetId,
+    maxAmount: BigInt(budget.maxAmount),
+    capKernelFee: true,
+    missingNoteMessage: 'The approved USDCx burn is missing from the fee-bearing transaction',
+    ambiguousMessage: 'The USDCx sponsorship is ambiguous'
+  };
+}
+
+/** Sponsorship approval for a `register-name` row: one companion targeted at the registry, capped at `networkFeeBaseUnits`. */
+function registerNameApprovalOf(transaction: ITransaction): SponsorshipApproval | undefined {
+  if (transaction.type !== 'register-name') return undefined;
+  const ids = transaction.approvedOutputNoteIds;
+  if (ids?.length !== 1) return undefined;
+  const inputs: Partial<IRegisterNameExtraInputs> | undefined = transaction.extraInputs;
+  if (
+    typeof inputs?.registrationNoteId !== 'string' ||
+    inputs.registrationNoteId.toLowerCase() !== ids[0]?.toLowerCase() ||
+    typeof transaction.secondaryAccountId !== 'string' ||
+    transaction.secondaryAccountId.length === 0
+  ) {
+    throw new Error('The registration has no matching approved note');
+  }
+  if (!isValidFeeAmountString(inputs.networkFeeBaseUnits)) {
+    throw new Error('The registration has no reviewed native fee budget');
+  }
+  const feeFaucetId = getNativeAssetIdSync();
+  if (!feeFaucetId) {
+    throw new Error('The registration has no current native fee faucet');
+  }
+  return {
+    accountId: transaction.accountId,
+    targetAccountId: transaction.secondaryAccountId,
+    noteId: inputs.registrationNoteId,
+    feeFaucetId,
+    maxAmount: BigInt(inputs.networkFeeBaseUnits),
+    capKernelFee: false,
+    missingNoteMessage: 'The approved registration note is missing from the fee-bearing transaction',
+    ambiguousMessage: 'The registration sponsorship is ambiguous'
+  };
+}
+
+/** Reviewed sponsorship approval for `transaction`, or undefined when its type carries no canonical sponsorship companion. */
+export function sponsorshipApprovalOf(transaction: ITransaction): SponsorshipApproval | undefined {
+  return usdcxApprovalOf(transaction) ?? registerNameApprovalOf(transaction);
 }
 
 export function isCurrentUsdcxFeeBudget(budget: IUsdcxNetworkFeeBudget | undefined): budget is IUsdcxNetworkFeeBudget {
@@ -38,8 +92,7 @@ export function isCurrentUsdcxFeeBudget(budget: IUsdcxNetworkFeeBudget | undefin
     !!budget &&
     typeof budget.faucetId === 'string' &&
     budget.faucetId.length > 0 &&
-    typeof budget.maxAmount === 'string' &&
-    /^(0|[1-9]\d{0,18})$/.test(budget.maxAmount) &&
+    isValidFeeAmountString(budget.maxAmount) &&
     budget.scope === currentUsdcxFeeScope() &&
     budget.faucetId === getNativeAssetIdSync() &&
     budget.faucetId === getSdkSyncedNativeAssetIdSync()
@@ -47,41 +100,44 @@ export function isCurrentUsdcxFeeBudget(budget: IUsdcxNetworkFeeBudget | undefin
 }
 
 /** Runs inside the existing decode hold; only one fully bound, budgeted companion is a fee. */
-export function partitionApprovedUsdcxSponsorship<T extends SponsorshipNote>(
+export function partitionApprovedSponsorship<T extends SponsorshipNote>(
   createdNotes: T[],
   fee: AssetAmount | undefined,
-  approval: UsdcxSponsorshipApproval | undefined
+  approval: SponsorshipApproval | undefined
 ): { createdNotes: T[]; fee: AssetAmount | undefined } {
   if (!approval) return { createdNotes, fee };
   if (createdNotes.filter(note => note.id.toLowerCase() === approval.noteId.toLowerCase()).length !== 1) {
-    throw new Error('The approved USDCx burn is missing from the fee-bearing transaction');
+    throw new Error(approval.missingNoteMessage);
   }
-  if (fee && (fee.faucetId !== approval.budget.faucetId || fee.amount < 0n)) {
+  if (fee && (fee.faucetId !== approval.feeFaucetId || fee.amount < 0n)) {
     throw new Error('The verification fee is outside the reviewed native budget');
   }
   const candidates = createdNotes.filter(note => {
     if (note.id.toLowerCase() === approval.noteId.toLowerCase() || note.opaque || note.nfts.length !== 0) return false;
     const asset = note.amounts[0];
-    if (note.amounts.length !== 1 || !asset || asset.faucetId !== approval.budget.faucetId || asset.amount <= 0n) {
+    if (note.amounts.length !== 1 || !asset || asset.faucetId !== approval.feeFaucetId || asset.amount <= 0n) {
       return false;
     }
     const expected = canonicalFeeSponsorshipNoteId(
       {
         senderAccountId: canonicalWalletAccountId(approval.accountId),
-        targetAccountId: canonicalWalletAccountId(approval.faucetId),
+        targetAccountId: canonicalWalletAccountId(approval.targetAccountId),
         featureNoteId: approval.noteId,
-        feeFaucetId: canonicalWalletAccountId(approval.budget.faucetId)
+        feeFaucetId: canonicalWalletAccountId(approval.feeFaucetId)
       },
       asset.amount
     );
     return note.id.toLowerCase() === expected.toLowerCase();
   });
-  if (candidates.length > 1) throw new Error('The USDCx sponsorship is ambiguous');
+  if (candidates.length > 1) throw new Error(approval.ambiguousMessage);
   const companion = candidates[0];
-  const amount = (fee?.amount ?? 0n) + (companion?.amounts[0]?.amount ?? 0n);
-  if (amount > BigInt(approval.budget.maxAmount)) throw new Error('The native fee exceeds its reviewed budget');
+  const companionAmount = companion?.amounts[0]?.amount ?? 0n;
+  const totalAmount = (fee?.amount ?? 0n) + companionAmount;
+  // USDCx quotes a combined ceiling for kernel fee + companion; register-name quotes only the companion sponsorship.
+  const cappedAmount = approval.capKernelFee ? totalAmount : companionAmount;
+  if (cappedAmount > approval.maxAmount) throw new Error('The native fee exceeds its reviewed budget');
   return {
     createdNotes: companion ? createdNotes.filter(note => note !== companion) : createdNotes,
-    fee: amount === 0n ? undefined : { faucetId: approval.budget.faucetId, amount }
+    fee: totalAmount === 0n ? undefined : { faucetId: approval.feeFaucetId, amount: totalAmount }
   };
 }
