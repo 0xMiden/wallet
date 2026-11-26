@@ -276,17 +276,27 @@ describe('a replacement open', () => {
     });
     jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_240_001);
     const read = vault.syncPublicKey.bind(vault);
+    let reached: () => void = () => {};
+    const readingPublicKey = new Promise<void>(resolve => {
+      reached = resolve;
+    });
     let release: () => void = () => {};
     const gate = new Promise<void>(resolve => {
       release = resolve;
     });
     const publicKeyReads = jest.spyOn(vault, 'syncPublicKey').mockImplementationOnce(async () => {
+      reached();
       await gate;
       return read();
     });
 
     const first = getBackupSession();
-    while (publicKeyReads.mock.calls.length === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.race([
+      readingPublicKey,
+      first.then(() => {
+        throw new Error('The replacement session completed before reading its public key');
+      })
+    ]);
     const second = getBackupSession();
     release();
     const [a, b] = await Promise.all([first, second]);
@@ -295,7 +305,7 @@ describe('a replacement open', () => {
     expect(b.session).toBe(a.session);
     expect(isSessionLive(a.session)).toBe(true);
     expect(publicKeyReads).toHaveBeenCalledTimes(1);
-  });
+  }, 60_000);
 });
 
 describe('session liveness', () => {

@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.18.1",
+  "version": "1.18.2",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -175,9 +175,9 @@
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
     "@miden-sdk/bread-connect": "link:./packages/bread-connect",
-    "@miden-sdk/miden-sdk": "0.18.0",
-    "@miden-sdk/miden-wallet-adapter-base": "0.18.0",
-    "@miden-sdk/miden-wallet-adapter-miden": "0.18.0",
+    "@miden-sdk/miden-sdk": "0.18.1",
+    "@miden-sdk/miden-wallet-adapter-base": "0.18.1",
+    "@miden-sdk/miden-wallet-adapter-miden": "0.18.1",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/hd-key": "link:./packages/hd-key",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -277,9 +277,9 @@
     "@capacitor/cli": "8.6.2",
     "@chromatic-com/storybook": "^1.5.0",
     "@cloudflare/workers-types": "5.20261019.1",
-    "@miden-sdk/miden-wallet-adapter-react": "0.18.0",
-    "@miden-sdk/react": "0.18.0",
-    "@miden-sdk/vite-plugin": "0.18.0",
+    "@miden-sdk/miden-wallet-adapter-react": "0.18.1",
+    "@miden-sdk/react": "0.18.1",
+    "@miden-sdk/vite-plugin": "0.18.1",
     "@playwright/test": "^1.48.2",
     "@resvg/resvg-js": "^2.6.2",
     "@serh11p/jest-webextension-mock": "4.0.0",
@@ -383,7 +383,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.18.0",
+    "@miden-sdk/miden-sdk": "0.18.1",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -446,7 +446,7 @@
     "**/postcss-modules-scope/postcss-selector-parser": "7.1.7",
     "**/@metamask/utils/uuid": "11.1.1",
     "**/@storybook/addon-actions/uuid": "11.1.1",
-    "**/@miden-sdk/miden-sdk": "0.18.0"
+    "**/@miden-sdk/miden-sdk": "0.18.1"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

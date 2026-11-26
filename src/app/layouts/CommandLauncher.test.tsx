@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { openCommandHome, WindowType } from 'app/env';
 import { parseBridgeConfig } from 'lib/remote-config/schema';
+import { setShowFullscreenButton } from 'lib/settings/fullscreen-button';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import CommandLauncher from './CommandLauncher';
@@ -38,6 +39,18 @@ beforeEach(() => {
   mockEnv.confirmWindow = false;
   mockExtension = true;
   mockConfig = null;
+  localStorage.setItem('show_fullscreen_button_setting', 'on');
+});
+
+it.each([
+  ['popup', true, false],
+  ['side panel', false, true]
+] as const)('hides the fullscreen button by default in the %s', (_surface, popup, sidePanel) => {
+  localStorage.removeItem('show_fullscreen_button_setting');
+  mockEnv.popup = popup;
+  mockEnv.sidePanel = sidePanel;
+  render(<CommandLauncher />);
+  expect(screen.queryByRole('button', { name: 'commandOpenFullscreen' })).toBeNull();
 });
 
 it.each([
@@ -68,28 +81,23 @@ it('uses a square icon-only launcher in the balance card', () => {
   expect(button).toHaveAccessibleDescription('commandFullscreenNewTab');
 });
 
-it('hides only the sidebar launcher when wallet-config turns it off, and restores it when enabled', () => {
-  const config = (openFullscreen: boolean) =>
-    parseBridgeConfig({ network: 'testnet', version: 1, features: { openFullscreen } }, 'testnet');
+it('uses the local preference even when wallet-config disables fullscreen', () => {
+  mockConfig = parseBridgeConfig({ network: 'testnet', version: 1, features: { openFullscreen: false } }, 'testnet');
+  expect(mockConfig).not.toBeNull();
   mockEnv.popup = false;
   mockEnv.sidePanel = true;
   const { rerender } = render(<CommandLauncher />);
   expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
 
-  mockConfig = config(false);
-  expect(mockConfig).not.toBeNull();
-  rerender(<CommandLauncher />);
+  act(() => setShowFullscreenButton(false));
   expect(screen.queryByRole('button', { name: 'commandOpenFullscreen' })).toBeNull();
 
   mockEnv.popup = true;
   mockEnv.sidePanel = false;
   rerender(<CommandLauncher />);
-  expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'commandOpenFullscreen' })).toBeNull();
 
-  mockEnv.popup = false;
-  mockEnv.sidePanel = true;
-  mockConfig = config(true);
-  rerender(<CommandLauncher />);
+  act(() => setShowFullscreenButton(true));
   expect(screen.getByRole('button', { name: 'commandOpenFullscreen' })).toBeVisible();
 });
 

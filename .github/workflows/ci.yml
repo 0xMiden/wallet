@@ -51,9 +51,7 @@ jobs:
           cmd: ts
 
       - name: Run Unit Tests
-        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
-        with:
-          cmd: test
+        run: bash scripts/ci/run-unit-tests.sh
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1

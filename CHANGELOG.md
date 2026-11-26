@@ -3,6 +3,8 @@
 ## 1.18.2 (TBD)
 
 - [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden through Agglayer with no EVM gas from the user. The service has no login, takes no calldata from the client and keeps only its nonce counter and the open relays.
+- [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
+- [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.
 - [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
 - [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.
 - [CHORE][ci] Fix two TypeScript errors in the mainnet nightly helper and swap-loop spec that failed the type check of every pull request (type-only, no behavior change).
@@ -72,6 +74,7 @@
 - [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
 - [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
 - [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
+- [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.1.
 
 ## 1.18.1 (2026-11-23)
 
