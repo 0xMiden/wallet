@@ -3,7 +3,7 @@ import type { Address, Hex } from 'viem';
 import { isRecord } from 'lib/update/guards';
 
 import { RELAY_ERROR_CODES, RelayApiError, RelayUnavailableError, type RelayErrorCode } from './errors';
-import type { RelayAccount, RelayGasMode, RelayJob, RelayJobState, RelayTokenBalance } from './types';
+import type { RelayAccount, RelayGasMode, RelayJob, RelayJobState, RelayTokenBalance, RelayTokenFee } from './types';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -83,30 +83,44 @@ function readBalance(value: unknown): RelayTokenBalance {
   const entry = record(value, 'a balance');
   return {
     token: readAddress(entry.token, 'balance token'),
-    balance: readUint(entry.balance, UINT256_LIMIT, 'balance'),
-    minAmount: readUint(entry.minAmount, UINT256_LIMIT, 'minAmount'),
-    fee: readUint(entry.fee, UINT256_LIMIT, 'fee')
+    balance: readUint(entry.balance, UINT256_LIMIT, 'balance')
   };
 }
 
-// Kinds that this build does not know are ignored: a newer service can serve more kinds.
-function readKinds(value: unknown): RelayAccount['kinds'] {
-  const kinds = record(value, 'kinds');
-  if (kinds['agglayer-deposit'] === undefined) return {};
-  const deposit = record(kinds['agglayer-deposit'], 'agglayer-deposit');
-  return { 'agglayer-deposit': { sequence: readUint(deposit.sequence, UINT64_LIMIT, 'sequence') } };
+function readFee(value: unknown): RelayTokenFee {
+  const entry = record(value, 'a fee');
+  return { token: readAddress(entry.token, 'fee token'), fee: readUint(entry.fee, UINT256_LIMIT, 'fee') };
 }
 
-/** The body of `GET /v1/account`. Throws `RelayUnavailableError` when it does not match. Unknown fields are ignored. */
-export function parseRelayAccount(body: unknown): RelayAccount {
+function readList<T>(value: unknown, read: (entry: unknown) => T, what: string): T[] {
+  if (!Array.isArray(value)) throw malformed(what);
+  return value.map(read);
+}
+
+function readAllowedTargets(value: unknown): Address[] | null {
+  if (value === null) return null;
+  return readList(value, entry => readAddress(entry, 'an allowed target'), 'allowedTargets');
+}
+
+function sameTokens(entries: { token: Address }[], tokens: readonly Address[]): boolean {
+  return entries.length === tokens.length && entries.every((entry, index) => entry.token === tokens[index]);
+}
+
+/**
+ * The body of `GET /v1/account`. `tokens` are the distinct lower-case tokens of the read, in its order: the balances
+ * must name exactly these tokens in this order. Throws `RelayUnavailableError` when the body does not match. Unknown
+ * fields are ignored.
+ */
+export function parseRelayAccount(body: unknown, tokens: readonly Address[] = []): RelayAccount {
   const value = record(body, 'the account');
   const chainId = value.chainId;
   if (typeof chainId !== 'number' || !Number.isSafeInteger(chainId) || chainId <= 0) throw malformed('chainId');
   if (typeof value.needsAuthorization !== 'boolean') throw malformed('needsAuthorization');
-  if (!Array.isArray(value.balances)) throw malformed('balances');
-  const balances = value.balances.map(readBalance);
-  // Two entries of one token make the fee and the minimum ambiguous.
-  if (new Set(balances.map(balance => balance.token)).size !== balances.length) throw malformed('balances');
+  const fees = readList(value.fees, readFee, 'fees');
+  // Two fees of one token make the fee ambiguous.
+  if (new Set(fees.map(entry => entry.token)).size !== fees.length) throw malformed('fees');
+  const balances = readList(value.balances, readBalance, 'balances');
+  if (!sameTokens(balances, tokens)) throw malformed('balances');
   return {
     chainId,
     address: readAddress(value.address, 'address'),
@@ -116,7 +130,9 @@ export function parseRelayAccount(body: unknown): RelayAccount {
     needsAuthorization: value.needsAuthorization,
     authorizationNonce: readSafeCount(value.authorizationNonce, 'authorizationNonce'),
     salt: readHash(value.salt, 'salt'),
-    kinds: readKinds(value.kinds),
+    sequence: readUint(value.sequence, UINT64_LIMIT, 'sequence'),
+    fees,
+    allowedTargets: readAllowedTargets(value.allowedTargets),
     balances
   };
 }

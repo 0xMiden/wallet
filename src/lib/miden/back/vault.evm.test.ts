@@ -28,17 +28,17 @@ import { recoverAuthorizationAddress } from 'viem/utils';
 import {
   batchDigest,
   batchNonceOf,
-  buildAgglayerDepositCalls,
+  buildFeeCall,
   recoverBatchSigner,
+  type BatchCall,
   type BatchEnvelope
 } from 'lib/evm-relay/batch';
 import {
-  SEPOLIA_AGGLAYER_CONFIG,
   SEPOLIA_CALIBUR_PIN,
   TEST_ERC20,
   TEST_EXECUTOR,
   TEST_FEE_RECIPIENT,
-  TEST_MIDEN_ACCOUNT_HEX
+  TEST_TARGET
 } from 'lib/evm-relay/batch/testing';
 import * as Passworder from 'lib/miden/passworder';
 import { deriveRelayKeyScalar } from 'lib/miden/relay-key/derive';
@@ -265,10 +265,8 @@ describe('Vault.signRelayDigest', () => {
   };
   const NOW = 1_800_000_000;
   const relayContext = (): RelaySignContext => ({
-    midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
     relayAddress: RELAY_ADDR_0,
     chain: RELAY_CHAIN,
-    agglayer: SEPOLIA_AGGLAYER_CONFIG,
     nowSeconds: NOW
   });
   let vault: Vault;
@@ -288,13 +286,16 @@ describe('Vault.signRelayDigest', () => {
 
   it('signs a batch that recovers to the relay address through recoverBatchSigner', async () => {
     const salt: Hex = `0x${'0'.repeat(24)}${SEPOLIA_CALIBUR_PIN.address.slice(2).toLowerCase()}`;
-    const batchNonce = batchNonceOf('agglayer-deposit', 4n);
+    const batchNonce = batchNonceOf(4n);
+    const calls: BatchCall[] = [
+      { to: TEST_TARGET, value: 0n, data: '0xcafe0001' },
+      buildFeeCall({ token: TEST_ERC20, recipient: TEST_FEE_RECIPIENT, amount: 1000n })
+    ];
     const plan = planRelaySignature(
       {
         op: 'batch',
         chainId: 11155111,
-        kind: 'agglayer-deposit',
-        params: { token: TEST_ERC20, amount: '2500000', fee: { recipient: TEST_FEE_RECIPIENT, amount: '1000' } },
+        calls: calls.map(call => ({ to: call.to, value: call.value.toString(), data: call.data })),
         batchNonce: batchNonce.toString(),
         salt,
         deadline: NOW + 900
@@ -311,12 +312,6 @@ describe('Vault.signRelayDigest', () => {
       salt,
       deadline: BigInt(NOW + 900)
     };
-    const calls = buildAgglayerDepositCalls(SEPOLIA_AGGLAYER_CONFIG, {
-      token: TEST_ERC20,
-      amount: 2_500_000n,
-      midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
-      fee: { recipient: TEST_FEE_RECIPIENT, amount: 1000n }
-    });
     expect(plan.digest).toBe(batchDigest(SEPOLIA_CALIBUR_PIN, envelope, calls));
     expect(await recoverBatchSigner(SEPOLIA_CALIBUR_PIN, envelope, calls, signature)).toBe(RELAY_ADDR_0);
   });

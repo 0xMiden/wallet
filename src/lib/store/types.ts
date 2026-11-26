@@ -3,7 +3,6 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 import type { TxAssetView } from 'app/confirm/decode';
 import type { NoteFlow } from 'app/confirm/note-flow';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
-import type { RelayDepositStatus, RelayDepositTarget } from 'lib/evm-relay/deposit';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
@@ -220,8 +219,6 @@ export interface WalletActions {
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   /** Signs with the account's relay key; the backend builds what it signs (`lib/miden/relay-key/sign-rules.ts`). */
   signRelay: (accountPublicKey: string, request: RelaySignRequest) => Promise<RelaySignResult>;
-  /** One step of the account's deposit-address bridge-in (`lib/evm-relay/deposit.ts`). */
-  relayDepositTick: (accountPublicKey: string, target: RelayDepositTarget) => Promise<RelayDepositStatus>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   /** Installs the everyday key from a saved key pair on a recovered account that has none. */

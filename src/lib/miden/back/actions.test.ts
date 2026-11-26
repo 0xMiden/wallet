@@ -5,16 +5,14 @@ import type { Runtime } from 'webextension-polyfill';
 
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import type { BackupSignalReason } from 'lib/backup/adopt-signal';
-import { batchNonceOf } from 'lib/evm-relay/batch';
+import { batchNonceOf, buildFeeCall, type BatchCall } from 'lib/evm-relay/batch';
 import {
-  SEPOLIA_AGGLAYER_CONFIG,
   SEPOLIA_CALIBUR_PIN,
   TEST_ERC20,
   TEST_EXECUTOR,
   TEST_FEE_RECIPIENT,
-  TEST_MIDEN_ACCOUNT_HEX
+  TEST_TARGET
 } from 'lib/evm-relay/batch/testing';
-import type { RelayDepositTarget } from 'lib/evm-relay/deposit';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -27,7 +25,7 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import type { AgglayerRecoveryConfig, RelayChainConfig, SupportedEvmChainConfig } from 'lib/remote-config/schema';
+import type { RelayChainConfig } from 'lib/remote-config/schema';
 import {
   type BackupRefreshOutcome,
   type BackupRefreshReason,
@@ -56,7 +54,6 @@ import {
   updateSettings,
   signTransaction,
   signRelay,
-  relayDepositTick,
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
@@ -108,8 +105,6 @@ jest.mock('lib/usdcx/burn-fee', () => ({
 // The relay sign action reads its config through these. A test sets them; the default is "no relay".
 const mockInitBridgeConfig = jest.fn();
 const mockGetRelayChain = jest.fn<RelayChainConfig | null, [number]>(() => null);
-const mockSelectAgglayerChain = jest.fn<SupportedEvmChainConfig | null, [unknown, number]>(() => null);
-const mockSelectAgglayerRecoveryConfig = jest.fn<AgglayerRecoveryConfig | undefined, [unknown, number]>();
 jest.mock('lib/remote-config/runtime', () => {
   const actual = jest.requireActual('lib/remote-config/runtime');
   return {
@@ -122,15 +117,7 @@ jest.mock('lib/remote-config/runtime', () => {
 });
 jest.mock('lib/remote-config/values', () => ({
   ...jest.requireActual('lib/remote-config/values'),
-  getRelayChain: (chainId: number) => mockGetRelayChain(chainId),
-  selectAgglayerChain: (snapshot: unknown, chainId: number) => mockSelectAgglayerChain(snapshot, chainId),
-  selectAgglayerRecoveryConfig: (snapshot: unknown, chainId: number) =>
-    mockSelectAgglayerRecoveryConfig(snapshot, chainId)
-}));
-const mockAccountRefToSdk = jest.fn((_ref: string) => ({ toString: () => TEST_MIDEN_ACCOUNT_HEX }));
-jest.mock('lib/miden/sdk/helpers', () => ({
-  ...jest.requireActual('lib/miden/sdk/helpers'),
-  accountRefToSdk: (ref: string) => mockAccountRefToSdk(ref)
+  getRelayChain: (chainId: number) => mockGetRelayChain(chainId)
 }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
@@ -1906,32 +1893,16 @@ describe('actions', () => {
       calibur: SEPOLIA_CALIBUR_PIN,
       maxFee: { [TEST_ERC20]: '1000' }
     };
-    const AGGLAYER_CHAIN: SupportedEvmChainConfig = {
-      chainId: CHAIN_ID,
-      bridges: {
-        agglayer: {
-          depositEnabled: true,
-          withdrawalEnabled: true,
-          contractAddress: SEPOLIA_AGGLAYER_CONFIG.bridgeAddress,
-          midenBridgeId: 'mtst1bridge'
-        }
-      }
-    };
-    const RECOVERY: AgglayerRecoveryConfig = {
-      chainId: CHAIN_ID,
-      contractAddress: SEPOLIA_AGGLAYER_CONFIG.bridgeAddress,
-      midenBridgeId: 'mtst1bridge',
-      indexerUrl: 'https://indexer.example',
-      rollupId: SEPOLIA_AGGLAYER_CONFIG.midenNetworkId,
-      evmNetworkId: 0
-    };
     const salt: Hex = `0x${'0'.repeat(24)}${SEPOLIA_CALIBUR_PIN.address.slice(2).toLowerCase()}`;
+    const calls: BatchCall[] = [
+      { to: TEST_TARGET, value: 0n, data: '0xcafe0001' },
+      buildFeeCall({ token: TEST_ERC20, recipient: TEST_FEE_RECIPIENT, amount: 1000n })
+    ];
     const batchRequest = (deadline: number): RelaySignRequest => ({
       op: 'batch',
       chainId: CHAIN_ID,
-      kind: 'agglayer-deposit',
-      params: { token: TEST_ERC20, amount: '2500000', fee: { recipient: TEST_FEE_RECIPIENT, amount: '1000' } },
-      batchNonce: batchNonceOf('agglayer-deposit', 2n).toString(),
+      calls: calls.map(call => ({ to: call.to, value: call.value.toString(), data: call.data })),
+      batchNonce: batchNonceOf(2n).toString(),
       salt,
       deadline
     });
@@ -1940,9 +1911,6 @@ describe('actions', () => {
       jest.useFakeTimers({ now: 1_800_000_000_000, doNotFake: ['nextTick', 'setImmediate'] });
       mockInitBridgeConfig.mockClear();
       mockGetRelayChain.mockReset().mockReturnValue(CHAIN);
-      mockSelectAgglayerChain.mockReset().mockReturnValue(AGGLAYER_CHAIN);
-      mockSelectAgglayerRecoveryConfig.mockReset().mockReturnValue(RECOVERY);
-      mockAccountRefToSdk.mockClear();
       mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1_suffix', relayEvmAddress: RELAY_ADDRESS }]);
       mockVault.signRelayDigest
         .mockReset()
@@ -1966,18 +1934,16 @@ describe('actions', () => {
       expect(await recoverAuthorizationAddress({ authorization: result.authorization })).toBe(RELAY_ADDRESS);
     });
 
-    it("signs a batch built from the config, bridging to the account's own Miden account", async () => {
+    it("signs a batch of the request's calls with the config executor and the account's relay address", async () => {
       const request = batchRequest(1_800_000_600);
       const result = await signRelay('pk1_suffix', request);
 
       const expected = planRelaySignature(request, {
-        midenAccountHex: TEST_MIDEN_ACCOUNT_HEX,
         relayAddress: RELAY_ADDRESS,
         chain: CHAIN,
-        agglayer: SEPOLIA_AGGLAYER_CONFIG,
         nowSeconds: 1_800_000_000
       });
-      expect(mockAccountRefToSdk).toHaveBeenCalledWith('pk1_suffix');
+      expect(mockVault.signRelayDigest).toHaveBeenCalledWith('pk1_suffix', expected.digest);
       expect(result).toEqual({
         op: 'batch',
         digest: expected.digest,
@@ -2000,15 +1966,19 @@ describe('actions', () => {
       expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
     });
 
-    it('refuses a batch while the Agglayer route takes no deposits', async () => {
-      mockSelectAgglayerChain.mockReturnValue({
-        chainId: CHAIN_ID,
-        bridges: { agglayer: { ...AGGLAYER_CHAIN.bridges.agglayer!, depositEnabled: false } }
-      });
-      await expect(signRelay('pk1_suffix', batchRequest(1_800_000_600))).rejects.toThrow(
-        'Relay signature refused: agglayer'
-      );
+    it('refuses a batch with a call to the relay address itself', async () => {
+      const request = batchRequest(1_800_000_600);
+      if (request.op !== 'batch') throw new Error('expected a batch');
+      const selfCall: RelaySignRequest = { ...request, calls: [{ to: RELAY_ADDRESS, value: '0', data: '0x' }] };
+      await expect(signRelay('pk1_suffix', selfCall)).rejects.toThrow('Relay signature refused: call-to');
       expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('passes on an error that is not a rule refusal', async () => {
+      mockVault.signRelayDigest.mockRejectedValueOnce(new PublicError('Failed to sign relay payload'));
+      await expect(signRelay('pk1_suffix', batchRequest(1_800_000_600))).rejects.toThrow(
+        'Failed to sign relay payload'
+      );
     });
 
     it('refuses a caller-supplied digest', async () => {
@@ -2032,40 +2002,6 @@ describe('actions', () => {
       const hostile = Object.assign({}, base, { chainId: 0 });
       await expect(signRelay('pk1_suffix', hostile)).rejects.toThrow('Relay signature refused: chain-id');
       expect(mockInitBridgeConfig).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('relayDepositTick', () => {
-    const target = { provider: 'agglayer', chainId: 11155111, token: TEST_ERC20 } satisfies RelayDepositTarget;
-    const CHAIN: RelayChainConfig = {
-      key: 'sepolia',
-      chainId: 11155111,
-      executor: TEST_EXECUTOR,
-      calibur: SEPOLIA_CALIBUR_PIN,
-      maxFee: {}
-    };
-
-    beforeEach(() => {
-      mockInitBridgeConfig.mockClear();
-      mockGetRelayChain.mockReset().mockReturnValue(null);
-      mockVault.fetchAccounts.mockReset();
-    });
-
-    it('hydrates the config and reports a relay that does not serve the chain', async () => {
-      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'off' });
-      expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
-      expect(mockGetRelayChain).toHaveBeenCalledWith(11155111);
-      expect(mockVault.fetchAccounts).not.toHaveBeenCalled();
-    });
-
-    it("reads the account's relay address from the vault", async () => {
-      mockGetRelayChain.mockReturnValue(CHAIN);
-      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1' }]);
-      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'no-relay-address' });
-
-      // The bridge config of this realm lists no Agglayer route.
-      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1', relayEvmAddress: TEST_FEE_RECIPIENT }]);
-      expect(await relayDepositTick('pk1', target)).toEqual({ kind: 'no-route' });
     });
   });
 

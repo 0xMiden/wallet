@@ -1,9 +1,20 @@
 import type { Address } from 'viem';
 
 import { RelayMismatchError } from './errors';
-import { acceptedFee, assertRelayAccountMatches, assertRelayJobMatches, relayableAmount } from './guards';
-import { CHAIN, EXECUTOR, FEE_RECIPIENT, JOB_ID, NATIVE, RELAY_ADDRESS, SALT, TX_HASH, USDC } from './testing';
-import type { RelayAccount, RelayJob, RelayTokenBalance } from './types';
+import { acceptedFee, assertRelayAccountMatches, assertRelayJobMatches } from './guards';
+import {
+  CHAIN,
+  EXECUTOR,
+  FEE_RECIPIENT,
+  JOB_ID,
+  NATIVE,
+  RELAY_ADDRESS,
+  SALT,
+  TX_HASH,
+  USDC,
+  upperHex
+} from './testing';
+import type { RelayAccount, RelayJob } from './types';
 
 function account(overrides: Partial<RelayAccount> = {}): RelayAccount {
   return {
@@ -15,29 +26,28 @@ function account(overrides: Partial<RelayAccount> = {}): RelayAccount {
     needsAuthorization: false,
     authorizationNonce: 4,
     salt: SALT,
-    kinds: { 'agglayer-deposit': { sequence: 0n } },
-    balances: [{ token: USDC, balance: 1_000_000n, minAmount: 100_000n, fee: 0n }],
+    sequence: 0n,
+    fees: [],
+    allowedTargets: null,
+    balances: [],
     ...overrides
   };
 }
 
 function deduct(fee: bigint, token: Address = USDC): RelayAccount {
-  return account({
-    mode: 'deduct',
-    feeRecipient: FEE_RECIPIENT,
-    balances: [{ token, balance: 1_000_000n, minAmount: 100_000n, fee }]
-  });
+  return account({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token, fee }] });
 }
 
 describe('assertRelayAccountMatches', () => {
   it('accepts a matching sponsor account, in any address case', () => {
     expect(() => assertRelayAccountMatches(account(), CHAIN, RELAY_ADDRESS)).not.toThrow();
-    const upper: Address = `0x${RELAY_ADDRESS.slice(2).toUpperCase()}`;
-    expect(() => assertRelayAccountMatches(account(), CHAIN, upper)).not.toThrow();
+    expect(() => assertRelayAccountMatches(account(), CHAIN, upperHex(RELAY_ADDRESS))).not.toThrow();
   });
 
-  it('accepts a matching deduct account', () => {
+  it('accepts a matching deduct account, with or without fees', () => {
     expect(() => assertRelayAccountMatches(deduct(10n), CHAIN, RELAY_ADDRESS)).not.toThrow();
+    const noFees = account({ mode: 'deduct', feeRecipient: FEE_RECIPIENT });
+    expect(() => assertRelayAccountMatches(noFees, CHAIN, RELAY_ADDRESS)).not.toThrow();
   });
 
   it.each([
@@ -45,26 +55,23 @@ describe('assertRelayAccountMatches', () => {
     ['another address', account({ address: FEE_RECIPIENT })],
     ['another executor', account({ executor: FEE_RECIPIENT })],
     ['a sponsor account with a fee recipient', account({ feeRecipient: FEE_RECIPIENT })],
-    ['a sponsor account with a fee', account({ balances: [{ token: USDC, balance: 1n, minAmount: 1n, fee: 1n }] })],
+    ['a sponsor account with a fee', account({ fees: [{ token: USDC, fee: 1n }] })],
     ['a deduct account without a fee recipient', account({ mode: 'deduct' })],
     ['a deduct account with the zero fee recipient', account({ mode: 'deduct', feeRecipient: NATIVE })]
   ])('refuses %s', (_name, value) => {
     expect(() => assertRelayAccountMatches(value, CHAIN, RELAY_ADDRESS)).toThrow(RelayMismatchError);
   });
+
+  it('refuses a gas mode that it does not know', () => {
+    const value = account();
+    Reflect.set(value, 'mode', 'free');
+    expect(() => assertRelayAccountMatches(value, CHAIN, RELAY_ADDRESS)).toThrow('the gas mode is not known');
+  });
 });
 
 describe('acceptedFee', () => {
-  it('gives 0 for a sponsored token', () => {
+  it('gives 0 in sponsor mode', () => {
     expect(acceptedFee(account(), CHAIN, USDC)).toBe(0n);
-  });
-
-  it('refuses a sponsored token that asks for a fee', () => {
-    const value = account({ balances: [{ token: USDC, balance: 1n, minAmount: 1n, fee: 1n }] });
-    expect(acceptedFee(value, CHAIN, USDC)).toBeNull();
-  });
-
-  it('refuses a token that is not in the balances', () => {
-    expect(acceptedFee(account(), CHAIN, NATIVE)).toBeNull();
   });
 
   it.each([
@@ -73,32 +80,21 @@ describe('acceptedFee', () => {
     ['above the limit', 50_001n, null],
     ['of 0', 0n, null]
   ])('in deduct mode, takes a fee %s', (_name, fee, expected) => {
-    expect(acceptedFee(deduct(fee), CHAIN, `0x${USDC.slice(2).toUpperCase()}`)).toBe(expected);
+    expect(acceptedFee(deduct(fee), CHAIN, upperHex(USDC))).toBe(expected);
   });
 
   it('in deduct mode, refuses a token without a maxFee entry', () => {
     expect(acceptedFee(deduct(1n, NATIVE), CHAIN, NATIVE)).toBeNull();
   });
-});
 
-describe('relayableAmount', () => {
-  const balance = (value: bigint, minAmount = 100n): RelayTokenBalance => ({
-    token: USDC,
-    balance: value,
-    minAmount,
-    fee: 0n
+  it('in deduct mode, refuses a token for which the relayer names no fee', () => {
+    expect(acceptedFee(deduct(1n, NATIVE), CHAIN, USDC)).toBeNull();
   });
 
-  it.each([
-    ['a balance above the minimum', balance(1000n), 10n, 990n],
-    ['a balance at the minimum', balance(100n), 0n, 100n],
-    ['a balance below the minimum', balance(99n), 0n, null],
-    ['a fee equal to the balance', balance(100n), 100n, null],
-    ['a fee above the balance', balance(100n), 101n, null],
-    ['a negative fee', balance(1000n), -1n, null],
-    ['a zero balance with a zero minimum', balance(0n, 0n), 0n, null]
-  ])('handles %s', (_name, value, fee, expected) => {
-    expect(relayableAmount(value, fee)).toBe(expected);
+  it('refuses a gas mode that it does not know', () => {
+    const value = deduct(1n);
+    Reflect.set(value, 'mode', 'free');
+    expect(acceptedFee(value, CHAIN, USDC)).toBeNull();
   });
 });
 
@@ -106,7 +102,7 @@ describe('assertRelayJobMatches', () => {
   const job: RelayJob = { id: JOB_ID, state: 'pending', txHash: TX_HASH };
 
   it('accepts the expected id in any case', () => {
-    expect(() => assertRelayJobMatches(job, `0x${JOB_ID.slice(2).toUpperCase()}`)).not.toThrow();
+    expect(() => assertRelayJobMatches(job, upperHex(JOB_ID))).not.toThrow();
   });
 
   it('refuses another id', () => {

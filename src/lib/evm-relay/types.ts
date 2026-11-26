@@ -1,16 +1,20 @@
 import type { Address, Hex } from 'viem';
 
-import type { AgglayerDepositParams, RelayKind } from './batch';
+import type { BatchCall } from './batch';
 
 /** `sponsor`: the relayer pays the gas. `deduct`: the batch pays a fixed token fee to `feeRecipient`. */
 export type RelayGasMode = 'sponsor' | 'deduct';
 
-/** One token of a relay address. All amounts are base units. The zero address is the native coin. */
+/** The fee of one token in `deduct` mode, in base units. The zero address is the native coin. */
+export interface RelayTokenFee {
+  token: Address;
+  fee: bigint;
+}
+
+/** The balance of one token of a relay address, in base units. The zero address is the native coin. */
 export interface RelayTokenBalance {
   token: Address;
   balance: bigint;
-  minAmount: bigint;
-  fee: bigint;
 }
 
 /** The answer of `GET /v1/account`: everything the wallet needs to sign a batch. Addresses and hashes are lower case. */
@@ -20,6 +24,7 @@ export interface RelayAccount {
   mode: RelayGasMode;
   /** The relayer account. Only this account can execute the batch. */
   executor: Address;
+  /** The fee recipient in `deduct` mode, null in `sponsor` mode. */
   feeRecipient: Address | null;
   /** True when the address does not delegate to the pinned Calibur yet. */
   needsAuthorization: boolean;
@@ -27,7 +32,13 @@ export interface RelayAccount {
   authorizationNonce: number;
   /** The Calibur EIP-712 domain salt of the address. */
   salt: Hex;
-  kinds: { 'agglayer-deposit'?: { sequence: bigint } };
+  /** `getSeq(RELAY_NONCE_KEY)` of the address: a uint64. */
+  sequence: bigint;
+  /** The configured fees in `deduct` mode; empty in `sponsor` mode. */
+  fees: RelayTokenFee[];
+  /** The only targets that a batch can call (the fee call excepted), or null for no limit. */
+  allowedTargets: Address[] | null;
+  /** One entry for each distinct token that the read asked for, in the order of the request. */
   balances: RelayTokenBalance[];
 }
 
@@ -37,6 +48,7 @@ export type RelayJobState = 'pending' | 'succeeded' | 'reverted';
 export interface RelayJob {
   id: Hex;
   state: RelayJobState;
+  /** The last transaction hash. The hash of a final job is the mined hash. */
   txHash: Hex;
 }
 
@@ -53,10 +65,10 @@ export interface RelayAuthorization {
 /** The input of `POST /v1/relay`. */
 export interface RelaySubmission {
   chainId: number;
-  kind: RelayKind;
   evmAddress: Address;
-  params: AgglayerDepositParams;
-  /** The full Calibur nonce: `key << 64 | sequence`. */
+  /** The calls exactly as signed. In `deduct` mode the last call pays the fee. */
+  calls: BatchCall[];
+  /** The full Calibur nonce: `RELAY_NONCE_KEY << 64 | sequence`. */
   batchNonce: bigint;
   salt: Hex;
   /** Unix seconds. */

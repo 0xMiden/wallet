@@ -732,16 +732,6 @@ export const useWalletStore = create<WalletStore>()(
       return res.result;
     },
 
-    relayDepositTick: async (accountPublicKey, target) => {
-      const res = await request({
-        type: WalletMessageType.RelayDepositTickRequest,
-        accountPublicKey,
-        target
-      });
-      assertResponse(res.type === WalletMessageType.RelayDepositTickResponse);
-      return res.status;
-    },
-
     persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
       const res = await request({
         type: WalletMessageType.PersistNewHotKeyRequest,
