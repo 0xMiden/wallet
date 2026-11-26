@@ -36,8 +36,6 @@ export interface DepositTokenSheetProps {
   /** The current token, which takes the check mark. */
   selectedId: string | undefined;
   onSelect: (id: string) => void;
-  /** "Connect a wallet instead": the way to every other token. */
-  onConnectWallet: () => void;
 }
 
 function matches(option: DepositTokenOption, query: string): boolean {
@@ -47,8 +45,8 @@ function matches(option: DepositTokenOption, query: string): boolean {
 /**
  * The "Select a token" sheet (mock-up `sheet === 'token'`): the search field, the network chips and the token list under
  * the heading "Deposit in Bread". Without a search, the list shows the tokens of the chosen chip. A search hides the
- * chips and finds tokens on every network by token, received token or network name. The sheet ends on the text action
- * "Connect a wallet instead".
+ * chips and finds tokens on every network by token, received token or network name. The mock-up's "Connect a wallet
+ * instead" action is not here: the Deposit flow has no connect-wallet path.
  */
 export const DepositTokenSheet: React.FC<DepositTokenSheetProps> = ({
   open,
@@ -57,8 +55,7 @@ export const DepositTokenSheet: React.FC<DepositTokenSheetProps> = ({
   networkId,
   tokens,
   selectedId,
-  onSelect,
-  onConnectWallet
+  onSelect
 }) => {
   const { t } = useTranslation();
   const [chip, setChip] = useState(networkId);
@@ -155,17 +152,6 @@ export const DepositTokenSheet: React.FC<DepositTokenSheetProps> = ({
           </p>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => {
-          hapticLight();
-          onConnectWallet();
-        }}
-        className={s.TEXT_ACTION}
-        data-testid="deposit-token-connect-wallet"
-      >
-        {t('depositFlowConnectWalletInstead')}
-      </button>
     </DepositSheet>
   );
 };

@@ -277,9 +277,19 @@ export const ASSET =
 export const ASSET_NAME = 'block leading-5 font-bold text-ink';
 /** `.asset small`. */
 export const ASSET_SMALL = 'text-[13px] leading-[19px] font-semibold text-muted';
-/** The "Connect a wallet instead" text action under the list. */
-export const TEXT_ACTION =
-  'self-center py-2 text-[14px] leading-5 font-bold text-accent-tint-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary';
+// Field (not in the mock-up: the refund address of a NEAR Intents deposit from a chain with no wallet address)
+
+/** The field: its label, the `.search` pill and a line under it, 6px apart. */
+export const FIELD = 'flex flex-col gap-1.5';
+/** The field's label: `p.sec` (13/18 bold `muted`), 4px in from the edge as `.note`. */
+export const FIELD_LABEL = 'px-1 text-[13px] leading-[18px] font-bold text-muted';
+/** The field's pill with an error: a 2px `negative-ink` edge, the shape of the `.search` focus edge. */
+export const FIELD_BOX_ERROR =
+  'shadow-[0_0_0_2px_var(--ds-negative-ink)] focus-within:shadow-[0_0_0_2px_var(--ds-negative-ink)]';
+/** The line under the field: `.notice` type (13/17), `muted`. */
+export const FIELD_HINT = 'px-1 text-[13px] leading-[17px] font-semibold text-muted';
+/** The error line under the field: `.notice.neg b` colour. */
+export const FIELD_ERROR = 'px-1 text-[13px] leading-[17px] font-semibold text-negative-ink';
 
 // Processing and success
 

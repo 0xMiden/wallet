@@ -61,6 +61,14 @@ describe('DepositReviewView', () => {
     expect(facts).toHaveTextContent('About 2 minutes');
   });
 
+  it('names who pays the gas when the route says so, and draws a notice under the facts', () => {
+    render(
+      <DepositReviewView {...props({ networkGas: 'Included in fee', notice: <p data-testid="extra-notice" /> })} />
+    );
+    expect(screen.getByTestId('deposit-review-facts')).toHaveTextContent('Included in fee');
+    expect(screen.getByTestId('deposit-review-facts').nextElementSibling).toBe(screen.getByTestId('extra-notice'));
+  });
+
   it('leaves out the USD line when there is no price', () => {
     render(<DepositReviewView {...props({ receivedUsd: undefined })} />);
     expect(screen.getByTestId('deposit-review-hero')).not.toHaveTextContent('depositFlowUsdEstimate');

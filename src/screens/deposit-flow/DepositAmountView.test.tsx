@@ -159,6 +159,24 @@ describe('DepositAmountView', () => {
     expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent(/^depositFlowBridgeFee0\.21 USDC$/);
   });
 
+  it('names who pays the gas when the route says so, and draws a field under the receipt', () => {
+    render(
+      <DepositAmountView
+        {...props({
+          networkGas: 'Included in fee',
+          field: <input data-testid="extra-field" />,
+          depositCapUsd: 1232
+        })}
+      />
+    );
+    expect(screen.getByTestId('deposit-receipt-gas')).toHaveTextContent('Included in fee');
+    const field = screen.getByTestId('extra-field');
+    // The field comes before the notices.
+    expect(field.compareDocumentPosition(screen.getByTestId('deposit-cap-notice'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
   it('reports the cap notices with the cap error ids', () => {
     jest.useFakeTimers();
     const { rerender } = render(<DepositAmountView {...props({ depositCapUsd: 1232 })} />);

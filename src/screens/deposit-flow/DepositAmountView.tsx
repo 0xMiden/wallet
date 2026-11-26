@@ -65,6 +65,11 @@ export interface DepositAmountViewProps {
   onChangeRoute: () => void;
   /** The route's arrival time, already translated. Omit to leave the row out. */
   arrivesIn?: string;
+  /**
+   * Who pays the network gas, already translated (the mock-up's `fees().gas`). Defaults to "Paid by Bread", the relay
+   * routes' value.
+   */
+  networkGas?: string;
   /** What arrives, in `receivedToken` units. Omit while there is no quote: the total reads 0.00. */
   received?: DepositAmountValue;
   /** `received` in USD. */
@@ -76,6 +81,8 @@ export interface DepositAmountViewProps {
    * `depositCapUsd` is set.
    */
   depositCapUnpriced?: string;
+  /** A field under the receipt card, above the notices: the refund address of a NEAR Intents deposit. */
+  field?: React.ReactNode;
   /** Another notice under the cap notice, such as a test-funds warning. */
   notice?: React.ReactNode;
   /** The amount can be reviewed. "Review" stays disabled while false. */
@@ -104,10 +111,12 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
   routeCount,
   onChangeRoute,
   arrivesIn,
+  networkGas,
   received,
   receivedUsd,
   depositCapUsd,
   depositCapUnpriced,
+  field,
   notice,
   isValidAmount,
   onReview
@@ -219,7 +228,7 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
           )}
           <div className={cn(row, s.RULE_TOP)} data-testid="deposit-receipt-gas">
             <span className={s.ROW_LABEL}>{t('depositFlowNetworkGas')}</span>
-            <b className={s.RC3_VALUE}>{t('depositFlowPaidByBread')}</b>
+            <b className={s.RC3_VALUE}>{networkGas ?? t('depositFlowPaidByBread')}</b>
           </div>
           <div className={cn(s.TOT, ext && s.TOT_EXT)} data-testid="deposit-receipt-total">
             <span className={s.TOT_LABEL}>{t('depositFlowYouReceive')}</span>
@@ -240,6 +249,7 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
         </div>
 
         <div className={cn(s.BODY_STACK, 'pt-4')}>
+          {field}
           {depositCapUsd !== undefined && (
             <DepositNotice
               kind="negative"

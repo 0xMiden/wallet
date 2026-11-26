@@ -169,6 +169,74 @@ export const DepositNotice: React.FC<{
   );
 };
 
+export interface DepositFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  /** The line under the field while it has no error. */
+  hint?: string;
+  /** The error under the field. The caller reports it (`useUserVisibleError`). */
+  error?: string;
+  /** A control at the end of the pill, such as Paste. */
+  trailing?: React.ReactNode;
+  'data-testid'?: string;
+}
+
+/**
+ * A text field in the deposit views. The mock-up has no field: this one takes the look of its `.search` pill, with a
+ * `p.sec` label above and a `.notice` line under it.
+ */
+export const DepositField: React.FC<DepositFieldProps> = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hint,
+  error,
+  trailing,
+  'data-testid': dataTestId
+}) => {
+  const id = React.useId();
+  const lineId = `${id}-line`;
+  const line = error ?? hint;
+  return (
+    <div className={s.FIELD}>
+      <label htmlFor={id} className={s.FIELD_LABEL}>
+        {label}
+      </label>
+      <div className={cn(s.SEARCH, error !== undefined && s.FIELD_BOX_ERROR)}>
+        <input
+          id={id}
+          type="text"
+          value={value}
+          onChange={event => onChange(event.target.value)}
+          placeholder={placeholder}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoComplete="off"
+          aria-invalid={error !== undefined}
+          aria-describedby={line === undefined ? undefined : lineId}
+          className={s.SEARCH_INPUT}
+          data-testid={dataTestId}
+        />
+        {trailing}
+      </div>
+      {line !== undefined && (
+        <p
+          id={lineId}
+          aria-live="polite"
+          className={error === undefined ? s.FIELD_HINT : s.FIELD_ERROR}
+          data-testid={dataTestId && `${dataTestId}-${error === undefined ? 'hint' : 'error'}`}
+        >
+          {line}
+        </p>
+      )}
+    </div>
+  );
+};
+
 export interface DepositSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;

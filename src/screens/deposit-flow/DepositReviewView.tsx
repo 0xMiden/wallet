@@ -43,8 +43,12 @@ export interface DepositReviewViewProps {
   routeName: string;
   /** The route's arrival time, already translated. */
   arrivesIn: string;
+  /** Who pays the network gas, already translated (the mock-up's `fees().gas`). Defaults to "Paid by Bread". */
+  networkGas?: string;
   /** The bridge fee as a share of the deposit (0.08 = 8%). Above 0.05 the review warns. */
   feeShare?: number;
+  /** A notice under the fee card, such as a failed slide. */
+  notice?: React.ReactNode;
   /** The user slid the control to the end, or confirmed it from the keyboard. */
   onConfirm: () => void;
   /** Blocks the slide, for example while the quote refreshes. */
@@ -69,7 +73,9 @@ export const DepositReviewView: React.FC<DepositReviewViewProps> = ({
   bridgeFee,
   routeName,
   arrivesIn,
+  networkGas,
   feeShare,
+  notice,
   onConfirm,
   confirmDisabled = false,
   confirmResetKey
@@ -128,10 +134,13 @@ export const DepositReviewView: React.FC<DepositReviewViewProps> = ({
           <DepositFactRow label={t('depositFlowBridgeFee')} data-testid="deposit-review-fee">
             <DepositFeeValue fee={bridgeFee} symbol={sourceToken.symbol} />
           </DepositFactRow>
-          <DepositFactRow label={t('depositFlowNetworkGas')}>{t('depositFlowPaidByBread')}</DepositFactRow>
+          <DepositFactRow label={t('depositFlowNetworkGas')}>
+            {networkGas ?? t('depositFlowPaidByBread')}
+          </DepositFactRow>
           <DepositFactRow label={t('route')}>{routeName}</DepositFactRow>
           <DepositFactRow label={t('time')}>{arrivesIn}</DepositFactRow>
         </DepositFactCard>
+        {notice}
       </div>
     </HomeGroupPaneBody>
   );

@@ -17,6 +17,7 @@ import * as Repo from 'lib/miden/repo';
 import type { WalletAccount } from 'lib/shared/types';
 import { ERC20_APPROVE_ABI } from 'lib/usdcx/constant';
 import { readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import type { DepositRouteOption } from 'screens/deposit-flow/DepositRouteSheet';
 import { WalletType } from 'screens/onboarding/types';
 
 import { legacyBridgeReceiveFixture } from './bridge-receive-test-fixture';
@@ -419,7 +420,7 @@ const settle = () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-const onConnectAnother = jest.fn();
+const onRelayUnsupported = jest.fn();
 const onClose = jest.fn();
 const onExit = jest.fn();
 const relayScreen = (pendingDepositId?: string) => (
@@ -427,7 +428,7 @@ const relayScreen = (pendingDepositId?: string) => (
     evmAddress={RELAY}
     relaySource={RELAY_SOURCE}
     midenAccount={midenAccount}
-    onConnectAnother={onConnectAnother}
+    onRelayUnsupported={onRelayUnsupported}
     onClose={onClose}
     onExit={onExit}
     pendingDepositId={pendingDepositId}
@@ -643,11 +644,11 @@ describe('EvmBridgeDepositScreen from a relay source: amount, review and address
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
   });
 
-  it('sends a relay in deduct mode to the connect-wallet path', async () => {
+  it('says that a relay in deduct mode is not supported', async () => {
     mockRelayMode = 'deduct';
     await renderRelay();
 
-    expect(onConnectAnother).toHaveBeenCalled();
+    expect(onRelayUnsupported).toHaveBeenCalled();
   });
 });
 
@@ -867,7 +868,7 @@ describe('EvmBridgeDepositScreen from a relay source: the start of the bridge', 
 });
 
 describe('EvmBridgeDepositScreen from a relay source: sheets', () => {
-  it('lists the relay tokens and offers to connect a wallet', async () => {
+  it('lists the relay tokens, with no connect-wallet action', async () => {
     await renderRelay();
     fireEvent.click(screen.getByTestId('deposit-token-selector'));
 
@@ -876,8 +877,7 @@ describe('EvmBridgeDepositScreen from a relay source: sheets', () => {
       'depositFlowTokenArrivesAs {"token":"USDC"}'
     );
     expect(screen.queryByText(/CIRCLE/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('deposit-token-connect-wallet'));
-    expect(onConnectAnother).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('depositFlowConnectWalletInstead')).not.toBeInTheDocument();
   });
 
   it('tags Agglayer as most received and Epoch as fastest', async () => {
@@ -890,6 +890,123 @@ describe('EvmBridgeDepositScreen from a relay source: sheets', () => {
     expect(screen.queryByTestId('deposit-route-agglayer-fastest')).not.toBeInTheDocument();
     expect(screen.getByTestId('deposit-route-epoch-fastest')).toHaveTextContent('depositFlowFastest');
     expect(screen.getByTestId('deposit-route-epoch')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intents', () => {
+  const NEAR_ROW = 'near:sol:sol:SOL:miden:wsol';
+  const nearRoute: DepositRouteOption = {
+    id: 'near-intents',
+    name: 'depositFlowNearRoute',
+    arrivesIn: 'depositFlowNearArrives',
+    received: { amount: '1.4' },
+    fee: { kind: 'none' },
+    best: false,
+    fastest: false,
+    selected: false
+  };
+
+  it('opens on the chain, token, amount and route that a hand-over carries', async () => {
+    render(
+      <EvmBridgeDepositScreen
+        evmAddress={RELAY}
+        relaySource={RELAY_SOURCE}
+        midenAccount={midenAccount}
+        onRelayUnsupported={onRelayUnsupported}
+        onClose={onClose}
+        initialForm={{ chainId: CHAIN_ID, token: { kind: 'epoch', key: 'USDC' }, amount: '1.505', route: 'agglayer' }}
+      />
+    );
+    await settle();
+
+    expect(screen.getByTestId('deposit-amount-input')).toHaveValue('1.505');
+    expect(screen.getByTestId('deposit-receipt-route')).toHaveTextContent('depositFlowRouteAgglayer');
+    expect(screen.getByTestId('deposit-token-selector').getAttribute('aria-label')).not.toContain('"token":"ETH"');
+  });
+
+  it('reports the chain, token, amount and step', async () => {
+    const onFormChange = jest.fn();
+    render(
+      <EvmBridgeDepositScreen
+        evmAddress={RELAY}
+        relaySource={RELAY_SOURCE}
+        midenAccount={midenAccount}
+        onRelayUnsupported={onRelayUnsupported}
+        onClose={onClose}
+        onFormChange={onFormChange}
+      />
+    );
+    await settle();
+    expect(onFormChange).toHaveBeenLastCalledWith({ chainId: CHAIN_ID, token: 'ETH', amount: '', step: 'amount' });
+    await typeAmount('1.5');
+    expect(onFormChange).toHaveBeenLastCalledWith({ chainId: CHAIN_ID, token: 'ETH', amount: '1.5', step: 'amount' });
+  });
+
+  it('shows the rows another flow gives and hands a row the relay does not serve to it', async () => {
+    const onOtherToken = jest.fn();
+    render(
+      <EvmBridgeDepositScreen
+        evmAddress={RELAY}
+        relaySource={RELAY_SOURCE}
+        midenAccount={midenAccount}
+        onRelayUnsupported={onRelayUnsupported}
+        onClose={onClose}
+        tokenSheet={{
+          networks: [
+            { id: 'sepolia', name: 'Sepolia' },
+            { id: 'solana', name: 'Solana' }
+          ],
+          tokens: [
+            {
+              id: `${CHAIN_ID}:ETH`,
+              symbol: 'ETH',
+              receivedSymbol: 'ETH',
+              logoFaucetId: undefined,
+              network: { id: 'sepolia', name: 'Sepolia' }
+            },
+            {
+              id: NEAR_ROW,
+              symbol: 'SOL',
+              receivedSymbol: 'wSOL',
+              logoFaucetId: 'wsol',
+              network: { id: 'solana', name: 'Solana' }
+            }
+          ]
+        }}
+        onOtherToken={onOtherToken}
+      />
+    );
+    await settle();
+    fireEvent.click(screen.getByTestId('deposit-token-selector'));
+    fireEvent.click(screen.getByTestId('deposit-token-network-solana'));
+    fireEvent.click(screen.getByTestId(`deposit-token-${NEAR_ROW}`));
+
+    expect(onOtherToken).toHaveBeenCalledWith(NEAR_ROW);
+  });
+
+  it('lists the routes of another flow in the route sheet and hands a pick of one to it', async () => {
+    const onOtherRoute = jest.fn();
+    render(
+      <EvmBridgeDepositScreen
+        evmAddress={RELAY}
+        relaySource={RELAY_SOURCE}
+        midenAccount={midenAccount}
+        onRelayUnsupported={onRelayUnsupported}
+        onClose={onClose}
+        otherRoutes={[nearRoute]}
+        onOtherRoute={onOtherRoute}
+      />
+    );
+    await settle();
+    await pickUsdc();
+    await typeAmount('1.505');
+    fireEvent.click(screen.getByTestId('deposit-route-change'));
+
+    expect(screen.getByTestId('deposit-route-near-intents')).toHaveTextContent('depositFlowNearRoute');
+    expect(screen.getByTestId('deposit-route-agglayer-best')).toBeInTheDocument();
+    expect(screen.getByTestId('deposit-route-epoch-fastest')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('deposit-route-near-intents'));
+    expect(onOtherRoute).toHaveBeenCalledWith('near-intents');
   });
 });
 

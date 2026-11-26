@@ -51,7 +51,7 @@ import {
   removePendingRelayDeposit,
   savePendingRelayDeposit
 } from 'lib/evm-relay/pending-deposit';
-import { buildRelayProvider, type RelaySource, relayServesChain } from 'lib/evm-relay/source';
+import { buildRelayProvider, type RelaySource } from 'lib/evm-relay/source';
 import { depositArrivalOf, useDepositArrival } from 'lib/evm-relay/use-deposit-arrival';
 import { useRelayAccount } from 'lib/evm-relay/use-relay-account';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
@@ -100,9 +100,7 @@ import {
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
   defaultUsdcxChainId,
-  usdcxArrivalKey,
   usdcxSourceChains,
-  listUsdcxSourceChains,
   TOKEN_MESSENGER_WITH_FEES_ABI,
   USDCX_DECIMALS,
   type UsdcxSourceChain,
@@ -155,6 +153,19 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
+import {
+  depositSheetOf,
+  type DepositTokenSheetRows,
+  type RelayFormReport,
+  type RelayOpeningForm
+} from './deposit-handover';
+import {
+  arrivalKeyOf,
+  mergeRouteOptions,
+  RELAY_ROUTES_BY_COST,
+  RELAY_ROUTES_BY_RANK,
+  STATED_MINUTES
+} from './deposit-routes';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
 import { EpochWithdrawalGate } from './EpochWithdrawalGate';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
@@ -164,6 +175,7 @@ import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
 import { type DepositEpochRow, type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
+import { NO_FEE_YET } from './near-deposit';
 import {
   claimPendingRelayDeposit,
   decodeRelayDepositForm,
@@ -172,7 +184,7 @@ import {
   relayRouteOf,
   type RelayRoute
 } from './relay-deposit-record';
-import { relayTokenChoiceId, relayTokenChoices } from './relay-token-choices';
+import { depositSourceNetworks, relayTokenChoiceId, relayTokenChoices } from './relay-token-choices';
 import { RelayDepositProgress, useOpenRelayJob } from './RelayDepositProgress';
 import { useDepositToken } from './useDepositToken';
 
@@ -267,10 +279,12 @@ interface EvmBridgeDepositScreenProps {
   relaySource?: RelaySource;
   midenAccount: WalletAccount;
   /**
-   * Leaves the current source wallet. For an external wallet, it reopens the wallet picker to connect another one. For
-   * a relay source, it opens the connect-wallet path ("Connect a wallet instead").
+   * An external wallet only: leaves the current source wallet and reopens the wallet picker to connect another one. A
+   * relay source has no wallet to leave.
    */
-  onConnectAnother: () => void;
+  onConnectAnother?: () => void;
+  /** A relay source only: the relay answers `deduct` gas mode, which this flow does not support yet. */
+  onRelayUnsupported?: () => void;
   onClose: () => void;
   /** Leaves the flow for Home (the close of the address and processing steps). Defaults to `onClose`. */
   onExit?: () => void;
@@ -281,6 +295,20 @@ interface EvmBridgeDepositScreenProps {
   pendingDepositId?: string;
   /** Supplied by the hosting page to report the outcome of a deposit attempt. */
   reportDeposit?: ReportDeposit;
+  /** A relay source only: the chain, token, amount and route to open on (a hand-over from the NEAR Intents flow). */
+  initialForm?: RelayOpeningForm;
+  /**
+   * A relay source only: the token sheet's chips and rows in the place of the relay's own (the relay's rows and the
+   * rows of NEAR Intents). A pick of a row that the relay does not serve calls `onOtherToken`.
+   */
+  tokenSheet?: DepositTokenSheetRows;
+  onOtherToken?: (id: string) => void;
+  /** A relay source only: routes of the current pair that are not relay routes (NEAR Intents), for the route sheet. */
+  otherRoutes?: readonly DepositRouteOption[];
+  /** A pick of one of `otherRoutes` in the route sheet. */
+  onOtherRoute?: (id: string) => void;
+  /** A relay source only: called with the chain, token, amount and step each time one of them changes. */
+  onFormChange?: (form: RelayFormReport) => void;
 }
 
 /**
@@ -297,37 +325,6 @@ type RelayStartPhase = 'idle' | 'quoting' | 'starting';
 
 /** What a confirm did: a row exists, nothing started (the deposit was not ready), or the row creation failed. */
 type ConfirmResult = { kind: 'started'; txId: string } | { kind: 'refused' } | { kind: 'failed'; error: DepositError };
-
-/** A fee that the receipt cannot show yet (no amount typed): the mock-up's rate slot, which a quote fills. */
-const NO_FEE_YET = '–';
-
-/**
- * The relay routes by cost, the mock-up's order (`routeRowsV`, `cost = { A: 1, E: 2 }`): Agglayer takes no bridge fee,
- * so it receives most. Circle is not in the mock-up's sheet; its fee model has no bridge fee for Circle, so it comes
- * before Epoch.
- */
-const RELAY_ROUTES_BY_COST: readonly RelayRoute[] = ['agglayer', 'usdcx', 'epoch'];
-/** The mock-up's speed rank (`rank = { E: 1, A: 3 }`), for two routes whose stated times are the same. Circle last. */
-const RELAY_ROUTES_BY_RANK: readonly RelayRoute[] = ['epoch', 'agglayer', 'usdcx'];
-/** The minutes that each arrival text of the wallet states, so the route sheet can name the fastest route. */
-const STATED_MINUTES = {
-  depositFlowArrivesAgglayer: 30,
-  depositFlowArrivesEpoch: 2,
-  usdcxArrival: 2,
-  usdcxArrivalArc: 1
-} satisfies Record<string, number>;
-
-/** The i18n key of a route's arrival time: Circle's is the one that the Circle screens show for the chain. */
-function arrivalKeyOf(route: RelayRoute, chainId: number): keyof typeof STATED_MINUTES {
-  switch (route) {
-    case 'agglayer':
-      return 'depositFlowArrivesAgglayer';
-    case 'epoch':
-      return 'depositFlowArrivesEpoch';
-    case 'usdcx':
-      return usdcxArrivalKey(chainId);
-  }
-}
 
 // The helpers below keep the conditions of the deposit screen out of its body: each branch there multiplies the code
 // paths that the hooks lint rule counts, and past its limit it reports every hook as conditional.
@@ -851,6 +848,25 @@ function routeForToken(token: DepositToken): BridgeRoute {
   return epochTokenKey(token) === null ? 'agglayer' : 'epoch';
 }
 
+/**
+ * The state the screen opens on: the hand-over's form, else Circle USDC on the default chain with no amount. A route
+ * that the form does not name is the token's own route (`openingRouteOf`).
+ */
+function openingFormOf(form: RelayOpeningForm | undefined): {
+  token: DepositToken;
+  chainId: number | undefined;
+  route: BridgeRoute | undefined;
+  amount: string;
+} {
+  if (form === undefined) return { token: 'CIRCLE_USDC', chainId: undefined, route: undefined, amount: '' };
+  return { token: form.token, chainId: form.chainId, route: form.route, amount: form.amount };
+}
+
+/** The route the screen opens on: the hand-over's route, else the route of the opening token. */
+function openingRouteOf(route: BridgeRoute | undefined, token: DepositToken): BridgeRoute {
+  return route ?? routeForToken(token);
+}
+
 async function readEthBalance(evmAddress: string, chainId: number, observer?: BalanceStageObserver): Promise<bigint> {
   const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest'], chainId, observer);
   recordBalanceStage(observer, 'value_decode');
@@ -906,12 +922,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   relaySource,
   midenAccount,
   onConnectAnother,
+  onRelayUnsupported,
   onClose,
   onExit = onClose,
   pendingDepositId,
-  reportDeposit
+  reportDeposit,
+  initialForm,
+  tokenSheet,
+  onOtherToken,
+  otherRoutes,
+  onOtherRoute,
+  onFormChange
 }) => {
   const { t } = useTranslation();
+  const [opening] = useState(() => openingFormOf(initialForm));
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
@@ -949,30 +973,22 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const { token, selectToken } = useDepositToken(clearTokenState, 'CIRCLE_USDC');
+  const { token, selectToken } = useDepositToken(clearTokenState, opening.token);
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>(routeForToken(token));
+  const [route, setRoute] = useState<BridgeRoute>(() => openingRouteOf(opening.route, token));
   // The one chain picked in the network drawer. Every route starts from it, and the token drawer offers what it bridges.
-  const [pickedChainId, setPickedChainId] = useState<number>();
+  const [pickedChainId, setPickedChainId] = useState<number | undefined>(opening.chainId);
   const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSources = useMemo(() => usdcxSourceChains(bridgeConfig), [bridgeConfig]);
   // Every chain a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers a
   // token, or an AggLayer chain that takes deposits. The list is the same for every token. A relay source takes only a
   // chain that the relay serves.
-  const sourceNetworks = useMemo<readonly BridgeNetwork[]>(() => {
-    const circle = new Set(listUsdcxSourceChains().map(entry => entry.chain.id));
-    return Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).flatMap(entry => {
-      const offered =
-        circle.has(entry.chainId) ||
-        selectEpochDepositTokens(bridgeConfig, entry.chainId).length > 0 ||
-        entry.bridges.agglayer?.depositEnabled === true;
-      const served = relaySource === undefined || relayServesChain(entry.chainId);
-      const network = getBridgeNetworkByChainId(entry.chainId);
-      return offered && served && network ? [network] : [];
-    });
-  }, [bridgeConfig, relaySource]);
+  const sourceNetworks = useMemo<readonly BridgeNetwork[]>(
+    () => depositSourceNetworks(bridgeConfig, relaySource !== undefined),
+    [bridgeConfig, relaySource]
+  );
   // The picked chain, else Circle's default source, else the first chain listed. Zero while the config lists none: the
   // form then asks for a network instead of naming a compiled default.
   const sourceChainId = (() => {
@@ -989,7 +1005,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
   // The amount whose display quote Circle refused, which the relay amount step says.
   const [usdcxQuoteFailedFor, setUsdcxQuoteFailedFor] = useState<string | null>(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(opening.amount);
   const [epochBalanceSlot, setEpochBalanceSlot] = useState<StampedBalanceMap<EpochBalancesIdentity> | null>(null);
   const [circleBalanceSlot, setCircleBalanceSlot] = useState<StampedBalance<CircleBalanceIdentity> | null>(null);
   // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
@@ -1623,7 +1639,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The drawer may have been open since before the tap.
   const handleConnectAnother = useCallback(() => {
     if (confirming.current) return;
-    onConnectAnother();
+    onConnectAnother?.();
   }, [onConnectAnother]);
 
   const handleRouteChange = useCallback(
@@ -3166,10 +3182,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     address: relaySource?.address
   });
   const relayMode = arrival.mode ?? relayAccount.account?.mode ?? null;
-  // A relay that takes its gas out of the deposit cannot run this flow yet: the connect-wallet path takes it.
+  // A relay that takes its gas out of the deposit cannot run this flow yet: the flow that holds this screen says so.
   useEffect(() => {
-    if (relay && relayMode === 'deduct') onConnectAnother();
-  }, [relay, relayMode, onConnectAnother]);
+    if (relay && relayMode === 'deduct') onRelayUnsupported?.();
+  }, [relay, relayMode, onRelayUnsupported]);
 
   // What the address must hold: the reviewed amount, or more when a new Epoch quote asks for more.
   const recordUnits = pendingDeposit === null ? null : BigInt(pendingDeposit.amountBaseUnits);
@@ -3311,6 +3327,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     fastest: candidate === fastestRelayRoute,
     selected: candidate === relayRoute
   }));
+  // The relay routes and the routes of another flow (NEAR Intents) for this pair, in one sheet.
+  const sheetRouteOptions = mergeRouteOptions(relayRouteOptions, otherRoutes, sourceChainId);
 
   const relayChoices = useMemo(
     () => (relay ? relayTokenChoices(bridgeConfig, sourceNetworks, nativeUsdFaucetId ?? undefined) : []),
@@ -3319,15 +3337,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const relaySheetNetworks = sourceNetworks
     .filter(network => relayChoices.some(choice => choice.chainId === network.chainId))
     .map(network => ({ id: network.id, name: network.name }));
+  const relaySheet = depositSheetOf(tokenSheet, relaySheetNetworks, relayChoices);
   const handleRelayTokenPick = useCallback(
     (id: string) => {
+      if (confirming.current) return;
       const choice = relayChoices.find(candidate => candidate.option.id === id);
-      if (choice === undefined || confirming.current) return;
+      if (choice === undefined) {
+        // A row that the relay does not serve belongs to another flow.
+        setTokenDrawerOpen(false);
+        onOtherToken?.(id);
+        return;
+      }
       setPickedChainId(choice.chainId);
       handleTokenSelect(choice.token);
     },
-    [handleTokenSelect, relayChoices]
+    [handleTokenSelect, onOtherToken, relayChoices]
   );
+  // The selection, for the flow that holds this screen: it quotes the other routes of the pair, and hands the
+  // selection over with a pick of one of them.
+  useEffect(() => {
+    onFormChange?.({ chainId: sourceChainId, token, amount, step: relayStep });
+  }, [amount, onFormChange, relayStep, sourceChainId, token]);
 
   // Review needs what the user sends: Epoch's quote, or Circle's fee on its executor route.
   const relayReviewReady = sendReady(canConfirmRoute, relaySendUnits);
@@ -3752,7 +3782,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             bridgeFee={relayFee}
             bridgeFeeDeducted={!relayFeeOnTop}
             routeName={routeNameOf(relayRoute)}
-            routeCount={availableRelayRoutes.length}
+            routeCount={sheetRouteOptions.length}
             onChangeRoute={() => setRouteSheetOpen(true)}
             // The mock-up states no arrival time for Circle and leaves the row out (`viewAmount`).
             arrivesIn={relayRoute === 'usdcx' ? undefined : arrivesInOf(relayRoute, sourceChainId)}
@@ -3852,23 +3882,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         <DepositTokenSheet
           open={tokenDrawerOpen}
           onOpenChange={setTokenDrawerOpen}
-          networks={relaySheetNetworks}
+          networks={relaySheet.networks}
           networkId={relayNetwork.id}
-          tokens={relayChoices.map(choice => choice.option)}
+          tokens={relaySheet.tokens}
           selectedId={relayTokenChoiceId(sourceChainId, token)}
           onSelect={handleRelayTokenPick}
-          onConnectWallet={handleConnectAnother}
         />
         <DepositRouteSheet
           open={routeSheetOpen}
           onOpenChange={setRouteSheetOpen}
-          routes={relayRouteOptions}
+          routes={sheetRouteOptions}
           receivedSymbol={arrivingName}
           feeSymbol={tokenLabel}
           onSelect={id => {
             setRouteSheetOpen(false);
             const picked = availableRelayRoutes.find(candidate => candidate === id);
             if (picked !== undefined) handleRouteChange(picked);
+            else onOtherRoute?.(id);
           }}
         />
         {pendingDeposit !== null && (

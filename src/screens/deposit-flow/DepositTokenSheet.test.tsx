@@ -35,7 +35,6 @@ const props = (overrides: Partial<DepositTokenSheetProps> = {}): DepositTokenShe
   tokens: TOKENS,
   selectedId: '1:ETH',
   onSelect: jest.fn(),
-  onConnectWallet: jest.fn(),
   ...overrides
 });
 
@@ -100,12 +99,9 @@ describe('DepositTokenSheet', () => {
     expect(screen.getByTestId('deposit-token-network-ethereum')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('offers "Connect a wallet instead"', () => {
-    const onConnectWallet = jest.fn();
-    render(<DepositTokenSheet {...props({ onConnectWallet })} />);
+  it('offers no connect-wallet action', () => {
+    render(<DepositTokenSheet {...props()} />);
 
-    fireEvent.click(screen.getByTestId('deposit-token-connect-wallet'));
-    expect(screen.getByTestId('deposit-token-connect-wallet')).toHaveTextContent('depositFlowConnectWalletInstead');
-    expect(onConnectWallet).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('depositFlowConnectWalletInstead')).not.toBeInTheDocument();
   });
 });
