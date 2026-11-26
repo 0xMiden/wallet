@@ -3,7 +3,7 @@
   "name": "miden-evm-relay",
   // worker.ts exports the fetch handler of index.ts and the Sender Durable Object class.
   "main": "src/worker.ts",
-  "compatibility_date": "2026-11-20",
+  "compatibility_date": "2026-10-20",
   "workers_dev": true,
   "preview_urls": false,
   // Logs are on so the Worker can write one line when the relayer account has no funds.
