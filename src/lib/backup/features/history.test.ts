@@ -23,6 +23,7 @@ import {
   peerHistoryChunkCount,
   projectTransaction,
   readHistory,
+  recordFinalAccountCommitments,
   restoreTransaction,
   spillOverfullChunks
 } from './history';
@@ -911,8 +912,78 @@ describe('history sync', () => {
     await expect(chunkRows(0)).resolves.toEqual(['mine']);
   });
 
-  it('recordFinalAccountCommitments and flushPass read via indexes in chunks without Repo.transactions.filter and yield mid-scan', async () => {
-    const bulk: ITransaction[] = Array.from({ length: 130 }, (_, i) =>
+  async function withCompletedChunkProbe(
+    armOnCompletedCursor: number,
+    run: () => Promise<void>
+  ): Promise<{ completedCursorOpens: number; completedCursorsAfterWrite: number; writeDone: boolean }> {
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+    let writePromise: Promise<string> | undefined;
+    let writeDone = false;
+    let completedCursorOpens = 0;
+    let completedCursorsAfterWrite = 0;
+    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+    Repo.transactions.core.openCursor = req => {
+      const isCompletedStatus =
+        req.query.index.name === 'status' &&
+        (req.query.range as { lower?: unknown } | undefined)?.lower === ITransactionStatus.Completed;
+      if (isCompletedStatus) {
+        completedCursorOpens += 1;
+        if (writeDone) {
+          completedCursorsAfterWrite += 1;
+        } else if (!writePromise && completedCursorOpens === armOnCompletedCursor) {
+          writePromise = Dexie.ignoreTransaction(() =>
+            Repo.transactions.add(
+              row(`concurrent-backup-write-${armOnCompletedCursor}`, {
+                status: ITransactionStatus.Queued,
+                completedAt: undefined
+              })
+            )
+          ).then(id => {
+            writeDone = true;
+            return id;
+          });
+        }
+      }
+      return origOpenCursor(req);
+    };
+
+    try {
+      await run();
+      expect(filterSpy).not.toHaveBeenCalled();
+      expect(writePromise).toBeDefined();
+      await writePromise;
+      return { completedCursorOpens, completedCursorsAfterWrite, writeDone };
+    } finally {
+      Repo.transactions.core.openCursor = origOpenCursor;
+      filterSpy.mockRestore();
+    }
+  }
+
+  it('recordFinalAccountCommitments reads via status index in chunks without Repo.transactions.filter and yields mid-scan', async () => {
+    const bulk: ITransaction[] = Array.from({ length: 200 }, (_, i) =>
+      row(`bulk-${String(i).padStart(3, '0')}`, {
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1_700_000_000 + i,
+        completedAt: 1_700_000_000 + i,
+        resultBytes: i === 199 ? new Uint8Array([1, 2, 3]) : undefined
+      })
+    );
+    await Repo.transactions.bulkAdd(bulk);
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockClear();
+    jest.mocked(midenClientProxy.getGuardianResultCommitment).mockResolvedValueOnce('0xdeadbeef');
+
+    const { completedCursorOpens, completedCursorsAfterWrite, writeDone } = await withCompletedChunkProbe(1, () =>
+      recordFinalAccountCommitments()
+    );
+    expect(completedCursorOpens).toBeGreaterThanOrEqual(4);
+    expect(writeDone).toBe(true);
+    expect(completedCursorsAfterWrite).toBeGreaterThanOrEqual(2);
+    expect(midenClientProxy.getGuardianResultCommitment).toHaveBeenCalledTimes(1);
+    expect((await Repo.transactions.get('bulk-199'))?.finalAccountCommitment).toBe('0xdeadbeef');
+  });
+
+  it('flushPass reads Completed status index in chunks without Repo.transactions.filter and yields mid-scan', async () => {
+    const bulk: ITransaction[] = Array.from({ length: 200 }, (_, i) =>
       row(`bulk-${String(i).padStart(3, '0')}`, {
         status: ITransactionStatus.Completed,
         initiatedAt: 1_700_000_000 + i,
@@ -921,37 +992,14 @@ describe('history sync', () => {
     );
     await Repo.transactions.bulkAdd(bulk);
 
-    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
-    let writePromise: Promise<string> | undefined;
-    let writeDone = false;
-    let cursorOpensAfterWrite = 0;
-    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
-    Repo.transactions.core.openCursor = req => {
-      if (writeDone) {
-        cursorOpensAfterWrite += 1;
-      } else if (!writePromise) {
-        writePromise = Dexie.ignoreTransaction(() =>
-          Repo.transactions.add(
-            row('concurrent-backup-write', { status: ITransactionStatus.Queued, completedAt: undefined })
-          )
-        ).then(id => {
-          writeDone = true;
-          return id;
-        });
+    const { completedCursorOpens, completedCursorsAfterWrite, writeDone } = await withCompletedChunkProbe(
+      5,
+      async () => {
+        await flushHistory(session);
       }
-      return origOpenCursor(req);
-    };
-
-    try {
-      await flushHistory(session);
-      expect(filterSpy).not.toHaveBeenCalled();
-      expect(writePromise).toBeDefined();
-      await writePromise;
-      expect(writeDone).toBe(true);
-      expect(cursorOpensAfterWrite).toBeGreaterThan(0);
-    } finally {
-      Repo.transactions.core.openCursor = origOpenCursor;
-      filterSpy.mockRestore();
-    }
+    );
+    expect(completedCursorOpens).toBeGreaterThanOrEqual(8);
+    expect(writeDone).toBe(true);
+    expect(completedCursorsAfterWrite).toBeGreaterThanOrEqual(2);
   });
 });
