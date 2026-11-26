@@ -420,4 +420,32 @@ describe('retractSubmitCrossing (#2325)', () => {
     ]);
     expect(row?.submitEvidence?.[0]?.preSubmitEnd).toBeUndefined();
   });
+
+  it('strips stale raisedFlag from prior entries when a fresh crossing raises mayHaveSubmitted (#2325)', async () => {
+    for (const [id, fn] of [
+      ['tx-stage-transfer', () => recordSubmitCrossing('tx-stage-transfer', undefined, attempt)],
+      ['tx-pin-transfer', () => pinGuardianCrossing('tx-pin-transfer', attempt)]
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      await Repo.transactions.put(
+        generating({
+          id,
+          attemptId: 'a1',
+          mayHaveSubmitted: undefined,
+          submitEvidence: [{ attemptId: 'a0', capturedAt: 90, source: 'pin', raisedFlag: true }]
+        })
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await fn();
+      // eslint-disable-next-line no-await-in-loop
+      const raised = await Repo.transactions.where({ id }).first();
+      expect(raised?.mayHaveSubmitted).toBe(true);
+      expect(raised?.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+      expect(raised?.submitEvidence?.[1]).toMatchObject({ attemptId: 'a1', raisedFlag: true });
+      // eslint-disable-next-line no-await-in-loop
+      await markAttemptPreSubmitEnd(id, 'a1');
+      // eslint-disable-next-line no-await-in-loop
+      expect((await Repo.transactions.where({ id }).first())?.mayHaveSubmitted).toBeUndefined();
+    }
+  });
 });

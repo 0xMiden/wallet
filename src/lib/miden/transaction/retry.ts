@@ -674,7 +674,12 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       // Cleared first, so the send branch below reads them as it always has. An acknowledgement keeps the crossing
       // that pins a send's bytes; only a proven row's attempts are dead enough to rebuild them.
       if (plan.clearFlags) {
-        if (plan.proven || dbTx.type !== 'send' || dbTx.requestBytes === undefined) dbTx.mayHaveSubmitted = undefined;
+        if (plan.proven || dbTx.type !== 'send' || dbTx.requestBytes === undefined) {
+          dbTx.mayHaveSubmitted = undefined;
+          if (dbTx.submitEvidence !== undefined) {
+            dbTx.submitEvidence = dbTx.submitEvidence.map(({ raisedFlag: _staleFlag, ...entry }) => entry);
+          }
+        }
         dbTx.cancelledInFlightAt = undefined;
       }
       dbTx.status = ITransactionStatus.Queued;

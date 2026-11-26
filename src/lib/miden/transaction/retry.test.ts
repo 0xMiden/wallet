@@ -11,7 +11,13 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { noteDeliveryWriteCount } from './helper';
+import {
+  markAttemptPreSubmitEnd,
+  noteDeliveryWriteCount,
+  pinGuardianCrossing,
+  recordSubmitCrossing,
+  retractSubmitCrossing
+} from './helper';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import {
   RETRY_REFUSAL_COPY,
@@ -1215,4 +1221,93 @@ it('retains the actual missing-row refusal without replacing its Error or adding
   expect(error).toBeInstanceOf(Error);
   expect(snapshotPendingRetry(error)).toBe('row_missing');
   expect(first).toHaveBeenCalledTimes(1);
+});
+
+describe('requeueFailedTransaction - C-7 raisedFlag ownership across retries (F11)', () => {
+  it('strips stale raisedFlag when proven requeue clears mayHaveSubmitted so a retried attempt can retract pre-submit', async () => {
+    const row = failedRow({
+      id: 'tx-1',
+      type: 'send',
+      stage: 'proving',
+      attemptId: 'a0',
+      error: 'Something broke',
+      mayHaveSubmitted: true,
+      neverCommittedAt: 1000,
+      requestBytes: new Uint8Array([1, 2, 3]),
+      submitEvidence: [
+        {
+          attemptId: 'a0',
+          capturedAt: 950,
+          source: 'pin',
+          guardianProposalNonce: 1,
+          verdict: 'never-committed',
+          raisedFlag: true
+        }
+      ]
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+    expect(row.submitEvidence?.[0]).toMatchObject({ attemptId: 'a0', verdict: 'never-committed' });
+
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.attemptId = 'a1';
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 2 });
+    expect(row.mayHaveSubmitted).toBe(true);
+
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+
+    row.status = ITransactionStatus.Failed;
+    row.error = STALE_PROOF_ERROR;
+    row.stage = 'proving';
+
+    await expect(requeueFailedTransaction('tx-1')).resolves.toBeUndefined();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('strips stale raisedFlag on acknowledged plain-send requeue while preserving prior evidence fields', async () => {
+    const row = failedRow({
+      id: 'tx-1',
+      type: 'send',
+      stage: 'sending',
+      attemptId: 'a0',
+      error: 'Network timeout',
+      mayHaveSubmitted: true,
+      requestBytes: undefined,
+      submitEvidence: [
+        {
+          attemptId: 'a0',
+          capturedAt: 950,
+          source: 'stage',
+          transactionId: '0x01',
+          endedBy: 'out-of-band',
+          endedAt: 980,
+          raisedFlag: true
+        }
+      ]
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a0' } });
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+    expect(row.submitEvidence?.[0]).toMatchObject({
+      attemptId: 'a0',
+      transactionId: '0x01',
+      endedBy: 'out-of-band',
+      endedAt: 980
+    });
+
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.attemptId = 'a1';
+    await recordSubmitCrossing('tx-1', undefined, { attemptId: 'a1', fromExecute: false });
+    expect(row.mayHaveSubmitted).toBe(true);
+
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
 });

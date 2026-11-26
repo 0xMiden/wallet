@@ -920,26 +920,25 @@ export interface AttemptContext {
   readonly guardianProposalNonce?: number;
 }
 
-/**
- * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
- * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
- * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
- */
-export const recordSubmitCrossing = async (
+const recordCrossing = async (
   id: string,
-  evidence: SubmitEvidenceFields | undefined,
-  attempt: AttemptContext
+  attempt: AttemptContext,
+  source: 'stage' | 'pin',
+  evidence?: SubmitEvidenceFields
 ): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
     const raised = tx.mayHaveSubmitted !== true;
+    const baseEvidence = raised
+      ? tx.submitEvidence?.map(({ raisedFlag: _staleFlag, ...entry }) => entry)
+      : tx.submitEvidence;
     tx.mayHaveSubmitted = true;
     tx.submitEvidence = upsertEvidenceEntry(
-      tx.submitEvidence,
+      baseEvidence,
       attempt.attemptId,
       {
-        source: 'stage',
-        evidence,
+        source,
+        ...(evidence !== undefined ? { evidence } : {}),
         guardianProposalNonce: attempt.guardianProposalNonce,
         fromExecute: attempt.fromExecute,
         ...(raised ? { raisedFlag: true } : {})
@@ -950,28 +949,23 @@ export const recordSubmitCrossing = async (
 };
 
 /**
+ * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
+ * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
+ * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
+ */
+export const recordSubmitCrossing = (
+  id: string,
+  evidence: SubmitEvidenceFields | undefined,
+  attempt: AttemptContext
+): Promise<void> => recordCrossing(id, attempt, 'stage', evidence);
+
+/**
  * The Guardian leaf's pre-dispatch pin, per attempt (#1081). A realm killed between submit and the replayed stamp
  * leaves the row looking never-broadcast, so the crossing is pinned before dispatch. `raisedFlag` records that this
  * pin, not an earlier crossing, set `mayHaveSubmitted`, which is what lets the leaf retire it.
  */
-export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): Promise<void> => {
-  const nowSec = Math.floor(Date.now() / 1000);
-  await Repo.transactions.where({ id }).modify(tx => {
-    const raised = tx.mayHaveSubmitted !== true;
-    tx.mayHaveSubmitted = true;
-    tx.submitEvidence = upsertEvidenceEntry(
-      tx.submitEvidence,
-      attempt.attemptId,
-      {
-        source: 'pin',
-        guardianProposalNonce: attempt.guardianProposalNonce,
-        fromExecute: attempt.fromExecute,
-        ...(raised ? { raisedFlag: true } : {})
-      },
-      nowSec
-    );
-  });
-};
+export const pinGuardianCrossing = (id: string, attempt: AttemptContext): Promise<void> =>
+  recordCrossing(id, attempt, 'pin');
 
 /**
  * The Guardian leaf kept this attempt's candidate instead of abandoning it (#1081), on a row that awaits a verdict:
