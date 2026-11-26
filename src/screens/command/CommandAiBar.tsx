@@ -250,7 +250,14 @@ export function CommandAiBar({
   const [state, setState] = useState<AiBarState>({ kind: 'idle' });
   const [pendingKinds, setPendingKinds] = useState<RedactedKind[] | null>(null);
   const [helpAnswer, setHelpAnswer] = useState<Extract<AiCompilerOutput, { op: 'explain' }> | 'topics' | null>(null);
-  const [requestError, setRequestError] = useState<Extract<AiBarState, { kind: 'error' }> | null>(null);
+  const plan = planCtx?.plan;
+  const [requestFailure, setRequestFailure] = useState<{
+    error: Extract<AiBarState, { kind: 'error' }>;
+    state: AiBarState;
+    plan: typeof plan;
+  } | null>(null);
+  const requestError =
+    requestFailure?.state === state && requestFailure.plan === plan ? requestFailure.error : null;
   const errorState = requestError ?? (state.kind === 'error' ? state : null);
   useUserVisibleError(errorState ? 'raw_command_ai_failed' : null, 'inline');
   const [turns, setTurns] = useState<BarTurn[]>([]);
@@ -366,6 +373,8 @@ export function CommandAiBar({
   const submitPrompt = useCallback(
     async (raw: string, helpOnly = false) => {
       if (!raw || activeAbortRef.current) return;
+      const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) =>
+        setRequestFailure(error && { error, state, plan: planCtx?.plan });
       if (containsCommandSecret(raw)) {
         setRequestError({ kind: 'error', messageKey: 'commandAiHelpSecret', redactedKinds: [] });
         setInput('');
@@ -898,7 +907,7 @@ export function CommandAiBar({
           eyebrow={t('commandAiAssistantName')}
           title={t(errorState.messageKey, errorState.messageParams)}
           redactedKinds={errorState.redactedKinds}
-          onDismiss={requestError ? () => setRequestError(null) : dismiss}
+          onDismiss={requestError ? () => setRequestFailure(null) : dismiss}
           tone="error"
         >
           {errorState.fallbackAction && (
