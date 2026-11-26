@@ -1576,7 +1576,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const timeout = opts.timeoutMs ?? 120_000;
     const role = opts.role ?? 'main';
     const recoveryPhrasePrompt = opts.recoveryPhrasePrompt ?? this.recoveryPhrasePrompt ?? 'keep';
-    const gate = this.page.getByTestId('hot-key-rotation-gate');
+    const gateTestId = 'hot-key-rotation-gate';
+    const gate = this.page.getByTestId(gateTestId);
     await gate.waitFor({ state: 'visible', timeout: 30_000 });
 
     // The gate only says "it failed". The reason is on the row -- and on a
@@ -1595,52 +1596,47 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         .join('');
       return failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)';
     };
-    // A surface that ends the wait with an error. Its own timeout never settles, so only
-    // the gate's detach wait can time the race out.
-    const failsOn = (selector: string, describe: () => Promise<string>): Promise<never> =>
-      this.page
-        .locator(selector)
-        .waitFor({ state: 'visible', timeout })
-        .then(
-          async () => {
-            throw new Error(`completeHotKeyRotation: ${await describe()}`);
-          },
-          () => new Promise<never>(() => undefined)
-        );
-    // The device-role step. It is not an end of the wait: the answer starts the
-    // rotation, and the wait goes on. Its own timeout never settles, like `failsOn`.
-    const roleStep = this.page.getByTestId(DEVICE_ROLE_STEP_TESTID);
-    const roleStepShows = (): Promise<'role-step'> =>
-      roleStep.waitFor({ state: 'visible', timeout }).then(
-        (): 'role-step' => 'role-step',
-        () => new Promise<never>(() => undefined)
-      );
-
-    // A gate with no rotation shows the role step first (`HotKeyRotationGate.tsx`,
-    // `roleChoicePending`), and it stays up until the step is answered. A gate that
-    // adopted a rotation on mount, or whose role a caller already answered, never shows it.
+    // Concurrent locator waits can trigger the same Keep handler and strand one another in Playwright.
     for (let answers = 0; ; answers++) {
-      const outcome = await Promise.race([
-        gate.waitFor({ state: 'detached', timeout }).then((): 'cleared' => 'cleared'),
-        roleStepShows(),
-        failsOn(
-          '[data-testid="hot-key-rotation-failed"]',
-          async () => `rotation reached its terminal-failure surface${await failedRows()}`
-        ),
-        opts.fundingExpected
-          ? failsOn(
-              '[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]',
-              async () => `the funding claim failed${await failedRows()}`
-            )
-          : failsOn('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]', async () => {
-              const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
-              return (
-                'rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
-                `fundingExpected (address ${address?.trim() ?? '?'})`
-              );
-            })
-      ]);
+      const outcome = await this.page
+        .waitForFunction(
+          ({ gateTestId, roleStepTestId, fundingExpected }) => {
+            const visible = (selector: string): boolean => {
+              const element = document.querySelector(selector);
+              if (!element) return false;
+              const { width, height } = element.getBoundingClientRect();
+              return width > 0 && height > 0 && getComputedStyle(element).visibility === 'visible';
+            };
+            if (!document.querySelector(`[data-testid="${gateTestId}"]`)) return 'cleared';
+            if (visible(`[data-testid="${roleStepTestId}"]`)) return 'role-step';
+            if (visible('[data-testid="hot-key-rotation-failed"]')) return 'rotation-failed';
+            if (fundingExpected) {
+              if (visible('[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]')) {
+                return 'claim-failed';
+              }
+            } else if (visible('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]')) {
+              return 'shortfall';
+            }
+            return false;
+          },
+          { gateTestId, roleStepTestId: DEVICE_ROLE_STEP_TESTID, fundingExpected: opts.fundingExpected },
+          { timeout, polling: 100 }
+        )
+        .then(handle => handle.jsonValue());
       if (outcome === 'cleared') break;
+      if (outcome === 'rotation-failed') {
+        throw new Error(`completeHotKeyRotation: rotation reached its terminal-failure surface${await failedRows()}`);
+      }
+      if (outcome === 'claim-failed') {
+        throw new Error(`completeHotKeyRotation: the funding claim failed${await failedRows()}`);
+      }
+      if (outcome === 'shortfall') {
+        const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
+        throw new Error(
+          'completeHotKeyRotation: rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
+            `fundingExpected (address ${address?.trim() ?? '?'})`
+        );
+      }
       if (answers >= MAX_DEVICE_ROLE_ANSWERS) {
         throw new Error(
           `completeHotKeyRotation: the gate asked for the device role ${answers + 1} times; ` +
