@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Give Bread Command clearer guidance for questions about sharing recovery phrases.
 - [FIX][all] Make Bread Command name the public sender account and the wallet’s Public and Private payment choices.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
