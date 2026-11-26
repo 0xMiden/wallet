@@ -2280,6 +2280,7 @@
   "commandAiHelpWalletTitle": "Що я можу робити в Bread?",
   "commandAiHelpDisclosure": "Bread надсилає ваше запитання до своєї служби штучного інтелекту після видалення деяких деталей. Не вказуйте паролі та фрази для відновлення в чаті.",
   "commandAiHelpSecret": "Не вказуйте паролі, приватні ключі та фрази для відновлення в чаті.",
+  "commandAiInputTooLong": "Скоротіть своє повідомлення до $limit$ символів або менше.",
   "commandAiHelpBridgeSource": "Політика конфіденційності Bridge",
   "commandAiPlanTitle": "План дій",
   "commandAiPlanProgress": "Крок $current$ із $total$",

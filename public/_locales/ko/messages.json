@@ -10461,6 +10461,15 @@
     "message": "채팅에서는 비밀번호, 개인 키 및 복구 문구를 절대 언급하지 마십시오.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "메시지를 $limit$자 이하로 줄이십시오.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridge 개인정보 처리방침",
     "englishSource": "Bridge privacy policy"

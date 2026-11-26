@@ -10471,6 +10471,15 @@
     "message": "Geben Sie Passwörter, private Schlüssel und Wiederherstellungsphrasen nicht im Chat preis.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Kürzen Sie Ihre Nachricht auf $limit$ Zeichen oder weniger.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Datenschutzerklärung von Bridge",
     "englishSource": "Bridge privacy policy"

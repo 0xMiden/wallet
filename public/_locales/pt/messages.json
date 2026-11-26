@@ -10469,6 +10469,15 @@
     "message": "Não mencione senhas, chaves privadas e frases de recuperação em chats.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Reduzir sua mensagem para $limit$ caracteres ou menos.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Política de privacidade da Bridge",
     "englishSource": "Bridge privacy policy"

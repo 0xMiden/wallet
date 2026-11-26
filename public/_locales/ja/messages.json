@@ -10461,6 +10461,15 @@
     "message": "パスワード、秘密鍵、リカバリーフレーズはチャットで共有しないでください。",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "メッセージを$limit$文字以下に短縮してください。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridgeのプライバシーポリシー",
     "englishSource": "Bridge privacy policy"

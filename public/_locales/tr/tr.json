@@ -2280,6 +2280,7 @@
   "commandAiHelpWalletTitle": "Bread'de neler yapabilirim?",
   "commandAiHelpDisclosure": "Bread, bazı ayrıntıları kaldırdıktan sonra sorunuzu yapay zeka hizmetine iletir. Şifrelerinizi ve kurtarma ifadelerinizi sohbetten uzak tutun.",
   "commandAiHelpSecret": "Şifreleri, özel anahtarları ve kurtarma ifadelerini sohbetlerde paylaşmayın.",
+  "commandAiInputTooLong": "Mesajınızı $limit$ karakter veya daha azına kısaltın.",
   "commandAiHelpBridgeSource": "Bridge gizlilik politikası",
   "commandAiPlanTitle": "Eylem planı",
   "commandAiPlanProgress": "$current$. adım / $total$",

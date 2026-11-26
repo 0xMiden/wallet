@@ -2282,6 +2282,7 @@
   "commandAiHelpWalletTitle": "Breadでは何ができるのですか？",
   "commandAiHelpDisclosure": "Breadは、一部の詳細情報を削除した上で、あなたの質問をAIサービスに送信します。チャットにはパスワードやリカバリーフレーズを含めないでください。",
   "commandAiHelpSecret": "パスワード、秘密鍵、リカバリーフレーズはチャットで共有しないでください。",
+  "commandAiInputTooLong": "メッセージを$limit$文字以下に短縮してください。",
   "commandAiHelpBridgeSource": "Bridgeのプライバシーポリシー",
   "commandAiPlanTitle": "行動計画",
   "commandAiPlanProgress": "$total$ステップ中の$current$",

@@ -2272,6 +2272,7 @@
   "commandAiHelpWalletTitle": "Was kann ich in Bread tun?",
   "commandAiHelpDisclosure": "Bread leitet Ihre Frage nach dem Entfernen einiger Details an seinen KI-Dienst weiter. Geben Sie Passwörter und Wiederherstellungsphrasen nicht im Chat preis.",
   "commandAiHelpSecret": "Geben Sie Passwörter, private Schlüssel und Wiederherstellungsphrasen nicht im Chat preis.",
+  "commandAiInputTooLong": "Kürzen Sie Ihre Nachricht auf $limit$ Zeichen oder weniger.",
   "commandAiHelpBridgeSource": "Datenschutzerklärung von Bridge",
   "commandAiPlanTitle": "Maßnahmenplan",
   "commandAiPlanProgress": "Schritt $current$ von $total$",

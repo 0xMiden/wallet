@@ -10465,6 +10465,15 @@
     "message": "Не указывайте пароли, приватные ключи и фразы восстановления в чате.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Сократите своё сообщение до $limit$ символов или меньше.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Политика конфиденциальности Bridge",
     "englishSource": "Bridge privacy policy"

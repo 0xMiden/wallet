@@ -10463,6 +10463,15 @@
     "message": "Şifreleri, özel anahtarları ve kurtarma ifadelerini sohbetlerde paylaşmayın.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Mesajınızı $limit$ karakter veya daha azına kısaltın.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridge gizlilik politikası",
     "englishSource": "Bridge privacy policy"

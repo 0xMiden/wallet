@@ -2282,6 +2282,7 @@
   "commandAiHelpWalletTitle": "在 Bread 中我可以做什麼？",
   "commandAiHelpDisclosure": "Bread 會在移除部分細節後，將您的問題轉送至其 AI 服務。請勿在聊天中透露密碼和恢復短語。",
   "commandAiHelpSecret": "請勿在聊天中透露密碼、私鑰及恢復短語。",
+  "commandAiInputTooLong": "請將您的訊息縮短至 $limit$ 個字元或更少。",
   "commandAiHelpBridgeSource": "Bridge 隱私權政策",
   "commandAiPlanTitle": "行動計畫",
   "commandAiPlanProgress": "$current$ 步驟，共 $total$ 步驟",

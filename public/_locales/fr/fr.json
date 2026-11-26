@@ -2278,6 +2278,7 @@
   "commandAiHelpWalletTitle": "Que puis-je faire sur Bread ?",
   "commandAiHelpDisclosure": "Bread transmet votre question à son service d’IA après avoir supprimé certains détails. Ne mentionnez pas vos mots de passe ni vos phrases de récupération dans le chat.",
   "commandAiHelpSecret": "Ne communiquez jamais vos mots de passe, clés privées et phrases de récupération dans les discussions.",
+  "commandAiInputTooLong": "Raccourcissez votre message à $limit$ caractères ou moins.",
   "commandAiHelpBridgeSource": "Politique de confidentialité de Bridge",
   "commandAiPlanTitle": "Plan d’action",
   "commandAiPlanProgress": "Étape $current$ sur $total$",

@@ -10461,6 +10461,15 @@
     "message": "Keep passwords, private keys and recovery phrases out of chat.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Shorten your message to $limit$ characters or fewer.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridge privacy policy",
     "englishSource": "Bridge privacy policy"

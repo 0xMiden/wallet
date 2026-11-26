@@ -10461,6 +10461,15 @@
     "message": "請勿在聊天中透露密碼、私鑰及恢復短語。",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "請將您的訊息縮短至 $limit$ 個字元或更少。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridge 隱私權政策",
     "englishSource": "Bridge privacy policy"

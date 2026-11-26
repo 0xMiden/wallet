@@ -10461,6 +10461,15 @@
     "message": "请勿在聊天中透露密码、私钥和助记词。",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "请将您的消息缩短至$limit$个字符或更少。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Bridge 隐私政策",
     "englishSource": "Bridge privacy policy"

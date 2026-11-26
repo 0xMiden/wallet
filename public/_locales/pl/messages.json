@@ -10465,6 +10465,15 @@
     "message": "Nie podawaj haseł, kluczy prywatnych ani fraz odzyskiwania na czacie.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Skróć swoją wiadomość do $limit$ znaków lub mniej.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Polityka prywatności Bridge",
     "englishSource": "Bridge privacy policy"

@@ -10465,6 +10465,15 @@
     "message": "Ne communiquez jamais vos mots de passe, clés privées et phrases de récupération dans les discussions.",
     "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
   },
+  "commandAiInputTooLong": {
+    "message": "Raccourcissez votre message à $limit$ caractères ou moins.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
   "commandAiHelpBridgeSource": {
     "message": "Politique de confidentialité de Bridge",
     "englishSource": "Bridge privacy policy"

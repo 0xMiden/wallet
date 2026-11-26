@@ -2278,6 +2278,7 @@
   "commandAiHelpWalletTitle": "Что я могу делать в Bread?",
   "commandAiHelpDisclosure": "Bread отправляет ваш вопрос в свой сервис искусственного интеллекта после удаления некоторых деталей. Не указывайте пароли и фразы для восстановления в чате.",
   "commandAiHelpSecret": "Не указывайте пароли, приватные ключи и фразы восстановления в чате.",
+  "commandAiInputTooLong": "Сократите своё сообщение до $limit$ символов или меньше.",
   "commandAiHelpBridgeSource": "Политика конфиденциальности Bridge",
   "commandAiPlanTitle": "План действий",
   "commandAiPlanProgress": "Шаг $current$ из $total$",
