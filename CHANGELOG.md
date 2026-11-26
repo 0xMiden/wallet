@@ -2,6 +2,9 @@
 
 ## 1.18.2 (TBD)
 
+- [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
+
+- [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.
 - [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
 - [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
 - [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.

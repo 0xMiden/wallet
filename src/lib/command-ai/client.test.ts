@@ -98,4 +98,20 @@ describe('command-ai client', () => {
       compileCommandPrompt({ redactedText: 'test', endpoint: 'http://127.0.0.1:8787' })
     ).rejects.toBeInstanceOf(CommandAiClientError);
   });
+
+  it('review regression fails closed when a legacy Worker rejects help context', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        status: 400,
+        json: async () => ({ error: 'bad_request', message: 'Unexpected field: helpContext.' })
+      })
+      .mockResolvedValueOnce({ status: 200, ok: true, text: async () => '{"output":{"op":"cancel"}}' });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const request = { redactedText: 'cancel', helpContext: 'Privacy', endpoint: 'http://127.0.0.1:8787' } as const;
+
+    await expect(compileCommandPrompt(request)).rejects.toMatchObject({ code: 'unavailable' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ redactedText: 'cancel', helpContext: 'Privacy' });
+  });
 });

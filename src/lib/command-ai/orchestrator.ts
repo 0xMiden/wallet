@@ -1184,5 +1184,7 @@ export function compileOutputToResolution(
       return resolveDraftToAction(applyPatchToDraft(existingDraft, output.patch, map), map, ctx);
     case 'query_ledger':
       throw new Error('Use executeLocalLedgerQuery for query_ledger outputs');
+    case 'explain':
+      throw new Error('Render explanations separately from wallet actions');
   }
 }
