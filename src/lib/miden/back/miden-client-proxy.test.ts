@@ -4627,8 +4627,91 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
     expect(answers).toEqual([
       { ok: true },
       expect.objectContaining({ ok: false, error: expect.stringContaining('already settled') }),
-      expect.objectContaining({ ok: false, error: expect.stringContaining('IndexedDB failed') })
+      expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('could not retract its submit: Error: IndexedDB failed')
+      })
     ]);
+  });
+
+  it('refuses retract completion if the op leaves inFlight while retracting (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    let opId = '';
+    let resolveRetract!: (ok: boolean) => void;
+    const submitGate = Object.assign(
+      jest.fn(async () => true),
+      {
+        retract: jest.fn(
+          () =>
+            new Promise<boolean>(resolve => {
+              resolveRetract = resolve;
+            })
+        )
+      }
+    );
+    let finishOp!: (r: unknown) => void;
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: any) =>
+        new Promise(resolve => {
+          opId = env.op_id;
+          finishOp = resolve;
+        })
+    );
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await flush();
+    const retractPending = handleOffscreenSubmitGate({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: opId,
+      action: 'retract'
+    });
+    await flush();
+    finishOp({ ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 });
+    await p;
+    resolveRetract(true);
+    expect(await retractPending).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('ended while retracting its submit') })
+    );
+  });
+
+  it('refuses action retract when the op gate has no retract handler (#2325)', async () => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answer = await handleOffscreenSubmitGate({
+        target: 'sw',
+        type: 'OFFSCREEN_SUBMIT_GATE',
+        op_id: env.op_id,
+        action: 'retract'
+      });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      jest.fn(async () => {}),
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(submitGate).not.toHaveBeenCalled();
+    expect(answer).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('does not support retracting') })
+    );
   });
 });
 

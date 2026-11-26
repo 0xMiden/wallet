@@ -59,7 +59,11 @@ import { NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
-import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
+import {
+  clearGuardianAccountLocks,
+  getGuardianCandidate,
+  GuardianBackpressureError
+} from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -3673,6 +3677,44 @@ describe('guardian offscreen submit gate (#1644)', () => {
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.requestBytes).toBeUndefined();
     expect(stored.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('abandons candidate (or records unabandoned candidate on reject) when offscreen eviction occurs with a retracted or never-opened gate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: `0x${'d'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      expect(await gate.retract?.()).toBe(true);
+      throw new WasmClientPoisonedError('watchdog', new Error('evicted after retract'));
+    });
+    const { service: firstService } = arrange('gate-retract-poison', sendRow);
+    await generateTransaction(buildTx('gate-retract-poison', sendRow) as never, signCallback, false, provider as never);
+    expect(firstService.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const firstStored = txStore.find(r => r.id === 'gate-retract-poison') as unknown as ITransaction;
+    expect(firstStored.status).toBe(ITransactionStatus.Failed);
+    expect(firstStored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      throw new WasmClientPoisonedError('watchdog', new Error('evicted before gate'));
+    });
+    const { service: secondService } = arrange('gate-shut-poison-abandon-fails', sendRow);
+    secondService.abandonCandidate.mockRejectedValueOnce(new Error('guardian offline'));
+    await generateTransaction(
+      buildTx('gate-shut-poison-abandon-fails', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+    expect(secondService.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    clearGuardianAccountLocks();
   });
 });
 

@@ -928,22 +928,25 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   const { op_id } = msg;
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
+  let run: () => Promise<boolean>;
+  let verb: 'retract' | 'record';
   if (msg.action === 'retract') {
-    try {
-      if (gate.retract && !(await gate.retract())) {
-        return { ok: false, error: `op ${op_id} has already settled` };
-      }
-    } catch (err) {
-      return { ok: false, error: `op ${op_id} could not retract its submit: ${String(err)}` };
+    const retract = gate.retract;
+    if (retract === undefined) {
+      return { ok: false, error: `op ${op_id} does not support retracting its submit` };
     }
-    return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while retracting its submit` };
+    run = () => retract();
+    verb = 'retract';
+  } else {
+    run = () => gate(msg.evidence);
+    verb = 'record';
   }
   try {
-    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
+    if (!(await run())) return { ok: false, error: `op ${op_id} has already settled` };
   } catch (err) {
-    return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
+    return { ok: false, error: `op ${op_id} could not ${verb} its submit: ${String(err)}` };
   }
-  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
+  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
 }
 
 /**

@@ -5437,7 +5437,7 @@ const generateGuardianTransaction = async (
         await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
       }
     }
-    if (isPoisonedPipeline(error) && !inlineSubmitNotReached) {
+    if (isPoisonedPipeline(error) && !inlineSubmitNotReached && !gateShut) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
       // chain may be about to consume. Let the next cycle's 409 pending-conflict
