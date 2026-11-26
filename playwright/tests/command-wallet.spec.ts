@@ -379,16 +379,63 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(command.locator('html')).toHaveClass(/dark/);
   await expect(workbench.getByTestId('command-bridge')).toBeVisible();
   await captureCommand(command, info, 'command-bridge-dark-reduced-motion-1440x1000');
-  const sourcePicker = workbench.getByRole('combobox', { name: 'From', exact: true });
-  const destinationPicker = workbench.getByRole('combobox', { name: 'To', exact: true });
-  const connect = await workbench.getByRole('button', { name: 'Connect an EVM wallet', exact: true }).boundingBox();
-  const source = await sourcePicker.boundingBox();
-  expect(connect!.y).toBeLessThan(source!.y);
-  await sourcePicker.focus();
-  await command.keyboard.press('Tab');
-  await expect(destinationPicker).toBeFocused();
-  await expect(destinationPicker).toHaveCSS('outline-width', '2px');
-  await captureCommand(command, info, 'command-bridge-route-keyboard-focus-1440x1000');
+  const bridge = workbench.getByTestId('command-bridge');
+  const connectButton = bridge.getByRole('button', { name: 'Connect an EVM wallet', exact: true });
+  const sourceToken = bridge.getByTestId('command-bridge-source-token');
+  const tokenMenu = command.getByTestId('command-bridge-source-token-menu');
+  // Dark at 1440 comes last: the sidebar below shares this theme setting.
+  for (const theme of ['light', 'dark'] as const) {
+    await command.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    await command.evaluate(value => localStorage.setItem('theme_setting', value), theme);
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 1440, height: 1000 }
+    ]) {
+      const variant = `${theme}-${viewport.width}x${viewport.height}`;
+      await command.setViewportSize(viewport);
+      await command.reload({ waitUntil: 'domcontentloaded' });
+      await expect(command.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*dark)/);
+      // A button only once the route catalog offers more than one token.
+      await expect(sourceToken).toHaveAttribute('aria-haspopup', 'dialog');
+      const connect = await connectButton.boundingBox();
+      expect(connect!.y).toBeLessThan((await sourceToken.boundingBox())!.y);
+      await expect(bridge.getByRole('button', { name: 'Change network' })).toHaveCount(0);
+
+      await bridge.getByRole('group', { name: 'From', exact: true }).evaluate(el => el.scrollIntoView());
+      await expect(sourceToken).toBeInViewport({ ratio: 1 });
+      await expect(bridge.getByTestId('command-bridge-destination-token')).toBeInViewport({ ratio: 1 });
+      expect(await bridge.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+      for (const pill of await bridge.locator('button[aria-haspopup="dialog"]').all()) {
+        const gapError = await pill.evaluate(el => {
+          const style = getComputedStyle(el);
+          const chevron = el.lastElementChild!.getBoundingClientRect();
+          const gap = el.getBoundingClientRect().right - chevron.right - parseFloat(style.borderRightWidth);
+          return Math.abs(gap - parseFloat(style.paddingLeft));
+        });
+        expect(gapError).toBeLessThanOrEqual(1);
+      }
+      await captureCommand(command, info, `command-bridge-form-${variant}`);
+
+      await connectButton.focus();
+      await command.keyboard.press('Tab');
+      await expect(sourceToken).toBeFocused();
+      await expect(sourceToken).toHaveCSS('outline-style', 'solid');
+      await expect(sourceToken).toHaveCSS('outline-width', '2px');
+      await command.keyboard.press('Enter');
+      await expect(command.getByRole('dialog', { name: 'Select a token' })).toBeVisible();
+      await expect(command.getByTestId('command-bridge-source-token-search')).toBeFocused();
+      await command.keyboard.press('ArrowDown');
+      await expect(tokenMenu.getByRole('radio').first()).toBeFocused();
+      await expect(tokenMenu).toHaveCSS('opacity', '1');
+      await expect(tokenMenu).toHaveCSS('transform', 'none');
+      await expect(tokenMenu).toBeInViewport({ ratio: 1 });
+      await captureCommand(command, info, `command-bridge-menu-${variant}`);
+      await command.keyboard.press('Escape');
+      await expect(tokenMenu).toHaveCount(0);
+      await expect(bridge).toBeVisible();
+      await expect(sourceToken).toBeFocused();
+    }
+  }
 
   const sidebar = await extensionContext.newPage();
   await sidebar.setViewportSize({ width: 360, height: 800 });
