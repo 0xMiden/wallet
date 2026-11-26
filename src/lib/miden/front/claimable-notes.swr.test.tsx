@@ -1288,6 +1288,183 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     }
   });
 
+  it('keeps complete persisted cache intact while optional metadata is pending and persists once complete', async () => {
+    const cacheKey = 'claimable_notes:v1:https://rpc.mainnet.miden.io|mainnet:pk-preserve-complete-cache';
+    const cachedNative = {
+      id: 'native-1',
+      faucetId: _g.__cnSwrTest.nativeAssetId,
+      amount: '100',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      standardPayment: true,
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
+    const cachedUsdc = {
+      id: 'usdc-1',
+      faucetId: 'usdc-pending-cache',
+      amount: '200',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      standardPayment: true,
+      metadata: { decimals: 6, symbol: 'USDC', name: 'USD Coin' }
+    };
+    _g.__cnSwrTest.kv[cacheKey] = [cachedNative, cachedUsdc];
+    _g.__cnSwrTest.consumableNotes = [
+      makeNote('native-1', _g.__cnSwrTest.nativeAssetId, '100'),
+      makeNote('usdc-1', 'usdc-pending-cache', '200')
+    ];
+
+    let resolveSchemaRead: ((val: unknown) => void) | null = null;
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
+        return new Promise(resolve => {
+          resolveSchemaRead = resolve;
+        });
+      }
+      return Promise.resolve(
+        Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.kv, key) ? _g.__cnSwrTest.kv[key] : null
+      );
+    };
+
+    try {
+      const { result } = renderHook(() => useClaimableNotes('pk-preserve-complete-cache'), {
+        wrapper: createWrapper()
+      });
+
+      await act(async () => {
+        await flushMicrotasks(20);
+      });
+
+      // Live runtime publishes the ready native subset without overwriting the complete persisted cache.
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-1']);
+      expect(result.current.isFallback).toBe(false);
+      expect(result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(_g.__cnSwrTest.kv[cacheKey].map((n: any) => n.id)).toEqual(['native-1', 'usdc-1']);
+      expect(_g.__cnSwrTest.putToStorageCalls.filter((c: any) => c.key === cacheKey)).toEqual([]);
+
+      // Even if the next live list has the same note IDs (now complete after usdc-1 was claimed), completeness changes and persists.
+      _g.__cnSwrTest.consumableNotes = [makeNote('native-1', _g.__cnSwrTest.nativeAssetId, '100')];
+      await act(async () => {
+        requestNotesRefresh();
+        await flushMicrotasks(20);
+      });
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-1']);
+      expect(result.current.isFallback).toBe(false);
+      expect(_g.__cnSwrTest.kv[cacheKey].map((n: any) => n.id)).toEqual(['native-1']);
+
+      // Valid empty complete writes are also preserved.
+      _g.__cnSwrTest.consumableNotes = [];
+      await act(async () => {
+        requestNotesRefresh();
+        await flushMicrotasks(20);
+      });
+      expect(result.current.data).toEqual([]);
+      expect(_g.__cnSwrTest.kv[cacheKey]).toEqual([]);
+    } finally {
+      resolveSchemaRead?.(null);
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+    }
+  });
+
+  it('recovers persisted v2 metadata after transient Preferences errors when RPC prefetch fails and refreshes after snapshot TTL', async () => {
+    _g.__cnSwrTest.consumableNotes = [makeNote('usdc-recover-1', 'faucet-recover-1', '5000000')];
+    _g.__cnSwrTest.fetchMetadata.mockRejectedValue(new Error('rpc offline'));
+
+    let schemaReads = 0;
+    let overrideReads = 0;
+    let failFirstOverrideRead = false;
+    let overrideValue: Record<string, any> = {
+      'faucet-recover-1': { symbol: 'MYUSDC', name: 'My USDC' }
+    };
+
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
+        schemaReads += 1;
+        if (schemaReads === 1) {
+          return Promise.reject(new Error('transient schema read error'));
+        }
+        return Promise.resolve(TOKENS_METADATA_SCHEMA_VERSION);
+      }
+      if (key === TOKENS_BASE_METADATA_STORAGE_KEY) {
+        return Promise.resolve({
+          'faucet-recover-1': { symbol: 'USDC', name: 'USD Coin', decimals: 6 }
+        });
+      }
+      if (key === TOKENS_METADATA_OVERRIDES_STORAGE_KEY) {
+        overrideReads += 1;
+        if (failFirstOverrideRead && overrideReads === 1) {
+          return Promise.reject(new Error('transient override read error'));
+        }
+        return Promise.resolve(overrideValue);
+      }
+      return Promise.resolve(_g.__cnSwrTest.kv[key] ?? null);
+    };
+
+    try {
+      // 1) Transient schema read failure recovers on subsequent refresh even when RPC prefetch fails.
+      const hSchema = renderHook(() => useClaimableNotes('pk-transient-schema'), {
+        wrapper: createWrapper()
+      });
+      await act(async () => {
+        await flushMicrotasks(24);
+      });
+      expect(hSchema.result.current.data).toEqual([]);
+      expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await mockRunWhenClientIdle.mock.calls[0]![0]();
+        requestNotesRefresh();
+        await flushMicrotasks(32);
+      });
+      expect(hSchema.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'MYUSDC']]);
+      hSchema.unmount();
+
+      // 2) Transient override read failure does not cache bare base metadata permanently.
+      __resetClaimableNotesCacheForTests();
+      mockRunWhenClientIdle.mockReset();
+      schemaReads = 10;
+      overrideReads = 0;
+      failFirstOverrideRead = true;
+      overrideValue = { 'faucet-recover-1': { symbol: 'OVRD2', name: 'Override Two' } };
+
+      const hOvrd = renderHook(() => useClaimableNotes('pk-transient-ovrd'), {
+        wrapper: createWrapper()
+      });
+      await act(async () => {
+        await flushMicrotasks(24);
+      });
+      expect(hOvrd.result.current.data).toEqual([]);
+      if (mockRunWhenClientIdle.mock.calls[0]?.[0]) {
+        await act(async () => {
+          await mockRunWhenClientIdle.mock.calls[0]![0]();
+        });
+      }
+
+      await act(async () => {
+        requestNotesRefresh();
+        await flushMicrotasks(32);
+      });
+      expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'OVRD2']]);
+
+      // 3) Snapshot expires after bounded TTL so updated overrides surface without restart.
+      overrideValue = { 'faucet-recover-1': { symbol: 'FRESH', name: 'Fresh Override' } };
+      await act(async () => {
+        jest.advanceTimersByTime(31_000);
+        await flushMicrotasks(32);
+      });
+      await act(async () => {
+        requestNotesRefresh();
+        await flushMicrotasks(32);
+      });
+      expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'FRESH']]);
+      hOvrd.unmount();
+    } finally {
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+    }
+  });
+
   it('refreshes immediately when idle metadata prefetch persists new token metadata', async () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('usdc-note-2', 'fresh-usdc', '2500000')];
 
