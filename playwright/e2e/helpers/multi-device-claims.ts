@@ -289,8 +289,8 @@ export function completedClaimsPerNote(
 
 /**
  * Failed consume rows of `failedOn` that the known limit of CLAUDE.md explains: both devices read the proposals before
- * either one posted, so both proposed and one lost. Such a row is explained only when every note it names has a
- * Completed row on another device. Returns the rows that this does NOT explain.
+ * either one posted, so both proposed and one lost. Such a row is explained only when it names at least one note and
+ * every note it names has a Completed row on another device. Returns the rows that this does NOT explain.
  */
 export function unexplainedFailedClaims(
   failedOn: readonly ClaimRow[],
@@ -301,9 +301,10 @@ export function unexplainedFailedClaims(
       row.type === 'consume' &&
       isOwnRow(row) &&
       row.status === 'Failed' &&
-      !row.noteIds.every(noteId =>
-        otherDevices.some(rows => claimRowsNaming(rows, noteId).some(other => other.status === 'Completed'))
-      )
+      (row.noteIds.length === 0 ||
+        !row.noteIds.every(noteId =>
+          otherDevices.some(rows => claimRowsNaming(rows, noteId).some(other => other.status === 'Completed'))
+        ))
   );
 }
 

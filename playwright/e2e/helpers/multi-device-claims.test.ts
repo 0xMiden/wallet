@@ -126,6 +126,12 @@ describe('multi-device claims helpers', () => {
       expect(unexplainedFailedClaims([failed], [coversOne]).map(item => item.id)).toEqual(['lost']);
       expect(unexplainedFailedClaims([failed], [[row({ id: 'restored', restoredFromBackup: true })]])).toHaveLength(1);
     });
+
+    it('never explains a Failed claim that names no note', () => {
+      const nameless = row({ id: 'nameless', status: 'Failed', noteIds: [] });
+      const other = [row({ id: 'won', noteIds: [NOTE_A, NOTE_B] })];
+      expect(unexplainedFailedClaims([nameless], [other]).map(item => item.id)).toEqual(['nameless']);
+    });
   });
 
   describe('money', () => {
