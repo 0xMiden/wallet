@@ -623,7 +623,8 @@ export const recordNoteDelivery = async (
  * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
  * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
  * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
- * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
+ * `completeBridgedSendTransaction` "Bridged to EVM", `completeRegisterNameTransaction`
+ * "Name requested" and `completeSendTransaction` "Sent".
  * `completeCustomTransaction` reads its label off the result, so a landed execute takes
  * the one it writes when the result shows no single direction, "Executed".
  */
@@ -637,6 +638,8 @@ export const applyLandedDisplayMessage = (
       return 'Swapped';
     case 'bridged-send':
       return 'Bridged to EVM';
+    case 'register-name':
+      return 'Name requested';
     case 'execute':
       return 'Executed';
     default:

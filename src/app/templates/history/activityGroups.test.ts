@@ -317,7 +317,8 @@ describe('activityCategoryOf', () => {
     execute: 'others',
     'switch-guardian': 'others',
     'replace-hot-key': 'others',
-    'update-procedure-threshold': 'others'
+    'update-procedure-threshold': 'others',
+    'register-name': 'others'
   };
 
   const TYPES: ITransactionType[] = [
@@ -331,7 +332,8 @@ describe('activityCategoryOf', () => {
     'execute',
     'switch-guardian',
     'replace-hot-key',
-    'update-procedure-threshold'
+    'update-procedure-threshold',
+    'register-name'
   ];
 
   it('puts each transaction type in its category', () => {

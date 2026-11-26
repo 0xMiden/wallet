@@ -2,11 +2,7 @@ import type { TransactionResult } from '@miden-sdk/miden-sdk';
 
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import type { ITransaction } from 'lib/miden/db/types';
-import {
-  partitionApprovedUsdcxSponsorship,
-  usdcxSponsorshipApprovalOf,
-  type SponsorshipNote
-} from 'lib/usdcx/sponsorship';
+import { partitionApprovedSponsorship, sponsorshipApprovalOf, type SponsorshipNote } from 'lib/usdcx/sponsorship';
 
 import { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes, splitLandedOutputNotes } from './fee-notes';
 import type { FeePaid } from './fee-notes';
@@ -44,13 +40,15 @@ export function feePaidFromResult(
 ): FeePaid | undefined {
   try {
     const { feeNote, userNotes, verificationFeeKnown } = splitLandedOutputNotes(result, landing);
-    const budgetedBurn =
-      transaction?.extraInputs?.provider === 'usdcx' &&
-      transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined
-        ? transaction
-        : undefined;
+    const hasReviewedSponsorship =
+      transaction !== undefined &&
+      ((transaction.extraInputs?.provider === 'usdcx' &&
+        transaction.extraInputs.usdcxBurn?.networkFeeBudget !== undefined) ||
+        (transaction.type === 'register-name' &&
+          (transaction.extraInputs?.networkFeeBaseUnits !== undefined ||
+            transaction.approvedOutputNoteIds?.length === 1)));
     // A verified companion is not a known TOTAL if the ordinary fee split was ambiguous or trapped.
-    if (budgetedBurn && !verificationFeeKnown) return undefined;
+    if (hasReviewedSponsorship && !verificationFeeKnown) return undefined;
     const first = feeNote?.assets()?.fungibleAssets()[0];
     // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
     // gives canonical hex, and the two are different encodings of the same account.
@@ -61,9 +59,11 @@ export function feePaidFromResult(
     const paid = first
       ? { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) }
       : undefined;
-    if (!budgetedBurn) return paid;
-    const approval = usdcxSponsorshipApprovalOf(budgetedBurn);
-    if (!approval) throw new Error('The completed burn has no approved fee context');
+    const approval = transaction ? sponsorshipApprovalOf(transaction) : undefined;
+    if (!approval) {
+      if (hasReviewedSponsorship) throw new Error('The completed transaction has no approved fee context');
+      return paid;
+    }
     const notes = userNotes.map((note): SponsorshipNote => {
       const id = note.id().toString();
       const assets = note.assets();
@@ -77,7 +77,7 @@ export function feePaidFromResult(
         nfts: assets.nonFungibleAssets()
       };
     });
-    return partitionApprovedUsdcxSponsorship(notes, paid, approval).fee;
+    return partitionApprovedSponsorship(notes, paid, approval).fee;
   } catch (err) {
     if (isWasmClientPoisonedError(err)) {
       throw err;

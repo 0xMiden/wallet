@@ -194,6 +194,7 @@ export function projectExtra(tx: ITransaction): HistoryRowExtra | undefined {
     case 'send':
     case 'execute':
     case 'update-procedure-threshold':
+    case 'register-name':
       return undefined;
     case 'switch-guardian':
       return compact({
@@ -266,6 +267,7 @@ function readTransactionType(value: unknown): ITransactionType | null {
     case 'replace-hot-key':
     case 'swap':
     case 'update-procedure-threshold':
+    case 'register-name':
       return value;
     default:
       return null;
@@ -513,6 +515,7 @@ export function restoreExtraInputs(row: HistoryRow): Record<string, unknown> | u
     case 'send':
     case 'execute':
     case 'update-procedure-threshold':
+    case 'register-name':
       return undefined;
     case 'switch-guardian':
       if (x === undefined) return undefined;

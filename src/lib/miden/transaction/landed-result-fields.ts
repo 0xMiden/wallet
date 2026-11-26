@@ -1,6 +1,7 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { feeFieldsFromResult } from '../activity/fee';
+import type { ITransaction } from '../db/types';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 
 /** One read of a landed result's field: what it answered, or what it threw. */
@@ -32,13 +33,17 @@ export const readOnce = <T>(read: () => T, landing: string, result: TransactionR
  * (the wallet row id) when it is a trap and kept as its error; later calls answer from what was kept and touch the
  * handle no more.
  */
-export function readLandedResultFields(result: TransactionResult, landing: string): LandedResultFields {
+export function readLandedResultFields(
+  result: TransactionResult,
+  landing: string,
+  transaction?: ITransaction
+): LandedResultFields {
   const known = kept.get(result);
   if (known !== undefined) return known;
   const fields: LandedResultFields = {
     transactionId: readOnce(() => result.executedTransaction().id().toHex(), landing, result),
     resultBytes: readOnce(() => result.serialize(), landing, result),
-    feeFields: readOnce(() => feeFieldsFromResult(result, landing), landing, result)
+    feeFields: readOnce(() => feeFieldsFromResult(result, landing, transaction), landing, result)
   };
   kept.set(result, fields);
   return fields;
