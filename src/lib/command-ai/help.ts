@@ -37,7 +37,7 @@ export function containsCommandSecret(input: string): boolean {
 
   const scalar = /^(?:0x)?[0-9a-f]{64}$/i.exec(input.trim())?.[0];
   if (scalar && parsePrivateKeyPair(`${scalar}:${scalar}`)) return true;
-  for (const [pair] of input.matchAll(/\b(?:0x)?[0-9a-f]{64}[ \t]*:[ \t]*(?:0x)?[0-9a-f]{64}\b/gi)) {
+  for (const [pair] of input.matchAll(/\b(?:0x)?[0-9a-f]{64}\s*:\s*(?:0x)?[0-9a-f]{64}\b/gi)) {
     if (parsePrivateKeyPair(pair)) return true;
   }
   for (const [, hex] of input.matchAll(/\b(?:0x)?([0-9a-f]{66,4096})\b/gi)) {
