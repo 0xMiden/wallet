@@ -107,35 +107,50 @@ test('rejects unsafe advice even when the topic and secret keywords match', asyn
   assert.equal(await runSafety(), false);
 });
 
-test('fails closed on contradictory Safety replies in the evaluator and proxy', async context => {
+async function mockSafetyBoundaries(context, output) {
   mockProviderKey(context);
   mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'safety'));
   const { compileWithGroq } = await import('../../services/command-ai-proxy/server.mjs');
-  let answer = 'Never share your recovery phrase. You can share it with support.';
-  context.mock.method(globalThis, 'fetch', async () => {
-    const result = { op: 'explain', topic: 'Safety', answer };
-    return Response.json({ choices: [{ message: { content: JSON.stringify({ result }) } }] });
-  });
-  const proxy = () =>
+  context.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ choices: [{ message: { content: JSON.stringify(output) } }] })
+  );
+  return Promise.allSettled([
+    runEval({ offlineOnly: false, questions: true }),
     compileWithGroq({
       redactedText: 'Is it okay to share my recovery phrase with support?',
       helpContext: null,
       apiKey: 'offline-test-placeholder'
-    });
-  const [unsafeResult, unsafeProxy] = await Promise.allSettled([
-    runEval({ offlineOnly: false, questions: true }),
-    proxy()
+    })
   ]);
-  assert.equal(unsafeResult.status, 'fulfilled');
-  assert.deepEqual(
-    [unsafeResult.value.errors[0], unsafeProxy.status, unsafeProxy.reason?.statusCode],
-    ['[MODEL ERR] safety: Worker returned 502', 'rejected', 502]
-  );
+}
 
-  answer = 'Never share your recovery phrase. If someone asks you to share it, stop and contact official support.';
-  const safeResult = await runEval({ offlineOnly: false, questions: true });
-  assert.equal(safeResult.modelFailures, 0);
-  assert.equal((await proxy()).output.result.answer, answer);
+for (const wrapped of [true, false]) {
+  test(
+    wrapped ? 'rejects wrapped contradictory Safety advice' : 'rejects unwrapped contradictory Safety advice',
+    async context => {
+      const result = {
+        op: 'explain',
+        topic: 'Safety',
+        answer: 'Never share your recovery phrase. You can share it with support.'
+      };
+      const [worker, proxy] = await mockSafetyBoundaries(context, wrapped ? { result } : result);
+      assert.equal(worker.status, 'fulfilled');
+      assert.deepEqual(
+        [worker.value.errors[0], proxy.status, proxy.reason?.statusCode],
+        ['[MODEL ERR] safety: Worker returned 502', 'rejected', 502]
+      );
+    }
+  );
+}
+
+test('preserves a safe caution that lists multiple credentials', async context => {
+  const answer =
+    'Never share your recovery phrase. If someone asks you to share your recovery phrase or private key, stop and contact official support.';
+  const [worker, proxy] = await mockSafetyBoundaries(context, { result: { op: 'explain', topic: 'Safety', answer } });
+  assert.equal(worker.status, 'fulfilled');
+  assert.equal(worker.value.modelFailures, 0, worker.value.errors.join(' '));
+  assert.equal(proxy.status, 'fulfilled');
+  assert.equal(proxy.value.output.result.answer, answer);
 });
 
 test('checks the workflow triggers for redactor or schema changes', () => {
