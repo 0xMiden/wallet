@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { SWRConfig } from 'swr';
 
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import * as nativeMetadata from 'lib/miden/metadata/native';
 import {
   TOKENS_BASE_METADATA_STORAGE_KEY,
   TOKENS_METADATA_SCHEMA_STORAGE_KEY,
@@ -21,7 +22,11 @@ _g.__cnSwrTest = {
   isExtension: false,
   hasExtensionRuntime: false,
   extensionClaimableNotes: null as any,
+  nativeAssetId: 'miden-faucet',
+  faucetMetadataOfOverride: null as ((faucetId: string) => any) | null,
   kv: {} as Record<string, any>,
+  fetchFromStorageCalls: [] as string[],
+  fetchFromStorageFailKey: null as string | null,
   putToStorageCalls: [] as Array<{ key: string; value: any }>,
   consumableNotes: [] as any[],
   proxyGetConsumableNotes: jest.fn(async () => [] as any[]),
@@ -44,9 +49,18 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => 'miden-faucet',
+  getNativeAssetIdSync: () => _g.__cnSwrTest.nativeAssetId,
   getNativeAssetMetadataSync: () => ({ symbol: 'MIDEN', decimals: 6 })
 }));
+
+jest.mock('lib/miden/metadata/native', () => {
+  const actual = jest.requireActual('lib/miden/metadata/native');
+  return {
+    __esModule: true,
+    ...actual,
+    getNativeDisplayMetadataSync: jest.fn((...args: any[]) => actual.getNativeDisplayMetadataSync(...args))
+  };
+});
 
 jest.mock('lib/store', () => {
   const fn = (selector: (s: any) => any) =>
@@ -62,11 +76,17 @@ jest.mock('lib/store', () => {
     useWalletStore: fn,
     getIntercom: () => ({ request: (...a: any[]) => _g.__cnSwrTest.intercomRequest(...a) }),
     faucetMetadataOf: (faucetId: string) =>
-      Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.tokenMetadataOverrides, faucetId)
-        ? undefined
-        : Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.metadataCache, faucetId)
-          ? _g.__cnSwrTest.metadataCache[faucetId]
-          : undefined
+      _g.__cnSwrTest.faucetMetadataOfOverride
+        ? _g.__cnSwrTest.faucetMetadataOfOverride(faucetId)
+        : _g.__cnSwrTest.tokenMetadataOverrides &&
+            typeof _g.__cnSwrTest.tokenMetadataOverrides === 'object' &&
+            Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.tokenMetadataOverrides, faucetId)
+          ? undefined
+          : _g.__cnSwrTest.metadataCache &&
+              typeof _g.__cnSwrTest.metadataCache === 'object' &&
+              Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.metadataCache, faucetId)
+            ? _g.__cnSwrTest.metadataCache[faucetId]
+            : undefined
   };
 });
 
@@ -89,8 +109,13 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 jest.mock('./storage', () => ({
-  fetchFromStorage: async (key: string) =>
-    Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.kv, key) ? _g.__cnSwrTest.kv[key] : null,
+  fetchFromStorage: async (key: string) => {
+    _g.__cnSwrTest.fetchFromStorageCalls.push(key);
+    if (_g.__cnSwrTest.fetchFromStorageFailKey === key) {
+      throw new Error(`storage read failed: ${key}`);
+    }
+    return Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.kv, key) ? _g.__cnSwrTest.kv[key] : null;
+  },
   putToStorage: async (key: string, value: any) => {
     _g.__cnSwrTest.putToStorageCalls.push({ key, value });
     _g.__cnSwrTest.kv[key] = value;
@@ -200,7 +225,11 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.isExtension = false;
     _g.__cnSwrTest.hasExtensionRuntime = false;
     _g.__cnSwrTest.extensionClaimableNotes = null;
+    _g.__cnSwrTest.nativeAssetId = 'miden-faucet';
+    _g.__cnSwrTest.faucetMetadataOfOverride = null;
     _g.__cnSwrTest.kv = {};
+    _g.__cnSwrTest.fetchFromStorageCalls = [];
+    _g.__cnSwrTest.fetchFromStorageFailKey = null;
     _g.__cnSwrTest.putToStorageCalls = [];
     _g.__cnSwrTest.consumableNotes = [];
     _g.__cnSwrTest.metadataCache = {};
@@ -1104,6 +1133,10 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
       await flushMicrotasks(12);
     });
     expect(result.current.data?.map(n => n.id)).toEqual(['usdc-note-1']);
+    expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+    expect(
+      _g.__cnSwrTest.fetchFromStorageCalls.filter((key: string) => key === TOKENS_BASE_METADATA_STORAGE_KEY)
+    ).toHaveLength(1);
   });
 
   it('refreshes immediately when idle metadata prefetch persists new token metadata', async () => {
@@ -1124,5 +1157,248 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     });
 
     expect(result.current.data?.map(n => n.id)).toEqual(['usdc-note-2']);
+  });
+
+  it('drops corrupted v2 schema versions, array caches, and malformed AssetMetadata entries', async () => {
+    // 1) NaN schema version must be rejected (Number.isFinite guard).
+    _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = Number.NaN;
+    _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'usdc-nan': { symbol: 'USDC', name: 'USD Coin', decimals: 6 }
+    };
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-nan', 'usdc-nan', '100')];
+    const hNan = renderHook(() => useClaimableNotes('pk-meta-nan'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hNan.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hNan.unmount();
+
+    // 2) Legacy < 2 schema version must be rejected.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION - 1;
+    _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'usdc-v1': { symbol: 'OLD', name: 'Old Coin', decimals: 6 }
+    };
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-v1', 'usdc-v1', '100')];
+    const hV1 = renderHook(() => useClaimableNotes('pk-meta-v1'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hV1.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hV1.unmount();
+
+    // 3) Array in TOKENS_BASE_METADATA_STORAGE_KEY must be ignored (!Array.isArray).
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
+    _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = [{ symbol: 'ARR', name: 'Array Coin', decimals: 6 }];
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-arr', '0', '100')];
+    const hArr = renderHook(() => useClaimableNotes('pk-meta-arr'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hArr.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hArr.unmount();
+
+    // 4) Malformed AssetMetadata entries (decimals < 0, float, > 255, non-string symbol) must be dropped.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
+    _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'bad-neg': { symbol: 'NEG', name: 'Neg', decimals: -1 },
+      'bad-float': { symbol: 'FLT', name: 'Float', decimals: 6.5 },
+      'bad-max': { symbol: 'MAX', name: 'Max', decimals: 256 },
+      'bad-sym': { symbol: 123, name: 'Sym', decimals: 6 }
+    };
+    _g.__cnSwrTest.consumableNotes = [
+      makeNote('n-neg', 'bad-neg', '100'),
+      makeNote('n-flt', 'bad-float', '100'),
+      makeNote('n-max', 'bad-max', '100'),
+      makeNote('n-sym', 'bad-sym', '100')
+    ];
+    const hBad = renderHook(() => useClaimableNotes('pk-meta-bad'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hBad.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hBad.unmount();
+
+    // 5) Storage read error in readStoredV2Metadata must safely return an empty Map.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.fetchFromStorageFailKey = TOKENS_METADATA_SCHEMA_STORAGE_KEY;
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-storage-err', 'f-err', '100')];
+    const hErr = renderHook(() => useClaimableNotes('pk-meta-storage-err'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hErr.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hErr.unmount();
+    _g.__cnSwrTest.fetchFromStorageFailKey = null;
+  });
+
+  it('validates faucetMetadataOf return, guards native arm and overrides, blocks prototype keys, and round-trips own __proto__', async () => {
+    // 1) Non-AssetMetadata truthy faucetMetadataOf return must not suppress background fetch.
+    _g.__cnSwrTest.faucetMetadataOfOverride = () => Object.prototype.constructor;
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-truthy-fallback', 'truthy-bad', '100')];
+    const hTruthy = renderHook(() => useClaimableNotes('pk-meta-truthy'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hTruthy.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hTruthy.unmount();
+    _g.__cnSwrTest.faucetMetadataOfOverride = null;
+
+    // 2) Native arm must read ownRecordValue(cache, faucetId) so prototype 'constructor' cannot leak.
+    const nativeSpy = jest.spyOn(nativeMetadata, 'getNativeDisplayMetadataSync');
+    try {
+      _g.__cnSwrTest.nativeAssetId = 'constructor';
+      _g.__cnSwrTest.metadataCache = {};
+      _g.__cnSwrTest.consumableNotes = [makeNote('n-native-ctor', 'constructor', '100')];
+      const hNativeCtor = renderHook(() => useClaimableNotes('pk-native-ctor'), { wrapper: createWrapper() });
+      await act(async () => {
+        await flushMicrotasks(12);
+      });
+      expect(nativeSpy).toHaveBeenCalledWith(undefined, 'constructor');
+      hNativeCtor.unmount();
+    } finally {
+      nativeSpy.mockRestore();
+      _g.__cnSwrTest.nativeAssetId = 'miden-faucet';
+    }
+
+    // 3) Null and undefined tokenMetadataOverrides must not throw in local or extension hooks.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.tokenMetadataOverrides = null as any;
+    _g.__cnSwrTest.metadataCache = { 'f-null-ovrd': { symbol: 'TOK', name: 'Token', decimals: 6 } };
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-null-ovrd', 'f-null-ovrd', '100')];
+    const hNullOvrd = renderHook(() => useClaimableNotes('pk-null-ovrd'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hNullOvrd.result.current.data?.map(n => n.id)).toEqual(['n-null-ovrd']);
+    hNullOvrd.unmount();
+
+    _g.__cnSwrTest.isExtension = true;
+    _g.__cnSwrTest.tokenMetadataOverrides = undefined as any;
+    _g.__cnSwrTest.extensionClaimableNotes = [
+      {
+        id: 'ext-undef-ovrd',
+        faucetId: 'f-null-ovrd',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        standardPayment: true
+      },
+      {
+        id: 'ext-valid-meta-null-ovrd',
+        faucetId: 'f-null-ovrd',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        standardPayment: true,
+        metadata: { symbol: 'EXTMETA', name: 'Ext Meta', decimals: 6 }
+      },
+      {
+        id: 'ext-malformed-meta-fallback',
+        faucetId: 'f-null-ovrd',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        standardPayment: true,
+        metadata: { symbol: 123 }
+      }
+    ];
+    const hExtUndef = renderHook(() => useClaimableNotes('pk-ext-undef-ovrd'), { wrapper: createWrapper() });
+    expect(hExtUndef.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([
+      ['ext-malformed-meta-fallback', 'TOK'],
+      ['ext-undef-ovrd', 'TOK'],
+      ['ext-valid-meta-null-ovrd', 'EXTMETA']
+    ]);
+    hExtUndef.unmount();
+    _g.__cnSwrTest.isExtension = false;
+    _g.__cnSwrTest.extensionClaimableNotes = null;
+    _g.__cnSwrTest.tokenMetadataOverrides = {};
+
+    // 4) Non-native 'constructor' faucetId must never resolve Object.prototype.constructor in local or extension hooks.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.kv = {};
+    _g.__cnSwrTest.metadataCache = {};
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-ctor', 'constructor', '100')];
+    const hCtor = renderHook(() => useClaimableNotes('pk-ctor'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hCtor.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hCtor.unmount();
+
+    _g.__cnSwrTest.isExtension = true;
+    _g.__cnSwrTest.extensionClaimableNotes = [
+      {
+        id: 'ext-ctor',
+        faucetId: 'constructor',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        standardPayment: true
+      }
+    ];
+    const hExtCtor = renderHook(() => useClaimableNotes('pk-ext-ctor'), { wrapper: createWrapper() });
+    expect(hExtCtor.result.current.data).toEqual([]);
+    hExtCtor.unmount();
+    _g.__cnSwrTest.isExtension = false;
+    _g.__cnSwrTest.extensionClaimableNotes = null;
+
+    // 5) Valid own '__proto__' entry in v2 storage and Zustand cache round-trips cleanly via Map/ownRecordValue.
+    mockRunWhenClientIdle.mockReset();
+    _g.__cnSwrTest.kv[TOKENS_METADATA_SCHEMA_STORAGE_KEY] = TOKENS_METADATA_SCHEMA_VERSION;
+    _g.__cnSwrTest.kv[TOKENS_BASE_METADATA_STORAGE_KEY] = JSON.parse(
+      '{"__proto__":{"symbol":"PROTO","name":"Proto Token","decimals":8}}'
+    );
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-proto', '__proto__', '100')];
+    const hProto = renderHook(() => useClaimableNotes('pk-proto'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hProto.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['n-proto', 'PROTO']]);
+    expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+    hProto.unmount();
+
+    _g.__cnSwrTest.isExtension = true;
+    _g.__cnSwrTest.metadataCache = JSON.parse('{"__proto__":{"symbol":"EXTPROTO","name":"Ext Proto","decimals":6}}');
+    _g.__cnSwrTest.extensionClaimableNotes = [
+      {
+        id: 'ext-proto',
+        faucetId: '__proto__',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        standardPayment: true
+      }
+    ];
+    const hExtProto = renderHook(() => useClaimableNotes('pk-ext-proto'), { wrapper: createWrapper() });
+    expect(hExtProto.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['ext-proto', 'EXTPROTO']]);
+    hExtProto.unmount();
+    _g.__cnSwrTest.isExtension = false;
+    _g.__cnSwrTest.extensionClaimableNotes = null;
+  });
+
+  it('preserves background metadata prefetch for override-only faucets lacking a base record', async () => {
+    _g.__cnSwrTest.kv = {};
+    _g.__cnSwrTest.metadataCache = {};
+    _g.__cnSwrTest.tokenMetadataOverrides = {
+      'overridden-faucet': { symbol: 'OVRD' }
+    };
+    _g.__cnSwrTest.consumableNotes = [makeNote('n-ovrd', 'overridden-faucet', '100')];
+    const hOvrd = renderHook(() => useClaimableNotes('pk-override-only'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hOvrd.result.current.data).toEqual([]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    hOvrd.unmount();
   });
 });

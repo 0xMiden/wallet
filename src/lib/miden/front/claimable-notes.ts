@@ -127,52 +127,70 @@ function parseNotes(
   return parsed;
 }
 
-async function readStoredV2Metadata(): Promise<Record<string, AssetMetadata>> {
+async function readStoredV2Metadata(): Promise<Map<string, AssetMetadata>> {
   try {
     const version = await fetchFromStorage<unknown>(TOKENS_METADATA_SCHEMA_STORAGE_KEY);
-    if (typeof version !== 'number' || version < TOKENS_METADATA_SCHEMA_VERSION) return {};
-    return (await fetchFromStorage<Record<string, AssetMetadata>>(TOKENS_BASE_METADATA_STORAGE_KEY)) ?? {};
+    if (typeof version !== 'number' || !Number.isFinite(version) || version < TOKENS_METADATA_SCHEMA_VERSION) {
+      return new Map();
+    }
+    const raw = await fetchFromStorage<unknown>(TOKENS_BASE_METADATA_STORAGE_KEY);
+    if (!isRecord(raw)) return new Map();
+    const metadataByFaucetId = new Map<string, AssetMetadata>();
+    for (const [faucetId, value] of Object.entries(raw)) {
+      if (isValidAssetMetadata(value)) {
+        metadataByFaucetId.set(faucetId, value);
+      }
+    }
+    return metadataByFaucetId;
   } catch {
-    return {};
+    return new Map();
   }
 }
 
 async function buildMetadataMapFromCache(
   notes: ParsedNote[],
-  cache: Record<string, AssetMetadata> | undefined
-): Promise<Record<string, AssetMetadata>> {
-  const map: Record<string, AssetMetadata> = {};
+  cache: Record<string, AssetMetadata> | undefined,
+  loadStoredV2: () => Promise<Map<string, AssetMetadata>>
+): Promise<Map<string, AssetMetadata>> {
+  const map = new Map<string, AssetMetadata>();
   const nativeId = getNativeAssetIdSync();
   const missingFromRef: ParsedNote[] = [];
   for (const n of notes) {
     if (n.faucetId === nativeId) {
-      map[n.faucetId] = getNativeDisplayMetadataSync(cache?.[n.faucetId], n.faucetId);
+      map.set(n.faucetId, getNativeDisplayMetadataSync(ownRecordValue(cache, n.faucetId), n.faucetId));
     } else {
-      const cached = cache?.[n.faucetId];
-      if (cached) map[n.faucetId] = cached;
+      const cached = ownRecordValue(cache, n.faucetId);
+      if (isValidAssetMetadata(cached)) map.set(n.faucetId, cached);
       else missingFromRef.push(n);
     }
   }
   if (missingFromRef.length > 0) {
     const [stored, overrides] = await Promise.all([
-      readStoredV2Metadata(),
+      loadStoredV2(),
       getTokenMetadataOverrides().catch((): TokenMetadataOverrides => ({}))
     ]);
     for (const n of missingFromRef) {
-      const entry = stored[n.faucetId];
-      if (entry) map[n.faucetId] = applyOverrideFor(n.faucetId, entry, overrides);
+      const entry = stored.get(n.faucetId);
+      if (entry) map.set(n.faucetId, applyOwnOverrideFor(n.faucetId, entry, overrides));
     }
   }
   return map;
 }
 
 /** Missing means no faucet record: an entry an override made is shown meanwhile, and the record must still come. */
-async function findMissingFaucetIds(notes: ParsedNote[]): Promise<string[]> {
+async function findMissingFaucetIds(
+  notes: ParsedNote[],
+  loadStoredV2: () => Promise<Map<string, AssetMetadata>>
+): Promise<string[]> {
   const missing = new Set<string>();
   const nativeId = getNativeAssetIdSync();
+  let storedV2: Map<string, AssetMetadata> | null = null;
   for (const n of notes) {
-    if (n.faucetId !== nativeId && !faucetMetadataOf(n.faucetId)) {
-      missing.add(n.faucetId);
+    if (n.faucetId !== nativeId && !isValidAssetMetadata(faucetMetadataOf(n.faucetId))) {
+      if (!storedV2) storedV2 = await loadStoredV2();
+      if (!storedV2.has(n.faucetId)) {
+        missing.add(n.faucetId);
+      }
     }
   }
   return Array.from(missing);
@@ -180,17 +198,17 @@ async function findMissingFaucetIds(notes: ParsedNote[]): Promise<string[]> {
 
 function attachMetadataToNotes(
   notes: ParsedNote[],
-  metadataByFaucetId: Record<string, AssetMetadata>
+  metadataByFaucetId: ReadonlyMap<string, AssetMetadata>
 ): Array<ConsumableNote & { metadata: AssetMetadata }> {
   // Only return notes that have metadata available
   // Notes without metadata will appear after metadata is fetched and SWR revalidates
   return notes
-    .filter(n => metadataByFaucetId[n.faucetId])
+    .filter(n => metadataByFaucetId.has(n.faucetId))
     .map(n => ({
       id: n.id,
       faucetId: n.faucetId,
       amount: n.amountBaseUnits, // base units
-      metadata: metadataByFaucetId[n.faucetId]!,
+      metadata: metadataByFaucetId.get(n.faucetId)!,
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
       claimingTxId: n.claimingTxId,
@@ -374,7 +392,34 @@ function sortClaimableNotes<T extends { id: string; receivedAt?: number }>(notes
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidAssetMetadata(value: unknown): value is AssetMetadata {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.symbol === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.decimals === 'number' &&
+    Number.isInteger(value.decimals) &&
+    value.decimals >= 0 &&
+    // Faucet metadata stores decimals as a u8, and formatting pads a string that long.
+    value.decimals <= 255
+  );
+}
+
+function ownRecordValue<T>(record: Record<string, T> | undefined, key: string): T | undefined {
+  return isRecord(record) && Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
+}
+
+function applyOwnOverrideFor(
+  faucetId: string,
+  base: AssetMetadata,
+  overrides: TokenMetadataOverrides | undefined
+): AssetMetadata {
+  return isRecord(overrides) && Object.prototype.hasOwnProperty.call(overrides, faucetId)
+    ? applyOverrideFor(faucetId, base, overrides)
+    : base;
 }
 
 function isOptionalFiniteNumber(value: unknown): boolean {
@@ -391,17 +436,7 @@ function isCachedClaimableNote(value: unknown): value is ClaimableNoteWithMetada
   // misorder there is dropped here instead.
   if (typeof value.amount !== 'string' || !/^\d+$/.test(value.amount)) return false;
   if (!isOptionalFiniteNumber(value.receivedAt) || !isOptionalFiniteNumber(value.recallableAtMs)) return false;
-  const metadata = value.metadata;
-  if (!isRecord(metadata)) return false;
-  return (
-    typeof metadata.symbol === 'string' &&
-    typeof metadata.name === 'string' &&
-    typeof metadata.decimals === 'number' &&
-    Number.isInteger(metadata.decimals) &&
-    metadata.decimals >= 0 &&
-    // Faucet metadata stores decimals as a u8, and formatting pads a string that long.
-    metadata.decimals <= 255
-  );
+  return isValidAssetMetadata(value.metadata);
 }
 
 /**
@@ -844,15 +879,17 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         // before that rule existed may still hold them (#2118).
         .filter(isOwnClaimableNote)
         .filter(isListedClaimableNote)
-        .filter(n => n.metadata || assetsMetadata[n.faucetId])
+        .filter(
+          n => isValidAssetMetadata(n.metadata) || isValidAssetMetadata(ownRecordValue(assetsMetadata, n.faucetId))
+        )
         .map(n => ({
           id: n.id,
           faucetId: n.faucetId,
           amount: n.amountBaseUnits,
           // The service worker attaches the faucet's metadata; the store entry has the override already.
-          metadata: n.metadata
-            ? applyOverrideFor(n.faucetId, n.metadata as AssetMetadata, tokenMetadataOverrides)
-            : assetsMetadata[n.faucetId]!,
+          metadata: isValidAssetMetadata(n.metadata)
+            ? applyOwnOverrideFor(n.faucetId, n.metadata, tokenMetadataOverrides)
+            : ownRecordValue(assetsMetadata, n.faucetId)!,
           senderAddress: n.senderAddress,
           isBeingClaimed: claimingTxIds.has(n.id),
           claimingTxId: claimingTxIds.get(n.id),
@@ -938,28 +975,38 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       }
       const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
 
+      let storedV2Promise: Promise<Map<string, AssetMetadata>> | null = null;
+      const loadStoredV2 = () => {
+        if (!storedV2Promise) storedV2Promise = readStoredV2Metadata();
+        return storedV2Promise;
+      };
+
       // 2) Seed metadata map from cache (and baked-in MIDEN)
-      const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
+      const metadataByFaucetId = await buildMetadataMapFromCache(
+        parsedNotes,
+        allTokensBaseMetadataRef.current,
+        loadStoredV2
+      );
 
       // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
       // This doesn't "warm up" the WASM client: it fetches token metadata (symbol, decimals)
       // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
-      const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
+      const missingFaucetIds = await findMissingFaucetIds(parsedNotes, loadStoredV2);
       const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
       if (toFetchMetadataIds.length > 0) {
         for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
         runWhenClientIdle(async () => {
           try {
-            const fetched: Record<string, AssetMetadata> = {};
+            const fetched = new Map<string, AssetMetadata>();
             for (const id of toFetchMetadataIds) {
               try {
-                fetched[id] = await fetchMetadata(id);
+                fetched.set(id, await fetchMetadata(id));
               } catch (e) {
                 console.warn('Metadata fetch failed for', id, e);
               }
             }
-            if (Object.keys(fetched).length > 0) {
-              await persistMetadataIfAny(fetched, setTokensBaseMetadata);
+            if (fetched.size > 0) {
+              await persistMetadataIfAny(Object.fromEntries(fetched), setTokensBaseMetadata);
               // Surface the newly described notes right away instead of waiting out dedupingInterval.
               requestNotesRefresh();
             }
