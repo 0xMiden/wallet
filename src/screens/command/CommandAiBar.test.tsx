@@ -316,6 +316,17 @@ describe('CommandAiBar', () => {
       expect(containsCommandSecret('password: lost')).toBe(true);
     });
 
+    it('characterizes the local secret branches', () => {
+      const pem = '-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----';
+      expect(containsCommandSecret(pem)).toBe(true);
+      expect(containsCommandSecret('password: example-placeholder')).toBe(true);
+      expect(containsCommandSecret('seed phrase=example-placeholder')).toBe(true);
+      expect(containsCommandSecret('ab'.repeat(32))).toBe(true);
+      expect(containsCommandSecret('note ' + 'ab'.repeat(33) + ' pending')).toBe(true);
+      expect(containsCommandSecret('ab'.repeat(33) + 'a')).toBe(false);
+      expect(containsCommandSecret('note ' + 'ab'.repeat(32) + ' pending')).toBe(false);
+    });
+
     it.each([
       ['password', 'My password is not working'],
       ['private-key', 'My private key is lost'],

@@ -166,6 +166,22 @@ describe('command-ai standalone Worker', () => {
     expect(JSON.stringify(body.response_format)).toContain('"explain"');
   });
 
+  it('rejects an unknown help topic before calling the provider', async () => {
+    const fetchMock = groqOkFetch();
+    const service = createService({ fetchImpl: fetchMock });
+    const { env } = makeEnv();
+    const response = await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'How does Miden work?', helpContext: 'NotATopic' }
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'bad_request',
+      message: 'Invalid help context.'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
+
   it('answers /healthz with revision and no-store caching, and rejects non-GET methods', async () => {
     const service = createService();
     const { env } = makeEnv({ revision: 'rev-123' });
