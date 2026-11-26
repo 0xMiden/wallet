@@ -2,9 +2,10 @@ import HistoryView from 'app/templates/history/HistoryView';
 import { HistoryEntryType, type IHistoryEntry } from 'app/templates/history/IHistoryEntry';
 import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 
+import { FIXTURE_NOW } from './history.leaves';
+
 // The real list over synthetic rows: `History` itself reads the wallet database. Seven settled rows,
 // so the page's row cap has something to cut.
-export const FIXTURE_NOW = Math.floor(new Date('2026-10-05T12:00:00Z').getTime() / 1000);
 const entries: IHistoryEntry[] = Array.from({ length: 7 }, (_, index) => ({
   key: `fixture-${index}`,
   address: 'synthetic-account',
@@ -12,7 +13,7 @@ const entries: IHistoryEntry[] = Array.from({ length: 7 }, (_, index) => ({
   message: 'Received',
   type: HistoryEntryType.CompletedTransaction,
   txType: 'consume',
-  amount: `+${index + 1}.00`,
+  amount: `${index + 1}.00`,
   token: 'IETH'
 }));
 const loadNothing = async () => undefined;

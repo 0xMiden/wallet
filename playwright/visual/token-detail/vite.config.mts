@@ -9,6 +9,8 @@ import extension from '../../../vite.extension.config';
 const root = resolve(import.meta.dirname, '../../..');
 const fixture = resolve(import.meta.dirname, 'fixture.tsx');
 const historyFixture = resolve(import.meta.dirname, 'history.fixture.tsx');
+const claimsFixture = resolve(import.meta.dirname, 'claims.fixture.tsx');
+const historyLeaves = resolve(import.meta.dirname, 'history.leaves.ts');
 const nativeFaucetFixture = resolve(import.meta.dirname, 'native-faucet.fixture.ts');
 const compileSvgJsx: Plugin = {
   name: 'token-detail-svg-jsx-compile',
@@ -29,7 +31,10 @@ const fixtureModules: Record<string, string> = {
   'app/hooks/useMidenFaucetId': nativeFaucetFixture,
   'app/providers/DappBrowserProvider': fixture,
   'app/templates/history/History': historyFixture,
-  'app/templates/history/useActivityClaimList': fixture,
+  'app/templates/history/transactionUtils': historyLeaves,
+  './transactionUtils': historyLeaves,
+  './HistoryItem': historyLeaves,
+  'app/templates/history/useActivityClaimList': claimsFixture,
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
   'lib/miden/front': fixture,

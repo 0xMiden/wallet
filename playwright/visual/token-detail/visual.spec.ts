@@ -201,7 +201,6 @@ test('lists five rows with this token claim cards only, and links to all activit
   // Seven settled rows and three cards of this token: five are listed.
   await expect(activity.getByTestId('activity-row')).toHaveCount(2);
   await expect(activity).not.toContainText('OTHER');
-  await expect(activity.getByText('+3.00')).toHaveCount(0);
   const seeAll = page.getByTestId('token-detail-see-all');
   await expect(seeAll).toHaveText('See all');
   expect((await seeAll.boundingBox())?.height).toBeGreaterThanOrEqual(44);

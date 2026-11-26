@@ -1,12 +1,10 @@
 import { useState } from 'react';
 
-import { PendingActivityCard, type PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import actualPlatform from '../../../src/lib/platform';
-import { FIXTURE_NOW } from './history.fixture';
 
 const params = new URLSearchParams(window.location.search);
 const longContent = params.has('long');
@@ -14,7 +12,7 @@ export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
   ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
   : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
-const token = {
+export const token = {
   tokenId,
   balance: 987654321.123456,
   metadata: {
@@ -45,44 +43,6 @@ export const useAllBalances = () => ({
   isLoading: params.has('unavailable'),
   readFailed: params.has('unavailable'),
   balanceReadInFlight: params.has('updating')
-});
-// A claim batch spanning two tokens: two claimable notes and one claiming note of this token, and a
-// claiming note of another faucet, which this page must represent but not draw.
-const claimNote = (
-  id: string,
-  faucetId: string,
-  amount: string,
-  status: PendingActivityItem['status'],
-  age: number
-): PendingActivityItem => ({
-  note: {
-    id,
-    faucetId,
-    amount,
-    senderAddress: 'mtst1syntheticsender',
-    isBeingClaimed: status === 'claiming',
-    type: 'unknown',
-    receivedAt: FIXTURE_NOW - age,
-    metadata: faucetId === tokenId ? token.metadata : { name: 'Other token', symbol: 'OTHER', decimals: 8 }
-  },
-  status
-});
-const claimItems = params.has('pending')
-  ? [
-      claimNote('n1', tokenId, '150000000', 'pending', 60),
-      claimNote('n2', tokenId, '50000000', 'failed', 120),
-      claimNote('n3', tokenId, '25000000', 'claiming', 180),
-      claimNote('n4', 'mtst1other', '900000000', 'claiming', 30)
-    ]
-  : [];
-const renderPendingItem = (item: PendingActivityItem) => (
-  <PendingActivityCard key={item.note.id} item={item} onAccept={() => undefined} />
-);
-export const useActivityClaimList = () => ({
-  representedItems: claimItems,
-  listItems: claimItems,
-  renderPendingItem,
-  isLoadingNotes: false
 });
 export const useAllTokensBaseMetadata = () => (params.has('missing') ? {} : { [tokenId]: token.metadata });
 export const useWalletStore = <T,>(selector: (state: typeof storeState) => T): T => selector(storeState);
@@ -130,6 +90,8 @@ export const hapticMedium = () => undefined;
 export const hapticSelection = () => undefined;
 export const openExternalUrl = async () => undefined;
 export const goBack = () => undefined;
+export const useLocation = () => ({ pathname: '/', search: '', hash: '' });
+export const Link = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 export const navigate = (destination: string | { pathname: string; search?: string }) => {
   const path = typeof destination === 'string' ? destination : `${destination.pathname}${destination.search ?? ''}`;
   window.location.hash = path;
