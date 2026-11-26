@@ -1316,11 +1316,11 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
       makeNote('usdc-1', 'usdc-pending-cache', '200')
     ];
 
-    let resolveSchemaRead: ((val: unknown) => void) | null = null;
+    const schemaRead: { resolve: ((val: unknown) => void) | null } = { resolve: null };
     _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
       if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
         return new Promise(resolve => {
-          resolveSchemaRead = resolve;
+          schemaRead.resolve = resolve;
         });
       }
       return Promise.resolve(
@@ -1338,6 +1338,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
       });
 
       // Live runtime publishes the ready native subset without overwriting the complete persisted cache.
+      expect(schemaRead.resolve).not.toBeNull();
       expect(result.current.data?.map(n => n.id)).toEqual(['native-1']);
       expect(result.current.isFallback).toBe(false);
       expect(result.current.data?.[0]?.fromCache).toBeUndefined();
@@ -1363,7 +1364,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
       expect(result.current.data).toEqual([]);
       expect(_g.__cnSwrTest.kv[cacheKey]).toEqual([]);
     } finally {
-      resolveSchemaRead?.(null);
+      schemaRead.resolve?.(null);
       _g.__cnSwrTest.fetchFromStorageOverride = null;
     }
   });
@@ -1477,7 +1478,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     let overrideReads = 0;
     let failFirstOverrideRead = false;
     let deferNextSchemaRead = false;
-    let resolvePostTtlSchemaRead: ((val: unknown) => void) | null = null;
+    const postTtlSchemaRead: { resolve: ((val: unknown) => void) | null } = { resolve: null };
     let overrideValue: Record<string, any> = {
       'faucet-recover-1': { symbol: 'MYUSDC', name: 'My USDC' }
     };
@@ -1491,7 +1492,7 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
         if (deferNextSchemaRead) {
           deferNextSchemaRead = false;
           return new Promise(resolve => {
-            resolvePostTtlSchemaRead = resolve;
+            postTtlSchemaRead.resolve = resolve;
           });
         }
         return Promise.resolve(TOKENS_METADATA_SCHEMA_VERSION);
@@ -1565,16 +1566,17 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
         requestNotesRefresh();
         await flushMicrotasks(24);
       });
+      expect(postTtlSchemaRead.resolve).not.toBeNull();
       expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'OVRD2']]);
 
       await act(async () => {
-        resolvePostTtlSchemaRead?.(TOKENS_METADATA_SCHEMA_VERSION);
+        postTtlSchemaRead.resolve?.(TOKENS_METADATA_SCHEMA_VERSION);
         await flushMicrotasks(32);
       });
       expect(hOvrd.result.current.data?.map(n => [n.id, n.metadata.symbol])).toEqual([['usdc-recover-1', 'FRESH']]);
       hOvrd.unmount();
     } finally {
-      resolvePostTtlSchemaRead?.(null);
+      postTtlSchemaRead.resolve?.(null);
       _g.__cnSwrTest.fetchFromStorageOverride = null;
     }
   });

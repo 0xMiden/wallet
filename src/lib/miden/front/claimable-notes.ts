@@ -162,6 +162,7 @@ interface PendingStoredV2Waiter {
   coordinator: CacheKeyRefreshCoordinator;
   displayFaucets: Set<string>;
   prefetchFaucets: Set<string>;
+  hadIncompleteSubset: boolean;
   fetchMetadata: (id: string) => Promise<AssetMetadata>;
   setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>;
 }
@@ -180,8 +181,8 @@ function invalidateStoredV2Snapshot(): void {
 
 onStorageCleared(invalidateStoredV2Snapshot);
 
-function isStoredV2SnapshotFresh(): boolean {
-  return storedV2Snapshot !== null && Date.now() < storedV2Snapshot.expiresAt;
+function isStoredV2SnapshotFresh(snapshot: StoredV2MetadataSnapshot | null = storedV2Snapshot): boolean {
+  return snapshot !== null && Date.now() < snapshot.expiresAt;
 }
 
 function resolveStoredV2Entry(
@@ -835,7 +836,8 @@ function ensureStoredV2HydrationForKey(
   displayFaucets: readonly string[],
   prefetchFaucets: readonly string[],
   fetchMetadata: (id: string) => Promise<AssetMetadata>,
-  setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>
+  setTokensBaseMetadata: (batch: Record<string, AssetMetadata>) => Promise<void>,
+  hadIncompleteSubset: boolean
 ): void {
   if (isStoredV2SnapshotFresh()) return;
   if (displayFaucets.length === 0 && prefetchFaucets.length === 0) {
@@ -849,6 +851,7 @@ function ensureStoredV2HydrationForKey(
     coordinator,
     displayFaucets: new Set(displayFaucets),
     prefetchFaucets: new Set(prefetchFaucets),
+    hadIncompleteSubset,
     fetchMetadata,
     setTokensBaseMetadata
   });
@@ -877,6 +880,17 @@ function ensureStoredV2HydrationForKey(
           waiter.coordinator.subscribers.size > 0;
         if (!isActive) continue;
 
+        const stillMissing: string[] = [];
+        for (const faucetId of waiter.prefetchFaucets) {
+          const activeSnapshot = result.ok ? result : storedV2Snapshot;
+          if (!activeSnapshot?.metadata.has(faucetId) && !isValidAssetMetadata(faucetMetadataOf(faucetId))) {
+            stillMissing.push(faucetId);
+          }
+        }
+        if (stillMissing.length > 0) {
+          scheduleMetadataPrefetch(stillMissing, waiter.fetchMetadata, waiter.setTokensBaseMetadata);
+        }
+
         if (result.ok) {
           let hasChangedDisplay = false;
           for (const faucetId of waiter.displayFaucets) {
@@ -887,20 +901,10 @@ function ensureStoredV2HydrationForKey(
               break;
             }
           }
-          if (hasChangedDisplay) {
+          const resolvedInitialIncomplete = previousSnapshot === null && waiter.hadIncompleteSubset;
+          if (hasChangedDisplay || resolvedInitialIncomplete) {
             void requestCoordinatedRefresh(waiterCacheKey);
           }
-        }
-
-        const stillMissing: string[] = [];
-        for (const faucetId of waiter.prefetchFaucets) {
-          const activeSnapshot = result.ok ? result : storedV2Snapshot;
-          if (!activeSnapshot?.metadata.has(faucetId) && !isValidAssetMetadata(faucetMetadataOf(faucetId))) {
-            stillMissing.push(faucetId);
-          }
-        }
-        if (stillMissing.length > 0) {
-          scheduleMetadataPrefetch(stillMissing, waiter.fetchMetadata, waiter.setTokensBaseMetadata);
         }
       }
     },
@@ -1197,6 +1201,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
 
       // 2) Seed metadata map from memory and the latest v2 storage snapshot (stale-while-revalidate).
       const currentStoredV2 = storedV2Snapshot;
+      const storedV2Fresh = isStoredV2SnapshotFresh(currentStoredV2);
       const { metadataByFaucetId, missingFromCacheFaucets, usedStoredV2Faucets } = buildMetadataMapFromCache(
         parsedNotes,
         allTokensBaseMetadataRef.current,
@@ -1208,7 +1213,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
       const missingFaucetIds = findMissingFaucetIds(parsedNotes, currentStoredV2);
       if (
-        !isStoredV2SnapshotFresh() &&
+        !storedV2Fresh &&
         (missingFromCacheFaucets.length > 0 || missingFaucetIds.length > 0 || usedStoredV2Faucets.length > 0)
       ) {
         ensureStoredV2HydrationForKey(
@@ -1217,7 +1222,8 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
           [...missingFromCacheFaucets, ...usedStoredV2Faucets],
           missingFaucetIds,
           fetchMetadata,
-          setTokensBaseMetadata
+          setTokensBaseMetadata,
+          missingFromCacheFaucets.length > 0
         );
       } else {
         pendingStoredV2Waiters.delete(cacheKey);
@@ -1228,7 +1234,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       // 4) Return notes with available metadata immediately, in a fixed order (see
       // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
       const result = sortClaimableNotes(attachMetadataToNotes(parsedNotes, metadataByFaucetId));
-      if (missingFromCacheFaucets.length > 0) {
+      if (!storedV2Fresh && missingFromCacheFaucets.length > 0) {
         incompleteClaimableNoteLists.add(result);
       }
 
