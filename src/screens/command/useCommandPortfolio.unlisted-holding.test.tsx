@@ -15,6 +15,7 @@ import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-a
 import { PriceProvider } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices/binance';
 import { primeCachedDisplayQuotes } from 'lib/prices/display-cache';
+import { _resetDisplayFeedForTest, writeDisplayFeed } from 'lib/prices/display-feed';
 import { useWalletStore, withLandedBalances } from 'lib/store';
 import { _resetTokenListForTest, loadTokenPriceAssets } from 'lib/token-list/runtime';
 
@@ -26,6 +27,7 @@ const SCOPE = { accountId: ACCOUNT, network: 'mainnet', rpcUrl: RPC };
 // USDCx is the published mainnet list's faucet; MICO is not in the list (placeholder id).
 const USDCX_FAUCET = 'mm1arnfum9xuwwlrvgvrefejwvlavn3vk24';
 const MICO_FAUCET = 'mm1aqmicoplaceholderfaucetnotlisted0';
+const GC_FAUCET = 'mm1aq62x5gzzdfn75fwcj47x6a0ssyu9cxz';
 
 const mockContext = { locked: false, ready: false };
 const mockFeed: { resolve?: (prices: TokenPrices) => void; calls: number } = { calls: 0 };
@@ -153,7 +155,7 @@ const row = (tokenId: string, symbol: string, decimals: number, baseUnits: strin
   change24h: 0
 });
 
-async function landUserState(): Promise<void> {
+async function landUserState(held = [row(MICO_FAUCET, 'MICO', 4, '125000')]): Promise<void> {
   const now = Date.now();
   const listStorage = memoryStorage();
   _resetTokenListForTest({ storage: listStorage, fetch: () => Promise.reject(new Error('offline in test')) });
@@ -173,7 +175,7 @@ async function landUserState(): Promise<void> {
     accountNonce: '7',
     capturedAt: now - 36_000
   };
-  const rows = [row(MICO_FAUCET, 'MICO', 4, '125000'), row(USDCX_FAUCET, 'USDCX', 6, '4250000')];
+  const rows = [...held, row(USDCX_FAUCET, 'USDCX', 6, '4250000')];
   useWalletStore.setState(state => withLandedBalances(state, ACCOUNT, rows, null, new Set(), snapshot));
   await Promise.all([
     primeCachedDisplayQuotes(() => true),
@@ -235,4 +237,20 @@ it('drives the real PriceProvider from a cold document without a dash on any com
   await act(async () => {});
   expect(screen.getByTestId('balance').textContent).toBe('4.25 USD');
   expect(frames.map(frame => frame.value)).not.toContain(null);
+});
+
+// Gamecoin is in the mainnet list but no exchange quotes it: a fresh document waits once, the next one need not.
+it('waits for the feed on Gamecoin until a run rules it out, then values USDCx at once in the next document', async () => {
+  useWalletStore.setState({ balances: {}, balancesLoading: {} });
+  await landUserState([row(GC_FAUCET, 'GC', 6, '40000000')]);
+  const view = render(<Probe />);
+  await act(async () => {});
+  expect(screen.getByTestId('balance').textContent).toBe('---');
+  await writeDisplayFeed('mainnet', {}, ['GC']);
+  try {
+    view.rerender(<Probe />);
+    expect(screen.getByTestId('balance').textContent).toBe('4.25 USD');
+  } finally {
+    _resetDisplayFeedForTest();
+  }
 });

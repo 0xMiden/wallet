@@ -1,14 +1,14 @@
 import { mutate } from 'swr';
 
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { useRetryableSWR } from 'lib/swr';
 
 import type { TokenPriceInfo, TokenPrices } from './binance';
-import { PRICE_CACHE_STORAGE_KEY, PRICE_MAX_AGE_SECONDS, USD_SCALE } from './usd';
+import { DISPLAY_QUOTE_MAX_AGE_MS, readDisplayFeed } from './display-feed';
+import { PRICE_CACHE_STORAGE_KEY, USD_SCALE } from './usd';
 
 const DISPLAY_CACHE_KEY = 'cached-display-market-quotes';
-/** The same 15-minute window the portfolio uses before it will value a market or basket quote. */
-const DISPLAY_QUOTE_MAX_AGE_MS = 15 * 60_000;
 
 function usableObservedAt(quote: TokenPriceInfo, now: number): number | undefined {
   if (quote.kind !== 'market' && quote.kind !== 'basket') return undefined;
@@ -25,7 +25,7 @@ function chooseDisplayQuote(
 ): TokenPriceInfo | undefined {
   if (!cachedQuote) return liveQuote;
   const cachedAt = usableObservedAt(cachedQuote, now);
-  if (cachedAt === undefined || now - cachedAt > PRICE_MAX_AGE_SECONDS * 1000) return liveQuote;
+  if (cachedAt === undefined) return liveQuote;
   if (!liveQuote) return cachedQuote;
   const liveAt = usableObservedAt(liveQuote, now);
   return liveAt === undefined || cachedAt > liveAt ? cachedQuote : liveQuote;
@@ -44,17 +44,19 @@ export function selectDisplayQuotes(live: TokenPrices, cached: TokenPrices | und
   return selected ?? live;
 }
 
-/** A display-only view of the existing market cache. It never authorizes a spend. */
+/** A display-only view of the market cache and the last feed's basket values. It never authorizes a spend. */
 export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000)): Promise<TokenPrices> {
-  const cache =
-    await fetchFromStorage<Record<string, { priceMicro: string; fetchedAt: number }>>(PRICE_CACHE_STORAGE_KEY);
-  const quotes: TokenPrices = {};
+  const [cache, baskets] = await Promise.all([
+    fetchFromStorage<Record<string, { priceMicro: string; fetchedAt: number }>>(PRICE_CACHE_STORAGE_KEY),
+    readDisplayFeed(getEffectiveNetworkName(), now * 1000)
+  ]);
+  const quotes: TokenPrices = { ...baskets };
   for (const [symbol, entry] of Object.entries(cache ?? {})) {
     if (!/^[A-Z0-9]{1,30}$/.test(symbol) || !entry || !/^[1-9]\d{0,23}$/.test(entry.priceMicro)) continue;
     if (
       !Number.isSafeInteger(entry.fetchedAt) ||
       entry.fetchedAt > now ||
-      now - entry.fetchedAt > PRICE_MAX_AGE_SECONDS
+      (now - entry.fetchedAt) * 1000 > DISPLAY_QUOTE_MAX_AGE_MS
     )
       continue;
     quotes[symbol] = {

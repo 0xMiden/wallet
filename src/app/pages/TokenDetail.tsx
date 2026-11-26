@@ -33,7 +33,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
-import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
+import { normalizedFaucetId, priceSymbolFor, quoteMayArrive } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -165,7 +165,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
-              scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
+              scaleIsKnown &&
+              (quote || (quoteMayArrive(tokenId, symbol) && !pricesLoaded(tokenPrices, [priceSymbol]))) ? (
                 <UsdAmount amount={fiatValue} animated grouping={false} />
               ) : undefined
             }

@@ -7,7 +7,9 @@ import { useWalletStore } from 'lib/store';
 
 import { CommandAssets } from './CommandAssets';
 
-const quote = { price: 3, observedAt: Date.now() - 2 * 15 * 60_000 };
+// Past the day a remembered quote may stand in for the live feed.
+const STALE_MS = 25 * 60 * 60_000;
+const quote = { price: 3, observedAt: Date.now() - STALE_MS };
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="true" /> }));
 jest.mock('lib/miden/swap/tokens', () => ({ tokenQuote: () => quote }));
@@ -24,23 +26,19 @@ const asset: TokenBalanceData = {
 
 beforeEach(() => {
   quote.price = 3;
-  quote.observedAt = Date.now() - 2 * 15 * 60_000;
+  quote.observedAt = Date.now() - STALE_MS;
   useWalletStore.setState({ tokenPricesStatus: 'ready' });
 });
 
-it('shows current token quantity but refuses cached quote fiat while prices load or fail', () => {
-  quote.observedAt = Date.now();
-  useWalletStore.setState({ tokenPricesStatus: 'loading' });
+it('values each row by the headline rule: an hour-old quote shows while prices load, fail or land', () => {
+  quote.observedAt = Date.now() - 60 * 60_000;
   const view = render(<CommandAssets assets={[asset]} prices={{}} hidden={false} current />);
-  expect(screen.getByText('2.00 COIN')).toBeInTheDocument();
-  expect(screen.getByText('commandPriceUnavailable')).toBeInTheDocument();
-  expect(screen.queryByText('6.00 USD')).not.toBeInTheDocument();
-  useWalletStore.setState({ tokenPricesStatus: 'error' });
-  view.rerender(<CommandAssets assets={[asset]} prices={{}} hidden={false} current />);
-  expect(screen.getByText('commandPriceUnavailable')).toBeInTheDocument();
-  useWalletStore.setState({ tokenPricesStatus: 'ready' });
-  view.rerender(<CommandAssets assets={[asset]} prices={{}} hidden={false} current />);
-  expect(screen.getByText('6.00 USD')).toBeInTheDocument();
+  for (const status of ['loading', 'error', 'ready'] as const) {
+    useWalletStore.setState({ tokenPricesStatus: status });
+    view.rerender(<CommandAssets assets={[asset]} prices={{}} hidden={false} current />);
+    expect(screen.getByText('2.00 COIN')).toBeInTheDocument();
+    expect(screen.getByText('6.00 USD')).toBeInTheDocument();
+  }
 });
 
 it('formats a priced asset amount and its USD value without floating-point tails', () => {
@@ -94,7 +92,7 @@ it.each([undefined, 'not-an-amount'])('withholds an unavailable exact quantity (
   expect(screen.queryByText('2.00 COIN')).not.toBeInTheDocument();
 });
 
-it('does not display a stale asset quote as a current USD value', () => {
+it('does not display a quote older than a day as a USD value', () => {
   render(<CommandAssets assets={[asset]} prices={{}} hidden={false} current />);
   expect(screen.getByText('2.00 COIN')).toBeInTheDocument();
   expect(screen.getByText('commandPriceUnavailable')).toBeInTheDocument();

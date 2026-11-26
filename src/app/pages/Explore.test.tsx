@@ -17,6 +17,7 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { TokenPrices } from 'lib/prices';
+import { _resetDisplayFeedForTest, writeDisplayFeed } from 'lib/prices/display-feed';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { HIDE_DUST_TOKENS_STORAGE_KEY } from 'lib/settings/constants';
@@ -340,7 +341,12 @@ jest.mock('lib/settings/helpers', () => ({
 let mockWalletReady = true;
 jest.mock('lib/store', () => ({
   isWalletReadyNow: () => mockWalletReady,
-  useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
+  // The feed reports 'ready' in the commit that lands its quotes, and 'loading' until then.
+  useWalletStore: (selector: (s: any) => unknown) =>
+    selector({
+      tokenPrices: mockTokenPrices,
+      tokenPricesStatus: Object.keys(mockTokenPrices).length > 0 ? 'ready' : 'loading'
+    })
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -808,6 +814,29 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    // Gamecoin on mainnet: listed, but no exchange quotes it. A fresh document cannot know that until its own feed run.
+    it('waits for the feed on a listed token no run has ruled out, and not once the last run did', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockRealBalance = true;
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'USDCX');
+      mockVerifiedPriceAssets.set('mtst1gamecoin', 'GC');
+      mockAllBalances = [
+        makeToken('mtst1gamecoin', 'GC', 'Gamecoin', 40),
+        makeToken(TEST_TOKEN_IUSDT.faucetId, 'USDCX', 'USDCx', 7.25)
+      ];
+      mockTokenPrices = {};
+      const view = await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+
+      await writeDisplayFeed(getEffectiveNetworkName(), {}, ['GC']);
+      try {
+        view.rerender(<Explore />);
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^7\.25$/);
+      } finally {
+        _resetDisplayFeedForTest();
+      }
     });
 
     it('shows an empty wallet as 0.00 before any price loads', async () => {

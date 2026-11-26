@@ -8,10 +8,13 @@ import {
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
+import { feedFoundNoQuote } from 'lib/prices/display-feed';
+import { usdMarketPending } from 'lib/prices/feed';
+import { fixedQuote } from 'lib/prices/fixed';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
 import { selectSwapPairs } from 'lib/remote-config/values';
-import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+import { peekTokenBaskets, peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
 import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
@@ -253,6 +256,23 @@ export function getPriceSymbols(): string[] {
 }
 
 export const _allowlistedPriceSymbolsForTest = getPriceSymbols;
+
+/**
+ * Whether a quote may still arrive for a held token the figure cannot value yet. A token with no price asset waits only
+ * while a list that could map it is loading; a fixed rate never waits; a basket waits for its value; a market waits until
+ * every source has ruled it out, here or in this network's last feed run (Gamecoin on mainnet).
+ */
+export function quoteMayArrive(faucetId: string, symbol: string): boolean {
+  const network = getEffectiveNetworkName();
+  const priceSymbol = priceSymbolFor(faucetId, symbol);
+  if (priceSymbol === undefined) {
+    return peekTokenPriceAssets(network) === undefined || getBridgeConfigSnapshot().status !== 'ready';
+  }
+  if (fixedQuote(priceSymbol) !== undefined) return false;
+  const id = normalizedFaucetId(faucetId);
+  if (Array.from(peekTokenBaskets(network)?.keys() ?? [], normalizedFaucetId).includes(id)) return true;
+  return usdMarketPending(priceSymbol) && !feedFoundNoQuote(network, priceSymbol);
+}
 
 /**
  * A held token's quote uses its verified price asset, or none when the feed does not quote it or

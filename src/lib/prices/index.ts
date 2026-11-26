@@ -18,6 +18,7 @@ import { useLoadedList } from 'lib/token-list/useLoadedList';
 import { basketKlines } from './basket';
 import { basketPriceSources, fetchBasketPrices } from './basket-nav';
 import type { KlineSeries, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
+import { writeDisplayFeed } from './display-feed';
 import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
@@ -141,14 +142,13 @@ export function PriceProvider() {
         peekTokenSymbols(network)
       );
       const basketPrices = sources.length > 0 ? await fetchBasketPrices(sources, prices) : {};
-      return { network, assetKey, listKey, prices, basketPrices };
+      // Ruled out by every market and no basket: a total need not wait for it in the next document either.
+      const baskets = new Set(sources.map(source => source.priceSymbol));
+      const unquoted = symbols.filter(symbol => hasNoUsdMarket(symbol) && !baskets.has(symbol));
+      return { network, assetKey, listKey, prices, basketPrices, unquoted };
     },
     { refreshInterval: 5 * 60_000, dedupingInterval: 30_000, keepPreviousData: false }
   );
-
-  useEffect(() => {
-    useWalletStore.setState({ tokenPricesStatus: pricesLoading ? 'loading' : priceError ? 'error' : 'ready' });
-  }, [pricesLoading, priceError]);
 
   // A list change that only moves a basket or its decimals clears its old value too, not only a price asset change.
   useEffect(() => {
@@ -162,8 +162,18 @@ export function PriceProvider() {
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
       // The cache keeps `market` quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
+      writeDisplayFeed(network, { ...prices.basketPrices, ...prices.prices }, prices.unquoted ?? []).catch(
+        () => undefined
+      );
     }
   }, [enabled, network, assetKey, listKey, prices, setTokenPrices]);
+
+  // After the prices land, so 'ready' never shows an empty map; and not 'ready' before the feed has run.
+  useEffect(() => {
+    useWalletStore.setState({
+      tokenPricesStatus: !enabled || pricesLoading ? 'loading' : priceError ? 'error' : 'ready'
+    });
+  }, [enabled, pricesLoading, priceError]);
 
   return null;
 }

@@ -170,6 +170,7 @@ jest.mock('lib/prices', () => ({
 // A basket's chart loads each token's candles with their length, straight from the feed.
 const mockFetchKlineSeries = jest.fn();
 jest.mock('lib/prices/feed', () => ({
+  ...jest.requireActual('lib/prices/feed'),
   fetchKlineSeries: (...args: unknown[]) => mockFetchKlineSeries(...args)
 }));
 

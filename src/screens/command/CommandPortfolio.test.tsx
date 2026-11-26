@@ -88,11 +88,23 @@ jest.mock('lib/miden/front/storage', () => ({
     ];
   }
 }));
+// The figure's quotes may be remembered ones; a draft converts dollars only at the live feed's.
+const mockLivePrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
+const mockAiBarPrices = jest.fn();
+jest.mock('./CommandAiBar', () => ({
+  CommandAiBar: (props: { tokenPrices: unknown }) => {
+    mockAiBarPrices(props.tokenPrices);
+    return null;
+  }
+}));
+let mockShown: boolean | undefined;
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
     assets: mockAssets,
     allocation: mockAllocation,
     tokenPrices: {},
+    livePrices: mockLivePrices,
+    shown: mockShown ?? mockCurrent,
     value: mockValue,
     priceMovement24h: mockMarketMove,
     coverage: 'partial',
@@ -115,6 +127,7 @@ beforeEach(async () => {
   mockCanRecord = false;
   mockMarketMove = null;
   mockCurrent = true;
+  mockShown = undefined;
   mockEmpty = false;
   mockValue = '6';
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
@@ -476,6 +489,21 @@ it('keeps known scoped identities but withholds their amounts and search while b
   expect(within(holdings).queryByRole('textbox', { name: 'searchAssets' })).not.toBeInTheDocument();
   expect(screen.queryByText('noNoteAssets')).not.toBeInTheDocument();
   expect(screen.queryByText('exploreNoResultsTitle')).not.toBeInTheDocument();
+});
+
+it('shows the proven quantities beside the figure once the read is past the record window', () => {
+  store.hidden = false;
+  mockCurrent = false;
+  mockShown = true;
+  render(<CommandPortfolio scope={scope} />);
+  const holdings = screen.getByLabelText('assets');
+  expect(within(holdings).getByText('2.00 ETH')).toBeInTheDocument();
+  expect(within(holdings).queryByText('commandBalanceUnavailable')).not.toBeInTheDocument();
+});
+
+it('hands Bread Command AI the live quotes, never the remembered ones the figure may use', () => {
+  render(<CommandPortfolio scope={scope} />);
+  expect(mockAiBarPrices).toHaveBeenLastCalledWith(mockLivePrices);
 });
 
 it('does not describe unavailable current holdings as an empty wallet or a search miss', () => {

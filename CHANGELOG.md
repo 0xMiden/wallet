@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
 - [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Show when Claim All is waiting for an automatic retry.
 - [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.

@@ -98,7 +98,9 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent:
             import('app/hooks/useHiddenTokens').then(({ primeHiddenTokens }) =>
               primeHiddenTokens(network, accountPublicKey)
             ),
-            loadTokenPriceAssets(network).catch(() => undefined)
+            loadTokenPriceAssets(network).catch(() => undefined),
+            // With the list, what tells a token no feed can price from one whose quote is still coming.
+            import('lib/remote-config/runtime').then(({ initBridgeConfig }) => initBridgeConfig())
           ]).then(
             () => resolve(),
             error => {

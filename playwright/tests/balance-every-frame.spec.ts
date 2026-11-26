@@ -2,7 +2,12 @@ import type { BrowserContext, Page, Route } from '@playwright/test';
 
 import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wallet';
 import { expect, test } from '../fixtures/extension';
-import { TEST_TOKEN_IBTC, TEST_TOKEN_IETH, TEST_TOKEN_IUSDT } from '../../src/lib/miden/swap/testing/registry';
+import {
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  TEST_TOKEN_IMIDEN,
+  TEST_TOKEN_IUSDT
+} from '../../src/lib/miden/swap/testing/registry';
 import type { SyncData } from '../../src/lib/shared/types';
 
 /**
@@ -17,6 +22,7 @@ type Frame = { t: number; text: string };
 declare global {
   interface Window {
     __balanceFrames?: Frame[];
+    __syncReads?: number;
   }
 }
 
@@ -35,9 +41,22 @@ const MICO_LIKE = {
   metadata: { symbol: 'MICO', name: 'Mico', decimals: 4 }
 };
 
-// Binance quotes ETH, a listed token the wallet does not hold; Kraken is refused.
+// Listed, as Gamecoin is on mainnet, but quoted by no exchange.
+const GC_LIKE = {
+  faucetId: TEST_TOKEN_IMIDEN.faucetId,
+  amountBaseUnits: '40000000',
+  metadata: { symbol: 'GC', name: 'Gamecoin', decimals: 6 }
+};
+
+// Binance quotes ETH, a listed token the wallet does not hold; Kraken lists only ETH, so it rules GC out too.
 function answerFeed(route: Route) {
   const url = new URL(route.request().url());
+  if (url.hostname === 'api.kraken.com' && url.pathname.endsWith('/AssetPairs')) {
+    return route.fulfill({
+      headers: CORS,
+      json: { error: [], result: { XETHZUSD: { status: 'online', quote: 'ZUSD', wsname: 'ETH/USD' } } }
+    });
+  }
   if (url.hostname !== 'data-api.binance.vision') return route.abort();
   if (url.pathname.endsWith('/exchangeInfo')) {
     return route.fulfill({
@@ -65,19 +84,22 @@ function answerFeed(route: Route) {
 async function holdPriceFeed(context: BrowserContext) {
   await context.unroute(FEED);
   const held: Route[] = [];
+  const answered: string[] = [];
   let released = false;
-  let served = 0;
+  const answer = async (route: Route) => {
+    answered.push(new URL(route.request().url()).pathname);
+    await answerFeed(route);
+  };
   await context.route(FEED, async route => {
     if (!released) return void held.push(route);
-    served += 1;
-    await answerFeed(route);
+    await answer(route);
   });
   return {
-    served: () => served,
+    held: () => held.length,
+    tickerAnswered: () => answered.some(path => path.endsWith('/ticker/24hr')),
     release: async () => {
       released = true;
-      served += held.length;
-      await Promise.all(held.splice(0).map(answerFeed));
+      await Promise.all(held.splice(0).map(answer));
     }
   };
 }
@@ -99,6 +121,7 @@ async function openWithTimeline(
             return Reflect.apply(target, receiver, args);
           }
           // On the next task, like a real storage read, and steady while the service worker syncs its own vault.
+          window.__syncReads = (window.__syncReads ?? 0) + 1;
           setTimeout(() => args[1]({ miden_sync_data: data }), 0);
           return undefined;
         }
@@ -157,6 +180,8 @@ const CASES = [
   { name: 'usdcx-and-unlisted-cold-cache', vault: [USDCX_LIKE, MICO_LIKE], cache: 'none' },
   // Control, the #2236 shape: green before the fix too, so a failure here is the harness.
   { name: 'control-usdcx-alone', vault: [USDCX_LIKE], cache: 'none' },
+  // After one open whose feed ruled Gamecoin out, the next ones need not wait for it.
+  { name: 'usdcx-and-gamecoin', vault: [USDCX_LIKE, GC_LIKE], cache: 'unheld', primeFeed: true },
   // Nothing can be valued, so the dash is the right answer.
   { name: 'negative-unlisted-alone', vault: [MICO_LIKE], cache: 'unheld' }
 ] as const;
@@ -180,7 +205,8 @@ test.describe('Balance on every frame', () => {
     const network = (await readSnapshot()).balanceSnapshot?.effectiveNetwork;
     expect(network).toBe('testnet');
 
-    for (const { name, vault, cache } of CASES) {
+    for (const testCase of CASES) {
+      const { name, vault, cache } = testCase;
       const nowSec = Math.floor(Date.now() / 1000);
       await worker.evaluate(values => chrome.storage.local.set(values), {
         [`token_list_cache_v2:${network}`]: {
@@ -188,7 +214,8 @@ test.describe('Balance on every frame', () => {
           body: {
             tokens: [
               { network, faucetId: USDCX_LIKE.faucetId, symbol: 'USDCX', name: 'USDCx', decimals: 6 },
-              { network, faucetId: TEST_TOKEN_IETH.faucetId, symbol: 'ETH', name: 'Ether', decimals: 8 }
+              { network, faucetId: TEST_TOKEN_IETH.faucetId, symbol: 'ETH', name: 'Ether', decimals: 8 },
+              { network, faucetId: GC_LIKE.faucetId, symbol: 'GC', name: 'Gamecoin', decimals: 6 }
             ]
           }
         },
@@ -203,6 +230,22 @@ test.describe('Balance on every frame', () => {
       const fixture: SyncData = { ...(await readSnapshot()), vaultAssets: [...vault] };
       const knowable = vault.some(asset => asset.metadata.symbol === 'USDCX');
       const opens = knowable && vault.length > 1 ? 3 : 1;
+      if ('primeFeed' in testCase) {
+        const feed = await holdPriceFeed(extensionContext);
+        const page = await openWithTimeline(extensionContext, extensionId, 'sidepanel', fixture);
+        await feed.release();
+        await expect
+          .poll(
+            () =>
+              worker.evaluate(async key => {
+                const stored = (await chrome.storage.local.get(key))[key] as { unquoted?: string[] } | undefined;
+                return stored?.unquoted ?? [];
+              }, `display_feed_v1:${network}`),
+            { message: `${name}: the feed run never ruled Gamecoin out` }
+          )
+          .toEqual(expect.arrayContaining(['GC']));
+        await page.close();
+      }
 
       for (const surface of ['sidepanel', 'command'] as const) {
         const value = surface === 'sidepanel' ? /^7\.25$/ : /^7\.25 USD$/;
@@ -216,13 +259,17 @@ test.describe('Balance on every frame', () => {
           if (open === 0) {
             await page.screenshot({ path: testInfo.outputPath(`command-balance-${surface}-${name}.png`) });
           }
-          // Past the 1 s startup read cap and one 3 s balance poll.
-          await page.waitForTimeout(3_500);
+          // The price fetch is out and held, and the 3 s balance poll has landed again after the startup read.
+          await expect.poll(() => feed.held(), { message: `${label}: no price request` }).toBeGreaterThanOrEqual(1);
+          await expect
+            .poll(() => page.evaluate(() => window.__syncReads ?? 0), { message: `${label}: no balance poll` })
+            .toBeGreaterThanOrEqual(2);
+          await page.waitForTimeout(1_000);
           const held = await timeline(page);
           console.log(`[balance frames] ${label} while the feed is held: ${JSON.stringify(held)}`);
           expect(shown(held), `${label} while the feed is held`).toEqual(expected);
           await feed.release();
-          await expect.poll(() => feed.served()).toBeGreaterThan(0);
+          await expect.poll(() => feed.tickerAnswered(), { message: `${label}: ticker not answered` }).toBe(true);
           await page.waitForTimeout(2_000);
           const settled = await timeline(page);
           console.log(`[balance frames] ${label} after the feed: ${JSON.stringify(settled)}`);
