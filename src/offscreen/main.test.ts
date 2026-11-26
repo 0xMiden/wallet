@@ -5906,6 +5906,330 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(gates.filter(g => g.action === 'retract')).toHaveLength(1);
       expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
     });
+
+    it.each(['passSubmitGate', 'post-gate readChainTip'] as const)(
+      'completes submitGate retract before sendResponse on lock eviction during %s (#2325)',
+      async where => {
+        const { events, gates } = await arrange([1_000], 1_000);
+        const miden: any = await import('lib/miden/sdk/miden-client');
+        const lateAfterResponse: any[] = [];
+        const sendResponse = jest.fn();
+
+        if (where === 'post-gate readChainTip') {
+          let tipReads = 0;
+          G.__off.readChainTip = jest.fn(async () => {
+            tipReads += 1;
+            if (tipReads === 2) miden.__evictHolder();
+            return 1_000;
+          });
+        }
+
+        let resolveGateOpen: ((reply: { ok: boolean }) => void) | undefined;
+        G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+          if (m?.type === 'OFFSCREEN_STAGE_EVENT' || m?.type === OFFSCREEN_SUBMIT_GATE) {
+            if (sendResponse.mock.calls.length > 0) {
+              lateAfterResponse.push(m);
+              if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+                return { ok: false, error: 'op settled after sendResponse' };
+              }
+              return undefined;
+            }
+          }
+          if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+          if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+            gates.push(m);
+            if (m.action === 'retract') {
+              events.push('gate:retract');
+              return { ok: true };
+            }
+            events.push('gate');
+            if (where === 'passSubmitGate') {
+              miden.__evictHolder();
+              // Hold the gate open reply until after `sendResponse` tears down the SW gate, so `commit`'s catch also
+              // hits `retractSubmitGate`'s `context.gateClosed` guard after `handleCall` already retracted and replied.
+              return await new Promise<{ ok: boolean }>(resolve => {
+                resolveGateOpen = resolve;
+              });
+            }
+            return { ok: true };
+          }
+          return undefined;
+        });
+
+        capturedListener!(
+          callReq({
+            method: 'guardianPipeline',
+            submitGated: true,
+            argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+          }),
+          {},
+          sendResponse
+        );
+        await waitForReply(sendResponse);
+        resolveGateOpen?.({ ok: true });
+        await miden.__lastRunning()?.catch(() => {});
+        await flush();
+
+        expect(lateAfterResponse).toEqual([]);
+        expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+        expect(events).toEqual(['executing', 'execute', 'proving', 'gate', 'gate:retract']);
+        expect(gates.filter(g => g.action === 'retract')).toHaveLength(1);
+        expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each([
+      ['ok', { ok: true }],
+      ['refused', { ok: false, error: 'retract failed' }]
+    ] as const)(
+      'awaits in-flight submitGate.retract on lock eviction without dropping sendResponse when retract is %s (#2325)',
+      async (_label, retractReply) => {
+        const { events, gates } = await arrange([1_000], 1_000);
+        const miden: any = await import('lib/miden/sdk/miden-client');
+        const lateAfterResponse: any[] = [];
+        const sendResponse = jest.fn();
+        let tipReads = 0;
+        G.__off.readChainTip = jest.fn(async () => {
+          tipReads += 1;
+          return tipReads === 1 ? 1_000 : 1_100;
+        });
+
+        let resolveRetract!: (reply: { ok: boolean; error?: string }) => void;
+        let retractStarted!: () => void;
+        const retractInFlight = new Promise<void>(resolve => {
+          retractStarted = resolve;
+        });
+
+        G.chrome.runtime.sendMessage = jest.fn((m: any) => {
+          if (m?.type === 'OFFSCREEN_STAGE_EVENT' || m?.type === OFFSCREEN_SUBMIT_GATE) {
+            if (sendResponse.mock.calls.length > 0) {
+              lateAfterResponse.push(m);
+              if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+                return Promise.resolve({ ok: false, error: 'op settled after sendResponse' });
+              }
+              return Promise.resolve(undefined);
+            }
+          }
+          if (m?.type === 'OFFSCREEN_STAGE_EVENT') {
+            events.push(m.stage);
+            return Promise.resolve(undefined);
+          }
+          if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+            gates.push(m);
+            if (m.action === 'retract') {
+              events.push('gate:retract');
+              retractStarted();
+              return new Promise(resolve => {
+                resolveRetract = resolve;
+              });
+            }
+            events.push('gate');
+            return Promise.resolve({ ok: true });
+          }
+          return Promise.resolve(undefined);
+        });
+
+        capturedListener!(
+          callReq({
+            method: 'guardianPipeline',
+            submitGated: true,
+            argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+          }),
+          {},
+          sendResponse
+        );
+
+        await retractInFlight;
+        miden.__evictHolder();
+        await flush();
+
+        expect(sendResponse).not.toHaveBeenCalled();
+
+        resolveRetract(retractReply);
+        await waitForReply(sendResponse);
+        await miden.__lastRunning()?.catch(() => {});
+        await flush();
+
+        expect(lateAfterResponse).toEqual([]);
+        expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+        expect(gates.filter(g => g.action === 'retract')).toHaveLength(1);
+        expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+      }
+    );
+
+    it('emits no retract and suppresses post-reply events when lock hold is evicted during attempt.submit (#2325)', async () => {
+      const { events, gates } = await arrange([1_000], 1_000);
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      const lateAfterResponse: any[] = [];
+      const sendResponse = jest.fn();
+
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT' || m?.type === OFFSCREEN_SUBMIT_GATE) {
+          if (sendResponse.mock.calls.length > 0) {
+            lateAfterResponse.push(m);
+            return undefined;
+          }
+        }
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          events.push(m.action === 'retract' ? 'gate:retract' : 'gate');
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      let resolveSubmit!: (value: unknown) => void;
+      G.__off.guardianSubmitProven = jest.fn(
+        () =>
+          new Promise(resolve => {
+            resolveSubmit = resolve;
+            miden.__evictHolder();
+          })
+      );
+
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          submitGated: true,
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        sendResponse
+      );
+      await waitForReply(sendResponse);
+
+      resolveSubmit({ toHex: () => '0xabc' });
+      await miden.__lastRunning()?.catch(() => {});
+      await flush();
+
+      expect(lateAfterResponse).toEqual([]);
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+      expect(gates.filter(g => g.action === 'retract')).toHaveLength(0);
+      expect(events).toEqual(['executing', 'execute', 'proving', 'gate']);
+    });
+
+    it('marks activeContext settled before sendResponse on pre-gate eviction so resumed work emits no late stage events (#2325)', async () => {
+      const { events, gates } = await arrange([1_000], 1_000);
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      const lateAfterResponse: any[] = [];
+      const sendResponse = jest.fn();
+
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT' || m?.type === OFFSCREEN_SUBMIT_GATE) {
+          if (sendResponse.mock.calls.length > 0) {
+            lateAfterResponse.push(m);
+            return undefined;
+          }
+        }
+        if (m?.type === 'OFFSCREEN_STAGE_EVENT') events.push(m.stage);
+        if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+          gates.push(m);
+          events.push(m.action === 'retract' ? 'gate:retract' : 'gate');
+          return { ok: true };
+        }
+        return undefined;
+      });
+
+      const baseExec = G.__off.guardianExecuteRequest;
+      let releaseExec!: () => void;
+      let execEntered!: () => void;
+      const enteredExec = new Promise<void>(resolve => {
+        execEntered = resolve;
+      });
+      G.__off.guardianExecuteRequest = jest.fn(async (...args: any[]) => {
+        execEntered();
+        await new Promise<void>(resolve => {
+          releaseExec = resolve;
+        });
+        return baseExec(...args);
+      });
+
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          submitGated: true,
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        sendResponse
+      );
+      await enteredExec;
+      miden.__evictHolder();
+      await waitForReply(sendResponse);
+
+      releaseExec();
+      await miden.__lastRunning()?.catch(() => {});
+      await flush();
+
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+      expect(gates.filter(g => g.action === 'retract')).toHaveLength(0);
+      expect(lateAfterResponse).toEqual([]);
+      expect(events).toEqual(['executing', 'execute']);
+    });
+  });
+
+  it('newTransaction: closes submit gate before sendResponse on eviction so abandoned leafStageStamp emits no late gate messages (#2325)', async () => {
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const lateGateMessages: any[] = [];
+    const sendResponse = jest.fn();
+
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SUBMIT_GATE) {
+        if (sendResponse.mock.calls.length > 0) {
+          lateGateMessages.push(m);
+          return { ok: false, error: 'settled after sendResponse' };
+        }
+        return { ok: true };
+      }
+      return undefined;
+    });
+
+    let entered!: () => void;
+    const execEntered = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    let releaseLeaf!: () => void;
+    const leafParked = new Promise<void>(resolve => {
+      releaseLeaf = resolve;
+    });
+    const submit = jest.fn();
+    G.__off.clientNewTransaction.mockImplementationOnce(
+      async (
+        _account: string,
+        _bytes: Uint8Array,
+        _delegated: boolean,
+        onStage: (stage: string, detail?: { evidence: { refBlock: number } }) => void | Promise<void>
+      ) => {
+        entered();
+        await leafParked;
+        onStage('proving');
+        await onStage('submitting', { evidence: { refBlock: 4 } });
+        submit();
+        return { serialize: () => new Uint8Array([1]) };
+      }
+    );
+
+    capturedListener!(
+      callReq({
+        method: 'newTransaction',
+        argsB64: [encodeArg('acct'), encodeArg(new Uint8Array([1])), encodeArg(false), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await execEntered;
+    miden.__evictHolder();
+    await waitForReply(sendResponse);
+
+    releaseLeaf();
+    await miden.__lastRunning()?.catch(() => {});
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+    expect(lateGateMessages).toEqual([]);
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
