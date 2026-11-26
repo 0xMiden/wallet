@@ -10997,6 +10997,27 @@
     "message": "Bu ağdan bu token'ın yatırılması henüz desteklenmemektedir.",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "Para yatırma hizmetine ulaşılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "Köprü ücreti bu tutardan fazladır. Daha yüksek bir tutar girin.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "İncelemenizden sonra köprü ücreti arttı, bu nedenle incelediğinizden daha az bir tutar alacaksınız. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Geri dönüp para yatırma işlemini tekrar inceleyin.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "Para yatırma hizmeti şu anda $network$'e hizmet vermiyor, bu nedenle bu para yatırma işlemi başlatılamaz. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "Yaklaşık 30 dakika",
     "englishSource": "About 30 minutes"

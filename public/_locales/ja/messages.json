@@ -10995,6 +10995,27 @@
     "message": "このネットワークからの当該トークンの入金は、現時点ではサポートされていません。",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "預入サービスに接続できません。後ほど再度お試しください。",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "ブリッジ手数料はこの金額を上回っています。より大きな金額を入力してください。",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "確認後、ブリッジ手数料が値上がりしたため、確認した金額よりも少ない額を受け取ることになります。資金は依然として入金額に保管されています。戻って、入金額を再度確認してください。",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "現在、この入金サービスは$network$に対応していないため、この入金は開始できません。お客様の資金は引き続き入金アドレスに残っています。",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "約30分",
     "englishSource": "About 30 minutes"

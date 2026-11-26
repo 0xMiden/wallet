@@ -10995,6 +10995,27 @@
     "message": "이 네트워크를 통한 해당 토큰의 입금은 아직 지원되지 않습니다.",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "입금 서비스에 접속할 수 없습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "브리지 수수료는 이 금액보다 큽니다. 더 큰 금액을 입력하십시오.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "검토 후 브리지 수수료가 인상되었으므로, 검토하신 금액보다 적은 금액을 수령하게 됩니다. 귀하의 자금은 여전히 입금 주소에 있습니다. 돌아가서 입금 내역을 다시 확인해 주십시오.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "현재 입금 서비스는 $network$를 지원하지 않으므로 이 입금을 시작할 수 없습니다. 귀하의 자금은 여전히 입금 주소에 남아 있습니다.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "약 30분",
     "englishSource": "About 30 minutes"

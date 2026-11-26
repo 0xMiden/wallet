@@ -10983,6 +10983,27 @@
     "message": "目前尚不支援從該網路存入此代幣。",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "無法連線至存款服務。請稍後重試。",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "橋接手續費高於此金額。請輸入較大的金額。",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "橋接手續費在您審核後已上調，因此您實際收到的金額將少於審核時的數額。您的資金仍存放在存款地址中。請返回並重新審核該筆存款。",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "該存款服務目前不支援 $network$，因此此筆存款無法開始。您的資金仍存於您的存款地址中。",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "約 30 分鐘",
     "englishSource": "About 30 minutes"

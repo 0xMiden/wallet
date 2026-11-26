@@ -10999,6 +10999,27 @@
     "message": "Wpłaty tego tokenu z tej sieci nie są jeszcze obsługiwane.",
     "englishSource": "Deposits of this token from this network aren't supported yet."
   },
+  "depositFlowUnavailableUnreachable": {
+    "message": "Nie można połączyć się z usługą wpłat. Spróbuj ponownie później.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "Opłata za most przekracza tę kwotę. Wprowadź wyższą kwotę.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "Opłata za most wzrosła po Twojej weryfikacji, więc otrzymasz mniej niż podałeś w weryfikacji. Twoje środki nadal znajdują się na Twoim adresie depozytowym. Wróć i ponownie sprawdź depozyt.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "Usługa wpłat nie obsługuje obecnie sieci $network$, więc ta wpłata nie może zostać zrealizowana. Twoje środki nadal znajdują się na Twoim adresie wpłat.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "depositFlowArrivesAgglayer": {
     "message": "Około 30 minut",
     "englishSource": "About 30 minutes"
