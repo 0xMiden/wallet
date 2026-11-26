@@ -1733,10 +1733,10 @@ fileprivate func alphaGrid(_ image: CGImage) -> (width: Int, height: Int, alpha:
 }
 
 private final class CountingMorphContainer: BreadMorphContainerViewController {
-    var statusBarUpdates = 0
-    override func setNeedsStatusBarAppearanceUpdate() {
-        statusBarUpdates += 1
-        super.setNeedsStatusBarAppearanceUpdate()
+    private(set) var systemUIRefreshes = 0
+    override func refreshPresentationSystemUI() {
+        systemUIRefreshes += 1
+        super.refreshPresentationSystemUI()
     }
 }
 
@@ -1831,9 +1831,9 @@ final class BreadMorphContainerTests: XCTestCase {
         let live = try await livePresentation(container: { CountingMorphContainer(child: $0) })
         defer { live.dispose() }
         let container = try XCTUnwrap(live.instance.morphContainer as? CountingMorphContainer)
-        let before = container.statusBarUpdates
+        let before = container.systemUIRefreshes
         live.presentation.setVisible(false)
-        XCTAssertGreaterThan(container.statusBarUpdates, before)
+        XCTAssertGreaterThan(container.systemUIRefreshes, before)
     }
 }
 
@@ -3030,22 +3030,23 @@ final class BreadMorphPresentationTests: XCTestCase {
         let container = try counting(live)
         XCTAssertTrue(live.owner.prefersStatusBarHidden)
         XCTAssertTrue(live.window.isKeyWindow)
-        let before = container.statusBarUpdates
+        let before = container.systemUIRefreshes
         XCTAssertTrue(collapse(live, "c1"))
+        XCTAssertEqual(live.presentation.state.motion, Motion.collapsing)
         for _ in 0..<8 {
-            try await Task.sleep(nanoseconds: 40_000_000)
             guard plugin.phases("c1").last != "settled" else { break }
             XCTAssertTrue(live.owner.prefersStatusBarHidden)
             XCTAssertTrue(live.owner.prefersHomeIndicatorAutoHidden)
             XCTAssertTrue(live.window.isKeyWindow)
-            XCTAssertEqual(container.statusBarUpdates, before)
+            XCTAssertEqual(container.systemUIRefreshes, before)
+            try await Task.sleep(nanoseconds: 40_000_000)
         }
         let settled = try await eventually { plugin.phases("c1").last == "settled" }
         XCTAssertTrue(settled)
         XCTAssertFalse(live.owner.prefersStatusBarHidden)
         XCTAssertFalse(live.owner.prefersHomeIndicatorAutoHidden)
         XCTAssertFalse(live.window.isKeyWindow)
-        XCTAssertGreaterThan(container.statusBarUpdates, before)
+        XCTAssertGreaterThan(container.systemUIRefreshes, before)
     }
 
     func testFullscreenExpandKeepsTheSystemUIAsItWasUntilItSettles() async throws {
@@ -3053,36 +3054,35 @@ final class BreadMorphPresentationTests: XCTestCase {
         defer { live.dispose() }
         let container = try counting(live)
         XCTAssertFalse(live.owner.prefersStatusBarHidden)
-        let before = container.statusBarUpdates
+        let before = container.systemUIRefreshes
         XCTAssertTrue(expand(live, "e1"))
-        let unhidden = container.statusBarUpdates
-        XCTAssertLessThanOrEqual(unhidden - before, 1, "only UIKit's own note of the window unhide")
+        XCTAssertEqual(live.presentation.state.motion, Motion.expanding)
         for _ in 0..<8 {
-            try await Task.sleep(nanoseconds: 40_000_000)
             guard plugin.phases("e1").last != "settled" else { break }
             XCTAssertFalse(live.owner.prefersStatusBarHidden)
             XCTAssertFalse(live.owner.prefersHomeIndicatorAutoHidden)
             XCTAssertFalse(live.window.isKeyWindow)
-            XCTAssertEqual(container.statusBarUpdates, unhidden)
+            XCTAssertEqual(container.systemUIRefreshes, before)
+            try await Task.sleep(nanoseconds: 40_000_000)
         }
         let settled = try await eventually { plugin.phases("e1").last == "settled" }
         XCTAssertTrue(settled)
         XCTAssertTrue(live.owner.prefersStatusBarHidden)
         XCTAssertTrue(live.owner.prefersHomeIndicatorAutoHidden)
         XCTAssertTrue(live.window.isKeyWindow)
-        XCTAssertGreaterThan(container.statusBarUpdates, unhidden)
+        XCTAssertGreaterThan(container.systemUIRefreshes, before)
     }
 
     func testACollapseReversedMidFlightEndsWithTheSystemUIHidden() async throws {
         let (live, plugin) = try await revealedMorph(display: "fullscreen", counting: true)
         defer { live.dispose() }
         let container = try counting(live)
-        let before = container.statusBarUpdates
+        let before = container.systemUIRefreshes
         XCTAssertTrue(collapse(live, "c1"))
         try await Task.sleep(nanoseconds: 120_000_000)
         XCTAssertTrue(expand(live, "e1"))
         XCTAssertTrue(live.owner.prefersStatusBarHidden)
-        XCTAssertEqual(container.statusBarUpdates, before)
+        XCTAssertEqual(container.systemUIRefreshes, before)
         let settled = try await eventually { plugin.phases("e1").last == "settled" }
         XCTAssertTrue(settled)
         XCTAssertTrue(live.owner.prefersStatusBarHidden)

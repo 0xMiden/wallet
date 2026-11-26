@@ -71,6 +71,21 @@ export function tagBalanceSnapshot(
   snapshots.set(rows, { ...snapshot, accountId });
 }
 
+/**
+ * Maps display-only changes (a rescaled native row) over landed rows. Nothing changing returns the same rows, and a
+ * change keeps the proof of the vault read: the read is the same, only how its amount is shown moved.
+ */
+export function remapBalanceRows(
+  rows: TokenBalanceData[],
+  map: (row: TokenBalanceData) => TokenBalanceData
+): TokenBalanceData[] {
+  const mapped = rows.map(map);
+  if (mapped.every((row, index) => row === rows[index])) return rows;
+  const snapshot = snapshots.get(rows);
+  if (snapshot) snapshots.set(mapped, snapshot);
+  return mapped;
+}
+
 /** Scope-checked read of the existing row-bound proof; legacy nonce/badge readers retain their own checks. */
 export function readBalanceSnapshot(rows: readonly TokenBalanceData[], scope: AccountScope): BalanceSnapshot | null {
   const snapshot = snapshots.get(rows);

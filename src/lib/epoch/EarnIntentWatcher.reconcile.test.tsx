@@ -159,42 +159,50 @@ describe('EarnIntentWatcher local reconciliation', () => {
 
   // A restored row is a receipt: the device that made the withdrawal owns its state, and the backup brings the
   // result. This device does not change it, also when it cannot verify it (`updateEarnWithdrawPhase` refuses it).
-  it.each(pendingPhases)('leaves a restored %s withdrawal whose poll key is owned as it was restored', async phase => {
-    const row = withdrawal('restored', { phase });
-    row.restoredFromBackup = true;
-    row.status = ITransactionStatus.Failed;
-    await transactions.add(row);
-    const restored = await transactions.get('restored');
-    const heldKey = earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-restored');
-    own(heldKey);
+  // Real timers: under fake timers `waitFor` spends its budget in event-loop turns, not wall time, so the slow
+  // instrumented coverage run (dynamic import plus Dexie reads) exhausts it before the pass reaches the sentinel.
+  it.each(pendingPhases)(
+    'leaves a restored %s withdrawal whose poll key is owned as it was restored',
+    async phase => {
+      jest.useRealTimers();
+      jest.spyOn(Date, 'now').mockReturnValue(NOW_SECONDS * 1000);
+      const row = withdrawal('restored', { phase });
+      row.restoredFromBackup = true;
+      row.status = ITransactionStatus.Failed;
+      await transactions.add(row);
+      const restored = await transactions.get('restored');
+      const heldKey = earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-restored');
+      own(heldKey);
 
-    // Seed a sentinel whose primary key sorts after `'restored'` before mount so `reconcileEarnWithdrawals`
-    // processes `'restored'` first and reaching `'failed'` on the sentinel proves the same pass finished it.
-    await transactions.add(
-      withdrawal('z-late-expired', {
-        attemptStartedAt: EXPIRED_SECONDS,
-        withdrawIntentNonce: undefined,
-        submissionState: 'preparing'
-      })
-    );
-    expect(await transactions.toCollection().primaryKeys()).toEqual(['restored', 'z-late-expired']);
+      // Seed a sentinel whose primary key sorts after `'restored'` before mount so `reconcileEarnWithdrawals`
+      // processes `'restored'` first and reaching `'failed'` on the sentinel proves the same pass finished it.
+      await transactions.add(
+        withdrawal('z-late-expired', {
+          attemptStartedAt: EXPIRED_SECONDS,
+          withdrawIntentNonce: undefined,
+          submissionState: 'preparing'
+        })
+      );
+      expect(await transactions.toCollection().primaryKeys()).toEqual(['restored', 'z-late-expired']);
 
-    render(<EarnIntentWatcher />);
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(100);
-    });
-    await waitFor(async () => {
-      const late = await transactions.get('z-late-expired');
-      const lateInputs: IEarnWithdrawExtraInputs | undefined = late?.extraInputs;
-      expect(lateInputs?.phase).toBe('failed');
-    });
+      render(<EarnIntentWatcher />);
+      await waitFor(
+        async () => {
+          const late = await transactions.get('z-late-expired');
+          const lateInputs: IEarnWithdrawExtraInputs | undefined = late?.extraInputs;
+          expect(lateInputs?.phase).toBe('failed');
+        },
+        { timeout: 10_000 }
+      );
 
-    expect(await transactions.get('restored')).toEqual(restored);
-    expect(isPollActive(earnWithdrawPollKey(OWNER, 'nonce-restored'))).toBe(true);
-    expect(mockGetSdk).not.toHaveBeenCalled();
-    expect(mockGetIntentStatus).not.toHaveBeenCalled();
-    expect(mockRegisterBridgeIn).not.toHaveBeenCalled();
-  });
+      expect(await transactions.get('restored')).toEqual(restored);
+      expect(isPollActive(earnWithdrawPollKey(OWNER, 'nonce-restored'))).toBe(true);
+      expect(mockGetSdk).not.toHaveBeenCalled();
+      expect(mockGetIntentStatus).not.toHaveBeenCalled();
+      expect(mockRegisterBridgeIn).not.toHaveBeenCalled();
+    },
+    15_000
+  );
 
   it.each(pendingPhases)('preserves an owned %s intent despite its local age', async phase => {
     const row = withdrawal('expired', {

@@ -130,6 +130,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   test.setTimeout(330_000);
   await importWallet(extensionContext, extensionId);
   const popup = await openPopup(extensionContext, extensionId);
+  await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(0);
+  const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+  await popup.goto(`${popupUrl}#/settings/advanced-settings`);
+  const fullscreenSetting = popup.getByRole('button', { name: 'Show fullscreen button' });
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'false');
+  await fullscreenSetting.click();
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'true');
+  await captureCommand(popup, info, 'command-fullscreen-preference-360x600');
+  await popup.goto(`${popupUrl}#/`);
   const balanceAction = popup.getByTestId('balance-card-action');
   const launcher = balanceAction.getByRole('button', { name: 'Open fullscreen' });
   await expect(launcher).toBeVisible();
@@ -182,29 +191,35 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   if (!address) throw new Error('Mock wallet receive address is missing');
   await seedChartPreview(command, address);
   await command.getByTestId('command-workbench').getByRole('button', { name: 'Minimize' }).click();
-  // Capture the selected range, not an intermediate frame of the sliding indicator.
+  await expect(command).toHaveURL(/#\/$/);
   await command.emulateMedia({ reducedMotion: 'reduce' });
+  // Reload the observations written directly to IndexedDB after the dashboard first mounted.
+  await command.reload({ waitUntil: 'domcontentloaded' });
   const week = command.getByRole('radio', { name: '1W', exact: true });
   await week.click();
   await expect(week).toHaveAttribute('aria-checked', 'true');
-  const area = command.locator('[data-command-chart-area]');
-  await expect(area).toHaveAttribute('d', /^M [^M]+ Z$/);
+  const chart = command.getByTestId('command-chart');
+  const line = chart.locator('[data-command-chart-line]');
+  await expect(line).toHaveAttribute('d', /^M [^MZ]+ [CL] [^MZ]+$/);
   await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(0);
-  // The range selection and point marker must fit, including at the right endpoint.
+  // Inspect the latest point at the right edge, where the marker must still fit.
+  const marker = chart.getByTestId('command-chart-marker');
+  await chart.hover({ position: { x: (await chart.boundingBox())!.width - 1, y: 1 } });
   await expect(week).toBeInViewport({ ratio: 1 });
-  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
+  await expect(marker).toBeInViewport({ ratio: 1 });
   await captureCommand(command, info, 'command-dashboard-chart-1440x1000');
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
   await command.setViewportSize({ width: 390, height: 844 });
-  await captureCommand(command, info, 'command-dashboard-chart-390x844');
+  await chart.hover({ position: { x: (await chart.boundingBox())!.width - 1, y: 1 } });
   await expect(week).toBeInViewport({ ratio: 1 });
-  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
+  await expect(marker).toBeInViewport({ ratio: 1 });
+  await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await command.emulateMedia({ reducedMotion: 'no-preference' });
   await command.setViewportSize({ width: 1440, height: 1000 });
   await command.getByRole('radio', { name: '1M', exact: true }).click();
   await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(1);
-  await expect(area).toBeAttached();
+  await expect(line).toHaveAttribute('d', /^M /);
   await command.emulateMedia({ reducedMotion: null });
 
   await command.keyboard.press('Control+k');
@@ -230,7 +245,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(backdrop).toHaveAttribute('aria-hidden', 'true');
   await expect(backdrop).toHaveCSS('opacity', '0.3');
   const dashboardHandle = await backdrop.elementHandle();
-  await expect(backdrop.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
+  await expect(backdrop.locator('[data-command-chart-line]')).toHaveAttribute('d', /^M /);
   await composer.getByTestId('send-amount-input').fill('1.234500');
   await captureCommand(command, info, 'command-send-1440x1000');
   await assertWorkbenchFrames(command, async () => {

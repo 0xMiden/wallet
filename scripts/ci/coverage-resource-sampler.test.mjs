@@ -232,7 +232,7 @@ test('the CLI defaults the shard to unknown and df to cwd', { timeout: 35_000 },
   }
 });
 
-test('the coverage step launches and stops the sampler before running coverage', () => {
+test('the coverage step samples resources and only parallelizes regular shards', () => {
   const workflow = readFileSync(fileURLToPath(new URL('../../.github/workflows/pr.yml', import.meta.url)), 'utf8');
   const launch = 'node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &';
 
@@ -259,7 +259,10 @@ test('the coverage step launches and stops the sampler before running coverage',
     'trap stop_sampler EXIT',
     "trap 'exit 130' INT",
     "trap 'exit 143' TERM",
-    'yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json'
+    'jest_execution=--maxWorkers=6',
+    'if [[ "$SHARD" == "$SHARDS" ]]; then jest_execution=--runInBand; fi',
+    'bash scripts/ci/run-jest-shard.sh "$SHARD" "$SHARDS" "$jest_execution" --coverage --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json',
+    'node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json'
   ].join('\n'));
 });
 

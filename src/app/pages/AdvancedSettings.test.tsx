@@ -9,8 +9,15 @@ import { navigate } from 'lib/woozie';
 
 import AdvancedSettings from './AdvancedSettings';
 
+let mockExtension = true;
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => mockExtension }));
+
 // The nominal-price switch persists in localStorage, which jsdom keeps across tests.
-afterEach(() => setNominalUnquotedPriceSetting(false));
+afterEach(() => {
+  setNominalUnquotedPriceSetting(false);
+  localStorage.removeItem('show_fullscreen_button_setting');
+  mockExtension = true;
+});
 
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
 // (labels rendered via `t(...)`) is assertable by key.
@@ -105,6 +112,26 @@ describe('AdvancedSettings (page)', () => {
     fireEvent.click(row);
     expect(indicator()).toHaveAttribute('data-state', 'unchecked');
     expect(isNominalUnquotedPriceEnabled()).toBe(false);
+  });
+
+  it('persists the fullscreen button preference from Advanced Settings', async () => {
+    await renderWithResolvedKey();
+    const row = screen.getByRole('button', { name: 'devShowFullscreenButton' });
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('show_fullscreen_button_setting')).toBe('on');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+    expect(localStorage.getItem('show_fullscreen_button_setting')).toBe('off');
+  });
+
+  it('only offers the fullscreen button preference in the extension', async () => {
+    mockExtension = false;
+    await renderWithResolvedKey();
+    expect(screen.queryByRole('button', { name: 'devShowFullscreenButton' })).toBeNull();
   });
 
   // The indicator is aria-hidden, so the row itself has to carry the state.
