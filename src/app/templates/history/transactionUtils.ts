@@ -334,7 +334,8 @@ export const bridgeStatusOf = (entry: IHistoryEntry, now = Date.now()): BridgeSt
   if (entry.txType === 'bridged-receive') {
     // Before the phase check: the reconciler stores an expired deposit's row phase as `failed`.
     if (isNearIntentsEntryExpired(entry, now)) return 'expired';
-    if (entry.bridgeInPhase === 'ready' || entry.bridgeInPhase === 'received') return 'confirmed';
+    if (entry.bridgeInPhase === 'received' || (entry.bridgeInPhase === 'ready' && entry.bridgeInProvider !== 'usdcx'))
+      return 'confirmed';
     if (entry.bridgeInPhase === 'failed') return 'failed';
     return 'pending';
   }
@@ -372,8 +373,8 @@ export const hasOwnBridgeBadge = (entry: IHistoryEntry): boolean =>
   lockedDepositStateOf(entry) !== undefined;
 
 /**
- * The badge of a bridge row. An unpaid NEAR Intents deposit past its deadline reads Expired. A USDCx deposit reads Confirmed once Circle attested it and
- * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
+ * The badge of a bridge row. An unpaid NEAR Intents deposit past its deadline reads Expired. A USDCx deposit stays
+ * Pending until its minted note is received. A faucet-confirmed burn must never be labeled
  * as a confirmed destination payout: it reads Confirmed once the payout mint is recorded, and Payout delayed when
  * none arrives within 2 hours. An Epoch deposit that is in The Compact without an allocation reads Deposit locked
  * until a retry or a withdrawal recovers it.

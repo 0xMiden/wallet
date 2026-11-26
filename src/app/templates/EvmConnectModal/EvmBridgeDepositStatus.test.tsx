@@ -462,12 +462,12 @@ describe('EvmBridgeDepositStatus', () => {
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
     });
 
-    it('reads Confirmed once the attestation moved the row to ready', () => {
+    it('reads Pending after attestation while the minted note awaits claim', () => {
       mockRowState = { row: makeRow(usdcxInputs({ phase: 'ready' })), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('confirmed');
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAttested');
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('pending');
     });
 
     it('reads Completed once the minted note is received', () => {
