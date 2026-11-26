@@ -99,25 +99,19 @@ describe('command-ai client', () => {
     ).rejects.toBeInstanceOf(CommandAiClientError);
   });
 
-  it('retries only the old Worker help field rejection with no draft or topic', async () => {
+  it('review regression fails closed when a legacy Worker rejects help context', async () => {
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce({
         status: 400,
         json: async () => ({ error: 'bad_request', message: 'Unexpected field: helpContext.' })
       })
-      .mockResolvedValueOnce({ status: 200, ok: true, text: async () => '{"output":{"op":"cancel"}}' })
-      .mockResolvedValueOnce({
-        status: 400,
-        json: async () => ({ error: 'bad_request', message: 'Invalid snapshot.' })
-      });
+      .mockResolvedValueOnce({ status: 200, ok: true, text: async () => '{"output":{"op":"cancel"}}' });
     global.fetch = fetchMock as unknown as typeof fetch;
     const request = { redactedText: 'cancel', helpContext: 'Privacy', endpoint: 'http://127.0.0.1:8787' } as const;
 
-    await expect(compileCommandPrompt(request)).resolves.toEqual({ op: 'cancel' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ redactedText: 'cancel' });
     await expect(compileCommandPrompt(request)).rejects.toMatchObject({ code: 'unavailable' });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ redactedText: 'cancel', helpContext: 'Privacy' });
   });
 });
