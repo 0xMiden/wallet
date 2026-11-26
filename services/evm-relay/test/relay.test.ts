@@ -370,6 +370,35 @@ describe('POST /v1/relay', () => {
     expect(harness.senders.rows(8453)).toEqual([]);
   });
 
+  it.each([
+    ['delegates, and the chain used the sequence', true, 8n],
+    ['delegates, and the chain has not reached the sequence', true, 6n],
+    ['does not delegate, and the stored sequence of an earlier delegation is higher', false, 8n],
+    ['does not delegate, and the chain has not reached the sequence', false, 6n]
+  ])('answers stale_request, not simulation_failed, when the address %s', async (_name, delegated, sequence) => {
+    const harness = harnessFor();
+    // The simulation of a stale batch reverts. The sequence check comes first.
+    harness.reader.relay = relayState({ delegated, authorizationNonce: 3, sequence, gasEstimate: null });
+    const { body } = await signed();
+    const request = delegated ? body : { ...body, authorization: await authorizationOf(3) };
+    const response = await post(harness, request);
+    expect(response.status).toBe(409);
+    await expect(bodyOf(response)).resolves.toEqual({
+      error: 'stale_request',
+      message: 'The batch nonce is not the current Calibur sequence. Read the account and sign again.'
+    });
+    expect(harness.reader.relayCalls).toHaveLength(1);
+    expect(harness.senders.rows(8453)).toEqual([]);
+    expect(harness.senders.broadcasts).toEqual([]);
+  });
+
+  it('compares only the low 64 bits of batchNonce with the sequence', async () => {
+    const harness = harnessFor();
+    harness.reader.relay = relayState({ sequence: 2n ** 64n - 1n });
+    const { body } = await signed({ batchNonce: batchNonceOf(2n ** 64n - 1n) });
+    expect((await post(harness, body)).status).toBe(200);
+  });
+
   it('answers 502 rpc_unavailable when the chain read fails', async () => {
     const harness = harnessFor();
     harness.reader.error = new RpcUnavailableError('The chain RPC does not answer.');

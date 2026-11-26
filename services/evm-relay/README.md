@@ -111,10 +111,12 @@ The 200 response has `Cache-Control: private, max-age=5`, so the browser of the 
 7. An authorization must name the pinned Calibur and the chain, have an `s` of at most secp256k1n/2, and recover to `evmAddress` (`bad_signature`).
 8. The address is charged on `relay-address:<evmAddress>`.
 9. When the Sender already holds a relay with this `id`, the route answers it and reads nothing from the chain.
-10. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, and `eth_estimateGas` from the relayer to the address with the `execute` calldata. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing.
-11. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one. A revert of the estimate gives `409 simulation_failed`. An RPC failure gives `502 rpc_unavailable`.
-12. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
-13. The route hands the job to the Sender of the chain and answers its result.
+10. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, `eth_estimateGas` from the relayer to the address with the `execute` calldata, and `getSeq(RELAY_NONCE_KEY)` on the address. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing. The `getSeq` call sends a state override that puts the EIP-7702 delegation to the pinned Calibur (`0xef0100` and the Calibur address) on the address, because the storage of an earlier delegation stays. For an address that delegates to the pinned Calibur, the override is its own code and changes nothing. The account read puts the verified Calibur code itself on the address; the relay read cannot, because that code is in the memory of some isolates only, and a second request to read it would cost one more HTTP request.
+11. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one.
+12. The low 64 bits of `batchNonce` must be the sequence that `getSeq` read (`stale_request`). A lower sequence was used by an earlier batch, and a higher one is not reached yet. This check comes before the estimate is judged, because the simulation of such a batch reverts: a stale batch never gives `simulation_failed`.
+13. A revert of the estimate gives `409 simulation_failed`. An RPC failure of any call of the batch, `getSeq` included, gives `502 rpc_unavailable`.
+14. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
+15. The route hands the job to the Sender of the chain and answers its result.
 
 One new relay thus makes two HTTP requests to the RPC: the read batch and the broadcast. A repeated request makes none.
 
@@ -264,7 +266,7 @@ An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seco
 | `target_not_allowed` | 400 | A call goes to an address that is not in the chain's `allowedTargets` |
 | `fee_too_low` | 400 | In `deduct` mode, the last call is not a fee call to `feeRecipient` in a token of `fees`, or it pays less than the configured fee |
 | `bad_signature` | 400 | The signature or the authorization does not verify |
-| `stale_request` | 409 | A nonce, the salt or the authorization is out of date: read `/v1/account` and sign again |
+| `stale_request` | 409 | The deadline is too near or too far, the authorization is missing or has an old nonce, or the sequence in `batchNonce` is not the current `getSeq(RELAY_NONCE_KEY)` of the address (an earlier batch used it, or the chain has not reached it): read `/v1/account` and sign again |
 | `simulation_failed` | 409 | The batch fails in simulation |
 | `busy` | 409 | Another relay is open for the address; the body also carries its `id` |
 | `relayer_unfunded` | 503 | The relayer account cannot pay the gas |

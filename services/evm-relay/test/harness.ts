@@ -63,7 +63,10 @@ export function readState(overrides: Partial<AccountState> = {}): AccountState {
   };
 }
 
-/** The relay chain state that the fake reader returns, unless a test sets another. */
+/**
+ * The relay chain state that the fake reader returns, unless a test sets another. Its sequence 7 is the sequence of
+ * the batches that the relay tests sign.
+ */
 export function relayState(overrides: Partial<RelayState> = {}): RelayState {
   return {
     delegated: true,
@@ -73,6 +76,7 @@ export function relayState(overrides: Partial<RelayState> = {}): RelayState {
     baseFee: 1_000_000_000n,
     priorityFee: 100_000_000n,
     gasEstimate: 200_000n,
+    sequence: 7n,
     ...overrides
   };
 }

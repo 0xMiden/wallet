@@ -8,7 +8,13 @@ import { notConfigured } from './errors';
 import { isRecord } from './http';
 import { rpcUrlOf } from './secrets';
 import type { Env } from './types';
-import { CALIBUR_ABI, RELAY_NONCE_KEY, isCaliburDelegation, isNativeToken } from '../../../src/lib/evm-relay/batch';
+import {
+  CALIBUR_ABI,
+  RELAY_NONCE_KEY,
+  caliburDelegationCode,
+  isCaliburDelegation,
+  isNativeToken
+} from '../../../src/lib/evm-relay/batch';
 
 /** The time budget of one account read, for both batches together. */
 export const RPC_TIMEOUT_MS = 8_000;
@@ -62,6 +68,8 @@ export interface RelayState {
   priorityFee: bigint;
   /** The gas estimate of the call, or null when the call reverts. */
   gasEstimate: bigint | null;
+  /** `getSeq(RELAY_NONCE_KEY)` of the address: the sequence that the next relay batch must use. */
+  sequence: bigint;
 }
 
 /** The fees that the node suggests now. */
@@ -196,6 +204,19 @@ function ethCall(to: Hex, data: Hex, override: Record<string, unknown> | null): 
   return { method: 'eth_call', params };
 }
 
+/** `getSeq(RELAY_NONCE_KEY)` on the address, with the state override when it is not null. */
+function getSeqCall(address: Hex, override: Record<string, unknown> | null): RpcCall {
+  return ethCall(
+    address,
+    encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [RELAY_NONCE_KEY] }),
+    override
+  );
+}
+
+function decodeSequence(result: Hex): bigint {
+  return decoded(() => decodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', data: result }));
+}
+
 function balanceCall(token: Hex, address: Hex): RpcCall {
   if (isNativeToken(token)) return { method: 'eth_getBalance', params: [address, 'latest'] };
   return ethCall(token, encodeFunctionData({ abi: erc20Abi, functionName: 'balanceOf', args: [address] }), null);
@@ -278,22 +299,17 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
       fetcher,
       url,
       [
-        ethCall(
-          address,
-          encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [RELAY_NONCE_KEY] }),
-          override
-        ),
+        getSeqCall(address, override),
         ethCall(address, encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'eip712Domain' }), override)
       ],
       signal
     );
-    const sequence = resultAt(second, 0);
     return {
       delegated,
       authorizationNonce: decodeNonce(resultAt(first, 1)),
       salt: verifiedSalt(resultAt(second, 1), chain, address),
       balances: tokens.map((token, index) => decodeBalance(token, resultAt(first, 2 + index))),
-      sequence: decoded(() => decodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', data: sequence }))
+      sequence: decodeSequence(resultAt(second, 0))
     };
   }
 
@@ -303,6 +319,12 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     const { evmAddress, relayer } = call;
     // One batch. The estimate includes the authorization when the request has one: a plain call on an address that
     // does not delegate executes nothing and succeeds, so only a simulation with the authorization checks the batch.
+    // `getSeq` sends a state override that puts the EIP-7702 delegation to the pinned Calibur on the address. The
+    // storage of an earlier delegation stays, so an address that does not delegate now still gives its stored
+    // sequence. For an address that delegates to the pinned Calibur, the override is its own code and changes nothing.
+    // The read cannot use the verified Calibur code of the account read, because that code is not in memory in every
+    // isolate, and the read has no second request to fetch it.
+    const delegation = { [evmAddress]: { code: caliburDelegationCode(chain.calibur) } };
     const outcomes = await sendBatch(
       fetcher,
       url,
@@ -313,7 +335,8 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
         { method: 'eth_getBalance', params: [relayer, 'latest'] },
         FEE_HISTORY,
         PRIORITY_FEE,
-        { method: 'eth_estimateGas', params: [estimateOf(call)] }
+        { method: 'eth_estimateGas', params: [estimateOf(call)] },
+        getSeqCall(evmAddress, delegation)
       ],
       AbortSignal.timeout(RPC_TIMEOUT_MS)
     );
@@ -324,7 +347,8 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
       relayerBalance: decoded(() => hexToBigInt(hexOf(outcomes[3]))),
       baseFee: nextBaseFee(outcomes[4]),
       priorityFee: decoded(() => hexToBigInt(hexOf(outcomes[5]))),
-      gasEstimate: gasEstimateOf(outcomes[6])
+      gasEstimate: gasEstimateOf(outcomes[6]),
+      sequence: decodeSequence(hexOf(outcomes[7]))
     };
   }
 

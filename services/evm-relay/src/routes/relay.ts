@@ -31,6 +31,8 @@ const DEADLINE_MAX_S = 24 * 60 * 60 + 5 * 60;
 const HALF_CURVE_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
 /** The most calls that one batch can have. */
 const MAX_CALLS = 8;
+/** The low 64 bits of a Calibur nonce are the sequence of its key. */
+const SEQUENCE_MASK = (1n << 64n) - 1n;
 
 interface RelayRequest {
   chainId: number;
@@ -198,6 +200,17 @@ function authorizationToSend(state: RelayState, supplied: RelayAuthorization | n
   return supplied;
 }
 
+/**
+ * The batch must use the sequence that Calibur expects now. A lower sequence was used by an earlier batch, and a
+ * higher one is not reached yet. The simulation of such a batch reverts, so this check runs before the estimate is
+ * judged: the wallet then reads the account again and signs again.
+ */
+function checkSequence(state: RelayState, batchNonce: bigint): void {
+  if ((batchNonce & SEQUENCE_MASK) !== state.sequence) {
+    throw stale('The batch nonce is not the current Calibur sequence. Read the account and sign again.');
+  }
+}
+
 /** The body of both relay routes. */
 export function answer(job: RelayJob): Response {
   return json({ id: job.id, state: job.state, txHash: job.txHash });
@@ -238,6 +251,7 @@ export async function relay(context: RequestContext): Promise<Response> {
   const data = encodeExecution(envelope, calls, signature);
   const state = await readChain(context, chain, { evmAddress, relayer, data, authorization: request.authorization });
   const authorization = authorizationToSend(state, request.authorization);
+  checkSequence(state, request.batchNonce);
   if (state.gasEstimate === null) throw new ApiError(409, 'simulation_failed', 'The batch fails in simulation.');
   const gas = state.gasEstimate + state.gasEstimate / 5n;
   const maxFeePerGas = maxFeeOf(state);

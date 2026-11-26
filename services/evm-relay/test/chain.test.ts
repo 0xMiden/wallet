@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 import { describe, expect, it } from '@jest/globals';
-import { encodeFunctionResult, erc20Abi, type Hex } from 'viem';
+import { encodeFunctionData, encodeFunctionResult, erc20Abi, type Hex } from 'viem';
 
 import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, NATIVE, TEST_RPC_URL, USDC, chainEntry } from './harness';
 import { CALIBUR_ABI, RELAY_NONCE_KEY } from '../../../src/lib/evm-relay/batch';
@@ -70,6 +70,10 @@ class FakeNode {
   domain: Domain = DOMAIN;
   failWith: Failure | null = null;
   estimateError: RpcError | null = null;
+  /** The error of every `eth_call`, when it is not null. */
+  callError: RpcError | null = null;
+  /** The raw `getSeq` result, in place of the encoded sequence 9, when it is not null. */
+  sequenceResult: Hex | null = null;
   sendError: RpcError | null = null;
   /** The `eth_getTransactionReceipt` result of each hash. A missing hash answers null. */
   readonly receipts = new Map<string, unknown>();
@@ -102,6 +106,10 @@ class FakeNode {
         return this.estimateError === null
           ? { jsonrpc: '2.0', id, result: '0x30d40' }
           : { jsonrpc: '2.0', id, error: this.estimateError };
+      case 'eth_call':
+        return this.callError === null
+          ? { jsonrpc: '2.0', id, result: this.resultOf(call) }
+          : { jsonrpc: '2.0', id, error: this.callError };
       case 'eth_getTransactionReceipt':
         return { jsonrpc: '2.0', id, result: this.receipts.get(String(call.params[0])) ?? null };
       case 'eth_sendRawTransaction':
@@ -142,7 +150,7 @@ class FakeNode {
         result: ['0x1f', name, version, chainId, verifyingContract, salt, []]
       });
     }
-    return encodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', result: 9n });
+    return this.sequenceResult ?? encodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', result: 9n });
   }
 }
 
@@ -293,7 +301,19 @@ describe('readRelay', () => {
     yParity: 1
   } satisfies RelayCall['authorization'];
 
-  it('reads the address, the relayer, the fees and the estimate in one batch', async () => {
+  const getSeq = {
+    method: 'eth_call',
+    params: [
+      {
+        to: ADDRESS,
+        data: encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [RELAY_NONCE_KEY] })
+      },
+      'latest',
+      { [ADDRESS]: { code: DELEGATION } }
+    ]
+  };
+
+  it('reads the address, the relayer, the fees, the estimate and the sequence in one batch', async () => {
     const { node, reader } = setup();
     await expect(reader.readRelay(chainOf(), call)).resolves.toEqual({
       delegated: true,
@@ -302,7 +322,8 @@ describe('readRelay', () => {
       relayerBalance: 100n,
       baseFee: 2_000_000_000n,
       priorityFee: 100_000_000n,
-      gasEstimate: 200_000n
+      gasEstimate: 200_000n,
+      sequence: 9n
     });
     expect(node.batches).toHaveLength(1);
     expect(node.batches[0]).toEqual([
@@ -312,8 +333,35 @@ describe('readRelay', () => {
       { method: 'eth_getBalance', params: [RELAYER, 'latest'] },
       { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
       { method: 'eth_maxPriorityFeePerGas', params: [] },
-      { method: 'eth_estimateGas', params: [{ from: RELAYER, to: ADDRESS, data: '0xabcd', value: '0x0' }] }
+      { method: 'eth_estimateGas', params: [{ from: RELAYER, to: ADDRESS, data: '0xabcd', value: '0x0' }] },
+      getSeq
     ]);
+  });
+
+  it.each<[string, Hex]>([
+    ['no code', '0x'],
+    ['a delegation to another contract', `0xef0100${'99'.repeat(20)}`]
+  ])(
+    'reads the sequence of an address with %s through the Calibur delegation as a state override',
+    async (_name, code) => {
+      const node = new FakeNode();
+      node.accountCode = code;
+      const state = await setup(node).reader.readRelay(chainOf(), call);
+      expect(state).toMatchObject({ delegated: false, sequence: 9n });
+      expect(node.batches).toHaveLength(1);
+      expect(node.batches[0]?.[7]).toEqual(getSeq);
+    }
+  );
+
+  it.each<[string, RpcError | null, Hex | null]>([
+    ['an RPC error', { code: -32000, message: 'execution reverted' }, null],
+    ['an empty result', null, '0x'],
+    ['a result that is not hex', null, '0xzz']
+  ])('maps a getSeq read with %s to RpcUnavailableError', async (_name, callError, sequenceResult) => {
+    const node = new FakeNode();
+    node.callError = callError;
+    node.sequenceResult = sequenceResult;
+    await expect(setup(node).reader.readRelay(chainOf(), call)).rejects.toBeInstanceOf(RpcUnavailableError);
   });
 
   it('simulates with the authorization list when the request has an authorization', async () => {
