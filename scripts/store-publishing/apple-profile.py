@@ -10,6 +10,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 
 TEAM = 'LHU7B7J5WL'
@@ -110,20 +111,81 @@ def remove_profile(directory, profiles):
     record_path.unlink()
 
 
+def validate_exported_signing(profile, profile_hash, record, leaf, identities, signed, expected, now=None):
+    if (leaf not in identities or profile_hash != record['sha256']
+            or validate_profile(profile, {leaf}, now) != record['uuid']):
+        raise ValueError('Export must use the verified App Store profile and distribution identity')
+    if (signed.get('application-identifier') != TEAM + '.' + BUNDLE
+            or signed.get('com.apple.developer.team-identifier') != TEAM
+            or signed.get('get-task-allow') is not False):
+        raise ValueError('Invalid signed app identity or production entitlements')
+    for key in ('com.apple.developer.associated-domains', 'keychain-access-groups'):
+        values = expected.get(key)
+        if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value for value in values):
+            raise ValueError('Missing required source entitlements')
+        expanded = [value.replace('$(AppIdentifierPrefix)', TEAM + '.')
+                         .replace('$(PRODUCT_BUNDLE_IDENTIFIER)', BUNDLE) for value in values]
+        if signed.get(key) != expanded:
+            raise ValueError('Exported app is missing required production capabilities')
+
+
+def verify_ipa(ipa_dir, directory, entitlements_path, identities):
+    packages = list(ipa_dir.glob('*.ipa'))
+    if len(packages) != 1 or not packages[0].is_file() or packages[0].is_symlink():
+        raise ValueError('Expected one exported IPA')
+    with tempfile.TemporaryDirectory(dir=directory) as scratch:
+        root = Path(scratch)
+        subprocess.run(['/usr/bin/ditto', '-x', '-k', str(packages[0]), str(root)], capture_output=True, check=True)
+        apps = list((root / 'Payload').glob('*.app'))
+        if len(apps) != 1 or not apps[0].is_dir() or apps[0].is_symlink():
+            raise ValueError('Expected one exported app')
+        app = apps[0]
+        codesign = '/usr/bin/codesign'
+        subprocess.run([codesign, '--verify', '--deep', '--strict', str(app)], capture_output=True, check=True)
+        if plistlib.loads((app / 'Info.plist').read_bytes()).get('CFBundleIdentifier') != BUNDLE:
+            raise ValueError('Invalid exported bundle identifier')
+        subprocess.run([codesign, '--display', f'--extract-certificates={root / "cert"}', str(app)],
+                       capture_output=True, check=True)
+        certificate = (root / 'cert0').read_bytes()
+        signed = plistlib.loads(subprocess.run([codesign, '--display', '--entitlements', '-', '--xml', str(app)],
+                                              capture_output=True, check=True).stdout)
+        embedded = app / 'embedded.mobileprovision'
+        if embedded.is_symlink() or not embedded.is_file() or embedded.stat().st_size > LIMIT:
+            raise ValueError('Expected an embedded App Store profile')
+        payload = embedded.read_bytes()
+        profile = plistlib.loads(subprocess.run(['/usr/bin/security', 'cms', '-D'], input=payload,
+                                               capture_output=True, check=True).stdout)
+        record = json.loads(private_bytes(directory / 'profile-install.json'))
+        expected = plistlib.loads(entitlements_path.read_bytes())
+        validate_exported_signing(profile, hashlib.sha256(payload).hexdigest(), record,
+                                  hashlib.sha256(certificate).hexdigest(), identities, signed, expected)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['install', 'remove'])
+    parser.add_argument('mode', choices=['install', 'remove', 'verify-ipa'])
     parser.add_argument('--directory', type=Path, required=True)
-    parser.add_argument('--profiles-directory', type=Path, required=True)
+    parser.add_argument('--profiles-directory', type=Path)
+    parser.add_argument('--ipa-dir', type=Path)
+    parser.add_argument('--entitlements', type=Path)
     args = parser.parse_args()
+    if args.mode == 'verify-ipa':
+        if args.ipa_dir is None or args.entitlements is None:
+            parser.error('verify-ipa requires --ipa-dir and --entitlements')
+    elif args.profiles_directory is None:
+        parser.error('install and remove require --profiles-directory')
     if args.mode == 'remove':
         remove_profile(args.directory, args.profiles_directory)
+        return
+    identities = distribution_identities(private_bytes(args.directory / 'identities.txt').decode(),
+                                           private_bytes(args.directory / 'certificate-fingerprints.txt').decode())
+    if args.mode == 'verify-ipa':
+        verify_ipa(args.ipa_dir, args.directory, args.entitlements, identities)
+        print('Verified exported App Store signature and production entitlements')
         return
     payload = private_bytes(args.directory / 'store.mobileprovision')
     decoded = subprocess.run(['/usr/bin/security', 'cms', '-D'], input=payload, capture_output=True, check=True).stdout
     profile = plistlib.loads(decoded)
-    identities = distribution_identities(private_bytes(args.directory / 'identities.txt').decode(),
-                                           private_bytes(args.directory / 'certificate-fingerprints.txt').decode())
     install_profile(payload, profile, identities, args.directory, args.profiles_directory)
     print('Verified existing App Store profile installed')
 
@@ -132,5 +194,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception:
-        print('App Store profile validation or installation failed', file=sys.stderr)
+        print('App Store signing verification or profile operation failed', file=sys.stderr)
         sys.exit(1)
