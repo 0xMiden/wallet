@@ -138,6 +138,8 @@ describe('command-ai standalone Worker', () => {
     });
     const systemPrompt = help.messages[0].content;
     expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
+    expect(systemPrompt).toContain('Choose Safety for questions about sharing secrets, even with support.');
+    expect(systemPrompt).toContain('Choose Recovery for how to restore wallet access.');
     expect(systemPrompt).toContain("The sender's account and some metadata are public.");
     expect(systemPrompt).toContain('Compare Public and Private in send review.');
     expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
