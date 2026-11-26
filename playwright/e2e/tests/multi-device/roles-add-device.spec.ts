@@ -36,7 +36,8 @@ const SEND_AMOUNT = '0.1';
  * signers (A's hot key, B's hot key, the cold key) and keeps every threshold.
  *
  * Each device then signs a transaction with its own key: B claims a native note
- * (A's automatic claim is off, so only B can take it), and A sends a native note
+ * (both automatic claims are off, A lists the note first, and only B presses
+ * Accept), and A sends a native note
  * to a third wallet. The other device makes no row for that transaction.
  *
  * Both devices then reopen. Settings > Devices on each lists the same two hot
@@ -114,11 +115,17 @@ test.describe('Multi-device roles: add this device', () => {
     await steps.step('b_claims_a_note_with_its_own_key', async () => {
       const faucetApi = publicFaucetApiUrl(envConfig.name);
       if (faucetApi === undefined) throw new Error(`E2E_NETWORK=${envConfig.name} has no public faucet`);
-      // Only B may claim: A's automatic claim of native notes is off, and A never presses Accept.
+      // Neither device claims on its own: A lists the note before B takes it, so A's drop below is a real follow.
       await setAutoConsume(walletA, false);
+      await setAutoConsume(walletB, false);
       const { noteId } = await mintFromPublicFaucet(faucetApi, address);
-      // B's own automatic claim can take the note first; then this finds nothing, which is fine.
-      await walletB.claimAllNotes(180_000).catch(() => undefined);
+      await expect
+        .poll(async () => (await pendingNoteIds(walletA.page)).some(id => sameCommitment(id, noteId)), {
+          message: 'A lists the note before B claims it',
+          timeout: 180_000
+        })
+        .toBe(true);
+      await walletB.claimAllNotes(180_000);
       const claim = await waitForTerminalRow(
         walletB.page,
         row => row.type === 'consume' && (row.noteIds ?? []).some(id => sameCommitment(id, noteId)),
