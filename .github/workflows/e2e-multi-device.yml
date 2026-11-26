@@ -47,7 +47,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}-${{ inputs.long_holds }}
   cancel-in-progress: true
 
 jobs:
