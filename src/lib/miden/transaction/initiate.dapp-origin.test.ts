@@ -9,9 +9,10 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-import type { IApprovedCustomEffects } from '../db/types';
-import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
+import type { IApprovedCustomEffects } from '../db/types';
+import { queueOutgoingTransaction, queueUnattributableCustomTransaction } from '../spending-limits/queue';
+import { NoteTypeEnum } from '../types';
 
 let mockBadgeOverride: EndpointOverride | null = null;
 let mockBadgeNetwork = 'testnet';
@@ -117,7 +118,20 @@ describe('the origin a dApp row is created for', () => {
   });
 
   it('is on a dApp custom request that moves nothing, inserted directly', async () => {
+    await custom([], ORIGIN);
+    expect(queueOutgoingTransaction).not.toHaveBeenCalled();
+    expect(queueUnattributableCustomTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    expect(insertedRow()).toEqual(
+      expect.objectContaining({ type: 'execute', dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
+    );
+  });
+
+  it('is on a dApp custom request with unattributed spends, inserted through its queue', async () => {
     await custom(undefined, ORIGIN);
+    expect(queueUnattributableCustomTransaction).toHaveBeenCalledWith(insertedRow(), undefined);
+    expect(queueOutgoingTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     expect(insertedRow()).toEqual(
       expect.objectContaining({ type: 'execute', dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
     );
@@ -125,6 +139,9 @@ describe('the origin a dApp row is created for', () => {
 
   it('is on a dApp custom request that moves value, inserted through the spending-limit chokepoint', async () => {
     await custom(SPENT, ORIGIN);
+    expect(queueOutgoingTransaction).toHaveBeenCalledWith(insertedRow(), SPENT, undefined);
+    expect(queueUnattributableCustomTransaction).not.toHaveBeenCalled();
+    expect(mockAdd).toHaveBeenCalledTimes(1);
     expect(insertedRow()).toEqual(
       expect.objectContaining({
         type: 'execute',
