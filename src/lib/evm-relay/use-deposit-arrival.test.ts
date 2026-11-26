@@ -33,7 +33,7 @@ function account(balance: bigint | null, overrides: Partial<RelayAccount> = {}):
     authorizationNonce: 0,
     salt: SALT,
     sequence: 0n,
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: balance === null ? [] : [{ token: USDC, balance }],
     ...overrides

@@ -1,8 +1,8 @@
 /**
  * Checks of the relay service's answers against the request, the review and the wallet config. The service is not
  * trusted for anything that decides where funds go or what they cost: the executor, the fee recipient and the fee
- * limits come from the wallet-config document, the fee comes from the user's review, and the job id is the digest
- * that the wallet computed itself.
+ * limits come from the wallet-config document, the fee comes from the user's review of a checked quote, and the job
+ * id is the digest that the wallet computed itself.
  */
 import type { Address, Hex } from 'viem';
 
@@ -10,7 +10,7 @@ import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import { RelayMismatchError, RelayRefusedError } from './errors';
 import { lowerAddress } from './parse';
-import type { RelayAccount, RelayJob, RelayService, RelayTokenFee } from './types';
+import type { RelayAccount, RelayJob, RelayQuote, RelayService } from './types';
 
 function sameHex(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -45,7 +45,7 @@ export function assertRelayAccountMatches(account: RelayAccount, chain: RelayCha
       if (account.feeRecipient !== null) {
         throw new RelayMismatchError('relay: a sponsored account names a fee recipient');
       }
-      if (account.fees.length > 0) throw new RelayMismatchError('relay: a sponsored account asks for a fee');
+      if (account.feeTokens.length > 0) throw new RelayMismatchError('relay: a sponsored account asks for a fee');
       return;
     case 'deduct':
       deductFeeRecipient(account, chain);
@@ -72,11 +72,9 @@ export function relayFeeToken(token: Address): Address {
   return lower;
 }
 
-/** The relayer's fee entry of the token. Throws `RelayRefusedError` (`no-fee`) when the relayer names none. */
-export function relayerFeeOf(account: RelayAccount, token: Address): RelayTokenFee {
-  const entry = account.fees.find(fee => sameHex(fee.token, token));
-  if (entry === undefined) throw new RelayRefusedError('no-fee');
-  return entry;
+/** Throws `RelayRefusedError` (`no-fee`) unless the account names the token in its `feeTokens`. */
+export function assertRelayTakesFeeToken(account: RelayAccount, token: Address): void {
+  if (!account.feeTokens.some(feeToken => sameHex(feeToken, token))) throw new RelayRefusedError('no-fee');
 }
 
 /**
@@ -91,37 +89,40 @@ export function assertFeeWithinCap(chain: RelayChainConfig, token: Address, amou
   }
 }
 
-/** A fee that the user reviewed: `amount` base units of `token`. The zero address is the native coin. */
+/**
+ * A fee that the user reviewed: `amount` base units of `token`. The zero address is the native coin. It comes from a
+ * checked quote (`relayQuoteFee` in `quote.ts`).
+ */
 export interface RelayReviewedFee {
   token: Address;
   amount: bigint;
 }
 
-/** What the review shows: no fee (`sponsor`), or the fee that the batch pays (`deduct`). */
-export type RelayFeeReview = { mode: 'sponsor' } | { mode: 'deduct'; fee: RelayReviewedFee };
-
 /**
- * The fee that a review shows for a relay paid in `token`. Call it after `assertRelayAccountMatches`. In `sponsor` mode
- * there is no fee. In `deduct` mode the fee is the relayer's current fee of the token; it throws the typed refusals of
- * the submitter: `RelayMismatchError` when the chain configures no fee recipient or the account names another, and
- * `RelayRefusedError` (`no-fee`, `fee-not-accepted`) when the relayer names no fee for the token, or the fee is 0, or
- * the config has no `maxFee` entry for the token, or the fee is above that entry. Give the result's `fee` to
- * `submit` as `options.fee`.
+ * Throws unless the wallet may show the quote to the user and sign its fee:
+ * - `RelayMismatchError` when the quote is for another chain, the chain configures no fee recipient (it does not take
+ *   `deduct` mode), the recipient is not the configured `feeRecipient`, or the token is not the asked `feeToken`;
+ * - `RelayRefusedError` (`fee-not-accepted`) when the fee is 0, the config has no `maxFee` entry for the token, or the
+ *   fee is above that entry;
+ * - `RelayRefusedError` (`quote-expired`) when `validUntil` is not after `nowSeconds`.
+ * A `feeToken` that is not an address is a `TypeError`.
  */
-export function reviewRelayFee(account: RelayAccount, chain: RelayChainConfig, token: Address): RelayFeeReview {
-  switch (account.mode) {
-    case 'sponsor':
-      return { mode: 'sponsor' };
-    case 'deduct': {
-      deductFeeRecipient(account, chain);
-      const lower = relayFeeToken(token);
-      const amount = relayerFeeOf(account, lower).fee;
-      assertFeeWithinCap(chain, lower, amount);
-      return { mode: 'deduct', fee: { token: lower, amount } };
-    }
-    default:
-      throw new RelayMismatchError('relay: the gas mode is not known');
+export function assertRelayQuoteMatches(
+  quote: RelayQuote,
+  chain: RelayChainConfig,
+  feeToken: Address,
+  nowSeconds: number
+): void {
+  const token = relayFeeToken(feeToken);
+  if (quote.chainId !== chain.chainId) throw new RelayMismatchError('relay: the quote is for another chain');
+  const configured = chain.feeRecipient;
+  if (configured === undefined) throw new RelayMismatchError('relay: the chain does not take deduct mode');
+  if (!sameHex(quote.recipient, configured)) {
+    throw new RelayMismatchError('relay: the fee recipient is not the configured fee recipient');
   }
+  if (!sameHex(quote.token, token)) throw new RelayMismatchError('relay: the quote is for another fee token');
+  assertFeeWithinCap(chain, token, quote.fee);
+  if (quote.validUntil <= nowSeconds) throw new RelayRefusedError('quote-expired');
 }
 
 /** Throws `RelayMismatchError` unless the job id is the EIP-712 digest that the wallet computed for the batch. */

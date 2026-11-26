@@ -45,7 +45,7 @@ function relayAccount(): RelayAccount {
     authorizationNonce: 0,
     salt: SALT,
     sequence: 3n,
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: []
   };

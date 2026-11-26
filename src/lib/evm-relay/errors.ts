@@ -1,4 +1,4 @@
-import type { Hex } from 'viem';
+import type { Address, Hex } from 'viem';
 
 import type { RelayJobRef } from './types';
 
@@ -8,6 +8,9 @@ export type RelayKnownErrorCode =
   | 'unsupported_chain'
   | 'target_not_allowed'
   | 'fee_too_low'
+  | 'fee_token_not_accepted'
+  | 'fee_not_needed'
+  | 'price_unavailable'
   | 'bad_signature'
   | 'stale_request'
   | 'simulation_failed'
@@ -29,6 +32,9 @@ export const RELAY_ERROR_CODES: readonly RelayKnownErrorCode[] = [
   'unsupported_chain',
   'target_not_allowed',
   'fee_too_low',
+  'fee_token_not_accepted',
+  'fee_not_needed',
+  'price_unavailable',
   'bad_signature',
   'stale_request',
   'simulation_failed',
@@ -67,6 +73,23 @@ export class RelayApiError extends Error {
   }
 }
 
+/**
+ * `400 fee_too_low` with the fee that the relay asks for now: `required` base units of `token` (the zero address is
+ * the native coin). The relay did not store the job. The caller shows the new fee in a new review; the wallet never
+ * signs a higher fee by itself. A `fee_too_low` body without a valid `required` and `token` stays a `RelayApiError`.
+ */
+export class RelayFeeTooLowError extends RelayApiError {
+  readonly required: bigint;
+  readonly token: Address;
+
+  constructor(status: number, message: string, required: bigint, token: Address) {
+    super('fee_too_low', status, message);
+    this.name = 'RelayFeeTooLowError';
+    this.required = required;
+    this.token = token;
+  }
+}
+
 /** Why the service gave no usable answer. */
 export type RelayUnavailableReason = 'not_configured' | 'network' | 'timeout' | 'bad_response';
 
@@ -95,12 +118,12 @@ export type RelayRefusalReason =
   | 'no-reviewed-fee'
   /** The relayer sponsors the gas, and the caller gave a reviewed fee: the review and the service disagree. */
   | 'unexpected-fee'
-  /** The relayer names no fee for the fee token. */
+  /** The relayer does not take a fee in the fee token (the token is not in the account's `feeTokens`). */
   | 'no-fee'
-  /** The relayer's current fee is above the reviewed fee. A new review is necessary. */
-  | 'fee-changed'
   /** The fee is 0, the config has no `maxFee` entry for the token, or the fee is above that entry. */
   | 'fee-not-accepted'
+  /** The quote is no longer valid (`validUntil` is not in the future). Ask for a new quote. */
+  | 'quote-expired'
   /** A call goes to a target that the relayer does not allow. */
   | 'target-not-allowed'
   /** The batch has more calls than the relay takes. */
@@ -234,6 +257,8 @@ export function relaySubmitFailure(error: unknown): RelaySubmitFailure {
     case 'unsupported_chain':
     case 'target_not_allowed':
     case 'fee_too_low':
+    case 'fee_token_not_accepted':
+    case 'fee_not_needed':
     case 'bad_signature':
     case 'stale_request':
     case 'simulation_failed':
@@ -246,6 +271,8 @@ export function relaySubmitFailure(error: unknown): RelaySubmitFailure {
     case 'payload_too_large':
     case 'not_implemented':
       return 'refused';
+    // A 5xx of the fee price: the contract does not promise that the route answers it before the Sender.
+    case 'price_unavailable':
     case 'rpc_unavailable':
     case 'service_unavailable':
     case 'internal_error':
@@ -298,14 +325,21 @@ export function relayErrorAction(error: unknown): RelayErrorAction {
   ) {
     return 'review-again';
   }
+  // A quote that was no longer valid: nothing was signed, and a new quote can start a new review.
+  if (error instanceof RelayRefusedError) return error.reason === 'quote-expired' ? 'review-again' : 'stop';
   if (!(error instanceof RelayApiError)) return 'stop';
   switch (error.code) {
+    // `fee_too_low`: the relay asks for a higher fee (`RelayFeeTooLowError` carries it), and the user reviews it.
+    // `fee_not_needed`: the relay sponsors the gas now, and a new review shows no fee.
     case 'stale_request':
     case 'simulation_failed':
+    case 'fee_too_low':
+    case 'fee_not_needed':
       return 'review-again';
     case 'rate_limited':
     case 'busy':
     case 'relayer_unfunded':
+    case 'price_unavailable':
     case 'rpc_unavailable':
     case 'service_unavailable':
     case 'internal_error':

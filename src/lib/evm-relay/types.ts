@@ -2,14 +2,11 @@ import type { Address, Hash, Hex } from 'viem';
 
 import type { BatchCall } from './batch';
 
-/** `sponsor`: the relayer pays the gas. `deduct`: the batch pays a fixed token fee to `feeRecipient`. */
+/**
+ * `sponsor`: the relayer pays the gas. `deduct`: the batch pays a fee to `feeRecipient` in a fee token. The relay
+ * quotes the fee from its simulation of the batch (`POST /v1/quote`).
+ */
 export type RelayGasMode = 'sponsor' | 'deduct';
-
-/** The fee of one token in `deduct` mode, in base units. The zero address is the native coin. */
-export interface RelayTokenFee {
-  token: Address;
-  fee: bigint;
-}
 
 /** The balance of one token of a relay address, in base units. The zero address is the native coin. */
 export interface RelayTokenBalance {
@@ -34,8 +31,11 @@ export interface RelayAccount {
   salt: Hex;
   /** `getSeq(RELAY_NONCE_KEY)` of the address: a uint64. */
   sequence: bigint;
-  /** The configured fees in `deduct` mode; empty in `sponsor` mode. */
-  fees: RelayTokenFee[];
+  /**
+   * The tokens that the relay takes a fee in, in `deduct` mode (the zero address, the native coin, first); empty in
+   * `sponsor` mode. Each token is there one time. The fee itself comes from a quote (`RelayQuote`).
+   */
+  feeTokens: Address[];
   /** The only targets that a batch can call (the fee call excepted), or null for no limit. */
   allowedTargets: Address[] | null;
   /** One entry for each distinct token that the read asked for, in the order of the request. */
@@ -53,6 +53,25 @@ export interface RelayService {
   executor: Address;
   /** The ids of the chains that the relay serves, ascending, each one time. */
   chains: number[];
+}
+
+/**
+ * The answer of `POST /v1/quote`: the fee that the relay asks for one batch now, from its simulation of the calls.
+ * Addresses are lower case. The relay does not store or sign a quote: the relay route decides again from its own
+ * simulation of the signed batch.
+ */
+export interface RelayQuote {
+  chainId: number;
+  /** The fee token. The zero address is the native coin. */
+  token: Address;
+  /** The fee recipient. The guard requires the configured `relay.feeRecipient`. */
+  recipient: Address;
+  /** The fee in base units of `token`. */
+  fee: bigint;
+  /** The gas that the relay estimated for the batch with the fee call. */
+  gas: bigint;
+  /** Unix seconds. After this time the relay can ask for another fee. */
+  validUntil: number;
 }
 
 /**

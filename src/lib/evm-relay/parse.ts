@@ -2,15 +2,21 @@ import type { Address, Hex } from 'viem';
 
 import { isRecord } from 'lib/update/guards';
 
-import { RELAY_ERROR_CODES, RelayApiError, RelayUnavailableError, type RelayErrorCode } from './errors';
+import {
+  RELAY_ERROR_CODES,
+  RelayApiError,
+  RelayFeeTooLowError,
+  RelayUnavailableError,
+  type RelayErrorCode
+} from './errors';
 import type {
   RelayAccount,
   RelayGasMode,
   RelayJob,
   RelayJobState,
+  RelayQuote,
   RelayService,
-  RelayTokenBalance,
-  RelayTokenFee
+  RelayTokenBalance
 } from './types';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -96,9 +102,17 @@ function readBalance(value: unknown): RelayTokenBalance {
   };
 }
 
-function readFee(value: unknown): RelayTokenFee {
-  const entry = record(value, 'a fee');
-  return { token: readAddress(entry.token, 'fee token'), fee: readUint(entry.fee, UINT256_LIMIT, 'fee') };
+/** A positive safe integer: a chain id. */
+function readChainId(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw malformed('chainId');
+  return value;
+}
+
+/** The fee tokens of an account: addresses, each one time (two entries of one token are ambiguous). */
+function readFeeTokens(value: unknown): Address[] {
+  const tokens = readList(value, entry => readAddress(entry, 'a fee token'), 'feeTokens');
+  if (new Set(tokens).size !== tokens.length) throw malformed('feeTokens');
+  return tokens;
 }
 
 function readList<T>(value: unknown, read: (entry: unknown) => T, what: string): T[] {
@@ -122,12 +136,9 @@ function sameTokens(entries: { token: Address }[], tokens: readonly Address[]): 
  */
 export function parseRelayAccount(body: unknown, tokens: readonly Address[] = []): RelayAccount {
   const value = record(body, 'the account');
-  const chainId = value.chainId;
-  if (typeof chainId !== 'number' || !Number.isSafeInteger(chainId) || chainId <= 0) throw malformed('chainId');
+  const chainId = readChainId(value.chainId);
   if (typeof value.needsAuthorization !== 'boolean') throw malformed('needsAuthorization');
-  const fees = readList(value.fees, readFee, 'fees');
-  // Two fees of one token make the fee ambiguous.
-  if (new Set(fees.map(entry => entry.token)).size !== fees.length) throw malformed('fees');
+  const feeTokens = readFeeTokens(value.feeTokens);
   const balances = readList(value.balances, readBalance, 'balances');
   if (!sameTokens(balances, tokens)) throw malformed('balances');
   return {
@@ -140,7 +151,7 @@ export function parseRelayAccount(body: unknown, tokens: readonly Address[] = []
     authorizationNonce: readSafeCount(value.authorizationNonce, 'authorizationNonce'),
     salt: readHash(value.salt, 'salt'),
     sequence: readUint(value.sequence, UINT64_LIMIT, 'sequence'),
-    fees,
+    feeTokens,
     allowedTargets: readAllowedTargets(value.allowedTargets),
     balances
   };
@@ -172,6 +183,23 @@ export function parseRelayService(body: unknown): RelayService {
   };
 }
 
+/**
+ * The body of `POST /v1/quote`. Throws `RelayUnavailableError` when it does not match: a field with a wrong type, a
+ * fee or gas that is not a decimal string in range, or a `validUntil` that is not a safe integer of 0 or more. Unknown
+ * fields are ignored. The guard `assertRelayQuoteMatches` decides whether the wallet may use the quote.
+ */
+export function parseRelayQuote(body: unknown): RelayQuote {
+  const value = record(body, 'the quote');
+  return {
+    chainId: readChainId(value.chainId),
+    token: readAddress(value.token, 'token'),
+    recipient: readAddress(value.recipient, 'recipient'),
+    fee: readUint(value.fee, UINT256_LIMIT, 'fee'),
+    gas: readUint(value.gas, UINT64_LIMIT, 'gas'),
+    validUntil: readSafeCount(value.validUntil, 'validUntil')
+  };
+}
+
 /** The body of `POST /v1/relay` and `GET /v1/relay/{id}`. Throws `RelayUnavailableError` when it does not match. */
 export function parseRelayJob(body: unknown): RelayJob {
   const value = record(body, 'the relay job');
@@ -191,21 +219,30 @@ function readRetryAfter(value: unknown, header: string | null): number | undefin
   return /^\d+$/.test(trimmed) ? Math.min(Number(trimmed), MAX_RETRY_AFTER_SECONDS) : undefined;
 }
 
+/** The required fee of a `fee_too_low` body: a decimal string in range, else null. */
+function readRequiredFee(value: unknown): bigint | null {
+  if (typeof value !== 'string' || !DECIMAL.test(value)) return null;
+  const amount = BigInt(value);
+  return amount < UINT256_LIMIT ? amount : null;
+}
+
 /**
  * The error of a response that is not 200. A body without a string `error` field throws `RelayUnavailableError`.
- * A malformed `id` on `busy` is left out.
+ * A malformed `id` on `busy` is left out. A `fee_too_low` body with a valid `required` and `token` gives a
+ * `RelayFeeTooLowError`; without them it gives a `RelayApiError` with the same code, as the relay still refused the
+ * job.
  */
 export function parseRelayError(status: number, body: unknown, retryAfterHeader: string | null): RelayApiError {
   const value = record(body, 'the error body');
   if (typeof value.error !== 'string') throw malformed('the error body');
   const code = readErrorCode(value.error);
   const text = typeof value.message === 'string' ? value.message.slice(0, MAX_MESSAGE_LENGTH) : 'request failed';
+  const message = `relay (${status} ${value.error.slice(0, 64)}): ${text}`;
+  if (code === 'fee_too_low') {
+    const required = readRequiredFee(value.required);
+    const token = lowerAddress(value.token);
+    if (required !== null && token !== null) return new RelayFeeTooLowError(status, message, required, token);
+  }
   const id = lowerHash(value.id) ?? undefined;
-  return new RelayApiError(
-    code,
-    status,
-    `relay (${status} ${value.error.slice(0, 64)}): ${text}`,
-    readRetryAfter(value.retryAfter, retryAfterHeader),
-    id
-  );
+  return new RelayApiError(code, status, message, readRetryAfter(value.retryAfter, retryAfterHeader), id);
 }

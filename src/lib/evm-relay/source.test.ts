@@ -103,6 +103,12 @@ describe('buildRelayProvider', () => {
     });
   });
 
+  it('passes feeFor to the provider, so each send asks for its own fee', () => {
+    const feeFor = jest.fn();
+    buildRelayWalletClient(SOURCE, sepolia.id, { feeFor });
+    expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ feeFor, fee: undefined }));
+  });
+
   it('signs through the store action of the source account', async () => {
     mockSignRelay.mockResolvedValue({ op: 'batch' });
     buildRelayProvider(SOURCE, sepolia.id);

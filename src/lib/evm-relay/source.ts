@@ -14,8 +14,8 @@ import { useWalletStore } from 'lib/store';
 import { getRelayBaseUrl } from './base-url';
 import { RelayUnavailableError } from './errors';
 import { lowerAddress } from './parse';
-import { createRelayProvider, createRelayWalletClient, type RelayProvider } from './provider';
-import { createRelaySubmitter, type RelaySubmitOptions, type RelaySubmitter } from './submit';
+import { createRelayProvider, createRelayWalletClient, type RelayProvider, type RelaySendHooks } from './provider';
+import { createRelaySubmitter, type RelaySubmitter } from './submit';
 
 /** The relay address of an account and the account that signs for it. The address is in lower case. */
 export interface RelaySource {
@@ -88,7 +88,7 @@ function signerOf(source: RelaySource): (request: RelaySignRequest) => Promise<R
   return request => useWalletStore.getState().signRelay(source.accountPublicKey, request);
 }
 
-function providerFor(source: RelaySource, parts: RelayChainParts, hooks: RelaySubmitOptions): RelayProvider {
+function providerFor(source: RelaySource, parts: RelayChainParts, hooks: RelaySendHooks): RelayProvider {
   return createRelayProvider({
     chain: parts.relayChain,
     address: source.address,
@@ -96,20 +96,17 @@ function providerFor(source: RelaySource, parts: RelayChainParts, hooks: RelaySu
     sign: signerOf(source),
     beforeSign: hooks.beforeSign,
     onJob: hooks.onJob,
-    fee: hooks.fee
+    fee: hooks.fee,
+    feeFor: hooks.feeFor
   });
 }
 
 /**
  * An EIP-1193 relay provider for `source` on `chainId`. The vault signs through the store's `signRelay` action for
- * the account of the source. `hooks` go to each submit. Throws `RelayUnavailableError` (`not_configured`) when the
- * relay does not serve the chain.
+ * the account of the source. `hooks` go to each send (`feeFor` gives each send its own reviewed fee). Throws
+ * `RelayUnavailableError` (`not_configured`) when the relay does not serve the chain.
  */
-export function buildRelayProvider(
-  source: RelaySource,
-  chainId: number,
-  hooks: RelaySubmitOptions = {}
-): RelayProvider {
+export function buildRelayProvider(source: RelaySource, chainId: number, hooks: RelaySendHooks = {}): RelayProvider {
   return providerFor(source, requireRelayChain(chainId), hooks);
 }
 
@@ -124,11 +121,7 @@ export function buildRelaySubmitter(source: RelaySource, chainId: number): Relay
 }
 
 /** A viem `WalletClient` over `buildRelayProvider`, on the wallet's chain definition with the wallet's RPC. */
-export function buildRelayWalletClient(
-  source: RelaySource,
-  chainId: number,
-  hooks: RelaySubmitOptions = {}
-): WalletClient {
+export function buildRelayWalletClient(source: RelaySource, chainId: number, hooks: RelaySendHooks = {}): WalletClient {
   const parts = requireRelayChain(chainId);
   return createRelayWalletClient(providerFor(source, parts, hooks), parts.chain);
 }

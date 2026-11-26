@@ -15,6 +15,7 @@ import {
   RELAY_PROVIDER_UNSUPPORTED_METHOD,
   RelayProviderRpcError
 } from './errors';
+import type { RelayReviewedFee } from './guards';
 import { RELAY_READ_METHODS, relayRpcRead } from './rpc';
 import {
   createRelaySubmitter,
@@ -42,7 +43,24 @@ export interface RelayRequestArguments {
  */
 export type RelayRequestFn = <T = unknown>(args: RelayRequestArguments) => Promise<T>;
 
-export interface RelayProviderOptions extends RelaySubmitterOptions, RelaySubmitOptions {
+/**
+ * Gives the reviewed fee of ONE send (`deduct` mode): it is given the calls of that send, without the fee call. The
+ * caller implements it with a quote (`quoteRelayFee`) and its own review limit, and throws to stop the send; nothing
+ * is signed then. A flow that sends several transactions for one user action (`approve`, then `deposit`) makes one
+ * relay for each, and each relay pays its own quoted fee.
+ */
+export type RelaySendFee = (calls: BatchCall[]) => Promise<RelayReviewedFee>;
+
+/** The options that go to each send of the provider. */
+export interface RelaySendHooks extends RelaySubmitOptions {
+  /**
+   * `deduct` mode only: the reviewed fee of each send, in the place of one `fee` for every send. Do not give both.
+   * Without it, each send uses `fee`.
+   */
+  feeFor?: RelaySendFee;
+}
+
+export interface RelayProviderOptions extends RelaySubmitterOptions, RelaySendHooks {
   /** The chain's RPC endpoint. The read methods go there. */
   rpcUrl: string;
   /** Tests replace the RPC read. */
@@ -95,11 +113,15 @@ function calldata(value: unknown): Hex {
 
 /**
  * A relay EIP-1193 provider for one relay address on one chain. The optional `beforeSign`, `onJob` and `fee` go to
- * each `submit`, so a flow that uses the provider also gets the review check and the durable job reference. See the
- * module comment.
+ * each `submit`, so a flow that uses the provider also gets the review check and the durable job reference. With
+ * `feeFor`, each send asks it for its own reviewed fee first. Throws a `TypeError` when both `fee` and `feeFor` are
+ * given. See the module comment.
  */
 export function createRelayProvider(options: RelayProviderOptions): RelayProvider {
-  const { rpcUrl } = options;
+  const { rpcUrl, feeFor } = options;
+  if (feeFor !== undefined && options.fee !== undefined) {
+    throw new TypeError('relay provider: give a fee or a fee function, not both');
+  }
   const submitter = createRelaySubmitter(options);
   const { chainId, address } = submitter;
   const submitOptions: RelaySubmitOptions = {
@@ -136,14 +158,20 @@ export function createRelayProvider(options: RelayProviderOptions): RelayProvide
     };
   }
 
+  /** The submit options of one send: with `feeFor`, the reviewed fee of these calls. */
+  async function sendOptions(calls: BatchCall[]): Promise<RelaySubmitOptions> {
+    if (feeFor === undefined) return submitOptions;
+    return { ...submitOptions, fee: await feeFor([...calls]) };
+  }
+
   /**
-   * Relays the calls through the submitter and gives the final hash. The submitter throws a `TypeError` only for a
-   * call that it cannot take, before any read: that is an EIP-1193 parameter error. Every relay error goes to the
-   * caller as it is (viem keeps it as the `cause` of its own error).
+   * Relays the calls through the submitter and gives the final hash. The submitter (and the quote client of a
+   * `feeFor`) throws a `TypeError` only for a call that it cannot take, before any signature: that is an EIP-1193
+   * parameter error. Every relay error goes to the caller as it is (viem keeps it as the `cause` of its own error).
    */
   async function sendCalls(calls: BatchCall[]): Promise<Hash> {
     try {
-      return (await submitter.submit(calls, submitOptions)).hash;
+      return (await submitter.submit(calls, await sendOptions(calls))).hash;
     } catch (error) {
       if (error instanceof TypeError) throw invalidParams(error.message);
       throw error;
