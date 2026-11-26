@@ -2361,5 +2361,21 @@
   "depositFlowTokenArrivesAs": "Przychodzi jako $token$",
   "depositFlowTokenOpensPortal": "Otwiera stronę bridge.miden.xyz",
   "depositFlowTokenNoRoute": "Brak trasy na żywo",
-  "depositFlowTokenPortalTag": "Portal"
+  "depositFlowTokenPortalTag": "Portal",
+  "depositFlowTokenOnNetworkArrivesAs": "W sieci $network$ pojawia się jako $token$",
+  "depositFlowTokenNoMatch": "Żaden token ani sieć nie pasuje do „$query$”.",
+  "depositFlowConnectWalletInstead": "Zamiast tego podłącz portfel",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Epoka",
+  "depositFlowArrivesAgglayer": "Około 30 minut",
+  "depositFlowArrivesEpoch": "Około 2 minuty",
+  "depositFlowStartFailedTitle": "Most nie został uruchomiony",
+  "depositFlowStartFailedBody": "Twoje środki nadal znajdują się na Twoim adresie depozytowym. Wróć i spróbuj ponownie.",
+  "depositFlowStepDetected": "Wykryto wpłatę",
+  "depositFlowBridgingToMiden": "Połączenie z Miden",
+  "depositFlowStepArrived": "Dostarczone do Bread",
+  "depositFlowProcessingNote": "Możesz to zamknąć. Powiadomimy Cię, gdy będzie gotowe.",
+  "depositFlowProcessingSlowNote": "Ta operacja trwa około 30 minut. Możesz to zamknąć. Powiadomimy Cię, gdy operacja zostanie zakończona.",
+  "depositFlowArrivedTitle": "Wpłata dotarła",
+  "depositFlowDepositAgain": "Wpłata ponownie"
 }

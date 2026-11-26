@@ -2361,5 +2361,21 @@
   "depositFlowTokenArrivesAs": "Поступает как $token$",
   "depositFlowTokenOpensPortal": "Открыть bridge.miden.xyz",
   "depositFlowTokenNoRoute": "Отсутствие активного маршрута",
-  "depositFlowTokenPortalTag": "Портал"
+  "depositFlowTokenPortalTag": "Портал",
+  "depositFlowTokenOnNetworkArrivesAs": "В сети $network$ поступает как $token$",
+  "depositFlowTokenNoMatch": "Ни один токен или сеть не соответствует запросу «$query$».",
+  "depositFlowConnectWalletInstead": "Вместо этого подключите кошелек",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Эпоха",
+  "depositFlowArrivesAgglayer": "Около 30 минут",
+  "depositFlowArrivesEpoch": "Около 2 минут",
+  "depositFlowStartFailedTitle": "Мост не запустился",
+  "depositFlowStartFailedBody": "Ваши средства по-прежнему находятся на вашем адресе хранения. Вернитесь и попробуйте ещё раз.",
+  "depositFlowStepDetected": "Обнаружен депозит",
+  "depositFlowBridgingToMiden": "Переход на Miden",
+  "depositFlowStepArrived": "Прибыл в Bread",
+  "depositFlowProcessingNote": "Можете закрыть это. Мы уведомим вас, когда всё будет готово.",
+  "depositFlowProcessingSlowNote": "Этот процесс занимает около 30 минут. Вы можете закрыть это окно. Мы уведомим вас, когда всё будет готово.",
+  "depositFlowArrivedTitle": "Депозит поступил",
+  "depositFlowDepositAgain": "Снова внести депозит"
 }
