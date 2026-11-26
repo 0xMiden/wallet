@@ -119,18 +119,27 @@ describe('command-ai standalone Worker', () => {
       method: 'POST',
       body: { redactedText: 'cancel' }
     });
+    await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'send ETH', helpContext: null }
+    });
     const readRequest = (index: number) => {
       const [, init] = fetchMock.mock.calls[index] as [string, RequestInit];
       return JSON.parse(String(init.body));
     };
     const help = readRequest(0);
     const legacy = readRequest(1);
+    expect(readRequest(2)).toMatchObject({ reasoning_effort: 'low', max_completion_tokens: 512 });
+    expect(help).toMatchObject({ reasoning_effort: 'low', max_completion_tokens: 512 });
+    expect(legacy).toMatchObject({ reasoning_effort: 'low', max_completion_tokens: 512 });
     expect(JSON.parse(help.messages[1].content)).toEqual({
       utterance: 'Can people see the payment amount?',
       previousHelpTopic: 'Privacy'
     });
     const systemPrompt = help.messages[0].content;
     expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
+    expect(systemPrompt).toContain("The sender's account and some metadata are public.");
+    expect(systemPrompt).toContain('Compare Public and Private in send review.');
     expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
     expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
     expect(systemPrompt).toContain('It hides it on this device. You can restore it from Activity.');
@@ -147,7 +156,7 @@ describe('command-ai standalone Worker', () => {
       body: { redactedText: 'what is a note?', helpContext: null, snapshot: { missingSlot: 'recipient' } }
     });
     expect(refused.status).toBe(400);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('accepts a successful first-turn null help request without a draft', async () => {

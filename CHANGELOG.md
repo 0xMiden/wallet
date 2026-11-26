@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
+- [FIX][all] Make Bread Command name the public sender account and the wallet’s Public and Private payment choices.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
 - [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
