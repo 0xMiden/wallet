@@ -272,7 +272,7 @@ const readCustom = (transaction: ITransaction, result: TransactionResult): Lande
       // and read the handle themselves only where a read failed here. Interpreted on a copy: the interpretation writes
       // into the row it is given, and on a consume-shaped result names the sender as `secondaryAccountId`, which the
       // relays still read as the recipient.
-      const landed = readLandedResultFields(result, transaction.id);
+      const landed = readLandedResultFields(result, transaction.id, transaction);
       let interpreted: ReturnType<typeof interpretTransactionResult> | undefined;
       try {
         interpreted = interpretTransactionResult({ ...transaction }, result);
@@ -305,10 +305,11 @@ const readConsumeResult = (result: TransactionResult, landing: string) => {
   const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
   const asset = note.assets().fungibleAssets()[0];
-  if (!asset) {
+  const hasNonFungibleAsset = (note.assets().nonFungibleAssets?.().length ?? 0) > 0;
+  if (!asset && !hasNonFungibleAsset) {
     throw refusedCompletion('completeConsumeTransaction: note has no fungible assets', 'no_fungible_assets');
   }
-  const faucetId = getBech32AddressFromAccountId(asset.faucetId());
+  const faucetId = asset ? getBech32AddressFromAccountId(asset.faucetId()) : undefined;
   // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
   // value the `ConsumeTransaction` constructor wrote is only an estimate (its
   // `ConsumableNote` inputs carry just the first fungible asset per note), so a
@@ -335,7 +336,7 @@ const readConsumeResult = (result: TransactionResult, landing: string) => {
     transactionId: executedTransaction.id().toHex(),
     faucetId,
     assetTotals,
-    amount: totalsByFaucet.get(faucetId) ?? 0n,
+    amount: faucetId === undefined ? undefined : (totalsByFaucet.get(faucetId) ?? 0n),
     uniformNoteType: noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined,
     fees: feeFieldsFromResult(result, landing)
   };
@@ -387,7 +388,7 @@ const readSwap = (tx: SwapTransaction, result: TransactionResult): LandedRead<Sw
       const fromResult = swapOrderOf(split);
       // Read before the decode the completion may wait for: it waits on the WASM lock and can retire the client, so
       // the write stores the values read here, not reads of a result whose handles may no longer answer.
-      const feeFields = feeFieldsFromResult(result, tx.id);
+      const feeFields = feeFieldsFromResult(result, tx.id, tx);
       const transactionId = executedTx.id().toHex();
       const resultBytes = result.serialize();
       return { fromResult, feeFields, transactionId, resultBytes };
@@ -422,7 +423,7 @@ const readEarnDeposit = (tx: EarnDepositTransaction, result: TransactionResult):
       const noteId = extractFullNote(result, tx.id)?.id().toString();
       return {
         outputNoteIds: noteId ? [noteId] : [],
-        feeFields: feeFieldsFromResult(result, tx.id),
+        feeFields: feeFieldsFromResult(result, tx.id, tx),
         transactionId: executedTx.id().toHex(),
         resultBytes: result.serialize()
       };

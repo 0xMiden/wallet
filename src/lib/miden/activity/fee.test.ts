@@ -1,4 +1,4 @@
-import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { ITransactionStatus, RegisterNameTransaction, type ITransaction } from 'lib/miden/db/types';
 
 import {
   TX_FEE_NOTE_TAG,
@@ -794,5 +794,67 @@ describe('reviewed USDCx completed fee total', () => {
       throw poison;
     });
     expect(thrownBy(() => feePaidFromResult(result([burn, companion, kernel]), 'total-evicted', tx()))).toBe(poison);
+  });
+});
+
+describe('reviewed register-name completed fee total', () => {
+  const regTx = (networkFeeBaseUnits = 210n): RegisterNameTransaction =>
+    new RegisterNameTransaction({
+      accountId: 'acct',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'bech32-payment',
+      registryAccountId: 'bech32-registry',
+      priceBaseUnits: 20_000_000n,
+      networkFeeBaseUnits,
+      requestBytes: new Uint8Array([1]),
+      registrationNoteId: 'reg-note',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000
+    });
+  const named = (id: string, amount: bigint, tag = 0) => ({
+    ...outputNote(tag, [asset(amount, 'native')]),
+    id: () => ({ toString: () => id })
+  });
+  const regNote = named('reg-note', 20_000_000n);
+  const companion = named('sponsor', 210n);
+  const kernel = named('kernel', 119n, TX_FEE_NOTE_TAG);
+
+  beforeEach(() => {
+    mockNativeAssetId = 'bech32-native';
+    mockVerificationBaseFee = 7;
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockReset().mockReturnValue('sponsor');
+  });
+
+  it('records the verification fee plus canonical register-name sponsorship companion', () => {
+    expect(feeFieldsFromResult(result([regNote, companion, kernel]), 'reg-total', regTx())).toEqual({
+      feeAmount: 329n,
+      feeFaucetId: 'bech32-native'
+    });
+  });
+
+  it('records the register-name sponsorship companion even without a kernel fee note', () => {
+    mockVerificationBaseFee = 0;
+    expect(feePaidFromResult(result([regNote, companion]), 'reg-companion-only', regTx())).toEqual({
+      amount: 210n,
+      faucetId: 'bech32-native'
+    });
+  });
+
+  it('omits the register-name fee when verificationFeeKnown is false', () => {
+    const ambiguous = result([regNote, companion, kernel, named('kernel-two', 126n, TX_FEE_NOTE_TAG)]);
+    expect(feeFieldsFromResult(ambiguous, 'reg-unknown-total', regTx())).toEqual({});
+    expect(canonicalFeeSponsorshipNoteId).not.toHaveBeenCalled();
+  });
+
+  it('omits the fee when the register-name sponsorship companion exceeds networkFeeBaseUnits', () => {
+    expect(feeFieldsFromResult(result([regNote, companion, kernel]), 'reg-over-budget', regTx(209n))).toEqual({});
+  });
+
+  it('omits the fee when the register-name sponsorship companion is ambiguous', () => {
+    jest.mocked(canonicalFeeSponsorshipNoteId).mockImplementation((_identity, amount) => `sponsor-${amount}`);
+    const first = named('sponsor-210', 210n);
+    const second = named('sponsor-100', 100n);
+    expect(feeFieldsFromResult(result([regNote, first, second, kernel]), 'reg-ambiguous', regTx())).toEqual({});
   });
 });

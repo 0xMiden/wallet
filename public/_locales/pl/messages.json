@@ -7238,6 +7238,10 @@
     "message": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Przycisk pełnego ekranu",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Wartość tokenów bez cudzysłowów wynosi 1 USD (tylko sieci testowe)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -10388,6 +10392,91 @@
   "commandAiAssistantName": {
     "message": "Asystent Bread",
     "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Pytania dotyczące Bread",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "Czytaj więcej",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Jak działa Miden?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Jak bardzo jest to prywatne?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Jak mogę sprawdzić, co jest prywatne?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "Czym jest bridging?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "Czym są notes?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Dlaczego muszę akceptować przelewy?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Dlaczego przelew nadal ma status „oczekujący”?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "Co się stanie, jeśli odrzucę przelew?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Dlaczego potrzebuję USDCX do uiszczania opłat?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "Co się stanie, jeśli zgubię swoje urządzenie?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "Jaka jest różnica między siecią główną (mainnet) a siecią testową (testnet)?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Co widzi Bread Assistant?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Jak zadbać o swoje bezpieczeństwo?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Co mogę robić w Bread?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread przesyła Twoje pytanie do swojej usługi AI po usunięciu niektórych szczegółów. Nie podawaj haseł ani fraz odzyskiwania w czacie.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Nie podawaj haseł, kluczy prywatnych ani fraz odzyskiwania na czacie.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Skróć swoją wiadomość do $limit$ znaków lub mniej.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Polityka prywatności Bridge",
+    "englishSource": "Bridge privacy policy"
   },
   "commandAiPlanTitle": {
     "message": "Plan działania",

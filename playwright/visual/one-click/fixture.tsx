@@ -11,6 +11,7 @@ export const getEffectiveDefaultGuardianEndpoint = (): string => 'https://guardi
 export const getEffectiveFeeFaucetId = (): string | undefined => undefined;
 export const getEffectiveFaucetApiUrl = (): string | undefined => undefined;
 export const getEffectiveNetworkName = (): MIDEN_NETWORK_NAME => MIDEN_NETWORK_NAME.MAINNET;
+export const subscribeEffectiveEndpoints = (_listener: () => void) => () => {};
 export const getEffectiveNoteTransportUrl = (): string | undefined => 'https://transport.mainnet.miden.io';
 export const getEffectiveProverUrl = (): string | undefined => 'https://tx-prover.mainnet.miden.io';
 export const getEffectiveRpcUrl = (): string => 'https://rpc.mainnet.miden.io';

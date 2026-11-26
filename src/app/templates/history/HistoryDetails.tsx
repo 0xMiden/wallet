@@ -308,10 +308,11 @@ const allowOutboundBridgeDetails = (entry: IHistoryEntry): boolean =>
 export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy => {
   switch (entry.txType) {
     case 'send':
+    case 'register-name':
       return {
         bridgeClaim: false,
         inboundBridge: false,
-        oneClick: entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
+        oneClick: entry.txType === 'send' && entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
         from: 'account',
         // The 1Click section shows the recipient, so `To` appears once.
         to:

@@ -1,5 +1,6 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 
+import { createListenerSet } from 'lib/listener-set';
 import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import {
   DEFAULT_NETWORK,
@@ -40,6 +41,10 @@ const NOTE_TRANSPORT_ENV_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
 
 // null = no override active → getters fall back to build defaults keyed by DEFAULT_NETWORK.
 let overrideCache: EndpointOverride | null = null;
+const endpointListeners = createListenerSet();
+
+/** Subscribe to effective-endpoint changes (useSyncExternalStore-compatible). */
+export const subscribeEffectiveEndpoints = endpointListeners.subscribe;
 
 // The stylesheet recolors the accent for testnet off this attribute (main.css). A realm with no document, such as the
 // background worker, has nothing to mark. A devnet build keeps its fixed slate ramp (tailwind.config.ts), so it never
@@ -165,6 +170,7 @@ export async function setFeeFaucetIdForTest(id: string | undefined): Promise<voi
   } else {
     await storage.remove([FEE_FAUCET_STORAGE_KEY]);
   }
+  endpointListeners.notify();
 }
 
 /** Optional fee identity override; a successful SDK sync supplies the chain's protocol identity. */
@@ -202,8 +208,10 @@ export function getEndpointState(): EndpointState {
 
 // Only a realm that cannot read extension storage calls this; every other realm loads its own.
 export function adoptEndpointState(state: EndpointState): void {
+  const prev = getEndpointState();
   setOverrideCache(state.override);
   feeFaucetCache = state.feeFaucetId;
+  if (!sameEndpointState(prev, state)) endpointListeners.notify();
 }
 
 const sameOverride = (a: EndpointOverride, b: EndpointOverride) =>
@@ -311,6 +319,7 @@ export function whenEndpointOverridesLoaded(): Promise<void> {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
+  const prev = getEndpointState();
   try {
     await loadFeeFaucetId();
     if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
@@ -327,6 +336,7 @@ export async function loadEndpointOverrides(): Promise<void> {
     }
   } finally {
     markOverridesLoaded();
+    if (!sameEndpointState(prev, getEndpointState())) endpointListeners.notify();
   }
 }
 
@@ -336,6 +346,7 @@ export async function loadEndpointOverrides(): Promise<void> {
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
   setOverrideCache(override);
+  endpointListeners.notify();
 }
 
 /**
@@ -349,6 +360,7 @@ export async function forgetDeveloperNetworkChoice(): Promise<void> {
   const { developerChoice: _marker, ...rest } = raw;
   await storage.set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: rest });
   setOverrideCache(rest);
+  endpointListeners.notify();
 }
 
 /**
@@ -359,6 +371,7 @@ export async function forgetDeveloperNetworkChoice(): Promise<void> {
 export async function clearEndpointOverride(): Promise<void> {
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
   setOverrideCache(null);
+  endpointListeners.notify();
 }
 
 const OVERRIDE_ENDPOINT_FIELDS = [
