@@ -6,7 +6,7 @@ import { Receive } from 'app/pages/Receive';
 import { PendingActivityCard } from 'app/templates/history/PendingActivityCard';
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
-import type { ISubmitEvidence } from 'lib/miden/db/types';
+import type { ISubmitEvidence, ITransaction } from 'lib/miden/db/types';
 import { claimFeeShortfalls } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
@@ -36,7 +36,11 @@ type MockRow = {
   completedAt?: number;
   held?: boolean;
   guardianBusy?: true;
-  lastDeferral?: 'guardian_backpressure';
+  awaitingRecoverySeed?: true;
+  consumeEntryPoint?: ITransaction['consumeEntryPoint'];
+  lastDeferral?: ITransaction['lastDeferral'];
+  nextEligibleAt?: number;
+  stageTimestamps?: ITransaction['stageTimestamps'];
   stage?: 'submitting';
   type?: 'consume';
   error?: string;
@@ -2692,6 +2696,59 @@ describe('a failed claim follows its row (#2060)', () => {
     await latestSubscription().query();
     expect(mockAnyOf).toHaveBeenLastCalledWith('id', ['tx-two']);
   });
+});
+
+it('shows a scheduled Claim All retry without offering another claim', async () => {
+  render(React.createElement(ClaimCards));
+  fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
+  await settleDeliverySenders();
+  expect(mockQueueMany).toHaveBeenCalledTimes(1);
+
+  const row = { id: 'tx-batch', type: 'consume', consumeEntryPoint: 'claim_all' } as const;
+  settle([{ ...row, status: 0 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  const retry = {
+    ...row,
+    lastDeferral: 'node_unreachable',
+    nextEligibleAt: Math.floor(Date.now() / 1000) + 60
+  } as const;
+  for (const waiting of [
+    { ...retry, lastDeferral: 'wallet_locked' },
+    { ...retry, awaitingRecoverySeed: true },
+    { ...retry, consumeEntryPoint: 'claim' },
+    { ...retry, guardianBusy: true },
+    { ...retry, nextEligibleAt: undefined }
+  ] as const) {
+    settle([{ ...waiting, status: 0 }]);
+    expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  }
+  settle([{ ...retry, status: 0 }]);
+  expect(screen.getByText('activityClaimQueuedRetry')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'activityClaimQueued' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Accept All' }));
+  await settleDeliverySenders();
+  expect(mockQueueMany).toHaveBeenCalledTimes(1);
+  expect(mockQueue).not.toHaveBeenCalled();
+  expect(mockRequeue).not.toHaveBeenCalled();
+
+  settle([{ ...retry, status: 0, nextEligibleAt: Math.floor(Date.now() / 1000) - 1 }]);
+  expect(screen.getByText('activityClaimQueuedRetry')).toBeVisible();
+
+  settle([{ ...retry, status: 0, stageTimestamps: { syncing: Date.now() } }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  settle([{ ...retry, status: 1 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'activityAcceptingTransfer' })).toHaveAttribute('aria-busy', 'true');
+
+  settle([{ ...retry, status: 3 }]);
+  expect(screen.queryByText('activityClaimQueuedRetry')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'retry' })).toBeEnabled();
 });
 
 describe('Guardian wait on Activity claims (#1666)', () => {

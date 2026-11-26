@@ -8159,6 +8159,14 @@
     "message": "Aceptando…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Reclamación en cola",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Solicitud en cola. El monedero lo volverá a intentar automáticamente.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transferencias",
     "englishSource": "Transfers"
