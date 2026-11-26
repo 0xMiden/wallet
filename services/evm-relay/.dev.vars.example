@@ -1,0 +1,27 @@
+# Local variables and secrets of `wrangler dev` for this Worker. Copy this file to `.dev.vars` in this folder and set
+# the values. Git ignores `.dev.vars`. Never commit a real key or a paid RPC URL.
+# Wrangler reads `.dev.vars` in the dotenv format. Its values replace the `vars` of wrangler.jsonc.
+# The runbook of a local end-to-end test is scripts/dev/relay-local/README.md.
+
+# The relayer key: 0x and 64 hex characters. The relayer executes the batches and pays the gas.
+# Make it with `node scripts/dev/relay-local/relayer-key.mjs new` (it writes this line and prints only the address).
+# Use a new key for local tests only. Fund its address with a small amount of Sepolia ETH.
+RELAYER_PRIVATE_KEY=0x<64 hex characters: the relayer key>
+
+# The JSON-RPC URL of each chain in RELAY_CONFIG: RPC_URL_<chainId>.
+# The provider must accept JSON-RPC batches, eth_call with a state override and eth_feeHistory.
+RPC_URL_11155111=https://<your Sepolia JSON-RPC URL>
+
+# sponsor: the relayer pays the gas. The deposit flow takes only sponsor now.
+GAS_MODE=sponsor
+
+# A JSON array of exact origins. Set the origin of the unpacked extension: chrome://extensions shows its id.
+# Requests without an Origin header (curl, the smoke script) pass the gate.
+ALLOWED_ORIGINS='["chrome-extension://<extension id>"]'
+
+DEPLOYMENT_REVISION=local
+
+# The chains of the relay. The pin is the Uniswap Calibur on Sepolia (scripts/dev/relay-local/probe-chains.mjs reads
+# its code hash from the chain). serve-config.mjs copies the chains and the pin of this line into the wallet document.
+# To limit the sponsored gas to known contracts, add "allowedTargets":[...] to the chain (see the runbook).
+RELAY_CONFIG='{"chains":{"11155111":{"calibur":{"address":"0x000000009b1d0af20d8c6d0a44e162d11f9b8f00","runtimeHash":"0x7fa1bd2edb51499cb83a324acd9d0f35b31774cf8894e26fc13ac0474f4f57a4","domainName":"Calibur","domainVersion":"1.0.0"}}}}'

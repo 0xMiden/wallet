@@ -208,6 +208,12 @@ The tests of the Sender run its SQL on `node:sqlite`, which Node 22.13 and later
 
 Local state goes to `.wrangler/`, and local secrets go to `.dev.vars`. Git ignores both. Requests without an `Origin` header, such as `curl`, pass the CORS gate.
 
+### Local end-to-end test
+
+`.dev.vars.example` lists every variable and secret of a local run, with placeholders for the key, the RPC URL and the extension origin. The runbook `scripts/dev/relay-local/README.md` tells how to test the wallet's deposit-address flow by hand against this Worker on Sepolia: it makes the relayer key (`relayer-key.mjs`), serves the testnet wallet-config document with the `relay` section (`serve-config.mjs`), builds the extension and runs a smoke check (`smoke.mjs`).
+
+Wrangler 4.151.3 refuses the `compatibility_date` of `wrangler.jsonc` (`2026-11-20`) in a local run: its runtime supports dates up to `2026-10-26`. Until the date or the Wrangler pin changes, start the local Worker with `npx wrangler@4.151.3 dev --ip 127.0.0.1 --port 8788 --compatibility-date 2026-10-26`.
+
 ## API contract
 
 This section is the reference for the wallet client. The three routes implement it.
