@@ -1368,6 +1368,107 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     }
   });
 
+  it('persists the new known live list after a definitive v2 metadata lookup omits an unsupported faucet', async () => {
+    const cacheKey = 'claimable_notes:v1:https://rpc.mainnet.miden.io|mainnet:pk-definitive-missing';
+    const spentOldNote = {
+      id: 'spent-old-1',
+      faucetId: _g.__cnSwrTest.nativeAssetId,
+      amount: '100',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      standardPayment: true,
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
+    _g.__cnSwrTest.kv[cacheKey] = [spentOldNote];
+    _g.__cnSwrTest.consumableNotes = [
+      makeNote('native-new-1', _g.__cnSwrTest.nativeAssetId, '300'),
+      makeNote('unsupported-1', 'faucet-perm-unknown', '400')
+    ];
+    _g.__cnSwrTest.fetchMetadata.mockRejectedValue(new Error('unsupported faucet'));
+
+    const schemaRead: { resolve: ((val: unknown) => void) | null } = { resolve: null };
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
+        return new Promise(resolve => {
+          schemaRead.resolve = resolve;
+        });
+      }
+      if (key === TOKENS_BASE_METADATA_STORAGE_KEY) {
+        return Promise.resolve({
+          'unrelated-faucet': { symbol: 'OTH', name: 'Other', decimals: 6 }
+        });
+      }
+      return Promise.resolve(
+        Object.prototype.hasOwnProperty.call(_g.__cnSwrTest.kv, key) ? _g.__cnSwrTest.kv[key] : null
+      );
+    };
+
+    try {
+      const hMissing = renderHook(() => useClaimableNotes('pk-definitive-missing'), {
+        wrapper: createWrapper()
+      });
+
+      await act(async () => {
+        await flushMicrotasks(20);
+      });
+
+      expect(schemaRead.resolve).not.toBeNull();
+      expect(hMissing.result.current.data?.map(n => n.id)).toEqual(['native-new-1']);
+      expect(hMissing.result.current.isFallback).toBe(false);
+      expect(hMissing.result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(_g.__cnSwrTest.kv[cacheKey].map((n: any) => n.id)).toEqual(['spent-old-1']);
+      expect(_g.__cnSwrTest.putToStorageCalls.filter((c: any) => c.key === cacheKey)).toEqual([]);
+
+      await act(async () => {
+        schemaRead.resolve?.(TOKENS_METADATA_SCHEMA_VERSION);
+        await flushMicrotasks(40);
+      });
+
+      expect(hMissing.result.current.data?.map(n => n.id)).toEqual(['native-new-1']);
+      expect(hMissing.result.current.isFallback).toBe(false);
+      expect(hMissing.result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(_g.__cnSwrTest.kv[cacheKey].map((n: any) => n.id)).toEqual(['native-new-1']);
+
+      _g.__cnSwrTest.consumableNotes = [makeNote('unsupported-1', 'faucet-perm-unknown', '400')];
+      await act(async () => {
+        requestNotesRefresh();
+        await flushMicrotasks(24);
+      });
+
+      expect(hMissing.result.current.data).toEqual([]);
+      expect(hMissing.result.current.isFallback).toBe(false);
+      expect(_g.__cnSwrTest.kv[cacheKey]).toEqual([]);
+      hMissing.unmount();
+
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+      __resetClaimableNotesCacheForTests();
+      const emptyKey = 'claimable_notes:v1:https://rpc.mainnet.miden.io|mainnet:pk-definitive-empty';
+      _g.__cnSwrTest.kv[emptyKey] = [spentOldNote];
+      _g.__cnSwrTest.consumableNotes = [
+        makeNote('native-after-empty', _g.__cnSwrTest.nativeAssetId, '500'),
+        makeNote('unsupported-2', 'faucet-perm-unknown-2', '600')
+      ];
+
+      const hEmpty = renderHook(() => useClaimableNotes('pk-definitive-empty'), {
+        wrapper: createWrapper()
+      });
+
+      await act(async () => {
+        await flushMicrotasks(40);
+      });
+
+      expect(hEmpty.result.current.data?.map(n => n.id)).toEqual(['native-after-empty']);
+      expect(hEmpty.result.current.isFallback).toBe(false);
+      expect(hEmpty.result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(_g.__cnSwrTest.kv[emptyKey].map((n: any) => n.id)).toEqual(['native-after-empty']);
+      hEmpty.unmount();
+    } finally {
+      schemaRead.resolve?.(null);
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+    }
+  });
+
   it('recovers persisted v2 metadata after transient Preferences errors when RPC prefetch fails and refreshes after snapshot TTL', async () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('usdc-recover-1', 'faucet-recover-1', '5000000')];
     _g.__cnSwrTest.fetchMetadata.mockRejectedValue(new Error('rpc offline'));
