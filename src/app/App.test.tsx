@@ -228,6 +228,9 @@ jest.mock('app/templates/HotKeyRotationGate', () => ({
 jest.mock('app/templates/HotKeyRotatedOutGate', () => ({
   HotKeyRotatedOutGate: () => null
 }));
+jest.mock('screens/deposit-flow/PendingDepositArrivalWatcher', () => ({
+  PendingDepositArrivalWatcher: () => <div data-testid="pending-deposit-arrival-watcher" />
+}));
 
 jest.mock('app/templates/OpenLinkPrompt', () => ({
   OpenLinkPrompt: () => <div data-testid="open-link-prompt" />
@@ -351,6 +354,10 @@ describe('app/App', () => {
       expect(getByTestId('update-notification-provider')).toContainElement(getByTestId('page-router'));
       // Extension-only prompt is mounted.
       expect(getByTestId('pin-extension-prompt')).toBeInTheDocument();
+      // The arrival notice of a pending deposit follows every page.
+      expect(getByTestId('update-notification-provider')).toContainElement(
+        getByTestId('pending-deposit-arrival-watcher')
+      );
 
       // Structural wrappers still render their leaves.
       expect(getByTestId('dialogs')).toBeInTheDocument();
@@ -397,6 +404,7 @@ describe('app/App', () => {
       expect(dappHost).toContainElement(getByTestId('update-notification-provider'));
       // Opening a link's page needs the dApp browser.
       expect(dappHost).toContainElement(getByTestId('open-link-prompt'));
+      expect(dappHost).toContainElement(getByTestId('pending-deposit-arrival-watcher'));
 
       // Mobile back bridge is mounted; extension prompt is not.
       expect(getByTestId('mobile-back-bridge')).toBeInTheDocument();
@@ -419,6 +427,7 @@ describe('app/App', () => {
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('page-router')).not.toBeInTheDocument();
+      expect(queryByTestId('pending-deposit-arrival-watcher')).not.toBeInTheDocument();
       expect(queryByTestId('update-notification-provider')).not.toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
     });

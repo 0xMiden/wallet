@@ -2355,6 +2355,7 @@
   "depositFlowRouteLess": "$amount$ less",
   "depositFlowPendingReceived": "Deposit received. Tap to finish.",
   "depositFlowPendingFrom": "$amount$ from $network$",
+  "depositFlowArrivalNotice": "We see your deposit. Tap to follow it.",
   "depositFlowTokenGroupInBread": "Deposit in Bread",
   "depositFlowTokenGroupPortal": "On the bridge portal",
   "depositFlowTokenGroupNotYet": "Not available yet",
