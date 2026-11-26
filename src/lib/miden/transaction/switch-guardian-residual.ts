@@ -2,6 +2,7 @@
 // sync loop's self-heal: it adopts that state from the previous guardian, registers it on the new
 // one, and then clears the flag the receipt warns on.
 
+import { hasTransactionIndex, readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import * as Repo from 'lib/miden/repo';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 
@@ -31,7 +32,10 @@ export async function findUnsavedSwitchRow(
   accountPublicKey: string,
   endpoint: string
 ): Promise<UnsavedSwitchRow | undefined> {
-  const rows = await Repo.transactions.filter(tx => isUnsavedSwitchTo(tx, accountPublicKey, endpoint)).toArray();
+  const matches = (tx: ITransaction) => isUnsavedSwitchTo(tx, accountPublicKey, endpoint);
+  const rows = hasTransactionIndex('type', Repo.transactions)
+    ? await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['switch-guardian']), matches)
+    : await Repo.transactions.filter(matches).toArray();
   const newest = rows.sort((a, b) => b.initiatedAt - a.initiatedAt)[0];
   const previous: unknown = newest?.extraInputs?.previousGuardianEndpoint;
   if (!newest || typeof previous !== 'string') return undefined;
@@ -54,9 +58,11 @@ export async function markSwitchDeltaPushed(rowId: string): Promise<void> {
 
 /** Clear the flag on every such row, once this device registered the post-switch state. */
 export async function clearLocalStateNotSaved(accountPublicKey: string, endpoint: string): Promise<void> {
-  await Repo.transactions
-    .filter(tx => isUnsavedSwitchTo(tx, accountPublicKey, endpoint))
-    .modify(tx => {
-      tx.extraInputs = { ...tx.extraInputs, localStateNotSaved: false };
-    });
+  const matches = (tx: ITransaction) => isUnsavedSwitchTo(tx, accountPublicKey, endpoint);
+  const collection = hasTransactionIndex('type', Repo.transactions)
+    ? Repo.transactions.where('type').equals('switch-guardian').filter(matches)
+    : Repo.transactions.filter(matches);
+  await collection.modify(tx => {
+    tx.extraInputs = { ...tx.extraInputs, localStateNotSaved: false };
+  });
 }

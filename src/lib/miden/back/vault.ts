@@ -39,6 +39,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
+import { hasTransactionIndex } from 'lib/miden/db/index-query';
 import { isCurrentRotationRequest, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
@@ -411,13 +412,19 @@ export class Vault {
           }
           recoveryPublicKeys.push(account.coldPublicKey);
         }
-        const pending = await Repo.transactions
-          .filter(
-            tx =>
-              !tx.restoredFromBackup &&
-              (tx.status === ITransactionStatus.Queued || tx.status === ITransactionStatus.GeneratingTransaction)
-          )
-          .count();
+        const pending = hasTransactionIndex('status', Repo.transactions)
+          ? await Repo.transactions
+              .where('status')
+              .anyOf([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])
+              .filter(tx => !tx.restoredFromBackup)
+              .count()
+          : await Repo.transactions
+              .filter(
+                tx =>
+                  !tx.restoredFromBackup &&
+                  (tx.status === ITransactionStatus.Queued || tx.status === ITransactionStatus.GeneratingTransaction)
+              )
+              .count();
         if (pending) throw new PublicError(getMessage('seedRemovalBusy'));
         // The backup sync key is derived from the phrase. Store it before the phrase
         // leaves this device, so the backup continues to work after the removal.

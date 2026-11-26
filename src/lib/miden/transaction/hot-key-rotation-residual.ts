@@ -3,6 +3,7 @@
 // completes the row. A node discard is a verdict: that row never lands, so it is a record, not work.
 
 import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
+import { hasTransactionIndex, readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import * as Repo from 'lib/miden/repo';
 
 import { isNodeDiscardedRow } from './constants';
@@ -29,15 +30,18 @@ const isFailedRotation = (tx: ITransaction): boolean =>
 
 /** This account's Failed rotations that name a new key, newest first. A restored or discarded row is a record, never work. */
 export async function findFailedHotKeyRotations(accountPublicKey: string): Promise<FailedHotKeyRotation[]> {
-  const rows = await Repo.transactions
-    .filter(
-      tx =>
-        isFailedRotation(tx) &&
-        tx.restoredFromBackup !== true &&
-        !isNodeDiscardedRow(tx) &&
-        sameWalletAccountId(tx.accountId, accountPublicKey)
-    )
-    .toArray();
+  const matches = (tx: ITransaction) =>
+    isFailedRotation(tx) &&
+    tx.restoredFromBackup !== true &&
+    !isNodeDiscardedRow(tx) &&
+    sameWalletAccountId(tx.accountId, accountPublicKey);
+  const rows = hasTransactionIndex('[status+type]', Repo.transactions)
+    ? await readTransactionIndexChunks(
+        Repo.transactions,
+        statusTypeIndexSpecs([[ITransactionStatus.Failed, 'replace-hot-key']]),
+        matches
+      )
+    : await Repo.transactions.filter(matches).toArray();
   const rotations: FailedHotKeyRotation[] = [];
   for (const row of rows.sort((a, b) => b.initiatedAt - a.initiatedAt)) {
     const newHotPublicKey: unknown = row.extraInputs?.newHotPublicKey;

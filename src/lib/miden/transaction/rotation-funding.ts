@@ -1,3 +1,9 @@
+import {
+  hasTransactionIndex,
+  readTransactionIndexChunks,
+  statusTypeIndexSpecs,
+  typeIndexSpecs
+} from 'lib/miden/db/index-query';
 import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 
@@ -54,6 +60,30 @@ export async function findAdoptableShortfallRow(
   accountPublicKey: string,
   rotationRequest?: string
 ): Promise<ITransaction | undefined> {
+  if (hasTransactionIndex('type', Repo.transactions) && hasTransactionIndex('[status+type]', Repo.transactions)) {
+    const rotationRows = await readTransactionIndexChunks(
+      Repo.transactions,
+      typeIndexSpecs(['replace-hot-key']),
+      row =>
+        row.restoredFromBackup !== true &&
+        isActivationRow(row, accountPublicKey) &&
+        (rotationRequest === undefined || row.extraInputs?.rotationRequest === rotationRequest)
+    );
+    const rotation = newestRow(rotationRows);
+    if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
+    const failedAt = rotation.completedAt ?? rotation.initiatedAt;
+    const claimsSince = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([[ITransactionStatus.Completed, 'consume']]),
+      row =>
+        row.restoredFromBackup !== true &&
+        isRotationFundingRow(row, accountPublicKey) &&
+        (row.completedAt ?? 0) > failedAt,
+      { limit: 1 }
+    );
+    return claimsSince.length > 0 ? undefined : rotation;
+  }
+
   const rows = await Repo.transactions
     .filter(
       row =>

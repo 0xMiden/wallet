@@ -12,6 +12,7 @@ import {
   POSITIONS_PAGE_LIMIT
 } from 'lib/epoch';
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { hasTransactionIndex, readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import type { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
@@ -495,7 +496,13 @@ export function useEarnPositions(): {
     if (!missing) return;
     let cancelled = false;
     void (async () => {
-      const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
+      const rows = hasTransactionIndex('type', Repo.transactions)
+        ? await readTransactionIndexChunks(
+            Repo.transactions,
+            typeIndexSpecs(['earn-deposit']),
+            tx => !tx.restoredFromBackup && compareAccountIds(tx.accountId, account.publicKey)
+          )
+        : await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
       if (cancelled) return;
       const found = new Map<string, '1delta' | 'dummy-lending'>();
       const newestAt = new Map<string, number>();

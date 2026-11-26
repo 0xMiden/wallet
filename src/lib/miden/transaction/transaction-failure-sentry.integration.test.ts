@@ -1100,7 +1100,7 @@ it.each([false, true])('uses only earlier exact gate membership at committed exp
   const waiting = row({ id: 'queue-member', status: ITransactionStatus.Queued, initiatedAt: now, queuedSeq: 1 });
   await Repo.transactions.put(waiting);
   await Repo.transactions.put(row({ id: 'active', processingStartedAt: now }));
-  const queries = jest.spyOn(Repo.transactions, 'filter');
+  const queries = jest.spyOn(Repo.db, 'transaction');
   try {
     await generateTransactionsLoop(async () => new Uint8Array(), false, {
       getAccounts: async () => [],
@@ -1115,7 +1115,8 @@ it.each([false, true])('uses only earlier exact gate membership at committed exp
     } finally {
       clock.mockRestore();
     }
-    expect(queries).toHaveBeenCalledTimes(4);
+    const readQueries = queries.mock.calls.filter(([mode]) => mode === 'r');
+    expect(readQueries).toHaveLength(4);
     expect(report).toHaveBeenCalledTimes(1);
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({

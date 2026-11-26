@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).
+
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.

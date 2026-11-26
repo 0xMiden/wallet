@@ -5,6 +5,7 @@
 // the entries' evidence, and the landed write the account's other rows.
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 
+import { hasTransactionIndex, readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -887,7 +888,14 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
   const now = deps.now ?? Date.now;
   try {
     const startedMs = now();
-    const rows = await Repo.transactions.filter(row => awaitingVerdict(row, Math.floor(startedMs / 1000))).toArray();
+    const nowSec = Math.floor(startedMs / 1000);
+    const rows = hasTransactionIndex('status', Repo.transactions)
+      ? await readTransactionIndexChunks(
+          Repo.transactions,
+          statusIndexSpecs([ITransactionStatus.Unconfirmed, ITransactionStatus.Failed]),
+          row => awaitingVerdict(row, nowSec)
+        )
+      : await Repo.transactions.filter(row => awaitingVerdict(row, nowSec)).toArray();
     const raw: unknown = (await storage.get([SCHEDULE_KEY]))[SCHEDULE_KEY];
     const stored = parseSchedule(raw);
     const schedule: Schedule = {};
