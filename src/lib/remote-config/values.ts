@@ -239,8 +239,9 @@ export function selectRelayConfig(s: BridgeConfigSnapshot): RelayConfig | null {
 }
 
 /**
- * The relay entry of `chainId`. Null while `selectRelayConfig` is null, while the relay names no such chain, or while
- * this build does not know the chain: the document can name a chain that `supportedEvmChains` leaves out.
+ * The relay entry of `chainId`, with its optional `feeRecipient` (the only recipient of a `deduct` fee). Null while
+ * `selectRelayConfig` is null, while the relay names no such chain, or while this build does not know the chain: the
+ * document can name a chain that `supportedEvmChains` leaves out.
  */
 export function selectRelayChain(s: BridgeConfigSnapshot, chainId: number): RelayChainConfig | null {
   const known = Object.values(s.config?.supportedEvmChains ?? {}).some(chain => chain.chainId === chainId);

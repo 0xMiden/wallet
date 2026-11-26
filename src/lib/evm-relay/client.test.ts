@@ -347,6 +347,15 @@ describe('fetchRelayJob', () => {
     expect(call(0).url).toBe(`${BASE}/v1/relay/${JOB_ID}?chainId=8453`);
   });
 
+  it('reads an expired job, whose hash is the cancel transaction', async () => {
+    const fetchFn = fetchReturning(stubResponse(200, jobBody('expired')));
+    expect(await fetchRelayJob({ id: JOB_ID }, { fetch: fetchFn })).toEqual({
+      id: JOB_ID,
+      state: 'expired',
+      txHash: TX_HASH
+    });
+  });
+
   it.each([
     ['an id that is not a hash', { id: '0x12/../account' }],
     ['a chain id of 0', { id: JOB_ID, chainId: 0 }]

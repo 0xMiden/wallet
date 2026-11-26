@@ -26,7 +26,8 @@ export const CHAIN: RelayChainConfig = {
     domainName: 'Calibur',
     domainVersion: '1.0.0'
   },
-  maxFee: { [USDC]: '50000' }
+  maxFee: { [USDC]: '50000' },
+  feeRecipient: FEE_RECIPIENT
 };
 
 /** The hex with upper-case digits, as the service may send it. */

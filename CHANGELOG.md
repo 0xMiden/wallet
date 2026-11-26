@@ -1,9 +1,26 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][ci] Update the mainnet nightly test for the larger default runner.
+- [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
+- [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
+- [FIX][all] Show failed Activity claims and when they can be retried.
+- [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
+- [FIX][ci] Align the cached solver registry test with the token list readiness field.
+
 ## 1.18.2 (TBD)
 
 - [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden through Agglayer with no EVM gas from the user. The service has no login, takes no calldata from the client and keeps only its nonce counter and the open relays.
 - [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; and the remote config gains the `relay` section behind `features.relayDeposit`.
+- [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
+- [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
+- [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
+- [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
+
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
 
 - [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.

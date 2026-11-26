@@ -73,6 +73,7 @@ function readState(value: unknown): RelayJobState {
     case 'pending':
     case 'succeeded':
     case 'reverted':
+    case 'expired':
       return value;
     default:
       throw malformed('state');

@@ -129,7 +129,16 @@ describe('command-ai standalone Worker', () => {
       utterance: 'Can people see the payment amount?',
       previousHelpTopic: 'Privacy'
     });
-    expect(help.messages[0].content).toContain('two of three validators');
+    const systemPrompt = help.messages[0].content;
+    expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
+    expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
+    expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
+    expect(systemPrompt).toContain('It hides it on this device. You can restore it from Activity.');
+    expect(systemPrompt).toContain('Do not guess who holds the funds');
+    expect(systemPrompt).toContain('A private account also needs its account data restored.');
+    expect(systemPrompt).not.toContain('Guardian receives encrypted account state');
+    expect(systemPrompt).toContain('a redacted question goes to an AI service; help sends no wallet history.');
+    expect(systemPrompt).toContain('two of three validators');
     expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5000);
     expect(JSON.stringify(help.response_format)).toContain('"explain"');
     expect(JSON.stringify(legacy.response_format)).not.toContain('"explain"');

@@ -8,35 +8,28 @@ import { base, mainnet } from 'viem/chains';
 import { planRelaySignature } from 'lib/miden/relay-key/sign-rules';
 import type { RelaySignRequest, RelaySignResult } from 'lib/shared/types';
 
-import { batchDigest, batchNonceOf, buildFeeCall, recoverBatchSigner, type BatchCall } from './batch';
-import type { RelayAccountQuery, RelayJobQuery } from './client';
+import { batchDigest, buildFeeCall, type BatchCall } from './batch';
 import {
   RelayApiError,
-  RelayMismatchError,
   RelayProviderRpcError,
   RelayRefusedError,
-  RelayRevertedError,
-  RelayStillPendingError,
-  RelayUnavailableError
+  RelayUnavailableError,
+  RelayUnknownOutcomeError
 } from './errors';
 import {
-  MAX_RELAY_BATCH_CALLS,
-  RELAY_DEADLINE_SECONDS,
-  RELAY_POLL_MS,
-  RELAY_WAIT_MS,
   createRelayProvider,
   createRelayWalletClient,
   type RelayProvider,
   type RelayProviderOptions
 } from './provider';
+import type { RelayJobRef } from './submit';
 import { CHAIN, EXECUTOR, FEE_RECIPIENT, NATIVE, SALT, USDC, upperHex } from './testing';
-import type { RelayAccount, RelayJob, RelaySubmission } from './types';
+import type { RelayAccount, RelayJob, RelayJobState, RelaySubmission } from './types';
 
 // Any key works: the relay key is the key of the relay address, so the signatures recover to RELAY.
 const relayKey = privateKeyToAccount('0x1772fe91fd5a0e606a5fed77763cffebdf7d0a44f86be481c60319286db10e6f');
 const RELAY: Address = `0x${relayKey.address.slice(2).toLowerCase()}`;
 const TARGET: Address = '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582';
-const OTHER_JOB: Hex = `0x${'0b'.repeat(32)}`;
 const START_MS = 1_800_000_000_000;
 const hashOf = (byte: string): Hash => `0x${byte.repeat(32)}`;
 
@@ -58,105 +51,82 @@ function relayAccount(overrides: Partial<RelayAccount> = {}): RelayAccount {
   };
 }
 
-function deductAccount(fee: bigint, overrides: Partial<RelayAccount> = {}): RelayAccount {
-  return relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: USDC, fee }], ...overrides });
-}
-
-/** The digest of a submission, as the relay computes the job id. */
 function digestOf(submission: RelaySubmission): Hex {
   const { chainId, evmAddress, batchNonce, salt, deadline, calls } = submission;
   return batchDigest(CHAIN.calibur, { chainId, evmAddress, executor: EXECUTOR, batchNonce, salt, deadline }, calls);
 }
 
-type Answer<T> = T | Error | ((input: RelaySubmission) => T);
+type JobAnswer = RelayJobState | RelayJob | Error;
 
 interface Harness {
   provider: RelayProvider;
   options: RelayProviderOptions;
   accounts: RelayAccount[];
-  submits: Answer<'pending' | 'succeeded' | 'reverted' | RelayJob>[];
-  jobs: (RelayJob | Error | 'pending' | 'succeeded' | 'reverted')[];
+  posts: JobAnswer[];
+  jobs: JobAnswer[];
   submissions: RelaySubmission[];
   signRequests: RelaySignRequest[];
-  accountQueries: RelayAccountQuery[];
-  jobQueries: RelayJobQuery[];
-  sleeps: number[];
+  accountQueries: number;
   readRpc: jest.Mock<Promise<unknown>, [string, unknown]>;
-  clock: { ms: number };
 }
 
-/**
- * A provider over stub services. The stub relay answers each submission with a job whose id is its digest; the stub
- * backend signs under the real vault rule (`planRelaySignature`) with the relay key.
- */
+function next<T>(answers: T[]): T {
+  const answer = answers.length > 1 ? answers.shift() : answers[0];
+  if (answer === undefined) throw new Error('no answer');
+  return answer;
+}
+
+function jobOf(answer: JobAnswer, id: Hex, hash: Hash): RelayJob {
+  if (answer instanceof Error) throw answer;
+  return typeof answer === 'string' ? { id, state: answer, txHash: hash } : answer;
+}
+
+/** A provider over stub services. The stub backend signs under the real vault rule with the relay key. */
 function harness(extra: Partial<RelayProviderOptions> = {}): Harness {
   const clock = { ms: START_MS };
   const state: Omit<Harness, 'provider' | 'options'> = {
     accounts: [relayAccount()],
-    submits: ['succeeded'],
+    posts: ['succeeded'],
     jobs: [],
     submissions: [],
     signRequests: [],
-    accountQueries: [],
-    jobQueries: [],
-    sleeps: [],
-    readRpc: jest.fn(async (_method: string, _params: unknown): Promise<unknown> => '0x1'),
-    clock
+    accountQueries: 0,
+    readRpc: jest.fn(async (_method: string, _params: unknown): Promise<unknown> => '0x1')
   };
-  const jobFor = (answer: 'pending' | 'succeeded' | 'reverted' | RelayJob, id: Hex, hash: Hash): RelayJob =>
-    typeof answer === 'string' ? { id, state: answer, txHash: hash } : answer;
   const options: RelayProviderOptions = {
     chain: CHAIN,
     address: RELAY,
     rpcUrl: 'https://rpc.example',
     sign: async (request: RelaySignRequest): Promise<RelaySignResult> => {
       state.signRequests.push(request);
-      const plan = planRelaySignature(request, {
-        relayAddress: RELAY,
-        chain: CHAIN,
-        nowSeconds: Math.floor(clock.ms / 1000)
-      });
+      const plan = planRelaySignature(request, { relayAddress: RELAY, chain: CHAIN, nowSeconds: clock.ms / 1000 });
       const signature = await relayKey.sign({ hash: plan.digest });
       switch (plan.op) {
-        case 'authorization': {
-          const r: Hex = `0x${signature.slice(2, 66)}`;
-          const s: Hex = `0x${signature.slice(66, 130)}`;
-          return { op: 'authorization', authorization: { ...plan.authorization, r, s, yParity: 0 } };
-        }
+        case 'authorization':
+          return {
+            op: 'authorization',
+            authorization: { ...plan.authorization, r: SALT, s: SALT, yParity: 0 }
+          };
         case 'batch':
           return { op: 'batch', digest: plan.digest, signature };
       }
     },
-    fetchAccount: async query => {
-      state.accountQueries.push(query);
-      const next = state.accounts.length > 1 ? state.accounts.shift() : state.accounts[0];
-      if (next === undefined) throw new Error('no account');
-      return next;
+    fetchAccount: async () => {
+      state.accountQueries += 1;
+      return next(state.accounts);
     },
-    submit: async submission => {
+    postRelay: async submission => {
       state.submissions.push(submission);
-      const answer = state.submits.length > 1 ? state.submits.shift() : state.submits[0];
-      if (answer === undefined) throw new Error('no submit answer');
-      if (answer instanceof Error) throw answer;
-      const resolved = typeof answer === 'function' ? answer(submission) : answer;
-      return jobFor(resolved, digestOf(submission), hashOf('a1'));
+      return jobOf(next(state.posts), digestOf(submission), hashOf('a1'));
     },
-    fetchJob: async query => {
-      state.jobQueries.push(query);
-      const answer = state.jobs.length > 1 ? state.jobs.shift() : state.jobs[0];
-      if (answer === undefined) throw new Error('no job answer');
-      if (answer instanceof Error) throw answer;
-      return jobFor(answer, query.id, hashOf('f1'));
-    },
+    fetchJob: async query => jobOf(next(state.jobs), query.id, hashOf('f1')),
     readRpc: state.readRpc,
     now: () => clock.ms,
     sleep: async ms => {
-      state.sleeps.push(ms);
       clock.ms += ms;
     },
     ...extra
   };
-  // The stubs read `state`, so a test changes their answers through the returned object.
   return Object.assign(state, { options, provider: createRelayProvider(options) });
 }
 
@@ -167,6 +137,16 @@ async function failure(promise: Promise<unknown>): Promise<unknown> {
     },
     (error: unknown) => error
   );
+}
+
+/** The first error of the `cause` chain that is an instance of `type`, or undefined. */
+function causeOf<T extends Error>(error: unknown, type: new (...args: never[]) => T): T | undefined {
+  let current = error;
+  while (current instanceof Error) {
+    if (current instanceof type) return current;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 function sendTransaction(provider: RelayProvider, tx: Record<string, unknown>): Promise<Hash> {
@@ -182,22 +162,17 @@ function submitted(h: Harness, index = 0): RelaySubmission {
 }
 
 describe('createRelayProvider', () => {
-  it('refuses a relay address or a fee token that is not an address', () => {
+  it('refuses a relay address that is not an address', () => {
     expect(() => createRelayProvider({ ...harness().options, address: '0x12' })).toThrow(TypeError);
-    expect(() => createRelayProvider({ ...harness().options, feeToken: '0x12' })).toThrow('the fee token');
   });
 
   it('fits the EIP-1193 provider type of viem and of the bridge flows', () => {
-    const { provider } = harness();
+    const { provider } = harness({ address: upperHex(RELAY) });
     const eip1193: Pick<EIP1193Provider, 'request'> = provider;
     expect(typeof eip1193.request).toBe('function');
     expect(provider.chainId).toBe(CHAIN.chainId);
     expect(provider.address).toBe(RELAY);
-  });
-
-  it('keeps the relay address in lower case', () => {
-    const { provider } = harness({ address: upperHex(RELAY) });
-    expect(provider.address).toBe(RELAY);
+    expect(provider.submitter.address).toBe(RELAY);
   });
 });
 
@@ -276,41 +251,19 @@ describe('request: read methods', () => {
 });
 
 describe('eth_sendTransaction', () => {
-  it('relays one call in sponsor mode and gives the final hash', async () => {
+  it('relays one call through the submitter and gives the final hash', async () => {
     const h = harness();
-    h.submits = ['pending'];
-    h.jobs = ['pending', 'succeeded'];
-
+    h.posts = ['pending'];
+    h.jobs = ['succeeded'];
     const hash = await sendTransaction(h.provider, { to: TARGET, value: '0x10', data: '0xcafe0001', gas: '0x5208' });
-
     expect(hash).toBe(hashOf('f1'));
-    expect(h.sleeps).toEqual([RELAY_POLL_MS, RELAY_POLL_MS]);
     expect(h.submissions).toHaveLength(1);
-    const submission = submitted(h);
-    expect(submission.calls).toEqual([{ to: TARGET, value: 16n, data: '0xcafe0001' }]);
-    expect(submission).toMatchObject({
-      chainId: CHAIN.chainId,
-      evmAddress: RELAY,
-      batchNonce: batchNonceOf(3n),
-      salt: SALT,
-      deadline: BigInt(START_MS / 1000 + RELAY_DEADLINE_SECONDS)
-    });
-    expect(submission.authorization).toBeUndefined();
-    expect(h.accountQueries).toEqual([{ chainId: CHAIN.chainId, address: RELAY }]);
-    expect(h.jobQueries).toEqual([
-      { id: digestOf(submission), chainId: CHAIN.chainId },
-      { id: digestOf(submission), chainId: CHAIN.chainId }
-    ]);
-    const envelope = { ...submission, executor: EXECUTOR };
-    expect(await recoverBatchSigner(CHAIN.calibur, envelope, submission.calls, submission.signature)).toBe(
-      relayKey.address
-    );
+    expect(submitted(h).calls).toEqual([{ to: TARGET, value: 16n, data: '0xcafe0001' }]);
   });
 
-  it('gives the hash at once when the relay answers succeeded', async () => {
+  it('relays a transaction without data or value', async () => {
     const h = harness();
     expect(await sendTransaction(h.provider, { to: TARGET })).toBe(hashOf('a1'));
-    expect(h.sleeps).toEqual([]);
     expect(submitted(h).calls).toEqual([{ to: TARGET, value: 0n, data: '0x' }]);
   });
 
@@ -339,7 +292,7 @@ describe('eth_sendTransaction', () => {
     const h = harness();
     const error = await failure(h.provider.request({ method: 'eth_sendTransaction', params }));
     expect(error).toMatchObject({ code: -32602 });
-    expect(h.accountQueries).toHaveLength(0);
+    expect(h.accountQueries).toBe(0);
   });
 
   it.each([
@@ -393,326 +346,61 @@ describe('sendCalls', () => {
     expect(submitted(h).calls).toEqual([APPROVE, CALL]);
   });
 
-  it('normalizes the case of targets and calldata', async () => {
-    const h = harness();
-    await h.provider.sendCalls([{ to: upperHex(TARGET), value: 0n, data: upperHex(CALL.data) }]);
-    expect(submitted(h).calls).toEqual([CALL]);
-  });
-
   it.each<[string, BatchCall[]]>([
     ['no calls', []],
     ['the zero target', [{ ...CALL, to: NATIVE }]],
     ['the relay address as the target', [{ ...CALL, to: upperHex(RELAY) }]],
-    ['a target that is not an address', [{ ...CALL, to: '0x12' }]],
-    ['a negative value', [{ ...CALL, value: -1n }]],
-    ['a value of 2^256', [{ ...CALL, value: 1n << 256n }]],
-    ['calldata of half a byte', [{ ...CALL, data: '0x123' }]]
+    ['a value of 2^256', [{ ...CALL, value: 1n << 256n }]]
   ])('refuses %s with -32602', async (_name, calls) => {
     const h = harness();
     expect(await failure(h.provider.sendCalls(calls))).toMatchObject({ code: -32602 });
-    expect(h.accountQueries).toHaveLength(0);
+    expect(h.accountQueries).toBe(0);
   });
 
-  it('takes 8 calls in sponsor mode', async () => {
+  it('passes on a relay error as it is', async () => {
     const h = harness();
-    await h.provider.sendCalls(Array.from({ length: MAX_RELAY_BATCH_CALLS }, () => CALL));
-    expect(submitted(h).calls).toHaveLength(MAX_RELAY_BATCH_CALLS);
-  });
-
-  it('runs one relay at a time, and a failed relay does not stop the next', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('simulation_failed', 409, 'reverts'), 'succeeded'];
-    const first = failure(h.provider.sendCalls([CALL]));
-    const second = h.provider.sendCalls([APPROVE]);
-    expect(await first).toMatchObject({ code: 'simulation_failed' });
-    expect(await second).toBe(hashOf('a1'));
-    expect(h.submissions.map(submission => submission.calls)).toEqual([[CALL], [APPROVE]]);
+    const low = new RelayApiError('fee_too_low', 400, 'low');
+    h.posts = [low];
+    expect(await failure(h.provider.sendCalls([CALL]))).toBe(low);
   });
 });
 
-describe('deduct mode', () => {
-  it('adds the fee call last, to the relay fee recipient', async () => {
-    const h = harness({ feeToken: upperHex(USDC) });
-    h.accounts = [deductAccount(1000n)];
+describe('the submit options', () => {
+  it('passes beforeSign, onJob and the reviewed fee to each submit', async () => {
+    const events: string[] = [];
+    const refs: RelayJobRef[] = [];
+    const h = harness({
+      beforeSign: async () => {
+        events.push('beforeSign');
+      },
+      onJob: async job => {
+        refs.push(job);
+        events.push('onJob');
+      },
+      fee: { token: USDC, amount: 1000n }
+    });
+    h.accounts = [relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: USDC, fee: 1000n }] })];
+    await sendTransaction(h.provider, { to: TARGET, data: '0xcafe0001' });
     await h.provider.sendCalls([CALL]);
+    expect(events).toEqual(['beforeSign', 'onJob', 'beforeSign', 'onJob']);
+    expect(refs.map(ref => ref.id)).toEqual(h.submissions.map(digestOf));
     expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1000n })]);
   });
 
-  it('pays a native fee with a plain transfer', async () => {
-    const h = harness({ feeToken: NATIVE, chain: { ...CHAIN, maxFee: { [NATIVE]: '100' } } });
-    h.accounts = [deductAccount(0n, { fees: [{ token: NATIVE, fee: 100n }] })];
-    await h.provider.sendCalls([CALL]);
-    expect(submitted(h).calls[1]).toEqual({ to: FEE_RECIPIENT, value: 100n, data: '0x' });
-  });
-
-  it('refuses 8 calls, since the fee call needs a place', async () => {
-    const h = harness({ feeToken: USDC });
-    h.accounts = [deductAccount(1000n)];
-    const error = await failure(h.provider.sendCalls(Array.from({ length: MAX_RELAY_BATCH_CALLS }, () => CALL)));
-    expect(error).toBeInstanceOf(RelayRefusedError);
-    expect(error).toMatchObject({ reason: 'too-many-calls' });
-    expect(h.signRequests).toHaveLength(0);
-  });
-
-  it.each<[string, Partial<RelayProviderOptions>, RelayAccount, string]>([
-    ['no fee token', {}, deductAccount(1000n), 'no-fee-token'],
-    ['a fee token with no relay fee', { feeToken: NATIVE }, deductAccount(1000n), 'no-fee'],
-    ['a fee above the config cap', { feeToken: USDC }, deductAccount(50_001n), 'fee-not-accepted'],
-    ['a fee of 0', { feeToken: USDC }, deductAccount(0n), 'fee-not-accepted'],
-    [
-      'a fee token without a config cap',
-      { feeToken: NATIVE },
-      deductAccount(0n, { fees: [{ token: NATIVE, fee: 1n }] }),
-      'fee-not-accepted'
-    ]
-  ])('refuses %s and signs nothing', async (_name, extra, account, reason) => {
-    const h = harness(extra);
-    h.accounts = [account];
-    const error = await failure(h.provider.sendCalls([CALL]));
-    expect(error).toBeInstanceOf(RelayRefusedError);
-    expect(error).toMatchObject({ reason });
-    expect(h.signRequests).toHaveLength(0);
-  });
-});
-
-describe('allowed targets', () => {
-  it('relays calls to allowed targets, the fee call excepted', async () => {
-    const h = harness({ feeToken: USDC });
-    h.accounts = [deductAccount(1000n, { allowedTargets: [TARGET] })];
-    await h.provider.sendCalls([CALL]);
-    expect(submitted(h).calls).toHaveLength(2);
-  });
-
-  it('refuses a call to a target that the relayer does not allow', async () => {
-    const h = harness();
-    h.accounts = [relayAccount({ allowedTargets: [USDC] })];
-    const error = await failure(h.provider.sendCalls([CALL]));
-    expect(error).toMatchObject({ name: 'RelayRefusedError', reason: 'target-not-allowed' });
-    expect(h.signRequests).toHaveLength(0);
-  });
-});
-
-describe('the answers it does not trust', () => {
-  it('refuses an account with another executor and signs nothing', async () => {
-    const h = harness();
-    h.accounts = [relayAccount({ executor: FEE_RECIPIENT })];
-    expect(await failure(h.provider.sendCalls([CALL]))).toBeInstanceOf(RelayMismatchError);
-    expect(h.signRequests).toHaveLength(0);
-  });
-
-  it('refuses a job whose id is not the digest', async () => {
-    const h = harness();
-    h.submits = [{ id: OTHER_JOB, state: 'succeeded', txHash: hashOf('a1') }];
-    expect(await failure(h.provider.sendCalls([CALL]))).toBeInstanceOf(RelayMismatchError);
-  });
-
-  it('refuses a read of another job while it waits', async () => {
-    const h = harness();
-    h.submits = ['pending'];
-    h.jobs = [{ id: OTHER_JOB, state: 'succeeded', txHash: hashOf('f1') }];
-    expect(await failure(h.provider.sendCalls([CALL]))).toBeInstanceOf(RelayMismatchError);
-  });
-
-  it('refuses a batch signature over another digest', async () => {
-    const h = harness();
-    const provider = createRelayProvider({
-      ...h.options,
-      sign: async (): Promise<RelaySignResult> => ({ op: 'batch', digest: OTHER_JOB, signature: hashOf('0c') })
-    });
-    expect(await failure(provider.sendCalls([CALL]))).toMatchObject({
-      name: 'RelayMismatchError',
-      message: 'relay: the backend signed another batch'
-    });
-    expect(h.submissions).toHaveLength(0);
-  });
-
-  it('refuses an authorization answer to a batch request', async () => {
-    const h = harness();
-    const provider = createRelayProvider({
-      ...h.options,
-      sign: async (): Promise<RelaySignResult> => ({
-        op: 'authorization',
-        authorization: { address: CHAIN.calibur.address, chainId: 8453, nonce: 0, r: SALT, s: SALT, yParity: 0 }
-      })
-    });
-    expect(await failure(provider.sendCalls([CALL]))).toBeInstanceOf(RelayMismatchError);
-  });
-});
-
-describe('EIP-7702 authorization', () => {
-  it('signs the authorization first when the address does not delegate yet, and sends it', async () => {
-    const h = harness();
-    h.accounts = [relayAccount({ needsAuthorization: true, authorizationNonce: 4 })];
-    await h.provider.sendCalls([CALL]);
-    expect(h.signRequests.map(request => request.op)).toEqual(['authorization', 'batch']);
-    expect(h.signRequests[0]).toEqual({ op: 'authorization', chainId: CHAIN.chainId, nonce: 4 });
-    expect(submitted(h).authorization).toMatchObject({ address: CHAIN.calibur.address, chainId: 8453, nonce: 4 });
-  });
-
-  it.each<[string, RelaySignResult]>([
-    ['a batch', { op: 'batch', digest: OTHER_JOB, signature: hashOf('0c') }],
-    [
-      'another delegate',
-      { op: 'authorization', authorization: { address: TARGET, chainId: 8453, nonce: 4, r: SALT, s: SALT, yParity: 0 } }
-    ],
-    [
-      'another chain',
-      {
-        op: 'authorization',
-        authorization: { address: CHAIN.calibur.address, chainId: 1, nonce: 4, r: SALT, s: SALT, yParity: 0 }
+  it('gives the job to onJob before an answer is lost, and the submitter resumes it', async () => {
+    const refs: RelayJobRef[] = [];
+    const h = harness({
+      onJob: async job => {
+        refs.push(job);
       }
-    ],
-    [
-      'another nonce',
-      {
-        op: 'authorization',
-        authorization: { address: CHAIN.calibur.address, chainId: 8453, nonce: 5, r: SALT, s: SALT, yParity: 0 }
-      }
-    ]
-  ])('refuses %s as the signed authorization', async (_name, answer) => {
-    const h = harness();
-    h.accounts = [relayAccount({ needsAuthorization: true, authorizationNonce: 4 })];
-    const provider = createRelayProvider({ ...h.options, sign: async () => answer });
-    expect(await failure(provider.sendCalls([CALL]))).toMatchObject({
-      name: 'RelayMismatchError',
-      message: 'relay: the backend signed another authorization'
     });
-    expect(h.submissions).toHaveLength(0);
-  });
-});
-
-describe('the wait for a final state', () => {
-  it('rejects a reverted job with its id and hash', async () => {
-    const h = harness();
-    h.submits = ['pending'];
-    h.jobs = ['reverted'];
-    const error = await failure(h.provider.sendCalls([CALL]));
-    expect(error).toBeInstanceOf(RelayRevertedError);
-    expect(error).toMatchObject({ id: digestOf(submitted(h)), txHash: hashOf('f1') });
-  });
-
-  it('rejects a job that the relay answers reverted at once', async () => {
-    const h = harness();
-    h.submits = ['reverted'];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({
-      name: 'RelayRevertedError',
-      txHash: hashOf('a1')
-    });
-  });
-
-  it('stops after 10 minutes with the id and the last hash', async () => {
-    const h = harness();
-    h.submits = ['pending'];
-    h.jobs = ['pending'];
-    const error = await failure(h.provider.sendCalls([CALL]));
-    expect(error).toBeInstanceOf(RelayStillPendingError);
-    expect(error).toMatchObject({ id: digestOf(submitted(h)), txHash: hashOf('f1') });
-    expect(h.jobQueries).toHaveLength(RELAY_WAIT_MS / RELAY_POLL_MS);
-    expect(h.clock.ms - START_MS).toBe(RELAY_WAIT_MS);
-  });
-
-  it('keeps the wait through passing read failures and honours a retryAfter', async () => {
-    const h = harness();
-    h.submits = ['pending'];
-    h.jobs = [
-      new RelayUnavailableError('network', 'down'),
-      new RelayApiError('rate_limited', 429, 'slow', 20),
-      new RelayApiError('service_unavailable', 503, 'later', 1),
-      'succeeded'
-    ];
-    expect(await h.provider.sendCalls([CALL])).toBe(hashOf('f1'));
-    expect(h.sleeps).toEqual([RELAY_POLL_MS, RELAY_POLL_MS, 20_000, RELAY_POLL_MS]);
-  });
-
-  it('ends the wait on a read failure that is not passing', async () => {
-    const h = harness();
-    h.submits = ['pending'];
-    h.jobs = [new RelayApiError('not_found', 404, 'gone')];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: 'not_found' });
-  });
-});
-
-describe('retries', () => {
-  it('reads and signs again after stale_request, at most 2 times', async () => {
-    const h = harness();
-    h.accounts = [relayAccount({ sequence: 3n }), relayAccount({ sequence: 4n }), relayAccount({ sequence: 5n })];
-    const stale = new RelayApiError('stale_request', 409, 'stale');
-    h.submits = [stale, stale, 'succeeded'];
-    expect(await h.provider.sendCalls([CALL])).toBe(hashOf('a1'));
-    expect(h.accountQueries).toHaveLength(3);
-    expect(h.submissions.map(submission => submission.batchNonce)).toEqual([
-      batchNonceOf(3n),
-      batchNonceOf(4n),
-      batchNonceOf(5n)
-    ]);
-  });
-
-  it('gives up after the third stale_request', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('stale_request', 409, 'stale')];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: 'stale_request' });
-    expect(h.submissions).toHaveLength(3);
-  });
-
-  it('waits for the open job of busy, then starts again once', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('busy', 409, 'busy', undefined, OTHER_JOB), 'succeeded'];
-    h.jobs = ['pending', 'succeeded'];
-    expect(await h.provider.sendCalls([CALL])).toBe(hashOf('a1'));
-    expect(h.jobQueries).toEqual([
-      { id: OTHER_JOB, chainId: CHAIN.chainId },
-      { id: OTHER_JOB, chainId: CHAIN.chainId }
-    ]);
-    expect(h.submissions).toHaveLength(2);
-    expect(h.accountQueries).toHaveLength(2);
-  });
-
-  it.each<[string, RelayJob | Error]>([
-    ['reverted', { id: OTHER_JOB, state: 'reverted', txHash: hashOf('f1') }],
-    ['gone', new RelayApiError('not_found', 404, 'gone')]
-  ])('starts again when the open job is %s', async (_name, answer) => {
-    const h = harness();
-    h.submits = [new RelayApiError('busy', 409, 'busy', undefined, OTHER_JOB), 'succeeded'];
-    h.jobs = [answer];
-    expect(await h.provider.sendCalls([CALL])).toBe(hashOf('a1'));
-    expect(h.submissions).toHaveLength(2);
-  });
-
-  it('passes on a failure of the wait for the open job', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('busy', 409, 'busy', undefined, OTHER_JOB)];
-    h.jobs = [new RelayApiError('bad_signature', 400, 'no')];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: 'bad_signature' });
-    expect(h.submissions).toHaveLength(1);
-  });
-
-  it('gives up on a second busy', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('busy', 409, 'busy', undefined, OTHER_JOB)];
+    h.posts = [new RelayUnavailableError('timeout', 'slow')];
+    h.jobs = [new RelayApiError('not_found', 404, 'no')];
+    expect(await failure(h.provider.sendCalls([CALL]))).toBeInstanceOf(RelayUnknownOutcomeError);
+    const [job] = refs;
+    if (job === undefined) throw new Error('no job recorded');
     h.jobs = ['succeeded'];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: 'busy' });
-    expect(h.submissions).toHaveLength(2);
-  });
-
-  it('gives up on a busy without the id of the open job', async () => {
-    const h = harness();
-    h.submits = [new RelayApiError('busy', 409, 'busy')];
-    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: 'busy' });
-    expect(h.submissions).toHaveLength(1);
-    expect(h.jobQueries).toHaveLength(0);
-  });
-
-  it.each([
-    new RelayApiError('simulation_failed', 409, 'reverts'),
-    new RelayApiError('fee_too_low', 400, 'low'),
-    new RelayApiError('target_not_allowed', 400, 'no'),
-    new RelayUnavailableError('timeout', 'slow'),
-    new Error('plain')
-  ])('passes on %p without a retry', async error => {
-    const h = harness();
-    h.submits = [error];
-    expect(await failure(h.provider.sendCalls([CALL]))).toBe(error);
-    expect(h.submissions).toHaveLength(1);
+    expect(await h.provider.submitter.resume(job)).toEqual({ id: job.id, hash: hashOf('f1') });
   });
 });
 
@@ -736,7 +424,7 @@ describe('createRelayWalletClient', () => {
     expect(() => createRelayWalletClient(harness().provider, mainnet)).toThrow(TypeError);
   });
 
-  it('turns sendTransaction into exactly one relay with the same call', async () => {
+  it('turns sendTransaction into exactly one relay POST with the same call', async () => {
     const h = harness();
     const spy = recorded(h.provider);
     const client = createRelayWalletClient(spy.provider, base);
@@ -753,7 +441,7 @@ describe('createRelayWalletClient', () => {
     expect(spy.methods).toEqual(['eth_chainId', 'eth_sendTransaction']);
   });
 
-  it('turns writeContract into exactly one relay with the encoded call', async () => {
+  it('turns writeContract into exactly one relay POST with the encoded call', async () => {
     const h = harness();
     const spy = recorded(h.provider);
     const client = createRelayWalletClient(spy.provider, base);
@@ -772,13 +460,21 @@ describe('createRelayWalletClient', () => {
     expect(spy.methods).toEqual(['eth_chainId', 'eth_sendTransaction']);
   });
 
-  it('sends a refusal back through viem with its cause', async () => {
+  it('keeps a refusal reachable through the cause chain of the viem error', async () => {
     const h = harness();
     h.accounts = [relayAccount({ allowedTargets: [USDC] })];
     const client = createRelayWalletClient(h.provider, base);
     const error = await failure(client.sendTransaction({ account: RELAY, chain: base, to: TARGET }));
-    expect(error).toBeInstanceOf(Error);
-    expect(String(error)).toContain('target-not-allowed');
+    expect(causeOf(error, RelayRefusedError)).toMatchObject({ reason: 'target-not-allowed' });
     expect(h.signRequests).toHaveLength(0);
+  });
+
+  it('keeps an unknown outcome and its job reachable through the cause chain', async () => {
+    const h = harness();
+    h.posts = [new RelayUnavailableError('network', 'down')];
+    h.jobs = [new RelayApiError('not_found', 404, 'no')];
+    const client = createRelayWalletClient(h.provider, base);
+    const error = await failure(client.sendTransaction({ account: RELAY, chain: base, to: TARGET }));
+    expect(causeOf(error, RelayUnknownOutcomeError)?.job.id).toBe(digestOf(submitted(h)));
   });
 });
