@@ -10203,32 +10203,32 @@
     "englishSource": "This only signs you in"
   },
   "commandAiBarLabel": {
-    "message": "Command assistant",
-    "englishSource": "(untranslated)"
+    "message": "Komut asistanı",
+    "englishSource": "Command assistant"
   },
   "commandAiPlaceholder": {
-    "message": "Send, swap, bridge, earn, or ask about your wallet...",
-    "englishSource": "(untranslated)"
+    "message": "Cüzdanınızla ilgili gönderme, takas etme, köprüleme, kazanç elde etme veya soru sorma işlemleri...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
   },
   "commandAiSendButton": {
-    "message": "Run",
-    "englishSource": "(untranslated)"
+    "message": "Çalıştır",
+    "englishSource": "Run"
   },
   "commandAiWorking": {
-    "message": "Thinking...",
-    "englishSource": "(untranslated)"
+    "message": "Düşünüyorum...",
+    "englishSource": "Thinking..."
   },
   "commandAiExpand": {
-    "message": "Expand to multi-line",
-    "englishSource": "(untranslated)"
+    "message": "Birden fazla satıra genişlet",
+    "englishSource": "Expand to multi-line"
   },
   "commandAiCollapse": {
-    "message": "Collapse to single line",
-    "englishSource": "(untranslated)"
+    "message": "Tek satıra daralt",
+    "englishSource": "Collapse to single line"
   },
   "commandAiRedactedBadge": {
-    "message": "Protected: $kinds$",
-    "englishSource": "(untranslated)",
+    "message": "Korunan: $kinds$",
+    "englishSource": "Protected: $kinds$",
     "placeholders": {
       "kinds": {
         "content": "$1"
@@ -10236,24 +10236,24 @@
     }
   },
   "commandAiOpenNativeForm": {
-    "message": "Open form",
-    "englishSource": "(untranslated)"
+    "message": "Açık form",
+    "englishSource": "Open form"
   },
   "commandAiChooseBridge": {
-    "message": "Which bridge route do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Hangi köprü rotasını kullanmak istersiniz?",
+    "englishSource": "Which bridge route do you want to use?"
   },
   "commandAiChooseRecipient": {
-    "message": "Who do you want to send to?",
-    "englishSource": "(untranslated)"
+    "message": "Kime göndermek istiyorsunuz?",
+    "englishSource": "Who do you want to send to?"
   },
   "commandAiDisambiguateContact": {
-    "message": "Multiple contacts match that name. Which one?",
-    "englishSource": "(untranslated)"
+    "message": "Bu isimle eşleşen birden fazla kişi var. Hangisi?",
+    "englishSource": "Multiple contacts match that name. Which one?"
   },
   "commandAiIncompleteAddressMatches": {
-    "message": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
-    "englishSource": "(untranslated)",
+    "message": "$prefix$ eksik. Kaydedilmiş kişilerinizden birini mi kastettiniz?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
     "placeholders": {
       "prefix": {
         "content": "$1"
@@ -10261,8 +10261,8 @@
     }
   },
   "commandAiIncompleteAddress": {
-    "message": "$address$ is an incomplete address. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "$address$, eksik bir adresdir. Tam bir adres girin veya bir kişi seçin.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
     "placeholders": {
       "address": {
         "content": "$1"
@@ -10270,8 +10270,8 @@
     }
   },
   "commandAiEnsUnsupported": {
-    "message": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
-    "englishSource": "(untranslated)",
+    "message": "$name$ gibi ENS adları burada desteklenmemektedir. Tam bir adres girin veya bir kişi seçin.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -10279,20 +10279,20 @@
     }
   },
   "commandAiWrongNetworkAddress": {
-    "message": "That address belongs to a different Miden network.",
-    "englishSource": "(untranslated)"
+    "message": "Bu adres, farklı bir Miden ağına aittir.",
+    "englishSource": "That address belongs to a different Miden network."
   },
   "commandAiInvalidAddress": {
-    "message": "Enter a valid Miden or destination address.",
-    "englishSource": "(untranslated)"
+    "message": "Geçerli bir Miden veya hedef adresi girin.",
+    "englishSource": "Enter a valid Miden or destination address."
   },
   "commandAiMissingRecipient": {
-    "message": "Specify a recipient address or contact name.",
-    "englishSource": "(untranslated)"
+    "message": "Alıcı adresini veya kişi adını belirtin.",
+    "englishSource": "Specify a recipient address or contact name."
   },
   "commandAiAssetNotFound": {
-    "message": "Could not match asset $asset$ in your wallet.",
-    "englishSource": "(untranslated)",
+    "message": "Cüzdanınızdaki $asset$ varlığı eşleştirilemedi.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
     "placeholders": {
       "asset": {
         "content": "$1"
@@ -10300,100 +10300,100 @@
     }
   },
   "commandAiChooseAsset": {
-    "message": "Which asset do you want to use?",
-    "englishSource": "(untranslated)"
+    "message": "Hangi varlığı kullanmak istiyorsunuz?",
+    "englishSource": "Which asset do you want to use?"
   },
   "commandAiChooseAmount": {
-    "message": "How much do you want to send?",
-    "englishSource": "(untranslated)"
+    "message": "Ne kadar göndermek istiyorsunuz?",
+    "englishSource": "How much do you want to send?"
   },
   "commandAiChooseSwapTarget": {
-    "message": "Which token do you want to receive?",
-    "englishSource": "(untranslated)"
+    "message": "Hangi token'ı almak istiyorsunuz?",
+    "englishSource": "Which token do you want to receive?"
   },
   "commandAiChooseEarnVault": {
-    "message": "Which Earn vault do you want to deposit into?",
-    "englishSource": "(untranslated)"
+    "message": "Hangi Earn kasasına para yatırmak istiyorsunuz?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
   },
   "commandAiChooseEarnPosition": {
-    "message": "Which Earn position do you want to withdraw from?",
-    "englishSource": "(untranslated)"
+    "message": "Hangi Earn pozisyonundan para çekmek istiyorsunuz?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
   },
   "commandAiBridgeUnavailable": {
-    "message": "No matching bridge route is available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Şu anda uygun bir köprü rotası mevcut değildir.",
+    "englishSource": "No matching bridge route is available right now."
   },
   "commandAiSwapUnavailable": {
-    "message": "Swap is unavailable for that pair right now.",
-    "englishSource": "(untranslated)"
+    "message": "Bu çift için swap şu anda kullanılamıyor.",
+    "englishSource": "Swap is unavailable for that pair right now."
   },
   "commandAiEarnUnavailable": {
-    "message": "No Earn vaults or positions are available right now.",
-    "englishSource": "(untranslated)"
+    "message": "Şu anda hiçbir Earn kasası veya pozisyonu mevcut değildir.",
+    "englishSource": "No Earn vaults or positions are available right now."
   },
   "commandAiFiatPriceUnavailable": {
-    "message": "Live USD price is unavailable for that token. Enter a token amount.",
-    "englishSource": "(untranslated)"
+    "message": "Bu token için canlı USD fiyatı mevcut değildir. Bir token miktarı girin.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
   },
   "commandAiInvalidModelOutput": {
-    "message": "Could not verify that request safely. Try rephrasing or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "Bu isteği güvenli bir şekilde doğrulayamadık. İfadenizi yeniden düzenleyin veya aşağıdaki formu kullanın.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
   },
   "commandAiUnsupported": {
-    "message": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question.",
-    "englishSource": "(untranslated)"
+    "message": "Bu işlem burada desteklenmemektedir. \"Gönder\", \"Takas\", \"Köprü\", \"Kazan\" seçeneklerini deneyin veya cüzdanla ilgili bir soru sorun.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
   },
   "commandAiNoActiveDraft": {
-    "message": "Nothing active to update. Enter a full command.",
-    "englishSource": "(untranslated)"
+    "message": "Güncellenecek aktif bir şey yok. Tam bir komut girin.",
+    "englishSource": "Nothing active to update. Enter a full command."
   },
   "commandAiUnconfigured": {
-    "message": "AI proxy is not configured. Set an endpoint or use the action bar below.",
-    "englishSource": "(untranslated)"
+    "message": "AI vekili yapılandırılmamıştır. Bir uç nokta belirleyin veya aşağıdaki eylem çubuğunu kullanın.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
   },
   "commandAiServiceUnavailable": {
-    "message": "AI service is temporarily unavailable. Try again or use a form below.",
-    "englishSource": "(untranslated)"
+    "message": "AI hizmeti geçici olarak kullanılamıyor. Lütfen tekrar deneyin veya aşağıdaki formu kullanın.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
   },
   "commandAiRateLimited": {
-    "message": "AI service rate limit reached. Try again shortly.",
-    "englishSource": "(untranslated)"
+    "message": "AI hizmetinin hız sınırına ulaşıldı. Bir süre sonra tekrar deneyin.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
   },
   "commandAiQueryBalanceTitle": {
-    "message": "Wallet balance",
-    "englishSource": "(untranslated)"
+    "message": "Cüzdan bakiyesi",
+    "englishSource": "Wallet balance"
   },
   "commandAiQueryTotalTitle": {
-    "message": "Matching total",
-    "englishSource": "(untranslated)"
+    "message": "Eşleşen toplam",
+    "englishSource": "Matching total"
   },
   "commandAiQueryHistoryTitle": {
-    "message": "Matching activity",
-    "englishSource": "(untranslated)"
+    "message": "Eşleştirme faaliyeti",
+    "englishSource": "Matching activity"
   },
   "commandAiQueryEmpty": {
-    "message": "No matching entries found.",
-    "englishSource": "(untranslated)"
+    "message": "Eşleşen giriş bulunamadı.",
+    "englishSource": "No matching entries found."
   },
   "commandAiLocalOnlyNote": {
-    "message": "Computed privately on this device",
-    "englishSource": "(untranslated)"
+    "message": "Bu cihazda gizli olarak hesaplanır",
+    "englishSource": "Computed privately on this device"
   },
   "commandAiRecentTurns": {
-    "message": "Conversation",
-    "englishSource": "(untranslated)"
+    "message": "Konuşma",
+    "englishSource": "Conversation"
   },
   "commandAiAssistantName": {
     "message": "Bread Assistant",
-    "englishSource": "(untranslated)"
+    "englishSource": "Bread Assistant"
   },
   "commandAiPlanTitle": {
-    "message": "Action plan",
-    "englishSource": "(untranslated)"
+    "message": "Eylem planı",
+    "englishSource": "Action plan"
   },
   "commandAiPlanProgress": {
-    "message": "Step $current$ of $total$",
-    "englishSource": "(untranslated)",
+    "message": "$current$. adım / $total$",
+    "englishSource": "Step $current$ of $total$",
     "placeholders": {
       "current": {
         "content": "$1"
@@ -10404,8 +10404,8 @@
     }
   },
   "commandAiPlanStepLabel": {
-    "message": "Step $num$",
-    "englishSource": "(untranslated)",
+    "message": "Adım $num$",
+    "englishSource": "Step $num$",
     "placeholders": {
       "num": {
         "content": "$1"
@@ -10413,75 +10413,75 @@
     }
   },
   "commandAiPlanStatusActive": {
-    "message": "Active",
-    "englishSource": "(untranslated)"
+    "message": "Etkin",
+    "englishSource": "Active"
   },
   "commandAiPlanStatusPending": {
-    "message": "Up next",
-    "englishSource": "(untranslated)"
+    "message": "Sıradaki",
+    "englishSource": "Up next"
   },
   "commandAiPlanStatusDone": {
-    "message": "Done",
-    "englishSource": "(untranslated)"
+    "message": "Tamam",
+    "englishSource": "Done"
   },
   "commandAiPlanConfirmStep": {
-    "message": "Confirm this step in the dialog below, then advance.",
-    "englishSource": "(untranslated)"
+    "message": "Aşağıdaki iletişim kutusunda bu adımı onaylayın, ardından devam edin.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
   },
   "commandAiPlanStepSubmitted": {
-    "message": "Step submitted! Ready for the next step.",
-    "englishSource": "(untranslated)"
+    "message": "Adım gönderildi! Bir sonraki adıma hazır.",
+    "englishSource": "Step submitted! Ready for the next step."
   },
   "commandAiPlanCompletedTitle": {
-    "message": "All steps completed",
-    "englishSource": "(untranslated)"
+    "message": "Tüm adımlar tamamlandı",
+    "englishSource": "All steps completed"
   },
   "commandAiPlanNextStep": {
-    "message": "Next step",
-    "englishSource": "(untranslated)"
+    "message": "Sonraki adım",
+    "englishSource": "Next step"
   },
   "commandAiPlanContinue": {
-    "message": "Continue",
-    "englishSource": "(untranslated)"
+    "message": "Devam et",
+    "englishSource": "Continue"
   },
   "commandAiPlanFinish": {
-    "message": "Finish plan",
-    "englishSource": "(untranslated)"
+    "message": "Planı tamamla",
+    "englishSource": "Finish plan"
   },
   "commandAiPlanStop": {
-    "message": "Stop",
-    "englishSource": "(untranslated)"
+    "message": "Dur",
+    "englishSource": "Stop"
   },
   "commandAiPlanMaxAmount": {
     "message": "Max",
-    "englishSource": "(untranslated)"
+    "englishSource": "Max"
   },
   "commandAiPlanPreviousOutput": {
-    "message": "Previous output",
-    "englishSource": "(untranslated)"
+    "message": "Önceki çıktı",
+    "englishSource": "Previous output"
   },
   "commandAiSamplePrompt1": {
-    "message": "Send 10 USDCx to John",
-    "englishSource": "(untranslated)"
+    "message": "John'a 10 USDCx gönder",
+    "englishSource": "Send 10 USDCx to John"
   },
   "commandAiSamplePrompt2": {
-    "message": "Bridge in 1 ETH and swap it to USDCx",
-    "englishSource": "(untranslated)"
+    "message": "1 ETH yatırın ve bunu USDCx'e takas edin",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
   },
   "commandAiSamplePrompt3": {
-    "message": "Summarize my last week activity",
-    "englishSource": "(untranslated)"
+    "message": "Geçen haftaki faaliyetlerimi özetleyin",
+    "englishSource": "Summarize my last week activity"
   },
   "commandAiSamplePrompt4": {
-    "message": "Make 10 USDCx earn in the most efficient way",
-    "englishSource": "(untranslated)"
+    "message": "10 USDCx'i en verimli şekilde kazanın",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
   },
   "commandAiSamplePrompt5": {
-    "message": "Bridge in 1 ETH, swap to USDCx and put in top earn vault",
-    "englishSource": "(untranslated)"
+    "message": "1 ETH yatırın, USDCx'e takas edin ve en yüksek getiri kasasına koyun",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
   },
   "commandAiSamplePrompt6": {
-    "message": "How much USDCx did I send this month?",
-    "englishSource": "(untranslated)"
+    "message": "Bu ay ne kadar USDCx gönderdim?",
+    "englishSource": "How much USDCx did I send this month?"
   }
 }
