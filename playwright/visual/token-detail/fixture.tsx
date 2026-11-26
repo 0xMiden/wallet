@@ -40,8 +40,26 @@ export const useMidenContext = (): never => {
 };
 export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
-  isLoading: false
+  isLoading: false,
+  readFailed: params.has('stale'),
+  balanceReadInFlight: params.has('updating')
 });
+// Two claimable notes and one claiming note of this token, and a claiming note of another faucet.
+const claimNote = (id: string, faucetId: string, amount: string, status: string) => ({
+  note: { id, faucetId, amount, metadata: token.metadata },
+  status
+});
+export const useActivityClaimList = () => {
+  const items = params.has('pending')
+    ? [
+        claimNote('n1', tokenId, '150000000', 'pending'),
+        claimNote('n2', tokenId, '50000000', 'failed'),
+        claimNote('n3', tokenId, '25000000', 'claiming'),
+        claimNote('n4', 'mtst1other', '900000000', 'claiming')
+      ]
+    : [];
+  return { representedItems: items, listItems: items, renderPendingItem: () => null, isLoadingNotes: false };
+};
 export const useAllTokensBaseMetadata = () => (params.has('missing') ? {} : { [tokenId]: token.metadata });
 export const useWalletStore = <T,>(selector: (state: typeof storeState) => T): T => selector(storeState);
 export const useBridgeConfigSnapshot = (): BridgeConfigSnapshot => ({

@@ -29,6 +29,7 @@ const fixtureModules: Record<string, string> = {
   'app/hooks/useMidenFaucetId': nativeFaucetFixture,
   'app/providers/DappBrowserProvider': fixture,
   'app/templates/history/History': historyFixture,
+  'app/templates/history/useActivityClaimList': fixture,
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
   'lib/miden/front': fixture,

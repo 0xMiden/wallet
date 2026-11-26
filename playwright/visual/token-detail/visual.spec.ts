@@ -143,3 +143,27 @@ test('retains honest identity when metadata and native-faucet discovery are unav
   await expect(page.getByTestId('token-detail-send')).toBeVisible();
   await expect(page.getByTestId('token-detail-receive')).toBeVisible();
 });
+
+test('shows pending claim lines beside the available balance and the reconciling states', async ({ page }, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline has no pending lines');
+  const project = testInfo.project.name;
+  const mode = project.endsWith('dark') ? 'dark' : 'light';
+  for (const state of ['updating', 'stale']) {
+    const query = ['pending', state, 'sidePanel'];
+    if (mode === 'dark') query.push('dark');
+    if (project.startsWith('mobile')) query.push('mobile');
+    await page.goto(`/?${query.join('&')}`);
+
+    const hero = page.getByTestId('token-detail-hero');
+    await expect(hero).toContainText('Available');
+    await expect(page.getByTestId('token-detail-pending-claim')).toContainText('2.00 IETH to claim');
+    await expect(page.getByTestId('token-detail-pending-claiming')).toContainText('0.25 IETH claiming');
+    await expect(page.getByTestId('token-detail-balance-state')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`token-detail-${project}-${state}-pending.png`),
+      animations: 'disabled',
+      caret: 'hide'
+    });
+  }
+});
