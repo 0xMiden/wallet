@@ -408,13 +408,13 @@ it('keeps the initiating dApp on a represented claim from its exact local consum
   expect(result.current.items[0]).not.toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
 
   settle([{ ...row, type: 'execute' }]);
-  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+  expect(result.current.items.map(item => item.initiatingDappOrigin)).toEqual([undefined]);
 
   settle([{ ...row, initiatingDappOrigin: undefined, dappOrigins: [initiatingDappOrigin] }]);
-  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+  expect(result.current.items.map(item => item.initiatingDappOrigin)).toEqual([undefined]);
 
   settle([{ ...row, initiatingDappOrigin: '' }]);
-  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+  expect(result.current.items.map(item => item.initiatingDappOrigin)).toEqual([undefined]);
 
   settle([row]);
   expect(result.current.items[0]).toHaveProperty('initiatingDappOrigin', initiatingDappOrigin);
@@ -436,7 +436,7 @@ it('clears the verified origin when the watched claims disappear', () => {
   settle([
     { id: txId, status: 4, type: 'consume', accountId: 'account', noteId: note.id, initiatingDappOrigin: origin }
   ]);
-  expect(result.current.items[0].initiatingDappOrigin).toBe(origin);
+  expect(result.current.items.map(item => item.initiatingDappOrigin)).toEqual([origin]);
 
   mockClaim.safeClaimableNotes = [];
   rerender();
@@ -444,7 +444,7 @@ it('clears the verified origin when the watched claims disappear', () => {
 
   mockClaim.safeClaimableNotes = [claimedNote];
   rerender();
-  expect(result.current.items[0].initiatingDappOrigin).toBeUndefined();
+  expect(result.current.items.map(item => item.initiatingDappOrigin)).toEqual([undefined]);
 });
 
 it('does not reuse a verified claim origin across RPC endpoints', () => {
