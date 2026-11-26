@@ -10385,6 +10385,82 @@
     "message": "Bread Assistant",
     "englishSource": "Bread Assistant"
   },
+  "commandAiHelpBrowse": {
+    "message": "關於 Bread 的問題",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "閱讀更多",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Miden 是如何運作的？",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "這有多私密？",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "我該如何確認哪些資訊屬於私有資訊？",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "何謂「橋接」？",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "什麼是notes？",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "為什麼我必須接受轉帳？",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "為何轉帳狀態仍顯示為「待處理」？",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "如果我拒絕一筆轉帳，會發生什麼情況？",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "為什麼我需要 USDCX 來支付手續費？",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "如果我遺失了裝置該怎麼辦？",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "主網與測試網有何區別？",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistant 會看到什麼？",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "我該如何確保安全？",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "在 Bread 中我可以做什麼？",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread 會在移除部分細節後，將您的問題轉送至其 AI 服務。請勿在聊天中透露密碼和恢復短語。",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "請勿在聊天中透露密碼、私鑰及恢復短語。",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridge 隱私權政策",
+    "englishSource": "Bridge privacy policy"
+  },
   "commandAiPlanTitle": {
     "message": "行動計畫",
     "englishSource": "Action plan"
