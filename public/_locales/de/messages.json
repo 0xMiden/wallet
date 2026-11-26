@@ -852,10 +852,6 @@
     "message": "Aktualisierung des Kontostands",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "Zuletzt bestätigter Kontostand. Konnte nicht aktualisiert werden.",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "Der Lastausgleich konnte nicht durchgeführt werden.",
     "englishSource": "Could not load balance."

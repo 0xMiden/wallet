@@ -852,10 +852,6 @@
     "message": "잔액 업데이트",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "마지막으로 확인된 잔액입니다. 새로 고침을 할 수 없습니다.",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "부하 분산을 수행할 수 없습니다.",
     "englishSource": "Could not load balance."

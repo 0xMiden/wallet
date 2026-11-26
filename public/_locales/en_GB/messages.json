@@ -852,10 +852,6 @@
     "message": "Updating balance",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "Last confirmed balance. Could not refresh.",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "Could not load balance.",
     "englishSource": "Could not load balance."

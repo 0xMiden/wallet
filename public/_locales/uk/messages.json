@@ -852,10 +852,6 @@
     "message": "Оновлення балансу",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "Останній підтверджений баланс. Не вдалося оновити.",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "Не вдалося виконати балансування навантаження.",
     "englishSource": "Could not load balance."

@@ -158,7 +158,6 @@
   "tokenDetailToClaim": "+$amount$ $symbol$ 以进行申领",
   "tokenDetailClaiming": "+$amount$ $symbol$ 申领",
   "tokenDetailBalanceUpdating": "更新余额",
-  "tokenDetailBalanceStale": "最后确认的余额。无法刷新。",
   "tokenDetailBalanceUnavailable": "无法进行负载均衡。",
   "historyDetailsIdLabel": "ID：$id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",

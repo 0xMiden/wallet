@@ -158,7 +158,6 @@
   "tokenDetailToClaim": "+$amount$ $symbol$ à réclamer",
   "tokenDetailClaiming": "+$amount$ $symbol$ réclamation",
   "tokenDetailBalanceUpdating": "Mise à jour du solde",
-  "tokenDetailBalanceStale": "Dernier solde confirmé. Impossible d’actualiser.",
   "tokenDetailBalanceUnavailable": "Impossible d’équilibrer la charge.",
   "historyDetailsIdLabel": "ID : $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",

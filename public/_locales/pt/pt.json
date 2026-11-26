@@ -158,7 +158,6 @@
   "tokenDetailToClaim": "+$amount$ $symbol$ para resgatar",
   "tokenDetailClaiming": "+$amount$ reivindicação de $symbol$",
   "tokenDetailBalanceUpdating": "Atualização do saldo",
-  "tokenDetailBalanceStale": "Último saldo confirmado. Não foi possível atualizar.",
   "tokenDetailBalanceUnavailable": "Não foi possível realizar o balanceamento de carga.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",

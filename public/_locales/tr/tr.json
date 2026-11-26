@@ -158,7 +158,6 @@
   "tokenDetailToClaim": "+$amount$ $symbol$'i talep etmek için",
   "tokenDetailClaiming": "+$amount$ $symbol$ talep etme",
   "tokenDetailBalanceUpdating": "Bakiye güncelleme",
-  "tokenDetailBalanceStale": "Son onaylanmış bakiye. Yenilenemedi.",
   "tokenDetailBalanceUnavailable": "Yük dengeleme yapılamadı.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",

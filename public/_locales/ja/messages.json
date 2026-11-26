@@ -852,10 +852,6 @@
     "message": "残高の更新",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "最終確認残高。更新できませんでした。",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "負荷分散できませんでした。",
     "englishSource": "Could not load balance."

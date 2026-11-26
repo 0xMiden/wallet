@@ -852,10 +852,6 @@
     "message": "Atualização do saldo",
     "englishSource": "Updating balance"
   },
-  "tokenDetailBalanceStale": {
-    "message": "Último saldo confirmado. Não foi possível atualizar.",
-    "englishSource": "Last confirmed balance. Could not refresh."
-  },
   "tokenDetailBalanceUnavailable": {
     "message": "Não foi possível realizar o balanceamento de carga.",
     "englishSource": "Could not load balance."
