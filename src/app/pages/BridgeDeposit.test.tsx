@@ -4,7 +4,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
-import { createLocationState, HistoryAction, navigate, resetHistoryPosition } from 'lib/woozie';
+import {
+  createLocationState,
+  HistoryAction,
+  navigate,
+  Provider as WoozieProvider,
+  resetHistoryPosition
+} from 'lib/woozie';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
@@ -66,10 +72,17 @@ const mockAnyFeatureAvailability = jest.fn(
         : mockBridgeIn
       : { state: 'loading' }
 );
+const mockBridgeConfigSnapshot = { status: 'ready' };
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
+    mockAnyFeatureAvailability(features, options),
+  useBridgeConfigSnapshot: () => mockBridgeConfigSnapshot
 }));
+
+// The relay source of the current account: none unless a case sets one.
+const RELAY = '0x00000000000000000000000000000000000000e5';
+let mockRelaySource: { accountPublicKey: string; address: string } | null = null;
+jest.mock('lib/evm-relay/source', () => ({ relaySourceOf: () => mockRelaySource }));
 
 jest.mock('components/ui/Button', () => ({
   Button: ({
@@ -88,8 +101,18 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: ({ onClose, onConnectAnother }: { onClose: () => void; onConnectAnother: () => void }) => (
-    <div data-testid="bridge-deposit-screen">
+  EvmBridgeDepositScreen: ({
+    evmAddress,
+    relaySource,
+    onClose,
+    onConnectAnother
+  }: {
+    evmAddress: string;
+    relaySource?: { address: string };
+    onClose: () => void;
+    onConnectAnother: () => void;
+  }) => (
+    <div data-testid="bridge-deposit-screen" data-source={evmAddress} data-relay={relaySource?.address ?? 'none'}>
       <button type="button" onClick={onConnectAnother}>
         switch
       </button>
@@ -318,5 +341,84 @@ describe('BridgeDeposit web connect failure (#2109)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'switch' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('picker refused');
+  });
+});
+
+describe('BridgeDeposit from the relay address', () => {
+  beforeEach(() => {
+    mockConnection = { address: undefined, connected: false };
+    mockBridgeIn = { state: 'available' };
+    mockRelaySource = { accountPublicKey: 'miden-account', address: RELAY };
+    navigate('/bridge/deposit', HistoryAction.Replace);
+    resetHistoryPosition();
+  });
+  afterEach(() => {
+    mockRelaySource = null;
+  });
+
+  it('opens the deposit screen on the relay address, with no connect step', () => {
+    render(<BridgeDeposit />);
+
+    const depositScreen = screen.getByTestId('bridge-deposit-screen');
+    expect(depositScreen).toHaveAttribute('data-source', RELAY);
+    expect(depositScreen).toHaveAttribute('data-relay', RELAY);
+    expect(screen.queryByRole('button', { name: 'bridgeConnectWalletAction' })).not.toBeInTheDocument();
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: false
+    });
+  });
+
+  it('prefers the relay address over a connected wallet', () => {
+    mockConnection = { address: '0xabc', connected: true };
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-relay', RELAY);
+  });
+
+  // The query parameter is read from the router's location, so these cases mount the router's provider.
+  it('opens the connect-wallet path from "Connect a wallet instead"', async () => {
+    render(
+      <WoozieProvider>
+        <BridgeDeposit />
+      </WoozieProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch' }));
+
+    expect(createLocationState()).toMatchObject({ pathname: '/bridge/deposit', search: '?source=wallet' });
+    expect(await screen.findByRole('button', { name: 'bridgeConnectWalletAction' })).toBeInTheDocument();
+    expect(screen.queryByTestId('bridge-deposit-screen')).not.toBeInTheDocument();
+  });
+
+  it('uses the connected wallet on the wallet path', () => {
+    mockConnection = { address: '0xabc', connected: true };
+    navigate('/bridge/deposit?source=wallet', HistoryAction.Replace);
+    render(
+      <WoozieProvider>
+        <BridgeDeposit />
+      </WoozieProvider>
+    );
+
+    const depositScreen = screen.getByTestId('bridge-deposit-screen');
+    expect(depositScreen).toHaveAttribute('data-source', '0xabc');
+    expect(depositScreen).toHaveAttribute('data-relay', 'none');
+  });
+
+  it('takes the source from its prop before the query', () => {
+    render(<BridgeDeposit source="wallet" />);
+
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeInTheDocument();
+  });
+
+  it('keeps the connect-wallet path as the only path without a relay address', () => {
+    mockRelaySource = null;
+    navigate('/bridge/deposit?source=relay', HistoryAction.Replace);
+    render(
+      <WoozieProvider>
+        <BridgeDeposit />
+      </WoozieProvider>
+    );
+
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeInTheDocument();
   });
 });

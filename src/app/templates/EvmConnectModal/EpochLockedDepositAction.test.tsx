@@ -30,9 +30,12 @@ const mockOpenPicker = jest.fn();
 jest.mock('lib/walletconnect/useEvmWalletPicker', () => ({
   useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: undefined })
 }));
+// The relay address of an account of this wallet, which signs with no connected wallet: none unless a case sets one.
+let mockRelaySponsor: string | undefined;
 jest.mock('lib/epoch/bridge-in-recovery', () => ({
   LockedDepositError: class extends Error {},
   sponsorWalletRefusal: (connected: string | undefined, sponsor: string) => {
+    if (mockRelaySponsor?.toLowerCase() === sponsor.toLowerCase()) return undefined;
     if (!connected) return 'walletDisconnected';
     return connected.toLowerCase() === sponsor.toLowerCase() ? undefined : 'wrongAccount';
   },
@@ -61,9 +64,27 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockConnection.address = undefined;
   mockConnection.connected = false;
+  mockRelaySponsor = undefined;
 });
 
 describe('EpochLockedDepositAction', () => {
+  it.each([
+    ['no wallet is connected', undefined, false],
+    ['another wallet is connected', '0x00000000000000000000000000000000000000bb', true]
+  ])('offers the recovery actions of a relay sponsor while %s', async (_case, address, connected) => {
+    mockRelaySponsor = SPONSOR.toLowerCase();
+    mockConnection.address = address;
+    mockConnection.connected = connected;
+    jest.mocked(retryLockedDeposit).mockResolvedValue('77');
+    renderRow();
+
+    expect(screen.queryByTestId('epoch-deposit-connect')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('epoch-deposit-retry'));
+
+    await waitFor(() => expect(retryLockedDeposit).toHaveBeenCalledWith('row-1'));
+    expect(mockOpenPicker).not.toHaveBeenCalled();
+  });
+
   it('opens the lock in the Settings recovery page', () => {
     renderRow();
 

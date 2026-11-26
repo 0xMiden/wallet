@@ -56,8 +56,11 @@ export type BridgeOrphanCheck = (typeof BRIDGE_ORPHAN_CHECKS)[number];
 export const BRIDGE_SOURCE_ROUTES = ['xreserve', 'cctp_executor', 'unrecorded'] as const;
 export type BridgeSourceRoute = (typeof BRIDGE_SOURCE_ROUTES)[number];
 
-/** The wallet request implementation selected for an inbound bridge approval or deposit. */
-export const BRIDGE_RECEIVE_REQUEST_CLIENTS = ['native_reown', 'wagmi'] as const;
+/**
+ * The wallet request implementation selected for an inbound bridge approval or deposit. `relay`: the relay address of
+ * an account of this wallet sent the deposit through the relay, with no external wallet.
+ */
+export const BRIDGE_RECEIVE_REQUEST_CLIENTS = ['native_reown', 'wagmi', 'relay'] as const;
 export type BridgeReceiveRequestClient = (typeof BRIDGE_RECEIVE_REQUEST_CLIENTS)[number];
 
 /** What failed an inbound bridge's row, as its writer knows it. Only the row's crash report reads it; it is never stored. */

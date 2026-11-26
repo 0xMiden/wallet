@@ -174,7 +174,8 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   const secondsLeft = withdrawableAt === undefined ? undefined : secondsUntilWithdrawable(withdrawableAt, now);
   const phase = withdrawPhaseOf(state.chain.withdrawal?.status, state.local.enabledAt !== undefined, secondsLeft);
   const withdrawalOn = phase === 'pending' || phase === 'due';
-  const refusal = connected ? sponsorWalletRefusal(address, lock.sponsorAddress) : 'walletDisconnected';
+  // A sponsor that is the relay address of an account of this wallet needs no connected wallet.
+  const refusal = sponsorWalletRefusal(connected ? address : undefined, lock.sponsorAddress);
 
   const run = useCallback(
     async (action: LockAction, operation: () => Promise<unknown>) => {

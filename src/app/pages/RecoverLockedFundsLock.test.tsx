@@ -76,6 +76,8 @@ const mockFinish = jest.fn();
 const mockCancel = jest.fn();
 const mockRetry = jest.fn();
 const mockDepositsOnLock = jest.fn();
+// The relay address of an account of this wallet, which signs with no connected wallet: none unless a case sets one.
+let mockRelaySponsor: string | undefined;
 jest.mock('lib/epoch/bridge-in-recovery', () => {
   class LockedDepositError extends Error {
     constructor(
@@ -88,6 +90,7 @@ jest.mock('lib/epoch/bridge-in-recovery', () => {
   return {
     LockedDepositError,
     sponsorWalletRefusal: (connected: string | undefined, sponsor: string) => {
+      if (mockRelaySponsor?.toLowerCase() === sponsor.toLowerCase()) return undefined;
       if (!connected) return 'walletDisconnected';
       return connected.toLowerCase() === sponsor.toLowerCase() ? undefined : 'wrongAccount';
     },
@@ -125,10 +128,28 @@ beforeEach(() => {
   mockFinish.mockResolvedValue('0xwithdraw');
   mockCancel.mockResolvedValue(undefined);
   mockRetry.mockResolvedValue('77');
+  mockRelaySponsor = undefined;
 });
 afterEach(() => jest.restoreAllMocks());
 
 describe('RecoverLockedFundsLock', () => {
+  it.each([
+    ['no wallet is connected', undefined, false],
+    ['another wallet is connected', OTHER, true]
+  ])('gives a relay sponsor its actions while %s', async (_case, address, connected) => {
+    mockRelaySponsor = SPONSOR;
+    mockConnection.address = address;
+    mockConnection.connected = connected;
+    await renderLock();
+
+    expect(screen.queryByTestId('recover-funds-lock-connect')).not.toBeInTheDocument();
+    expect(screen.queryByText(/epochDepositConnectSponsor|epochDepositWrongWallet/)).not.toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
+
+    expect(mockStart).toHaveBeenCalledWith(REF);
+    expect(mockOpenPicker).not.toHaveBeenCalled();
+  });
+
   it('shows the lock and starts the forced withdrawal for the sponsor', async () => {
     await renderLock();
 

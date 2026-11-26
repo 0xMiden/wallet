@@ -28,6 +28,20 @@ import { PageHeader } from 'components/PageHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import type { BatchCall } from 'lib/evm-relay/batch';
+import {
+  RelayApiError,
+  RelayExpiredError,
+  RelayMismatchError,
+  RelayNotSubmittedError,
+  RelayProviderRpcError,
+  RelayRefusedError,
+  RelayRevertedError,
+  RelayStillPendingError,
+  RelayUnavailableError,
+  RelayUnknownOutcomeError
+} from 'lib/evm-relay/errors';
+import { buildRelayProvider, type RelaySource, relayServesChain } from 'lib/evm-relay/source';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
@@ -167,10 +181,52 @@ class DepositBalanceError extends Error {
   }
 }
 
+/**
+ * What sends the deposit: the relay for the relay address of the current account, else the external wallet through the
+ * native Reown plugin (iOS, Android) or through wagmi (web).
+ */
+type DepositSource = { client: 'relay'; relay: RelaySource } | { client: 'native_reown' } | { client: 'wagmi' };
+
+function depositSourceOf(relaySource: RelaySource | undefined, nativeReownAvailable: boolean): DepositSource {
+  if (relaySource !== undefined) return { client: 'relay', relay: relaySource };
+  return nativeReownAvailable ? { client: 'native_reown' } : { client: 'wagmi' };
+}
+
+/**
+ * What a relay error means for the deposit row. `open`: the job can still execute, so the row stays open and nothing
+ * signs again. `reverted`, `expired`: the job is final and did not execute. `refused`: the relay stored no job.
+ */
+type RelayDepositOutcome = 'open' | 'reverted' | 'expired' | 'refused';
+
+// Errors that end a relay attempt before a job is stored: the relay or the wallet refused it.
+const RELAY_REFUSALS = [
+  RelayApiError,
+  RelayUnavailableError,
+  RelayRefusedError,
+  RelayMismatchError,
+  RelayProviderRpcError
+];
+
+function relayDepositOutcome(err: unknown): RelayDepositOutcome | undefined {
+  if (err instanceof RelayUnknownOutcomeError || err instanceof RelayStillPendingError) return 'open';
+  if (err instanceof RelayRevertedError) return 'reverted';
+  if (err instanceof RelayExpiredError || err instanceof RelayNotSubmittedError) return 'expired';
+  return RELAY_REFUSALS.some(type => err instanceof type) ? 'refused' : undefined;
+}
+
 interface EvmBridgeDepositScreenProps {
+  /** The source wallet: the connected external wallet, or the relay address when `relaySource` is set. */
   evmAddress: string;
+  /**
+   * The relay address of the current account as the source wallet. When it is set, `evmAddress` is its address, no
+   * external wallet takes part, the Circle (USDCx) route is not offered, and only chains that the relay serves are.
+   */
+  relaySource?: RelaySource;
   midenAccount: WalletAccount;
-  /** Reopens the wallet picker to switch to (connect) a different EVM wallet. */
+  /**
+   * Leaves the current source wallet. For an external wallet, it reopens the wallet picker to connect another one. For
+   * a relay source, it opens the connect-wallet path ("Connect a wallet instead").
+   */
   onConnectAnother: () => void;
   onClose: () => void;
   /** Supplied by the hosting page to report the outcome of a deposit attempt. */
@@ -663,6 +719,7 @@ const BRIDGE_ROUTES: Route[] = [
 
 const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   evmAddress,
+  relaySource,
   midenAccount,
   onConnectAnother,
   onClose,
@@ -672,6 +729,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
+  const depositSource = useMemo(
+    () => depositSourceOf(relaySource, nativeReownAvailable),
+    [relaySource, nativeReownAvailable]
+  );
   const writeContract = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
 
@@ -709,18 +770,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSources = useMemo(() => usdcxSourceChains(bridgeConfig), [bridgeConfig]);
   // Every chain a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers a
-  // token, or an AggLayer chain that takes deposits. The list is the same for every token.
+  // token, or an AggLayer chain that takes deposits. The list is the same for every token. A relay source takes no
+  // Circle route, and only a chain that the relay serves.
   const sourceNetworks = useMemo<readonly BridgeNetwork[]>(() => {
-    const circle = new Set(listUsdcxSourceChains().map(entry => entry.chain.id));
+    const circle = new Set(relaySource ? [] : listUsdcxSourceChains().map(entry => entry.chain.id));
     return Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).flatMap(entry => {
       const offered =
         circle.has(entry.chainId) ||
         selectEpochDepositTokens(bridgeConfig, entry.chainId).length > 0 ||
         entry.bridges.agglayer?.depositEnabled === true;
+      const served = relaySource === undefined || relayServesChain(entry.chainId);
       const network = getBridgeNetworkByChainId(entry.chainId);
-      return offered && network ? [network] : [];
+      return offered && served && network ? [network] : [];
     });
-  }, [bridgeConfig]);
+  }, [bridgeConfig, relaySource]);
   // The picked chain, else Circle's default source, else the first chain listed. Zero while the config lists none: the
   // form then asks for a network instead of naming a compiled default.
   const sourceChainId = (() => {
@@ -738,10 +801,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [amount, setAmount] = useState('');
   const [epochBalanceSlot, setEpochBalanceSlot] = useState<StampedBalanceMap<EpochBalancesIdentity> | null>(null);
   const [circleBalanceSlot, setCircleBalanceSlot] = useState<StampedBalance<CircleBalanceIdentity> | null>(null);
-  // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
+  // Circle's Arc USDC is a source token only where its one route, xReserve, can start, and never for a relay source.
   const usdcxAvailability = useFeatureAvailability('usdcxDeposit', { chainId: usdcxSource?.chain.id });
-  const usdcxAvailable = usdcxAvailability.state === 'available';
-  const usdcxPending = usdcxAvailability.state === 'loading';
+  const usdcxAvailable = relaySource === undefined && usdcxAvailability.state === 'available';
+  const usdcxPending = relaySource === undefined && usdcxAvailability.state === 'loading';
   const [ethBalanceSlot, setEthBalanceSlot] = useState<StampedBalance<EthBalanceIdentity> | null>(null);
   const [erc20BalanceSlot, setErc20BalanceSlot] = useState<StampedBalanceMap<Erc20BalanceIdentity> | null>(null);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
@@ -1433,6 +1496,24 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }),
     [t]
   );
+  // A relay attempt that ended with no executed batch says so; the funds stay at the relay address.
+  const relayDepositError = useCallback(
+    (err: unknown): DepositError => {
+      switch (relayDepositOutcome(err)) {
+        case 'reverted':
+          return { id: 'raw_bridge_deposit_failed', text: t('depositFlowRelayReverted') };
+        case 'expired':
+          return { id: 'raw_bridge_deposit_failed', text: t('depositFlowRelayExpired') };
+        case 'refused':
+          return { id: 'raw_bridge_deposit_failed', text: t('depositFlowRelayRefused') };
+        case 'open':
+        case undefined:
+        default:
+          return depositError(err);
+      }
+    },
+    [depositError, t]
+  );
   // The route step holds an amount its displayed fee takes past the balance in the words the deposit refuses it with.
   const usdcxFeeAboveBalanceMessage = useCallback(
     ({ needed, fee, balance }: { needed: bigint; fee: bigint; balance: bigint }): string =>
@@ -1465,7 +1546,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
-      if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
+      if (!isValidAmount(amount) || (depositSource.client === 'wagmi' && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
         setSlowError({ text: message, id: 'raw_bridge_deposit_failed' });
         setSlowStatus('failed');
@@ -1524,16 +1605,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const value = isNative ? amountInBaseUnits : 0n;
         step = 'precheck_balance';
         // ETH is held to the deposit alone; a gas shortfall on top stays the wallet's to report.
-        await ensureBalanceCovers(amountInBaseUnits, sourceDecimals, agglayerChainId, () => {
-          if (isNative) return readEthBalance(evmAddress, agglayerChainId);
-          if (erc20) return readErc20Balance(evmAddress, tokenAddress, agglayerChainId);
-          return readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId);
-        });
+        const coversDeposit = () =>
+          ensureBalanceCovers(amountInBaseUnits, sourceDecimals, agglayerChainId, () => {
+            if (isNative) return readEthBalance(evmAddress, agglayerChainId);
+            if (erc20) return readErc20Balance(evmAddress, tokenAddress, agglayerChainId);
+            return readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId);
+          });
+        await coversDeposit();
         // Native Reown signs on the AggLayer chain: a session that did not approve it fails here, before any
         // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.". It comes after the
         // balance check because adding and switching the chain is itself a wallet prompt.
         step = 'precheck_session_chain';
-        if (nativeReownAvailable) await prepareNativeSessionChain(agglayerChainId);
+        if (depositSource.client === 'native_reown') await prepareNativeSessionChain(agglayerChainId);
         step = 'precheck_allowance';
         // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
         // and `approve` would replace a larger allowance with this amount.
@@ -1550,74 +1633,97 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             throw walletRaised(new Error(ALLOWANCE_READ_FAILED, { cause }));
           })) < amountInBaseUnits;
 
-        let hash: `0x${string}`;
-        if (nativeReownAvailable) {
-          if (needsApproval) {
-            const approveData = encodeFunctionData({
-              abi: ERC20_APPROVE_ABI,
-              functionName: 'approve',
-              args: [contractAddress, amountInBaseUnits]
-            });
-            step = 'wallet_approve';
-            const approval = await NativeReown.sendTransaction({
-              chainId: agglayerChainId,
-              from: evmAddress,
+        // Each call is encoded once for every source: the relay sends the two in one batch, an external wallet asks
+        // for each one in its own prompt.
+        const approveArgs: readonly [`0x${string}`, bigint] = [contractAddress, amountInBaseUnits];
+        const approveCall: BatchCall | null = needsApproval
+          ? {
               to: tokenAddress,
-              value: toHex(0n),
-              data: approveData,
-              ...(await readNativeFeeFields(agglayerChainId))
+              value: 0n,
+              data: encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: approveArgs })
+            }
+          : null;
+        const depositCall: BatchCall = {
+          to: contractAddress,
+          value,
+          data: encodeFunctionData({ abi: AGGLAYER_BRIDGE_ABI, functionName: 'bridgeAsset', args })
+        };
+
+        let hash: `0x${string}`;
+        switch (depositSource.client) {
+          case 'relay': {
+            // One batch holds the approval and the deposit, so there is no second prompt to wait for. The job is on
+            // the row before the POST, so a lost answer leaves a job to follow. Each signature checks the balance again.
+            step = 'wallet_deposit';
+            const provider = buildRelayProvider(depositSource.relay, agglayerChainId, {
+              beforeSign: async () => {
+                step = 'precheck_balance';
+                await coversDeposit();
+                step = 'wallet_deposit';
+              },
+              onJob: job => updateBridgedReceivePhase(trackingTxId, 'submitting', { relayJob: job })
             });
-            setAwaitingNextConfirmation(true);
-            step = 'approve_receipt';
-            await waitForEvmReceipt(unwrapNativeResult(approval.hash) as `0x${string}`, chain);
+            hash = await provider.sendCalls(approveCall === null ? [depositCall] : [approveCall, depositCall]);
+            break;
           }
-          const data = encodeFunctionData({
-            abi: AGGLAYER_BRIDGE_ABI,
-            functionName: 'bridgeAsset',
-            args
-          });
-          step = 'wallet_deposit';
-          const result = await NativeReown.sendTransaction({
-            chainId: agglayerChainId,
-            from: evmAddress,
-            to: contractAddress,
-            value: toHex(value),
-            data,
-            ...(await readNativeFeeFields(agglayerChainId))
-          });
-          hash = unwrapNativeResult(result.hash) as `0x${string}`;
-        } else {
-          // Pin the target chain so wagmi/viem assert the wallet's ACTIVE chain is
-          // Sepolia before broadcasting. The WC session namespace declares Sepolia,
-          // but the wallet's active chain can be anything (often mainnet); without
-          // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
-          // to a Sepolia-only address. The Fast/Epoch path guards this same case in
-          // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
-          // A USDCx deposit switches the wallet to Arc or Base, so switch it back first.
-          step = 'precheck_session_chain';
-          await switchChainAsync({ chainId: agglayerChainId });
-          if (needsApproval) {
-            step = 'wallet_approve';
-            const approvalHash = await writeContract.mutateAsync({
+          case 'native_reown': {
+            const sendNative = async (call: BatchCall) =>
+              NativeReown.sendTransaction({
+                chainId: agglayerChainId,
+                from: evmAddress,
+                to: call.to,
+                value: toHex(call.value),
+                data: call.data,
+                ...(await readNativeFeeFields(agglayerChainId))
+              });
+            if (approveCall !== null) {
+              step = 'wallet_approve';
+              const approval = await sendNative(approveCall);
+              setAwaitingNextConfirmation(true);
+              step = 'approve_receipt';
+              await waitForEvmReceipt(unwrapNativeResult(approval.hash) as `0x${string}`, chain);
+            }
+            step = 'wallet_deposit';
+            const result = await sendNative(depositCall);
+            hash = unwrapNativeResult(result.hash) as `0x${string}`;
+            break;
+          }
+          case 'wagmi':
+          default: {
+            // Pin the target chain so wagmi/viem assert the wallet's ACTIVE chain is
+            // Sepolia before broadcasting. The WC session namespace declares Sepolia,
+            // but the wallet's active chain can be anything (often mainnet); without
+            // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
+            // to a Sepolia-only address. The Fast/Epoch path guards this same case in
+            // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
+            // A USDCx deposit switches the wallet to Arc or Base, so switch it back first.
+            // wagmi takes the typed call: the same target, arguments and value as the encoded one.
+            step = 'precheck_session_chain';
+            await switchChainAsync({ chainId: agglayerChainId });
+            if (approveCall !== null) {
+              step = 'wallet_approve';
+              const approvalHash = await writeContract.mutateAsync({
+                chainId: agglayerChainId,
+                abi: ERC20_APPROVE_ABI,
+                address: approveCall.to,
+                functionName: 'approve',
+                args: approveArgs
+              });
+              setAwaitingNextConfirmation(true);
+              step = 'approve_receipt';
+              await waitForEvmReceipt(approvalHash, chain);
+            }
+            step = 'wallet_deposit';
+            hash = await writeContract.mutateAsync({
               chainId: agglayerChainId,
-              abi: ERC20_APPROVE_ABI,
-              address: tokenAddress,
-              functionName: 'approve',
-              args: [contractAddress, amountInBaseUnits]
+              abi: AGGLAYER_BRIDGE_ABI,
+              address: depositCall.to,
+              functionName: 'bridgeAsset',
+              args,
+              value: depositCall.value
             });
-            setAwaitingNextConfirmation(true);
-            step = 'approve_receipt';
-            await waitForEvmReceipt(approvalHash, chain);
+            break;
           }
-          step = 'wallet_deposit';
-          hash = await writeContract.mutateAsync({
-            chainId: agglayerChainId,
-            abi: AGGLAYER_BRIDGE_ABI,
-            address: contractAddress,
-            functionName: 'bridgeAsset',
-            args,
-            value
-          });
         }
 
         // The bridge prompt has been answered; what follows is a chain wait, not a wallet wait.
@@ -1639,8 +1745,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           setSlowStatus('submitted');
           return;
         }
+        // A relay job whose outcome is not known yet can still execute. The row keeps its job and stays open, and
+        // nothing signs again for this deposit.
+        if (relayDepositOutcome(err) === 'open') {
+          console.warn('[EvmBridgeDepositScreen] Agglayer relay outcome not known yet', err);
+          setSlowStatus('submitted');
+          return;
+        }
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-        const failure = depositError(err);
+        const failure = depositSource.client === 'relay' ? relayDepositError(err) : depositError(err);
         setSlowError(failure);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', {
@@ -1649,11 +1762,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           failure: failureSource(
             step,
             err,
-            step === 'wallet_approve' || step === 'wallet_deposit'
-              ? nativeReownAvailable
-                ? 'native_reown'
-                : 'wagmi'
-              : undefined
+            step === 'wallet_approve' || step === 'wallet_deposit' ? depositSource.client : undefined
           )
         }).catch(() => undefined);
       }
@@ -1663,6 +1772,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       agglayerChainId,
       amount,
       depositError,
+      depositSource,
       ensureBalanceCovers,
       erc20,
       erc20Picked,
@@ -1670,7 +1780,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmUsdc,
       fastKey,
       midenAccount.publicKey,
-      nativeReownAvailable,
+      relayDepositError,
       slowSourceDecimals,
       switchChainAsync,
       token,
@@ -1681,7 +1791,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleUsdcxDeposit = useCallback(
     async (trackingTxId: string) => {
-      if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
+      // The Circle route needs an external wallet: a relay source never takes it.
+      if (!isValidAmount(amount) || relaySource !== undefined || (!nativeReownAvailable && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
         setSlowError({ text: message, id: 'raw_bridge_deposit_failed' });
         setSlowStatus('failed');
@@ -1866,6 +1977,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       midenAccount.publicKey,
       nativeReownAvailable,
       readBalanceOrFail,
+      relaySource,
       switchChainAsync,
       usdcxDepositError,
       usdcxSource,
@@ -1887,7 +1999,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Fast signs inside the store, so its balance is checked here, against the quoted deposit, fee included.
   // The Epoch SDK then signs on the Fast USDC's chain (the one it was quoted on) through the native Reown
   // provider. The provider checks the session chain too, but this check runs before the SDK starts, so the
-  // row fails with the localized reconnect message and no wallet prompt opens.
+  // row fails with the localized reconnect message and no wallet prompt opens. A relay source has no session: the
+  // store sends through the relay, from the relay address that the quote names as source and sponsor.
   const handleFastBridge = useCallback(
     async (trackingTxId: string) => {
       let step: BridgeReceiveFailureStep = 'precheck_route';
@@ -1901,7 +2014,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             : readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
         );
         step = 'precheck_session_chain';
-        if (nativeReownAvailable) await prepareNativeSessionChain(evmUsdc.chainId);
+        if (depositSource.client === 'native_reown') await prepareNativeSessionChain(evmUsdc.chainId);
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
         const failure = depositError(err);
@@ -1916,12 +2029,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       depositError,
+      depositSource,
       ensureBalanceCovers,
       evmAddress,
       evmUsdc,
       executeEVMToMiden,
       fastNative,
-      nativeReownAvailable,
       quotedTokenIn
     ]
   );
@@ -2464,6 +2577,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                       : usdcxSource?.tokenMessengerWithFees
               }
               usdcxExecutor={usdcxSource?.route === 'cctp-executor'}
+              // The guide describes the prompts of an external wallet: a relay source signs with no prompt.
+              walletPromptGuide={relaySource === undefined}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
@@ -2564,7 +2679,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               onAmountChange={handleAmountChange}
               onSelectToken={handleOpenTokenDrawer}
               onSelectNetwork={handleOpenNetworkDrawer}
-              onSwitch={handleOpenSwitchDrawer}
+              // The wallet pill names an external wallet: a relay source has none to show or switch.
+              onSwitch={relaySource ? undefined : handleOpenSwitchDrawer}
               onContinue={handleContinue}
             />
           );
@@ -2607,6 +2723,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleOpenSwitchDrawer,
       handleOpenTokenDrawer,
       bridgeNetwork,
+      relaySource,
       usdcxSource,
       t,
       handleRouteChange,
@@ -2773,14 +2890,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         selected={bridgeNetwork}
         onSelect={handleNetworkSelect}
       />
-      <EvmSwitchWalletDrawer
-        open={switchDrawerOpen}
-        onOpenChange={setSwitchDrawerOpen}
-        address={evmAddress}
-        ethBalance={ethBalance.formatted}
-        ethLoading={ethBalance.loading}
-        onConnectAnother={handleConnectAnother}
-      />
+      {relaySource === undefined && (
+        <EvmSwitchWalletDrawer
+          open={switchDrawerOpen}
+          onOpenChange={setSwitchDrawerOpen}
+          address={evmAddress}
+          ethBalance={ethBalance.formatted}
+          ethLoading={ethBalance.loading}
+          onConnectAnother={handleConnectAnother}
+        />
+      )}
     </div>
   );
 };

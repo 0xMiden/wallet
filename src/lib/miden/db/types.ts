@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 
 import type { BridgeOperationSnapshot } from 'lib/bridge/operation';
 import type { EpochReviewedOutput } from 'lib/epoch/types';
+import type { RelayJobRef } from 'lib/evm-relay/types';
 import type { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import type {
   NearIntentsConfig,
@@ -454,6 +455,11 @@ export interface IBridgedReceiveExtraInputs {
   outputAmount?: string;
   outputSymbol?: string;
   evmTxHash?: string;
+  /**
+   * agglayer from a relay source: the relay job of the deposit batch. The deposit screen writes it before the relay
+   * POST, so a lost answer leaves a job that `resume` can follow. Absent on a deposit from an external wallet.
+   */
+  relayJob?: RelayJobRef;
   intentNonce?: string;
   midenNoteId?: string;
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */

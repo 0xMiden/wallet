@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
@@ -16,15 +16,40 @@ import { Card } from 'components/ui/Card';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { relaySourceOf } from 'lib/evm-relay/source';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
-import { navigate } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
+
+/** The path of the deposit with an external wallet as its source, even for an account that has a relay address. */
+export const BRIDGE_DEPOSIT_WALLET_PATH = '/bridge/deposit?source=wallet';
+
+/** The source wallet of a deposit: the relay address of the current account, or an external wallet. */
+export type BridgeDepositSource = 'relay' | 'wallet';
 
 interface BridgeDepositProps {
   onClose?: () => void;
+  /**
+   * The source wallet. Absent: the `source` query parameter (`?source=wallet`) decides, else the relay address of the
+   * current account when it has one and the relay is on. An external wallet is the only source without a relay address.
+   */
+  source?: BridgeDepositSource;
+}
+
+/** The source that the `source` query parameter asks for, or undefined when it names none. */
+function sourceFromSearch(search: string): BridgeDepositSource | undefined {
+  switch (new URLSearchParams(search).get('source')) {
+    case 'wallet':
+      return 'wallet';
+    case 'relay':
+      return 'relay';
+    default:
+      return undefined;
+  }
 }
 
 interface ConnectStepProps {
@@ -51,12 +76,22 @@ const ConnectStep: React.FC<ConnectStepProps> = ({ number, title, body, current 
   </li>
 );
 
-export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
+export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose, source }) => {
   const { t } = useTranslation();
   const goBack = useBackWithFallback();
+  const { search } = useLocation();
   const currentMidenAccount = useWalletStore(s => s.currentAccount);
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
+  // `relaySourceOf` reads the config snapshot as it is, so a new snapshot reads the relay source again.
+  const bridgeConfig = useBridgeConfigSnapshot();
+  const requestedSource = source ?? sourceFromSearch(search);
+  // The relay address of the current account is the source, with no connect step, unless the wallet path is asked for.
+  const relaySource = useMemo(
+    () => (requestedSource === 'wallet' ? null : relaySourceOf(currentMidenAccount)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the snapshot is what `relaySourceOf` reads
+    [bridgeConfig, currentMidenAccount, requestedSource]
+  );
   // The test-wallet warning belongs to the test networks; on mainnet the funds are real and it is not shown.
   const testNetworkKey = getTestNetworkNameKey();
   const testNetwork = testNetworkKey !== null;
@@ -65,8 +100,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // exactly the abandonment worth seeing.
   const reportDeposit = useFundTelemetry();
   const walletReady = connected && address && currentMidenAccount;
-  // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
-  const bridgeIn = useBridgeInAvailability({ hold: !walletReady });
+  // A ready source hands the page to the deposit screen, which holds for the route cards it greys out.
+  const bridgeIn = useBridgeInAvailability({ hold: !walletReady && relaySource === null });
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -125,6 +160,25 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       setConnectError(err instanceof Error && err.message ? err.message : t('bridgeConnectPickerFailed'));
     }
   }, [disconnect, nativeReown, t, useNativeReownWallet]);
+
+  // "Connect a wallet instead": the same page with an external wallet as the source. Back returns to the relay source.
+  const handleConnectWalletInstead = useCallback(() => {
+    hapticMedium();
+    navigate(BRIDGE_DEPOSIT_WALLET_PATH);
+  }, []);
+
+  if (relaySource !== null && currentMidenAccount) {
+    return (
+      <EvmBridgeDepositScreen
+        evmAddress={relaySource.address}
+        relaySource={relaySource}
+        midenAccount={currentMidenAccount}
+        onConnectAnother={handleConnectWalletInstead}
+        onClose={handleClose}
+        reportDeposit={reportDeposit}
+      />
+    );
+  }
 
   if (walletReady) {
     return (

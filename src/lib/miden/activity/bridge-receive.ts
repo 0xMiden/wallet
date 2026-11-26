@@ -116,7 +116,9 @@ async function reconcileAgglayerRow(
   };
   if (!(await originalStillBound())) return;
   if (!inputs.evmTxHash) {
-    if (inputs.phase === 'submitting') {
+    // A relay job that the deposit screen stored can still execute after its page closed. Do not fail such a row as
+    // interrupted: the delivery window ends it.
+    if (inputs.phase === 'submitting' && inputs.relayJob === undefined) {
       await updateBridgedReceivePhase(row.id, 'failed', {
         error: INTERRUPTED_BEFORE_HASH,
         failure: { step: 'submission_interrupted', orphanCheck }
