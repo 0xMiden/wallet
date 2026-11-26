@@ -330,6 +330,21 @@ describe('ActivityGroupedHistory', () => {
     mockConfirm.mockResolvedValue(true);
   });
 
+  it('finds the represented dApp claim card by its saved sender name', () => {
+    const item = claim('note-dapp', 'claiming');
+    mockClaims.items = [{ ...item, txId: 'tx-dapp', initiatingDappOrigin: 'https://dapp.test' }];
+    contacts.value.push({ address: item.note.senderAddress, name: 'Alicia' });
+
+    try {
+      render(<ActivityGroupedHistory search="Alicia" onReturnToList={jest.fn()} />);
+
+      const claims = screen.getByTestId('activity-group-claims');
+      expect(within(claims).getByText('from: Alicia')).toBeInTheDocument();
+    } finally {
+      contacts.value.pop();
+    }
+  });
+
   it('draws an incoming transfer above the groups, with Accept and Decline', async () => {
     mockClaims.items = [claim('note-1', 'pending')];
     render(<ActivityGroupedHistory onReturnToList={jest.fn()} search="" />);

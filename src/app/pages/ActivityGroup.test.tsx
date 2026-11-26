@@ -160,6 +160,47 @@ describe('ActivityGroupPage', () => {
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
   });
 
+  it('opens the verified origin and resolves the transaction counterparty independently of its heading', () => {
+    const origin = 'https://dapp.test:8443';
+    const secondaryAddress = 'mtst1aliceaddress0000';
+    const initiated = entry({ secondaryAddress, initiatingDappOrigin: origin });
+    const grantOnly = entry({ secondaryAddress, dappOrigins: [origin] });
+    const anotherPort = entry({ secondaryAddress, initiatingDappOrigin: 'https://dapp.test' });
+    mockClaims.items = [{ note: claimNote('note-1', secondaryAddress), status: 'pending' }];
+
+    render(<ActivityGroupPage kind="dapp" id={origin} />);
+
+    expect(screen.getByRole('heading', { name: origin })).toBeTruthy();
+    expect(filterGroupEntries([grantOnly, anotherPort, initiated])).toEqual([initiated]);
+    expect(historyProps.drawnPendingItems).toEqual([]);
+    expect(historyProps.counterpartyNameOf).toEqual(expect.any(Function));
+    expect((historyProps.counterpartyNameOf as (address: string) => string)(secondaryAddress)).toBe('Alice');
+  });
+
+  it('labels a represented dApp claim with the saved sender name', () => {
+    const initiatingDappOrigin = 'https://dapp.test:8443';
+    const note = claimNote('note-1', 'mtst1aliceaddress0000');
+    const claim = { note, status: 'claiming' as const, txId: 'consume', initiatingDappOrigin };
+    mockClaims.items = [claim];
+
+    const { rerender } = render(<ActivityGroupPage kind="dapp" id={initiatingDappOrigin} />);
+
+    expect(historyProps.drawnPendingItems).toEqual([claim]);
+    const renderClaim = historyProps.renderPendingItem as (item: typeof claim) => React.ReactElement;
+    expect(renderClaim(claim).props.senderName).toBe('Alice');
+    expect(renderClaim({ ...claim, note: claimNote('note-2', 'unknown') }).props.senderName).toBeUndefined();
+
+    contacts.value = [{ address: note.senderAddress!, name: 'Updated name' }];
+    rerender(<ActivityGroupPage kind="dapp" id={initiatingDappOrigin} />);
+    const renderUpdatedClaim = historyProps.renderPendingItem as typeof renderClaim;
+    expect(renderUpdatedClaim(claim).props.senderName).toBe('Updated name');
+  });
+
+  it('redirects a dApp group without its origin', () => {
+    render(<ActivityGroupPage kind="dapp" />);
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history');
+  });
+
   it('opens a group detail using a saved alias without writing settings', () => {
     const savedContacts = contacts.value;
     try {
@@ -350,6 +391,24 @@ describe('ActivityGroupPage', () => {
       expect(historyProps.renderPendingItem).toEqual(expect.any(Function));
     });
 
+    it('draws a claiming card and a failed card on the initiating origin', () => {
+      const origin = 'https://dapp.test:8443';
+      const sender = 'mtst1aliceaddress0000';
+      mockClaims.items = [
+        { note: claimNote('note-claiming', sender), status: 'claiming', txId: 'pending', initiatingDappOrigin: origin },
+        { note: claimNote('note-failed', sender), status: 'failed', txId: 'failed', initiatingDappOrigin: origin },
+        { note: claimNote('note-manual', sender), status: 'claiming', txId: 'manual' }
+      ];
+
+      const { rerender } = render(<ActivityGroupPage kind="dapp" id={origin} />);
+      expect(drawn()).toEqual(['note-claiming', 'note-failed']);
+      expect(represented()).toEqual(['note-claiming', 'note-failed', 'note-manual']);
+
+      rerender(<ActivityGroupPage kind="address" id={sender} />);
+      expect(drawn()).toEqual(['note-manual']);
+      expect(represented()).toEqual(['note-claiming', 'note-failed', 'note-manual']);
+    });
+
     it('draws no card for a claim from another address', () => {
       mockClaims.items = [{ note: claimNote('from-bob', 'mtst1bobaddress'), status: 'pending' }];
       render(<ActivityGroupPage kind="address" id="mtst1aliceaddress0000" />);
@@ -370,6 +429,29 @@ describe('ActivityGroupPage', () => {
 
       render(<ActivityGroupPage kind="address" id={FAUCET} />);
       expect(drawn()).toEqual([]);
+    });
+
+    it('restores a declined failed claim only from its initiating dApp group', () => {
+      const origin = 'https://dapp.test:8443';
+      const sender = 'mtst1aliceaddress0000';
+      mockClaims.items = [
+        {
+          note: claimNote('dapp-failed', sender),
+          status: 'failed',
+          txId: 'dapp-consume',
+          initiatingDappOrigin: origin
+        },
+        { note: claimNote('manual-failed', sender), status: 'failed', txId: 'manual-consume' }
+      ];
+      mockHidden.ids = new Set(['dapp-failed', 'manual-failed']);
+
+      const { rerender } = render(<ActivityGroupPage kind="dapp" id={origin} />);
+      fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+      expect(mockHidden.restore).toHaveBeenNthCalledWith(1, ['dapp-failed']);
+
+      rerender(<ActivityGroupPage kind="address" id={sender} />);
+      fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+      expect(mockHidden.restore).toHaveBeenNthCalledWith(2, ['manual-failed']);
     });
 
     it('counts and restores only the declined claims of this group', () => {
