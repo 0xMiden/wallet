@@ -15,17 +15,20 @@
   },
   // Placeholders. The deploy workflow (deploy-evm-relay.yml) renders a release copy with the real values.
   // GAS_MODE is "sponsor" (the relayer pays the gas) or "deduct" (each batch pays a fixed token fee to feeRecipient).
-  // RELAY_CONFIG is the JSON of the chains: the Calibur pin, the fee recipient, the fees and the allowed targets.
-  // The README gives its shape.
+  // RELAY_CONFIG is JSON: the one Calibur pin of all chains, the optional fee recipient, and the optional `chains`
+  // object with the fees and the allowed targets of a chain. The README gives its shape.
+  // The placeholder pin has a zero runtime hash, which matches no code, so the account read of each chain fails
+  // until a deploy sets the real pin.
   "vars": {
     "ALLOWED_ORIGINS": "[]",
     "DEPLOYMENT_REVISION": "unknown",
     "GAS_MODE": "sponsor",
-    "RELAY_CONFIG": "{\"chains\":{}}"
+    "RELAY_CONFIG": "{\"calibur\":{\"address\":\"0x000000009b1d0af20d8c6d0a44e162d11f9b8f00\",\"runtimeHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"domainName\":\"Calibur\",\"domainVersion\":\"1.0.0\"}}"
   },
   // Secrets. Set them with `wrangler secret put`. Do not put them in vars.
   // RELAYER_PRIVATE_KEY: the key of the relayer account that executes the batches and pays the gas.
-  // RPC_URL_<chainId>: the JSON-RPC URL of each chain in RELAY_CONFIG, for example RPC_URL_8453.
+  // RPC_URL_<chainId>: the JSON-RPC URL of a chain, for example RPC_URL_8453. The Worker serves each chain that has
+  // this secret, and no other chain.
   "ratelimits": [
     // Limits GET /v1/account and GET /v1/relay/{id} per caller IP, on the key `read:<CF-Connecting-IP>`.
     // 189401 to 189404 are taken by the other Workers of the account.

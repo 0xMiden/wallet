@@ -21,17 +21,16 @@ const KEY_ADDRESS = '0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a';
 const RPC_URL = 'https://rpc.example/v2/secret-api-key';
 const SECRET_FRAGMENT = 'secret-api-key';
 
-const chain = (extra = {}) => ({
-  calibur: {
-    address: `0x${'aa'.repeat(20)}`,
-    runtimeHash: `0x${'bb'.repeat(32)}`,
-    domainName: 'Calibur',
-    domainVersion: '1.0.0'
-  },
-  allowedTargets: [`0x${'cc'.repeat(20)}`],
-  ...extra
-});
-const relayConfig = (chains = { 8453: chain() }) => JSON.stringify({ chains });
+const CALIBUR = {
+  address: `0x${'aa'.repeat(20)}`,
+  runtimeHash: `0x${'bb'.repeat(32)}`,
+  domainName: 'Calibur',
+  domainVersion: '1.0.0'
+};
+const FEE_RECIPIENT = `0x${'dd'.repeat(20)}`;
+const chain = (extra = {}) => ({ allowedTargets: [`0x${'cc'.repeat(20)}`], ...extra });
+/** RELAY_CONFIG: one Calibur pin, the chains entries and the top fields of `top`. */
+const relayConfig = (chains = { 8453: chain() }, top = {}) => JSON.stringify({ calibur: CALIBUR, chains, ...top });
 
 const env = (overrides = {}) => ({
   CLOUDFLARE_API_TOKEN: 'token',
@@ -121,12 +120,18 @@ test('refuses a revision that is not a full commit SHA', () => {
   refuses({ DEPLOYMENT_REVISION: 'abc123' }, /DEPLOYMENT_REVISION must be a full commit SHA/);
 });
 
-test('refuses a relay config that is not JSON or names no chain', () => {
+test('reads the chains entries of the relay config, and refuses a config that is not a JSON object', () => {
   assert.deepEqual(configChainIds(relayConfig({ 1: chain(), 8453: chain() })), ['1', '8453']);
+  assert.deepEqual(configChainIds(JSON.stringify({ calibur: CALIBUR })), []);
   refuses({ EVM_RELAY_CONFIG: '{' }, /EVM_RELAY_CONFIG must be JSON/);
-  refuses({ EVM_RELAY_CONFIG: '[]' }, /EVM_RELAY_CONFIG must be an object with chains/);
-  refuses({ EVM_RELAY_CONFIG: '{"chains":[]}' }, /EVM_RELAY_CONFIG must be an object with chains/);
-  refuses({ EVM_RELAY_CONFIG: relayConfig({}) }, /EVM_RELAY_CONFIG must name at least one chain/);
+  refuses({ EVM_RELAY_CONFIG: '[]' }, /EVM_RELAY_CONFIG must be a JSON object/);
+  refuses({ EVM_RELAY_CONFIG: '{"chains":[]}' }, /Worker refuses the release config: RELAY_CONFIG\.calibur is missing/);
+});
+
+test('passes a sponsor config with one Calibur pin and no chains entry: the RPC URLs name the chains', () => {
+  const release = validateRelease(env({ EVM_RELAY_CONFIG: JSON.stringify({ calibur: CALIBUR }) }), worker);
+  assert.deepEqual(release.chainIds, ['8453']);
+  assert.deepEqual(release.secrets, { RELAYER_PRIVATE_KEY: KEY, RPC_URL_8453: RPC_URL });
 });
 
 test("runs the Worker's own parse and reports its path", () => {
@@ -135,10 +140,14 @@ test("runs the Worker's own parse and reports its path", () => {
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.extra is not a known field/
   );
   refuses(
-    { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ calibur: { address: '0x1' } }) }) },
-    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.calibur/
+    { EVM_RELAY_CONFIG: relayConfig({}, { calibur: { address: '0x1' } }) },
+    /Worker refuses the release config: RELAY_CONFIG\.calibur/
   );
-  // The old token policy field is gone: the Worker refuses it.
+  // The old per-chain Calibur pin and the old token policy field are gone: the Worker refuses them.
+  refuses(
+    { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ calibur: CALIBUR }) }) },
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.calibur is not a known field/
+  );
   refuses(
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ tokens: {} }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.tokens is not a known field/
@@ -147,54 +156,56 @@ test("runs the Worker's own parse and reports its path", () => {
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ allowedTargets: [] }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.allowedTargets must be a non-empty array/
   );
-  // Deduct mode needs a fee recipient and at least one fee.
+  // Deduct mode needs a fee recipient and at least one fee on each served chain.
   refuses({ EVM_RELAY_GAS_MODE: 'deduct' }, /Worker refuses the release config: .*feeRecipient is required/);
+  refuses(
+    { EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: relayConfig({ 8453: chain() }, { feeRecipient: FEE_RECIPIENT }) },
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.fees must name a token when GAS_MODE is deduct/
+  );
+  const deduct = chain({ fees: { [`0x${'00'.repeat(20)}`]: '10' } });
+  const deductConfig = relayConfig({ 8453: deduct }, { feeRecipient: FEE_RECIPIENT });
   refuses(
     {
       EVM_RELAY_GAS_MODE: 'deduct',
-      EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ feeRecipient: `0x${'dd'.repeat(20)}` }) })
+      EVM_RELAY_CONFIG: deductConfig,
+      EVM_RELAY_RPC_URLS: JSON.stringify({ 1: 'https://one.example', 8453: RPC_URL })
     },
-    /Worker refuses the release config: .*fees must name a token when GAS_MODE is deduct/
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.1\.fees must name a token when GAS_MODE is deduct/
   );
-  const deduct = chain({
-    feeRecipient: `0x${'dd'.repeat(20)}`,
-    fees: { [`0x${'00'.repeat(20)}`]: '10' }
-  });
-  const release = validateRelease(
-    env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: relayConfig({ 8453: deduct }) }),
-    worker
-  );
+  const release = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: deductConfig }), worker);
   assert.equal(release.vars.GAS_MODE, 'deduct');
 });
 
-test('turns the RPC URL object into one RPC_URL secret per configured chain', () => {
-  assert.deepEqual(
-    rpcSecrets(JSON.stringify({ 1: 'https://one.example', 8453: 'https://base.example/key' }), ['8453', '1']),
-    { RPC_URL_8453: 'https://base.example/key', RPC_URL_1: 'https://one.example' }
-  );
+test('turns the RPC URL object into one RPC_URL secret per served chain', () => {
+  assert.deepEqual(rpcSecrets(JSON.stringify({ 1: 'https://one.example', 8453: 'https://base.example/key' })), {
+    secrets: { RPC_URL_8453: 'https://base.example/key', RPC_URL_1: 'https://one.example' },
+    chainIds: ['1', '8453']
+  });
   const two = validateRelease(
     env({
-      EVM_RELAY_CONFIG: relayConfig({ 1: chain(), 8453: chain() }),
+      EVM_RELAY_CONFIG: relayConfig({ 8453: chain() }),
       EVM_RELAY_RPC_URLS: JSON.stringify({ 1: 'https://one.example', 8453: RPC_URL })
     }),
     worker
   );
   assert.deepEqual(Object.keys(two.secrets).sort(), ['RELAYER_PRIVATE_KEY', 'RPC_URL_1', 'RPC_URL_8453']);
+  assert.deepEqual(two.chainIds, ['1', '8453']);
 });
 
-test('refuses a configured chain with no RPC URL', () => {
+test('refuses RPC URLs that name no chain', () => {
+  refuses({ EVM_RELAY_RPC_URLS: '{}' }, /EVM_RELAY_RPC_URLS must name at least one chain$/);
+});
+
+test('refuses a chains entry for a chain with no RPC URL', () => {
   refuses(
     { EVM_RELAY_CONFIG: relayConfig({ 1: chain(), 8453: chain() }) },
-    /EVM_RELAY_RPC_URLS has no URL for chain 1$/
+    /EVM_RELAY_CONFIG has an entry for chain 1, which EVM_RELAY_RPC_URLS does not name$/
   );
 });
 
-test('refuses an RPC URL for a chain that the config does not name', () => {
-  refuses(
-    { EVM_RELAY_RPC_URLS: JSON.stringify({ 8453: RPC_URL, 10: RPC_URL }) },
-    /EVM_RELAY_RPC_URLS has a URL for chain 10, which EVM_RELAY_CONFIG does not name/
-  );
+test('refuses an RPC URL key that is not a decimal chain id', () => {
   refuses({ EVM_RELAY_RPC_URLS: JSON.stringify({ 8453: RPC_URL, [RPC_URL]: RPC_URL }) }, /not a decimal chain id$/);
+  refuses({ EVM_RELAY_RPC_URLS: JSON.stringify({ '08453': RPC_URL }) }, /not a decimal chain id$/);
 });
 
 test('refuses an RPC URL that is not https, and names no URL', () => {
@@ -225,8 +236,22 @@ test('renders the committed config with an absolute entry and the release variab
   assert.deepEqual(rendered.durable_objects, committed.durable_objects);
   assert.deepEqual(rendered.migrations, committed.migrations);
   assert.equal(rendered.name, committed.name);
-  // The committed object keeps its placeholders.
-  assert.equal(committed.vars.RELAY_CONFIG, '{"chains":{}}');
+  // The committed object keeps its placeholders: one Calibur pin whose zero runtime hash matches no code.
+  assert.deepEqual(JSON.parse(committed.vars.RELAY_CONFIG), {
+    calibur: {
+      address: '0x000000009b1d0af20d8c6d0a44e162d11f9b8f00',
+      runtimeHash: `0x${'00'.repeat(32)}`,
+      domainName: 'Calibur',
+      domainVersion: '1.0.0'
+    }
+  });
+  assert.doesNotThrow(() =>
+    worker.parseConfig({
+      GAS_MODE: committed.vars.GAS_MODE,
+      ALLOWED_ORIGINS: '[]',
+      RELAY_CONFIG: committed.vars.RELAY_CONFIG
+    })
+  );
   assert.ok(!JSON.stringify(rendered).includes(KEY.slice(2)));
   assert.ok(!JSON.stringify(rendered).includes(SECRET_FRAGMENT));
 });

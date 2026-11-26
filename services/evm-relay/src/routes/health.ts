@@ -14,7 +14,7 @@ function configOf(env: Env): RelayConfig | null {
 
 /**
  * True when the variables parse, both rate limit bindings and the Sender binding are present, the relayer key is
- * valid and each configured chain has an RPC URL.
+ * valid and the `RPC_URL_<chainId>` secret of each served chain is an HTTP(S) URL.
  */
 function isReady(env: Env): boolean {
   const config = configOf(env);

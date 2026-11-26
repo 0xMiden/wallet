@@ -28,6 +28,7 @@ export type ErrorCode =
  * The Worker bindings. Wrangler can deploy a Worker without a binding or a variable,
  * so each one is optional and the code checks it. /healthz reports a missing one.
  * The secret `RPC_URL_<chainId>` of each chain has a dynamic name, so it is not a field here: `rpcUrlOf` reads it.
+ * The chains that have this secret are the chains that the Worker serves (`servedChainIds` in config.ts).
  */
 export interface Env {
   /** Per caller IP, on GET /v1/account and GET /v1/relay/{id}. */

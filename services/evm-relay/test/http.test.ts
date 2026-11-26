@@ -114,13 +114,19 @@ describe('health route', () => {
     ['a valid GAS_MODE', { gasMode: 'free' }],
     ['RELAY_CONFIG', { relayConfig: null }],
     ['a valid RELAY_CONFIG', { relayConfig: '{"chains":{"1":{"rpcUrl":"https://secret.example/key"}}}' }],
+    ['a Calibur pin in RELAY_CONFIG', { relayConfig: '{"chains":{}}' }],
     ['the Sender binding', { senderBinding: false }],
     ['RELAYER_PRIVATE_KEY', { relayerKey: null }],
     ['a well-formed RELAYER_PRIVATE_KEY', { relayerKey: '0xsecret' }],
     ['a RELAYER_PRIVATE_KEY of 64 hex characters', { relayerKey: `0x${'1'.repeat(63)}` }],
     ['a RELAYER_PRIVATE_KEY that is a valid scalar', { relayerKey: `0x${'0'.repeat(64)}` }],
-    ['the RPC URL of a configured chain', { relayConfig: oneChainConfig() }],
-    ['a valid RPC URL', { relayConfig: oneChainConfig(), rpcUrls: { '8453': 'ftp://secret.example' } }]
+    ['a valid RPC URL', { relayConfig: oneChainConfig(), rpcUrls: { '8453': 'ftp://secret.example' } }],
+    ['a valid RPC URL of a chain without an entry', { rpcUrls: { '10': 'not a url secret' } }],
+    ['a chain id in each RPC_URL_ secret', { rpcUrls: { '8453': 'https://secret.example', '': 'https://secret.x' } }],
+    [
+      'a fee for each served chain in deduct mode',
+      { gasMode: 'deduct', relayConfig: oneChainConfig(), chains: [8453, 1] }
+    ]
   ])('answers 503 with ok false and no config value without %s', async (_name, options) => {
     const response = await send(createHarness(options), '/healthz');
     expect(response.status).toBe(503);
@@ -129,11 +135,19 @@ describe('health route', () => {
     expect(text).not.toContain('secret');
   });
 
-  it('answers 200 when each configured chain has an RPC URL', async () => {
+  it('answers 200 when each served chain has a valid RPC URL', async () => {
     const harness = createHarness({ relayConfig: oneChainConfig(), rpcUrls: { '8453': 'https://secret.example/key' } });
     const text = await (await send(harness, '/healthz')).text();
     expect(JSON.parse(text)).toEqual({ ok: true, revision: 'test-revision' });
     expect(text).not.toContain('secret');
+  });
+
+  it.each([
+    ['a served chain without a chains entry', { rpcUrls: { '10': 'https://secret.example/key' } }],
+    ['a chains entry of a chain without an RPC URL', { relayConfig: oneChainConfig() }]
+  ])('answers 200 for %s', async (_name, options) => {
+    const response = await send(createHarness(options), '/healthz');
+    expect(response.status).toBe(200);
   });
 
   it('marks every JSON response private and no-store', async () => {

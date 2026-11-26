@@ -16,6 +16,7 @@ import {
   bodyOf,
   chainEntry,
   createHarness,
+  relayConfigOf,
   relayState,
   send,
   transactionSigner,
@@ -53,10 +54,12 @@ const CURVE_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0
 const STRANGER: Hex = `0x${'5c'.repeat(20)}`;
 const OTHER_TOKEN: Hex = `0x${'bb'.repeat(20)}`;
 
+/** The chains that the tests serve: each one has an RPC URL. */
+const CHAINS = [8453, 1];
 /** Chain 8453 allows any target. */
-const OPEN_CONFIG = JSON.stringify({ chains: { '8453': chainEntry(), '1': chainEntry() } });
+const OPEN_CONFIG = relayConfigOf({ '8453': chainEntry(), '1': chainEntry() });
 /** Chain 8453 allows only the bridge target and USDC. */
-const TARGETED_CONFIG = JSON.stringify({ chains: { '8453': chainEntry({ allowedTargets: [TARGET, USDC] }) } });
+const TARGETED_CONFIG = relayConfigOf({ '8453': chainEntry({ allowedTargets: [TARGET, USDC] }), '1': chainEntry() });
 
 /** The calls that a bridge flow asks the wallet to send: an approval of USDC, then the bridge call. */
 const APPROVE: BatchCall = {
@@ -144,7 +147,7 @@ async function authorizationOf(
 }
 
 function harnessFor(gasMode = 'sponsor', relayConfig = OPEN_CONFIG): Harness {
-  return createHarness({ gasMode, relayConfig });
+  return createHarness({ gasMode, relayConfig, chains: CHAINS });
 }
 
 function post(harness: Harness, body: unknown, headers: Record<string, string> = CALLER): Promise<Response> {
@@ -437,7 +440,7 @@ describe('POST /v1/relay', () => {
   });
 
   it('answers 503 when the relayer key is missing', async () => {
-    const harness = createHarness({ relayConfig: OPEN_CONFIG, relayerKey: null });
+    const harness = createHarness({ relayConfig: OPEN_CONFIG, chains: CHAINS, relayerKey: null });
     const response = await post(harness, (await signed()).body);
     expect(response.status).toBe(503);
     expect((await bodyOf(response)).error).toBe('service_unavailable');
@@ -468,7 +471,7 @@ describe('POST /v1/relay allowed targets', () => {
   });
 
   it('exempts the fee call when the fee token is not an allowed target', async () => {
-    const config = JSON.stringify({ chains: { '8453': chainEntry({ allowedTargets: [TARGET] }) } });
+    const config = relayConfigOf({ '8453': chainEntry({ allowedTargets: [TARGET] }), '1': chainEntry() });
     const harness = harnessFor('deduct', config);
     expect((await post(harness, (await signed({ calls: [BRIDGE_CALL, USDC_FEE] })).body)).status).toBe(200);
   });

@@ -68,13 +68,14 @@ export function checkGasMode(value) {
   }
 }
 
-/** The decimal chain ids of RELAY_CONFIG. It must name at least one chain. */
+/**
+ * The keys of the optional `chains` object of RELAY_CONFIG: the chains that have fees or allowed targets. It can be
+ * empty. The Worker's parse checks each key and value.
+ */
 export function configChainIds(relayConfig) {
   const value = parseVariable(relayConfig, 'EVM_RELAY_CONFIG');
-  if (!record(value) || !record(value.chains)) throw new Error('EVM_RELAY_CONFIG must be an object with chains');
-  const chainIds = Object.keys(value.chains);
-  if (!chainIds.length) throw new Error('EVM_RELAY_CONFIG must name at least one chain');
-  return chainIds;
+  if (!record(value)) throw new Error('EVM_RELAY_CONFIG must be a JSON object');
+  return record(value.chains) ? Object.keys(value.chains) : [];
 }
 
 /** True for an `https:` URL with a host. */
@@ -89,11 +90,11 @@ function isHttpsUrl(value) {
 }
 
 /**
- * The `RPC_URL_<chainId>` secrets from the JSON object `{ "<chainId>": "<url>" }`. Every config chain needs an https
- * URL, and every URL needs a config chain. A message names a chain id at most, never a URL or a key that is not a
- * chain id.
+ * The `RPC_URL_<chainId>` secrets from the JSON object `{ "<chainId>": "<url>" }`. Its chains are the chains that the
+ * Worker serves, so it must name at least one chain, and each URL must be https. A message names a chain id at most,
+ * never a URL or a key that is not a chain id. Returns the secrets and the chain ids in the order of the object.
  */
-export function rpcSecrets(rpcUrls, chainIds) {
+export function rpcSecrets(rpcUrls) {
   let value;
   try {
     value = JSON.parse(rpcUrls);
@@ -102,20 +103,15 @@ export function rpcSecrets(rpcUrls, chainIds) {
     throw new Error('EVM_RELAY_RPC_URLS must be a JSON object of chain id to URL');
   }
   if (!record(value)) throw new Error('EVM_RELAY_RPC_URLS must be a JSON object of chain id to URL');
-  const configured = new Set(chainIds);
-  for (const key of Object.keys(value)) {
-    if (!CHAIN_ID.test(key)) throw new Error('EVM_RELAY_RPC_URLS has a key that is not a decimal chain id');
-    if (!configured.has(key)) {
-      throw new Error(`EVM_RELAY_RPC_URLS has a URL for chain ${key}, which EVM_RELAY_CONFIG does not name`);
-    }
-  }
+  const chainIds = Object.keys(value);
+  if (!chainIds.length) throw new Error('EVM_RELAY_RPC_URLS must name at least one chain');
   const secrets = {};
   for (const chainId of chainIds) {
-    if (!Object.hasOwn(value, chainId)) throw new Error(`EVM_RELAY_RPC_URLS has no URL for chain ${chainId}`);
+    if (!CHAIN_ID.test(chainId)) throw new Error('EVM_RELAY_RPC_URLS has a key that is not a decimal chain id');
     if (!isHttpsUrl(value[chainId])) throw new Error(`EVM_RELAY_RPC_URLS must give an https URL for chain ${chainId}`);
     secrets[`RPC_URL_${chainId}`] = value[chainId];
   }
-  return secrets;
+  return { secrets, chainIds };
 }
 
 /**
@@ -141,7 +137,9 @@ export function validateRelease(env, worker) {
     throw new Error('EVM_RELAY_URL must be an https URL with no credentials, query, fragment or trailing slash');
   }
   if (!REVISION.test(env.DEPLOYMENT_REVISION)) throw new Error('DEPLOYMENT_REVISION must be a full commit SHA');
-  const chainIds = configChainIds(env.EVM_RELAY_CONFIG);
+  // The chains of the RPC URLs are the chains that the Worker serves.
+  const rpc = rpcSecrets(env.EVM_RELAY_RPC_URLS);
+  const entryChainIds = configChainIds(env.EVM_RELAY_CONFIG);
 
   const vars = {
     ALLOWED_ORIGINS: env.EVM_RELAY_ALLOWED_ORIGINS,
@@ -150,19 +148,25 @@ export function validateRelease(env, worker) {
     RELAY_CONFIG: env.EVM_RELAY_CONFIG
   };
   try {
-    worker.parseConfig(vars);
+    // The Worker reads its served chains from the RPC_URL_<chainId> keys, so the parse gets them too.
+    worker.parseConfig({ ...vars, ...rpc.secrets });
   } catch (error) {
-    // The Worker's messages name a variable path and a rule. No variable is a secret.
+    // The Worker's messages name a variable path and a rule, never a secret key or value.
     const reason = error instanceof Error ? error.message : 'unknown error';
     throw new Error(`The Worker refuses the release config: ${reason}`);
   }
+  // The Worker ignores the entry of a chain that it does not serve. Here it is an error: the key can be a mistake,
+  // and then the chain that the entry is for has no fee and no target list.
+  const served = new Set(rpc.chainIds);
+  for (const chainId of entryChainIds) {
+    if (!served.has(chainId)) {
+      throw new Error(`EVM_RELAY_CONFIG has an entry for chain ${chainId}, which EVM_RELAY_RPC_URLS does not name`);
+    }
+  }
   const executor = worker.relayerAddress({ RELAYER_PRIVATE_KEY: env.EVM_RELAY_RELAYER_PRIVATE_KEY });
   if (executor === null) throw new Error('EVM_RELAY_RELAYER_PRIVATE_KEY is not a valid secp256k1 private key');
-  const secrets = {
-    RELAYER_PRIVATE_KEY: env.EVM_RELAY_RELAYER_PRIVATE_KEY,
-    ...rpcSecrets(env.EVM_RELAY_RPC_URLS, chainIds)
-  };
-  return { vars, secrets, executor, chainIds };
+  const secrets = { RELAYER_PRIVATE_KEY: env.EVM_RELAY_RELAYER_PRIVATE_KEY, ...rpc.secrets };
+  return { vars, secrets, executor, chainIds: rpc.chainIds };
 }
 
 /** Read wrangler.jsonc. Its comments are whole lines. */

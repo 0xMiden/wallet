@@ -13,6 +13,7 @@ import {
   chainEntry,
   createHarness,
   readState,
+  relayConfigOf,
   send,
   type Harness
 } from './harness';
@@ -23,12 +24,12 @@ const MIXED_CASE_ADDRESS = `0x${'1A'.repeat(20)}`;
 const CALLER = { 'CF-Connecting-IP': '203.0.113.7' };
 const SALT = `0x${'00'.repeat(12)}${'ca'.repeat(20)}`;
 const OTHER_TARGET = `0x${'3b'.repeat(20)}`;
-const CONFIG = JSON.stringify({
-  chains: { '8453': chainEntry(), '1': chainEntry({ allowedTargets: [TARGET, OTHER_TARGET] }) }
-});
+const CONFIG = relayConfigOf({ '8453': chainEntry(), '1': chainEntry({ allowedTargets: [TARGET, OTHER_TARGET] }) });
+/** The chains that the tests serve: each one has an RPC URL. */
+const CHAINS = [8453, 1];
 
 function harnessFor(gasMode = 'sponsor'): Harness {
-  const harness = createHarness({ gasMode, relayConfig: CONFIG });
+  const harness = createHarness({ gasMode, relayConfig: CONFIG, chains: CHAINS });
   harness.reader.state = readState({ balances: [2_500_000n, 100n], sequence: 9n });
   return harness;
 }
@@ -85,6 +86,25 @@ describe('GET /v1/account', () => {
     harness.reader.state = readState();
     const body = await bodyOf(await send(harness, accountPath('1', ADDRESS)));
     expect(body.allowedTargets).toEqual([TARGET, OTHER_TARGET]);
+  });
+
+  it('serves a chain that has an RPC URL and no chains entry, with no target list and no fee', async () => {
+    const harness = createHarness({ relayConfig: relayConfigOf(), chains: [10] });
+    const response = await send(harness, accountPath('10', ADDRESS));
+    expect(response.status).toBe(200);
+    const body = await bodyOf(response);
+    expect(body.chainId).toBe(10);
+    expect(body.allowedTargets).toBeNull();
+    expect(body.fees).toEqual([]);
+    expect(harness.reader.calls).toEqual([{ chainId: 10, address: ADDRESS, tokens: [] }]);
+  });
+
+  it('refuses a chain that has a chains entry and no RPC URL as unsupported', async () => {
+    const harness = createHarness({ relayConfig: CONFIG, chains: [8453] });
+    const response = await send(harness, accountPath('1', ADDRESS));
+    expect(response.status).toBe(400);
+    expect((await bodyOf(response)).error).toBe('unsupported_chain');
+    expect(harness.reader.calls).toEqual([]);
   });
 
   it('answers no balance and reads no token without a tokens parameter', async () => {
@@ -197,12 +217,21 @@ describe('GET /v1/account', () => {
   });
 
   it.each([
-    ['RELAYER_PRIVATE_KEY is missing', createHarness({ relayConfig: CONFIG, relayerKey: null })],
-    ['RELAY_CONFIG does not parse', createHarness({ relayConfig: '{}' })],
+    ['RELAYER_PRIVATE_KEY is missing', createHarness({ relayConfig: CONFIG, chains: CHAINS, relayerKey: null })],
+    ['RELAY_CONFIG does not parse', createHarness({ relayConfig: '{}', chains: CHAINS })],
     [
       'RELAY_CONFIG has the old tokens field',
-      createHarness({ relayConfig: JSON.stringify({ chains: { '8453': chainEntry({ tokens: {} }) } }) })
-    ]
+      createHarness({ relayConfig: relayConfigOf({ '8453': chainEntry({ tokens: {} }) }), chains: CHAINS })
+    ],
+    [
+      'RELAY_CONFIG has the old per-chain Calibur pin',
+      createHarness({ relayConfig: relayConfigOf({ '8453': chainEntry({ calibur: {} }) }), chains: CHAINS })
+    ],
+    [
+      'GAS_MODE is deduct and a served chain has no fees',
+      createHarness({ gasMode: 'deduct', relayConfig: relayConfigOf({ '8453': chainEntry() }), chains: CHAINS })
+    ],
+    ['an RPC_URL_ secret does not name a chain id', createHarness({ relayConfig: CONFIG, rpcUrls: { base: 'x' } })]
   ])('answers 503 when %s', async (_name, harness) => {
     const response = await send(harness, accountPath('8453', ADDRESS));
     expect(response.status).toBe(503);
