@@ -10401,6 +10401,91 @@
     "message": "Assistant Bread",
     "englishSource": "Bread Assistant"
   },
+  "commandAiHelpBrowse": {
+    "message": "Questions sur Bread",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "En savoir plus",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Comment fonctionne Miden ?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Quel est le niveau de confidentialité ?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Comment puis-je vérifier ce qui relève de la vie privée ?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "Qu’est-ce que le « bridging » ?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "Que sont les notes ?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Pourquoi dois-je accepter les virements ?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Pourquoi un virement est-il toujours en attente ?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "Que se passe-t-il si je refuse un virement ?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Pourquoi ai-je besoin d’USDCX pour payer les frais ?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "Que se passe-t-il si je perds mon appareil ?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "Quelle est la différence entre le mainnet et le testnet ?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Que voit Bread Assistant ?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Comment assurer ma sécurité ?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Que puis-je faire sur Bread ?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread transmet votre question à son service d’IA après avoir supprimé certains détails. Ne mentionnez pas vos mots de passe ni vos phrases de récupération dans le chat.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Ne communiquez jamais vos mots de passe, clés privées et phrases de récupération dans les discussions.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Raccourcissez votre message à $limit$ caractères ou moins.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Politique de confidentialité de Bridge",
+    "englishSource": "Bridge privacy policy"
+  },
   "commandAiPlanTitle": {
     "message": "Plan d’action",
     "englishSource": "Action plan"

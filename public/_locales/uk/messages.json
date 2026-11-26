@@ -10399,6 +10399,91 @@
     "message": "Bread Assistant",
     "englishSource": "Bread Assistant"
   },
+  "commandAiHelpBrowse": {
+    "message": "Питання про Bread",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "Читати далі",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Як працює Miden?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Наскільки це конфіденційно?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Як перевірити, що є приватним?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "Що таке «бріджинг»?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "Що таке notes?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Чому я мушу приймати перекази?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Чому переказ досі перебуває в стані очікування?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "Що станеться, якщо я відхилю переказ?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Навіщо мені потрібні USDCX для сплати комісій?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "Що робити, якщо я втрачу свій пристрій?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "У чому полягає різниця між мейннетом і тестнетом?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Що бачить Bread Assistant?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Як забезпечити свою безпеку?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Що я можу робити в Bread?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread надсилає ваше запитання до своєї служби штучного інтелекту після видалення деяких деталей. Не вказуйте паролі та фрази для відновлення в чаті.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Не вказуйте паролі, приватні ключі та фрази для відновлення в чаті.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Скоротіть своє повідомлення до $limit$ символів або менше.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Політика конфіденційності Bridge",
+    "englishSource": "Bridge privacy policy"
+  },
   "commandAiPlanTitle": {
     "message": "План дій",
     "englishSource": "Action plan"

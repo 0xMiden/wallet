@@ -1,10 +1,10 @@
 /** @jest-environment node */
 import type { AssetAmount, ViewNote } from 'app/confirm/decode';
-import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { ITransactionStatus, RegisterNameTransaction, type ITransaction } from 'lib/miden/db/types';
 import { canonicalFeeSponsorshipNoteId } from 'lib/miden/sdk/fee-sponsorship';
 
 import { currentUsdcxFeeScope } from './fee-scope';
-import { partitionApprovedUsdcxSponsorship, usdcxSponsorshipApprovalOf } from './sponsorship';
+import { partitionApprovedSponsorship, sponsorshipApprovalOf } from './sponsorship';
 
 let mockScope = 'rpc-a|testnet';
 let mockNative: string | null = 'bech32:usdcx';
@@ -44,7 +44,7 @@ const burn: ViewNote = { id: 'burn', amounts: [{ faucetId: 'bech32:usdcx', amoun
 const sponsor: ViewNote = { id: 'sponsor', amounts: [{ faucetId: 'bech32:usdcx', amount: 119n }], nfts: [] };
 const kernel: AssetAmount = { faucetId: 'bech32:usdcx', amount: 119n };
 const partition = (notes = [burn, sponsor], fee: AssetAmount | undefined = kernel, maximum = '300') =>
-  partitionApprovedUsdcxSponsorship(notes, fee, usdcxSponsorshipApprovalOf(row(maximum)));
+  partitionApprovedSponsorship(notes, fee, sponsorshipApprovalOf(row(maximum)));
 
 beforeEach(() => {
   mockScope = 'rpc-a|testnet';
@@ -71,12 +71,12 @@ test('excludes only the exact canonical companion and records both native fees',
 });
 
 test('counts sponsorship even without an ordinary verification fee', () => {
-  const result = partitionApprovedUsdcxSponsorship([burn, sponsor], undefined, usdcxSponsorshipApprovalOf(row('119')));
+  const result = partitionApprovedSponsorship([burn, sponsor], undefined, sponsorshipApprovalOf(row('119')));
   expect(result).toEqual({ createdNotes: [burn], fee: kernel });
 });
 
 test('permits a genuinely free burn with a zero cap', () => {
-  expect(partitionApprovedUsdcxSponsorship([burn], undefined, usdcxSponsorshipApprovalOf(row('0')))).toEqual({
+  expect(partitionApprovedSponsorship([burn], undefined, sponsorshipApprovalOf(row('0')))).toEqual({
     createdNotes: [burn],
     fee: undefined
   });
@@ -117,16 +117,16 @@ test('leaves opaque, NFT, wrong-asset and malformed-amount notes visible to the 
 });
 
 test('does not apply this exception to other transaction types or unapproved notes', () => {
-  expect(usdcxSponsorshipApprovalOf({ ...row(), type: 'send' })).toBeUndefined();
-  expect(usdcxSponsorshipApprovalOf({ ...row(), approvedOutputNoteIds: [] })).toBeUndefined();
-  expect(partitionApprovedUsdcxSponsorship([burn, sponsor], kernel, undefined)).toEqual({
+  expect(sponsorshipApprovalOf({ ...row(), type: 'send' })).toBeUndefined();
+  expect(sponsorshipApprovalOf({ ...row(), approvedOutputNoteIds: [] })).toBeUndefined();
+  expect(partitionApprovedSponsorship([burn, sponsor], kernel, undefined)).toEqual({
     createdNotes: [burn, sponsor],
     fee: kernel
   });
 });
 
 test.each(['', '-1', '1.5', 'NaN', '0002', '99999999999999999999'])('refuses malformed budget %s', maximum => {
-  expect(() => usdcxSponsorshipApprovalOf(row(maximum))).toThrow();
+  expect(() => sponsorshipApprovalOf(row(maximum))).toThrow();
 });
 
 test('requires the recorded approval and authoritative native identity in the current source scope', () => {
@@ -134,17 +134,17 @@ test('requires the recorded approval and authoritative native identity in the cu
   const metadata = tx.extraInputs?.usdcxBurn;
   if (!metadata) throw new Error('missing test burn');
   Reflect.deleteProperty(metadata, 'networkFeeBudget');
-  expect(() => usdcxSponsorshipApprovalOf(tx)).toThrow();
+  expect(() => sponsorshipApprovalOf(tx)).toThrow();
   mockScope = 'rpc-b|testnet';
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockScope = 'rpc-a|testnet';
   mockNative = null;
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockNative = 'other';
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
   mockNative = 'bech32:usdcx';
   mockSynced = null;
-  expect(() => usdcxSponsorshipApprovalOf(row())).toThrow();
+  expect(() => sponsorshipApprovalOf(row())).toThrow();
 });
 
 test('refuses a kernel fee in an asset outside the reviewed native budget', () => {
@@ -157,4 +157,89 @@ test('propagates a cryptographic WASM trap rather than forgiving the companion',
     throw trap;
   });
   expect(() => partition()).toThrow(trap);
+});
+
+describe('register-name sponsorship', () => {
+  const registerRow = (networkFeeBaseUnits = 210n): RegisterNameTransaction =>
+    new RegisterNameTransaction({
+      accountId: 'acct',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'bech32:payment',
+      registryAccountId: 'bech32:registry',
+      priceBaseUnits: 20_000_000n,
+      networkFeeBaseUnits,
+      requestBytes: new Uint8Array([1, 2, 3]),
+      registrationNoteId: 'reg-note',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000
+    });
+  const regNote: ViewNote = {
+    id: 'reg-note',
+    amounts: [{ faucetId: 'bech32:payment', amount: 20_000_000n }],
+    nfts: []
+  };
+  const regSponsor = (amount = 210n): ViewNote => ({
+    id: 'sponsor',
+    amounts: [{ faucetId: 'bech32:usdcx', amount }],
+    nfts: []
+  });
+  const bigKernel: AssetAmount = { faucetId: 'bech32:usdcx', amount: 5000n };
+
+  test('partitions canonical companion targeted at secondaryAccountId without capping kernel 0xfee', () => {
+    const approval = sponsorshipApprovalOf(registerRow(210n));
+    expect(partitionApprovedSponsorship([regNote, regSponsor(210n)], bigKernel, approval)).toEqual({
+      createdNotes: [regNote],
+      fee: { faucetId: 'bech32:usdcx', amount: 5210n }
+    });
+    expect(canonicalFeeSponsorshipNoteId).toHaveBeenCalledWith(
+      {
+        senderAccountId: 'acct',
+        targetAccountId: 'hex:registry',
+        featureNoteId: 'reg-note',
+        feeFaucetId: 'hex:usdcx'
+      },
+      210n
+    );
+  });
+
+  test('permits an uncapped kernel 0xfee even when networkFeeBaseUnits is zero and no companion exists', () => {
+    const approval = sponsorshipApprovalOf(registerRow(0n));
+    expect(partitionApprovedSponsorship([regNote], bigKernel, approval)).toEqual({
+      createdNotes: [regNote],
+      fee: bigKernel
+    });
+  });
+
+  test('refuses a canonical companion above networkFeeBaseUnits', () => {
+    const approval = sponsorshipApprovalOf(registerRow(210n));
+    expect(() => partitionApprovedSponsorship([regNote, regSponsor(211n)], bigKernel, approval)).toThrow('budget');
+  });
+
+  test('leaves an unrecognized or wrong-faucet companion note visible to the effect guard', () => {
+    const approval = sponsorshipApprovalOf(registerRow(210n));
+    const wrongTarget: ViewNote = { ...regSponsor(210n), id: 'wrong-target' };
+    const wrongFaucet: ViewNote = { id: 'sponsor', amounts: [{ faucetId: 'bech32:payment', amount: 210n }], nfts: [] };
+    expect(partitionApprovedSponsorship([regNote, wrongTarget], bigKernel, approval)).toEqual({
+      createdNotes: [regNote, wrongTarget],
+      fee: bigKernel
+    });
+    expect(partitionApprovedSponsorship([regNote, wrongFaucet], bigKernel, approval)).toEqual({
+      createdNotes: [regNote, wrongFaucet],
+      fee: bigKernel
+    });
+  });
+
+  test('requires matching registration metadata, secondaryAccountId, and current native faucet', () => {
+    const tx = registerRow();
+    expect(() => sponsorshipApprovalOf({ ...tx, secondaryAccountId: '' })).toThrow();
+    expect(() =>
+      sponsorshipApprovalOf({ ...tx, extraInputs: { ...tx.extraInputs, registrationNoteId: 'other-note' } })
+    ).toThrow();
+    expect(() =>
+      sponsorshipApprovalOf({ ...tx, extraInputs: { ...tx.extraInputs, networkFeeBaseUnits: '-1' } })
+    ).toThrow();
+    mockNative = null;
+    expect(() => sponsorshipApprovalOf(tx)).toThrow();
+  });
 });

@@ -776,3 +776,79 @@ describe('known quoteless NEAR preflight stop', () => {
     expect(source.indexOf("id === '45334301017'")).toBeLessThan(source.indexOf('else if (auditRunId)'));
   });
 });
+
+describe('known quoteless NEAR preflight stop of the 11-26 dispatch', () => {
+  const digest = '5a43f5726982251d4b1af16d3e0798ca5e01308200f89c184f3ce4d44db0d0bc';
+  const now = Date.parse('2026-11-26T14:00:00Z');
+  const run = () => ({
+    id: 45828549283,
+    repository: { id: 853430876 },
+    workflow_id: 391951744,
+    head_sha: '10c538abe3a97b93ee8342c5e0f248e8508db5c1',
+    head_branch: 'main',
+    event: 'workflow_dispatch',
+    run_attempt: 1,
+    status: 'completed',
+    conclusion: 'failure'
+  });
+  const stopJobs = () => ({
+    jobs: [
+      {
+        name: 'Chrome mainnet round trip',
+        status: 'completed',
+        conclusion: 'failure',
+        steps: [
+          ['Prepare mainnet NEAR loop', 'success'],
+          ['Upload native NEAR read-only preflight', 'success'],
+          ['Run mainnet near forward', 'success'],
+          ['Upload NEAR native forward authority', 'failure'],
+          ['Verify no new provider principal remains unresolved', 'failure'],
+          ['Wait for mainnet NEAR forward', 'skipped'],
+          ['Run mainnet near reverse', 'skipped'],
+          ['Upload NEAR reverse authority', 'skipped'],
+          ['Upload mainnet near signed EVM 1', 'skipped'],
+          ['Upload mainnet near native return claim', 'skipped'],
+          ['Upload mainnet near signed EVM 1', 'skipped'],
+          ['Upload mainnet near native return claim', 'skipped'],
+          ['Authorize original near return claim', 'skipped'],
+          ['Authorize original near refund', 'skipped'],
+          ['Wait for mainnet NEAR return', 'skipped'],
+          ['Retain mainnet NEAR checkpoint', 'success']
+        ].map(([name, conclusion]) => ({ name, status: 'completed', conclusion }))
+      }
+    ]
+  });
+  it('recognizes only the exact checkpoint of the failed 11-26 dispatch after its live window expired', () => {
+    expect(knownUnspentNearPreflight(digest, run(), stopJobs(), now)).toBe(true);
+  });
+  it.each([
+    { id: 45828549284 },
+    { repository: { id: 1 } },
+    { head_sha: 'a'.repeat(40) },
+    { head_branch: 'wiktor/other' },
+    { event: 'schedule' },
+    { run_attempt: 2 },
+    { conclusion: 'success' },
+    { workflow_id: 1 },
+    { status: 'in_progress' }
+  ])('rejects changed provenance %j', changed => {
+    expect(knownUnspentNearPreflight(digest, { ...run(), ...changed }, stopJobs(), now)).toBe(false);
+  });
+  it('rejects another checkpoint, the earlier pin digest, a live window, or later provider execution', () => {
+    expect(knownUnspentNearPreflight('b'.repeat(64), run(), stopJobs(), now)).toBe(false);
+    const earlierDigest = '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366';
+    expect(knownUnspentNearPreflight(earlierDigest, run(), stopJobs(), now)).toBe(false);
+    expect(knownUnspentNearPreflight(digest, run(), stopJobs(), Date.parse('2026-11-26T13:46:00Z'))).toBe(false);
+    const later = stopJobs();
+    later.jobs[0]!.steps[3]!.conclusion = 'success';
+    expect(knownUnspentNearPreflight(digest, run(), later, now)).toBe(false);
+  });
+  it('never lets the earlier pin excuse this run or this pin excuse the earlier run', () => {
+    expect(knownUnspentNearPreflight(digest, { ...run(), id: 45334301017 }, stopJobs(), now)).toBe(false);
+  });
+  it('source guard: this run is checked before the audited-run table in the script entry point', () => {
+    const source = readFileSync(resolve(__dirname, 'mainnet-swap-artifacts.mjs'), 'utf8');
+    expect(source.indexOf("id === '45828549283'")).toBeGreaterThan(0);
+    expect(source.indexOf("id === '45828549283'")).toBeLessThan(source.indexOf('else if (auditRunId)'));
+  });
+});

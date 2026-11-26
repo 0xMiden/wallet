@@ -4,8 +4,8 @@ import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { WaveDots } from 'components/ui';
 import { CommandAiClientError, compileCommandPrompt, type CommandAiErrorCode } from 'lib/command-ai/client';
+import { COMMAND_HELP_TOPICS, containsCommandSecret } from 'lib/command-ai/help';
 import { executeLocalLedgerQuery, type LocalQueryResult } from 'lib/command-ai/local-query';
 import {
   applyChipSelection,
@@ -24,6 +24,7 @@ import {
   type RedactedKind,
   type RedactionMap
 } from 'lib/command-ai/redactor';
+import { COMMAND_AI_MAX_TEXT_CHARS, commandHelpTopicIds, type AiCompilerOutput } from 'lib/command-ai/schema';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import type { TokenPrices } from 'lib/prices';
@@ -45,7 +46,6 @@ type BarTurn = {
 
 type AiBarState =
   | { kind: 'idle' }
-  | { kind: 'compiling'; redactedKinds: RedactedKind[] }
   | {
       kind: 'clarifying';
       slot: string;
@@ -88,6 +88,7 @@ function AnswerCardShell({
   title,
   redactedKinds,
   onDismiss,
+  dismissDisabled,
   tone = 'default',
   children
 }: {
@@ -99,6 +100,7 @@ function AnswerCardShell({
   title: string;
   redactedKinds?: RedactedKind[];
   onDismiss: () => void;
+  dismissDisabled?: boolean;
   tone?: 'default' | 'accent' | 'error';
   children: React.ReactNode;
 }): React.ReactElement {
@@ -146,10 +148,11 @@ function AnswerCardShell({
             <button
               type="button"
               onClick={onDismiss}
+              disabled={dismissDisabled}
               aria-label={t('close')}
               className="grid size-8 shrink-0 place-items-center rounded-full border border-hairline bg-page/70 text-muted transition-colors hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
             >
-              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
+              <Icon name={IconName.Close} size="xs" fill="currentColor" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -245,7 +248,17 @@ export function CommandAiBar({
   const [expanded, setExpanded] = useState(false);
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState<AiBarState>({ kind: 'idle' });
-  useUserVisibleError(state.kind === 'error' ? 'raw_command_ai_failed' : null, 'inline');
+  const [pendingKinds, setPendingKinds] = useState<RedactedKind[] | null>(null);
+  const [helpAnswer, setHelpAnswer] = useState<Extract<AiCompilerOutput, { op: 'explain' }> | 'topics' | null>(null);
+  const plan = planCtx?.plan;
+  const [requestFailure, setRequestFailure] = useState<{
+    error: Extract<AiBarState, { kind: 'error' }>;
+    state: AiBarState;
+    plan: typeof plan;
+  } | null>(null);
+  const requestError = requestFailure?.state === state && requestFailure.plan === plan ? requestFailure.error : null;
+  const errorState = requestError ?? (state.kind === 'error' ? state : null);
+  useUserVisibleError(errorState ? 'raw_command_ai_failed' : null, 'inline');
   const [turns, setTurns] = useState<BarTurn[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
 
@@ -330,12 +343,13 @@ export function CommandAiBar({
   const dismiss = useCallback(() => {
     activeAbortRef.current?.abort();
     activeAbortRef.current = null;
+    setPendingKinds(null);
     setState({ kind: 'idle' });
   }, []);
 
   const handleChipClick = useCallback(
     (chip: ClarificationChip) => {
-      if (state.kind !== 'clarifying') return;
+      if (state.kind !== 'clarifying' || pendingKinds !== null) return;
       const nextResolution = applyChipSelection(
         {
           kind: 'clarifying',
@@ -352,17 +366,36 @@ export function CommandAiBar({
       );
       applyResolution(nextResolution, state.redactedKinds);
     },
-    [state, getWalletContext, applyResolution]
+    [state, pendingKinds, getWalletContext, applyResolution]
   );
 
-  const handleSubmit = useCallback(
-    async (event?: React.FormEvent) => {
-      event?.preventDefault();
-      const raw = input.trim();
-      if (!raw || state.kind === 'compiling') return;
+  const submitPrompt = useCallback(
+    async (prompt: string, topic?: keyof typeof COMMAND_HELP_TOPICS) => {
+      if (!prompt || activeAbortRef.current) return;
+      const helpOnly = topic !== undefined;
+      const setRequestError = (error: Extract<AiBarState, { kind: 'error' }> | null) => {
+        const nextState: AiBarState = error && state.kind === 'error' ? { kind: 'idle' } : state;
+        if (nextState !== state) setState(nextState);
+        setRequestFailure(error && { error, state: nextState, plan: planCtx?.plan });
+      };
+      if (prompt.length > COMMAND_AI_MAX_TEXT_CHARS) {
+        setRequestError({
+          kind: 'error',
+          messageKey: 'commandAiInputTooLong',
+          messageParams: { limit: String(COMMAND_AI_MAX_TEXT_CHARS) },
+          redactedKinds: []
+        });
+        return;
+      }
+      const raw = prompt.trim();
+      if (!raw) return;
+      if (containsCommandSecret(raw)) {
+        setRequestError({ kind: 'error', messageKey: 'commandAiHelpSecret', redactedKinds: [] });
+        setInput('');
+        return;
+      }
 
       const previousClarifying = state.kind === 'clarifying' ? state : undefined;
-      activeAbortRef.current?.abort();
       const controller = new AbortController();
       activeAbortRef.current = controller;
 
@@ -371,25 +404,49 @@ export function CommandAiBar({
       const redactedKinds = redaction.redactedTokensSummary;
 
       setTurns(prev => [...prev.slice(-7), { id: `u-${Date.now()}`, role: 'user', text: raw }]);
-      setState({ kind: 'compiling', redactedKinds });
+      setPendingKinds(redactedKinds);
 
       try {
-        const snapshot = previousClarifying
-          ? createClarificationSnapshot(
-              previousClarifying.draft,
-              previousClarifying.slot,
-              previousClarifying.allowedOptionIds
-            )
-          : undefined;
-        const output = await compileCommandPrompt({
+        const helpContext = topic ?? (helpAnswer === 'topics' ? null : (helpAnswer?.topic ?? null));
+        let output = await compileCommandPrompt({
           redactedText: redaction.redactedText,
-          snapshot,
+          helpContext,
           signal: controller.signal
         });
         if (controller.signal.aborted) return;
+        setRequestError(null);
+        if (output.op === 'explain') {
+          if (topic !== undefined && output.topic !== topic) {
+            throw new CommandAiClientError('invalid_response', 'The service returned a different help topic');
+          }
+          if (state.kind === 'error') setState({ kind: 'idle' });
+          setHelpAnswer(output);
+          if (!helpOnly) setInput(current => (current.trim() === raw ? '' : current));
+          return;
+        }
+        if (helpOnly) throw new CommandAiClientError('invalid_response', 'The service did not return an explanation');
+
+        if (previousClarifying) {
+          output = await compileCommandPrompt({
+            redactedText: redaction.redactedText,
+            snapshot: createClarificationSnapshot(
+              previousClarifying.draft,
+              previousClarifying.slot,
+              previousClarifying.allowedOptionIds
+            ),
+            signal: controller.signal
+          });
+          if (controller.signal.aborted) return;
+          if (output.op === 'explain') throw new CommandAiClientError('invalid_response', 'Unexpected explanation');
+        }
+        if (previousClarifying && output.op === 'unsupported') {
+          setRequestError({ kind: 'error', messageKey: 'commandAiUnsupported', redactedKinds });
+          return;
+        }
 
         if (output.op === 'query_ledger') {
           if (!verifyProvenance(output, redaction.map)) {
+            setHelpAnswer(null);
             setState({
               kind: 'error',
               messageKey: 'commandAiInvalidModelOutput',
@@ -397,7 +454,6 @@ export function CommandAiBar({
             });
             return;
           }
-          planCtx?.dismissPlan();
           const result = await executeLocalLedgerQuery(output, {
             accountId: scope.accountId,
             balances: assets,
@@ -405,6 +461,8 @@ export function CommandAiBar({
             map: redaction.map
           });
           if (controller.signal.aborted) return;
+          planCtx?.dismissPlan();
+          setHelpAnswer(null);
           setTurns(prev => [...prev.slice(-7), { id: `q-${Date.now()}`, role: 'assistant', text: result.summaryText }]);
           setState({ kind: 'query_result', result, redactedKinds });
           setInput('');
@@ -419,10 +477,7 @@ export function CommandAiBar({
             (output.patch.action === 'earn' || previousClarifying?.draft.action === 'earn'));
         const earnPositions = isEarnWithdraw ? await loadEarnPositions() : [];
         if (controller.signal.aborted) return;
-
-        if (output.op !== 'set_plan') {
-          planCtx?.dismissPlan();
-        }
+        setHelpAnswer(null);
 
         const effectiveMap = output.op === 'patch_slots' ? activeMap : redaction.map;
         const resolution = compileOutputToResolution(
@@ -432,21 +487,29 @@ export function CommandAiBar({
           output.op === 'patch_slots' ? previousClarifying?.draft : undefined
         );
         applyResolution(resolution, redactedKinds, earnPositions);
+        if (output.op !== 'set_plan' && resolution.kind !== 'cancelled') {
+          planCtx?.dismissPlan();
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         const messageKey =
           error instanceof CommandAiClientError ? clientErrorToMessageKey(error.code) : 'commandAiServiceUnavailable';
-        setState({
+        setRequestError({
           kind: 'error',
           messageKey,
-          fallbackAction: previousClarifying?.draft.action,
+          fallbackAction: helpOnly ? undefined : previousClarifying?.draft.action,
           redactedKinds
         });
+      } finally {
+        if (activeAbortRef.current === controller) {
+          activeAbortRef.current = null;
+          setPendingKinds(null);
+        }
       }
     },
     [
-      input,
       state,
+      helpAnswer,
       contacts,
       heldNicheTickers,
       scope.accountId,
@@ -459,12 +522,19 @@ export function CommandAiBar({
     ]
   );
 
-  const activeRedactedKinds = state.kind === 'idle' ? [] : state.redactedKinds;
-  const busy = state.kind === 'compiling';
+  const handleSubmit = (event?: React.FormEvent) => {
+    event?.preventDefault();
+    void submitPrompt(input);
+  };
+
+  const activeRedactedKinds = pendingKinds ?? (state.kind === 'idle' ? [] : state.redactedKinds);
+  const busy = pendingKinds !== null;
   const activePlan = state.kind === 'idle' ? planCtx?.plan : null;
+  const answer = helpAnswer === 'topics' ? null : helpAnswer;
+  const help = answer ? COMMAND_HELP_TOPICS[answer.topic] : null;
   const animatedPlaceholder = useTypingPlaceholder(
     samplePrompts,
-    input.length === 0 && !busy && !focused,
+    input.length === 0 && !busy && !focused && state.kind === 'idle' && helpAnswer === null,
     t('commandAiPlaceholder')
   );
   const effectivePlaceholder = focused ? '' : animatedPlaceholder;
@@ -473,6 +543,7 @@ export function CommandAiBar({
     <section aria-label={t('commandAiBarLabel')} data-testid="command-ai-bar" className="min-w-0 lg:col-span-12">
       <form
         onSubmit={handleSubmit}
+        aria-busy={busy}
         className={`relative flex flex-col gap-2.5 overflow-hidden rounded-3xl border border-hairline bg-fill/75 px-5 py-3 shadow-sm transition-colors focus-within:border-accent-primary/60 focus-within:ring-2 focus-within:ring-accent-primary/20 command-ai-wave${busy ? ' command-ai-wave-busy' : ''}`}
       >
         {expanded && turns.length > 0 && (
@@ -531,16 +602,6 @@ export function CommandAiBar({
             />
           )}
 
-          {activeRedactedKinds.length > 0 && (
-            <span
-              data-testid="command-ai-privacy-badge"
-              className="hidden shrink-0 items-center gap-1 rounded-lg border border-hairline bg-page px-2.5 py-1.5 text-caption text-muted sm:inline-flex"
-            >
-              <Icon name={IconName.ShieldCheck} size="xs" className="text-accent-receive-ink" aria-hidden="true" />
-              {t('commandAiRedactedBadge', { kinds: activeRedactedKinds.join(', ') })}
-            </span>
-          )}
-
           <button
             type="button"
             data-testid="command-ai-morph-toggle"
@@ -557,19 +618,99 @@ export function CommandAiBar({
             type="submit"
             data-testid="command-ai-submit"
             disabled={busy || input.trim().length === 0}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent-primary px-4 text-body font-medium text-page transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+            aria-busy={busy}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-accent-primary px-4 text-body font-medium text-page transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 aria-busy:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
           >
-            {busy ? (
-              <WaveDots label={t('commandAiWorking')} />
-            ) : (
-              <>
-                <span>{t('commandAiSendButton')}</span>
-                <Icon name={IconName.ArrowRight} size="sm" aria-hidden="true" />
-              </>
-            )}
+            <span>{t('commandAiSendButton')}</span>
+            <Icon name={IconName.ArrowRight} size="sm" aria-hidden="true" />
           </button>
         </div>
+        <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 text-caption">
+          <button
+            type="button"
+            onClick={() => setHelpAnswer('topics')}
+            disabled={busy}
+            aria-expanded={helpAnswer !== null}
+            aria-controls="command-ai-help"
+            className="py-1.5 font-medium text-accent-tint-ink hover:underline focus-visible:outline-2 focus-visible:outline-accent-primary"
+          >
+            {t('commandAiHelpBrowse')}
+          </button>
+          {activeRedactedKinds.length > 0 && (
+            <span
+              data-testid="command-ai-privacy-badge"
+              className="hidden items-center gap-1 text-muted sm:inline-flex"
+            >
+              <Icon name={IconName.ShieldCheck} size="xs" className="text-accent-receive-ink" aria-hidden="true" />
+              {t('commandAiRedactedBadge', { kinds: activeRedactedKinds.join(', ') })}
+            </span>
+          )}
+        </div>
       </form>
+      <span aria-live="polite" aria-atomic="true" className="sr-only">
+        {busy ? t('commandAiWorking') : ''}
+      </span>
+
+      <div id="command-ai-help">
+        {helpAnswer !== null && (
+          <AnswerCardShell
+            testId={help ? 'command-ai-help-answer' : 'command-ai-help-topics'}
+            role="region"
+            ariaLabel={t('commandAiHelpBrowse')}
+            mood="happy"
+            eyebrow={t('commandAiAssistantName')}
+            title={answer ? t(`commandAiHelp${answer.topic}Title`) : t('commandAiHelpBrowse')}
+            onDismiss={() => setHelpAnswer(null)}
+            dismissDisabled={busy}
+          >
+            {help && answer ? (
+              <>
+                <p className="text-body leading-relaxed text-ink" aria-live="polite">
+                  {answer.answer}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-body-sm">
+                  <a
+                    href={help.source}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent-tint-ink underline underline-offset-2 focus-visible:outline-2"
+                  >
+                    {t(answer.topic === 'Bridge' ? 'commandAiHelpBridgeSource' : 'commandAiHelpSource')}
+                  </a>
+                  {'next' in help && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void submitPrompt(t(`commandAiHelp${help.next}Title`), help.next)}
+                      className="text-accent-tint-ink underline underline-offset-2 focus-visible:outline-2"
+                    >
+                      {t(`commandAiHelp${help.next}Title`)}
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-body-sm text-muted">{t('commandAiHelpDisclosure')}</p>
+                <ul className="flex flex-wrap gap-2">
+                  {commandHelpTopicIds.map(topic => (
+                    <li key={topic}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void submitPrompt(t(`commandAiHelp${topic}Title`), topic)}
+                        className="rounded-xl border border-hairline bg-page px-3 py-2 text-body-sm text-ink hover:bg-fill-pressed focus-visible:outline-2"
+                      >
+                        {t(`commandAiHelp${topic}Title`)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </AnswerCardShell>
+        )}
+      </div>
 
       {activePlan && planCtx && (
         <AnswerCardShell
@@ -600,6 +741,7 @@ export function CommandAiBar({
           }
           redactedKinds={activePlan.redactedKinds}
           onDismiss={activePlan.status === 'completed' ? planCtx.dismissPlan : planCtx.stopPlan}
+          dismissDisabled={busy}
           tone={activePlan.status === 'error' ? 'error' : activePlan.status === 'clarifying' ? 'accent' : 'default'}
         >
           <ol className="flex flex-col gap-2">
@@ -661,6 +803,7 @@ export function CommandAiBar({
                   key={chip.id}
                   type="button"
                   data-testid={`command-ai-chip-${chip.id}`}
+                  disabled={busy}
                   onClick={() => planCtx.selectPlanChip(chip, getWalletContext())}
                   className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
                 >
@@ -677,6 +820,7 @@ export function CommandAiBar({
                 type="button"
                 data-testid="command-ai-plan-stop"
                 onClick={planCtx.stopPlan}
+                disabled={busy}
                 className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-negative-tint-ink/35 bg-page/75 px-3.5 text-body-sm font-medium text-negative-tint-ink transition-colors hover:bg-negative-tint/15 focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
                 {t('commandAiPlanStop')}
@@ -686,6 +830,7 @@ export function CommandAiBar({
                   type="button"
                   data-testid="command-ai-plan-continue"
                   onClick={() => planCtx.advanceToNextStep(getWalletContext())}
+                  disabled={busy}
                   className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent-primary px-4 text-body-sm font-medium text-page transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent-primary"
                 >
                   <span>
@@ -721,6 +866,7 @@ export function CommandAiBar({
                 key={chip.id}
                 type="button"
                 data-testid={`command-ai-chip-${chip.id}`}
+                disabled={busy}
                 onClick={() => handleChipClick(chip)}
                 className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
@@ -769,23 +915,23 @@ export function CommandAiBar({
         </AnswerCardShell>
       )}
 
-      {state.kind === 'error' && (
+      {errorState && (
         <AnswerCardShell
           testId="command-ai-error"
           role="alert"
           mood="oops"
           eyebrow={t('commandAiAssistantName')}
-          title={t(state.messageKey, state.messageParams)}
-          redactedKinds={state.redactedKinds}
-          onDismiss={dismiss}
+          title={t(errorState.messageKey, errorState.messageParams)}
+          redactedKinds={errorState.redactedKinds}
+          onDismiss={requestError ? () => setRequestFailure(null) : dismiss}
           tone="error"
         >
-          {state.fallbackAction && (
+          {errorState.fallbackAction && (
             <div className="flex justify-end">
               <button
                 type="button"
                 data-testid="command-ai-fallback-open"
-                onClick={() => navigate(COMMAND_DESTINATIONS[state.fallbackAction!])}
+                onClick={() => navigate(COMMAND_DESTINATIONS[errorState.fallbackAction!])}
                 className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-hairline bg-page/85 px-3.5 text-body-sm font-medium text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-2 focus-visible:outline-accent-primary"
               >
                 <span>{t('commandAiOpenNativeForm')}</span>
