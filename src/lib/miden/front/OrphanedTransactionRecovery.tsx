@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { isExtension } from 'lib/platform';
 
 import { useMidenContext } from './client';
+import { requestNotesRefresh } from './note-refresh';
 
 /**
  * Module-scope one-shot latch: a provider remount inside a live app process skips
@@ -90,8 +91,11 @@ export function OrphanedTransactionRecovery(): null {
         // duplicates. An `execute` that lists none is refused the same way once
         // it may have submitted (`executeMayHaveSubmitted`, #1081), and requeued
         // otherwise. See RESUBMIT_GUARDED_TYPES in lib/miden/transaction/retry.ts.
-        await failInterruptedTransactions();
+        const sweepResult = await failInterruptedTransactions();
         if (disposed) return;
+        if (sweepResult && sweepResult.failedNoteHolderCount > 0) {
+          requestNotesRefresh();
+        }
 
         // Only Queued rows and this process's own in-flight rows can remain after
         // that sweep, plus an earlier row stamped from `SESSION_STARTED_AT` to

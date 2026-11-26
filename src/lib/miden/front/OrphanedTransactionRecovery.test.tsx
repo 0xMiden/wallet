@@ -9,17 +9,20 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { onNotesRefresh } from './note-refresh';
 import { __resetColdStartSweepForTests, OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 
-const mockFailInterrupted = jest.fn(async () => {});
+const mockFailInterrupted = jest.fn(async () => ({ failedCount: 0, failedNoteHolderCount: 0 }));
 const mockCancelStuck = jest.fn(async () => {});
 const mockGetAllUncompleted = jest.fn(async (): Promise<unknown[]> => []);
 const mockStartBg = jest.fn();
+const mockRequeueFailed = jest.fn();
 jest.mock('../transaction', () => ({
   failInterruptedTransactions: () => mockFailInterrupted(),
   cancelStuckTransactions: () => mockCancelStuck(),
   getAllUncompletedTransactions: () => mockGetAllUncompleted(),
-  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args)
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailed(...args)
 }));
 
 let mockExtension = false;
@@ -37,6 +40,7 @@ describe('OrphanedTransactionRecovery', () => {
     jest.clearAllMocks();
     __resetColdStartSweepForTests();
     mockExtension = false;
+    mockFailInterrupted.mockResolvedValue({ failedCount: 0, failedNoteHolderCount: 0 });
     mockGetAllUncompleted.mockResolvedValue([]);
   });
 
@@ -121,5 +125,107 @@ describe('OrphanedTransactionRecovery', () => {
   it('renders nothing', () => {
     const { container } = render(<OrphanedTransactionRecovery />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('requests a notes refresh only after failInterruptedTransactions commits a note-holder failure, without requeue/sign/submit', async () => {
+    let resolveSweep!: (value: { failedCount: number; failedNoteHolderCount: number }) => void;
+    mockFailInterrupted.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveSweep = resolve;
+        })
+    );
+    let refreshCalls = 0;
+    const unsubscribe = onNotesRefresh(() => {
+      refreshCalls += 1;
+    });
+
+    try {
+      render(<OrphanedTransactionRecovery />);
+
+      await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+      expect(refreshCalls).toBe(0);
+      expect(mockRequeueFailed).not.toHaveBeenCalled();
+      expect(mockSignTransaction).not.toHaveBeenCalled();
+      expect(mockStartBg).not.toHaveBeenCalled();
+
+      resolveSweep({ failedCount: 1, failedNoteHolderCount: 1 });
+      await waitFor(() => expect(refreshCalls).toBe(1));
+      expect(mockRequeueFailed).not.toHaveBeenCalled();
+      expect(mockSignTransaction).not.toHaveBeenCalled();
+      expect(mockStartBg).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not request a notes refresh when the sweep fails zero rows or only non-note-holders', async () => {
+    let refreshCalls = 0;
+    const unsubscribe = onNotesRefresh(() => {
+      refreshCalls += 1;
+    });
+
+    try {
+      mockFailInterrupted.mockResolvedValueOnce({ failedCount: 0, failedNoteHolderCount: 0 });
+      const emptyView = render(<OrphanedTransactionRecovery />);
+      await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(mockGetAllUncompleted).toHaveBeenCalledTimes(1));
+      expect(refreshCalls).toBe(0);
+      emptyView.unmount();
+
+      __resetColdStartSweepForTests();
+      mockFailInterrupted.mockResolvedValueOnce({ failedCount: 1, failedNoteHolderCount: 0 });
+      render(<OrphanedTransactionRecovery />);
+      await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mockGetAllUncompleted).toHaveBeenCalledTimes(2));
+      expect(refreshCalls).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not request a notes refresh when failInterruptedTransactions rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFailInterrupted.mockRejectedValueOnce(new Error('db closed'));
+    let refreshCalls = 0;
+    const unsubscribe = onNotesRefresh(() => {
+      refreshCalls += 1;
+    });
+
+    try {
+      render(<OrphanedTransactionRecovery />);
+
+      await waitFor(() => expect(warn).toHaveBeenCalled());
+      expect(refreshCalls).toBe(0);
+    } finally {
+      unsubscribe();
+      warn.mockRestore();
+    }
+  });
+
+  it('does not request a notes refresh if unmounted before the sweep settles', async () => {
+    let resolveSweep!: (value: { failedCount: number; failedNoteHolderCount: number }) => void;
+    mockFailInterrupted.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveSweep = resolve;
+        })
+    );
+    let refreshCalls = 0;
+    const unsubscribe = onNotesRefresh(() => {
+      refreshCalls += 1;
+    });
+
+    try {
+      const view = render(<OrphanedTransactionRecovery />);
+      await waitFor(() => expect(mockFailInterrupted).toHaveBeenCalledTimes(1));
+      view.unmount();
+
+      resolveSweep({ failedCount: 1, failedNoteHolderCount: 1 });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(refreshCalls).toBe(0);
+    } finally {
+      unsubscribe();
+    }
   });
 });
