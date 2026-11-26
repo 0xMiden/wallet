@@ -48,6 +48,29 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   ...over
 });
 
+describe('verified dApp grouping', () => {
+  it('groups once by exact initiating origin without grouping legacy or wait-result grant rows there', () => {
+    const origin = 'https://example.test:8443';
+    const counterparty = { secondaryAddress: 'mtst1alice' };
+    const initiated = { ...entry(counterparty), initiatingDappOrigin: origin };
+    const sameHostDifferentPort = { ...entry(counterparty), initiatingDappOrigin: 'https://example.test' };
+    const grantOnly = { ...entry(counterparty), dappOrigins: [origin] };
+    const legacy = entry(counterparty);
+    const groups = groupActivityEntries([initiated, sameHostDifferentPort, grantOnly, legacy], () => 'Alice');
+
+    expect(groups.map(({ kind, id, entries }) => ({ kind, id, keys: entries.map(row => row.key) }))).toEqual([
+      { kind: 'dapp', id: 'https://example.test', keys: [sameHostDifferentPort.key] },
+      { kind: 'dapp', id: origin, keys: [initiated.key] },
+      { kind: 'address', id: 'mtst1alice', keys: [grantOnly.key, legacy.key] }
+    ]);
+    const dapp = groups[1]!;
+    expect(activityGroupPath(dapp)).toBe('/activity/group/dapp/https%3A%2F%2Fexample.test%3A8443');
+    expect(
+      [initiated, sameHostDifferentPort, grantOnly, legacy].filter(activityGroupMatcher(dapp.kind, dapp.id))
+    ).toEqual([initiated]);
+  });
+});
+
 describe('activityGroupKeyOf', () => {
   it('keys a send and a receive by their counterparty', () => {
     expect(activityGroupKeyOf(entry({ txType: 'send', secondaryAddress: 'mtst1alice' }))).toEqual({
