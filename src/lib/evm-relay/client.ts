@@ -13,8 +13,8 @@ import { ResponseTooLargeError, readCappedText, withRequestTimeout, type JsonRes
 import { getRelayBaseUrl } from './base-url';
 import type { BatchCall } from './batch';
 import { RelayUnavailableError, type RelayUnavailableReason } from './errors';
-import { lowerAddress, lowerHash, parseRelayAccount, parseRelayError, parseRelayJob } from './parse';
-import type { RelayAccount, RelayAuthorization, RelayJob, RelaySubmission } from './types';
+import { lowerAddress, lowerHash, parseRelayAccount, parseRelayError, parseRelayJob, parseRelayService } from './parse';
+import type { RelayAccount, RelayAuthorization, RelayJob, RelayService, RelaySubmission } from './types';
 
 /** One request, its body read included, ends after this long. */
 export const RELAY_TIMEOUT_MS = 10_000;
@@ -103,6 +103,15 @@ function answer<T>(response: RawResponse, parse: (body: unknown) => T): T {
 // The checks of the caller's input throw a TypeError: a bad argument is a defect, never a service failure.
 function assertChainId(chainId: number) {
   if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new TypeError('relay: the chain id is not valid');
+}
+
+/**
+ * `GET /v1/chains`: the gas mode, the executor and the chains that the relay serves. It reads no address. An older
+ * service with no such route answers `404 not_found`, which is a `RelayApiError` like every other refusal: the caller
+ * treats it as a service that cannot be reached.
+ */
+export async function fetchRelayService(options: RelayClientOptions = {}): Promise<RelayService> {
+  return answer(await send('/v1/chains', 'GET', undefined, options), parseRelayService);
 }
 
 /** The most tokens that one `GET /v1/account` can ask balances for. */

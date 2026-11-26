@@ -372,6 +372,21 @@ that the service does not serve fails with `unsupported_chain`.
 An answer must pass `assertRelayAccountMatches`. A page uses it to see when funds arrive at the deposit address. The
 minimum amount of a deposit is the rule of the bridge flow, not of the relay.
 
+A read of `GET /v1/account` reads the balance of the deposit address. The Deposit flow reads it only on the address
+step of a deposit whose address the user already has (and the Home row and the arrival watcher, for such a deposit).
+What it needs before that step comes from the service read below.
+
+## Service read (`use-relay-service.ts`)
+
+`useRelayService(enabled)` reads `GET /v1/chains` (`fetchRelayService`) one time while the page is on screen and
+`enabled`, and keeps the answer for `RELAY_SERVICE_CACHE_MS` (60 s). Its SWR key holds the base URL and the configured
+executor, never an address. It gives `{ status: 'off' }` (not asked, or the relay is off), `loading`,
+`{ status: 'ready', service }` or `{ status: 'unreachable', error }`. An answer must pass `assertRelayServiceMatches`
+(the executor is the configured one). A failed read is not tried again on its own: a network failure, a timeout, a
+refused or malformed answer and the `404 not_found` of an older service with no such route are all `unreachable`, and
+the Deposit flow then offers no relay route. The flow offers a relay route only on a chain in `service.chains`, and
+none while `service.mode` is `deduct`.
+
 ## Base URL (`base-url.ts`)
 
 - `getRelayBaseUrl(): string | null`: the `MIDEN_EVM_RELAY_URL` build define when it is a loopback
@@ -384,6 +399,8 @@ Each call awaits `initBridgeConfig()` (it does not wait for the network), reads 
 (`RELAY_TIMEOUT_MS`) and reads at most 64 KiB (`MAX_RELAY_RESPONSE_BYTES`). The last argument is optional
 `{ fetch }` for tests.
 
+- `fetchRelayService()`: `GET /v1/chains`, `{ mode, executor, chains }` (chain ids strictly ascending; a field of the
+  wrong type refuses the answer, unknown fields are ignored). It reads no address.
 - `fetchRelayAccount({ chainId, address, tokens? })`: `GET /v1/account`. `tokens` (1 to 16 distinct addresses, the
   zero address is the native coin) asks for balances; the answer must give one balance for each distinct token, in
   the order of the query.
@@ -433,6 +450,8 @@ Unknown fields are ignored. Two fees of one token are refused.
 - `assertRelayAccountMatches(account, chain, address)`: the account echoes the asked chain and address, its executor
   is the configured `chain.executor`, a `sponsor` account has no fee recipient and no fees, and a `deduct` account
   names the configured `chain.feeRecipient` (`deductFeeRecipient`). Else it throws `RelayMismatchError`.
+- `assertRelayServiceMatches(service, relay)`: the service names the configured `relay.executor` (letter case
+  ignored). Else it throws `RelayMismatchError`.
 - `reviewRelayFee(account, chain, token)`: see the fee rule. `relayerFeeOf`, `assertFeeWithinCap` and `relayFeeToken`
   are its parts, which `submit` also uses.
 - `assertRelayJobMatches(job, expectedId)`: the job id is the EIP-712 digest that the wallet computed. Else it

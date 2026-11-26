@@ -48,16 +48,21 @@ function byCost(routes: readonly RelayRoute[]): RelayRoute[] {
 
 /**
  * The chains that a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers
- * a token, or an AggLayer chain that takes deposits. With `relayOnly`, only a chain that the relay serves.
+ * a token, or an AggLayer chain that takes deposits. With `relayChains` (the chains that the relay service serves,
+ * `GET /v1/chains`), only a chain in that list that the wallet can also relay on (`relayServesChain`). Null: every
+ * chain, for an external wallet.
  */
-export function depositSourceNetworks(snapshot: BridgeConfigSnapshot, relayOnly: boolean): BridgeNetwork[] {
+export function depositSourceNetworks(
+  snapshot: BridgeConfigSnapshot,
+  relayChains: readonly number[] | null
+): BridgeNetwork[] {
   const circle = new Set(listUsdcxSourceChains().map(entry => entry.chain.id));
   return Object.values(snapshot.config?.supportedEvmChains ?? {}).flatMap(entry => {
     const offered =
       circle.has(entry.chainId) ||
       selectEpochDepositTokens(snapshot, entry.chainId).length > 0 ||
       entry.bridges.agglayer?.depositEnabled === true;
-    const served = !relayOnly || relayServesChain(entry.chainId);
+    const served = relayChains === null || (relayChains.includes(entry.chainId) && relayServesChain(entry.chainId));
     const network = getBridgeNetworkByChainId(entry.chainId);
     return offered && served && network ? [network] : [];
   });

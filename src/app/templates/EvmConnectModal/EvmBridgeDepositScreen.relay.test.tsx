@@ -33,10 +33,12 @@ const MINED = `0x${'12'.repeat(32)}`;
 const JOB: RelayJobRef = { chainId: CHAIN_ID, id: `0x${'ab'.repeat(32)}`, deadline: 1_900_000_000 };
 /** 1.5 ETH. */
 const ETH_DEPOSIT = 1_500_000_000_000_000_000n;
-/** 1.505 USDC at the 18 decimals the suite gives the configured USDC. */
+/** 1.505 USDC at the 18 decimals the suite gives the configured USDC: what the user types and sends. */
 const USDC_DEPOSIT = 1_505_000_000_000_000_000n;
-/** The Fast quote's deposit for 1.505 USDC out: 1.5065 at 18 decimals. */
-const QUOTED_IN = 1_506_500_000_000_000_000n;
+/** The Epoch fee of the suite's allocator: 0.0015 USDC at 18 decimals, on top of the amount out. */
+const EPOCH_FEE = 1_500_000_000_000_000n;
+/** What arrives for 1.505 USDC sent: 1.5035 USDC at the Miden token's 6 decimals. */
+const EPOCH_RECEIVED = 1_503_500n;
 const FUNDED = 10n ** 30n;
 
 jest.mock('react-i18next', () => ({
@@ -197,7 +199,10 @@ const mockUseVersion = () => {
 interface MockEpochState {
   status: string;
   flow: string | null;
-  quote: { params: { minTokenOut: string }; quoteResult: { tokenIn: string; tokenOut: string } } | null;
+  quote: {
+    params: { minTokenOut: string; sourceChainId?: number };
+    quoteResult: { tokenIn: string; tokenOut: string };
+  } | null;
   error: string | null;
   compactWatchClosed: boolean;
   quoteEVMToMiden: jest.Mock;
@@ -228,13 +233,17 @@ jest.mock('lib/epoch', () => ({
     { getState: () => mockEpochState }
   )
 }));
-/** Every quote is a new object for 1.505 USDC out, with a deposit of `tokenIn`. */
-const quoteWith = (tokenIn: bigint) => {
-  mockEpochState.quoteEVMToMiden.mockImplementation(async () => {
+/**
+ * The allocator's reverse quote: for `minTokenOut` out (6 decimals) the deposit is that amount at 18 decimals plus a
+ * flat `fee`. Every quote is a new object with the params it was asked for.
+ */
+const quoteWith = (fee: bigint) => {
+  mockEpochState.quoteEVMToMiden.mockImplementation(async (params: { minTokenOut: string; sourceChainId: number }) => {
+    const tokenIn = BigInt(params.minTokenOut) * 10n ** 12n + fee;
     Object.assign(mockEpochState, {
       status: 'quoted',
       flow: 'evm-to-miden',
-      quote: { params: { minTokenOut: '1505000' }, quoteResult: { tokenIn: tokenIn.toString(), tokenOut: '1505000' } }
+      quote: { params, quoteResult: { tokenIn: tokenIn.toString(), tokenOut: params.minTokenOut } }
     });
     mockBump();
   });
@@ -301,6 +310,9 @@ const setRelayBalance = (balance: bigint | null) =>
     mockRelayBalance = balance;
     mockBump();
   });
+// The deposits whose arrival the screen read (`GET /v1/account`), by render: null reads nothing.
+const mockArrivalReads: Array<PendingRelayDeposit | null> = [];
+let mockArrivalError: unknown;
 jest.mock('lib/evm-relay/use-deposit-arrival', () => {
   const actual = jest.requireActual<typeof import('lib/evm-relay/use-deposit-arrival')>(
     'lib/evm-relay/use-deposit-arrival'
@@ -309,6 +321,7 @@ jest.mock('lib/evm-relay/use-deposit-arrival', () => {
     depositArrivalOf: actual.depositArrivalOf,
     useDepositArrival: (deposit: PendingRelayDeposit | null) => {
       mockUseVersion();
+      mockArrivalReads.push(deposit);
       if (deposit === null) {
         return { state: 'waiting', balance: null, needsAuthorization: null, mode: null, error: undefined };
       }
@@ -316,16 +329,16 @@ jest.mock('lib/evm-relay/use-deposit-arrival', () => {
         ...actual.depositArrivalOf(mockRelayBalance, BigInt(deposit.amountBaseUnits)),
         needsAuthorization: false,
         mode: mockRelayMode,
-        error: undefined
+        error: mockArrivalError
       };
     }
   };
 });
-jest.mock('lib/evm-relay/use-relay-account', () => ({
-  useRelayAccount: ({ chainId }: { chainId: number | null }) => {
-    mockUseVersion();
-    return { account: chainId === null ? undefined : { mode: mockRelayMode }, error: undefined, isLoading: false };
-  }
+// No relay account read may run before the address step: the screen reads it only through `useDepositArrival`.
+const mockFetchRelayAccount = jest.fn();
+jest.mock('lib/evm-relay/client', () => ({
+  ...jest.requireActual('lib/evm-relay/client'),
+  fetchRelayAccount: (...args: unknown[]) => mockFetchRelayAccount(...args)
 }));
 
 // The pending deposits of the account, in memory; the claim takes one out as the storage one does.
@@ -423,10 +436,13 @@ const settle = () =>
 const onRelayUnsupported = jest.fn();
 const onClose = jest.fn();
 const onExit = jest.fn();
+// The chains that the relay service serves (`GET /v1/chains`), as the Deposit flow gives them.
+let mockServedChains: readonly number[] | undefined = [CHAIN_ID];
 const relayScreen = (pendingDepositId?: string) => (
   <EvmBridgeDepositScreen
     evmAddress={RELAY}
     relaySource={RELAY_SOURCE}
+    relayServedChains={mockServedChains}
     midenAccount={midenAccount}
     onRelayUnsupported={onRelayUnsupported}
     onClose={onClose}
@@ -489,10 +505,13 @@ beforeEach(() => {
   mockRow = undefined;
   mockRelayBalance = null;
   mockRelayMode = 'sponsor';
+  mockArrivalReads.length = 0;
+  mockArrivalError = undefined;
+  mockServedChains = [CHAIN_ID];
   mockExtension = false;
   mockCapVerdict = { state: 'clear', capUsd: 1000, heldUsd: 0, depositUsd: 1 };
   Object.assign(mockEpochState, { status: 'idle', flow: null, quote: null, error: null });
-  quoteWith(QUOTED_IN);
+  quoteWith(EPOCH_FEE);
   answerBalance(FUNDED);
   jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
   jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
@@ -644,11 +663,60 @@ describe('EvmBridgeDepositScreen from a relay source: amount, review and address
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
   });
 
-  it('says that a relay in deduct mode is not supported', async () => {
+  it('says that a relay in deduct mode is not supported when the address step reads it', async () => {
     mockRelayMode = 'deduct';
-    await renderRelay();
+    mockPending = [storedEthDeposit()];
+    await renderRelay('stored-1');
 
     expect(onRelayUnsupported).toHaveBeenCalled();
+    await setRelayBalance(ETH_DEPOSIT);
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+  });
+
+  it('reads no account and no balance of the deposit address before the address step', async () => {
+    await renderRelay();
+    await pickUsdc();
+    await typeAmount('1.505');
+    fireEvent.click(screen.getByTestId('deposit-amount-review'));
+    await settle();
+    expect(screen.getByTestId('deposit-review-slide-knob')).toBeInTheDocument();
+
+    expect(mockArrivalReads.length).toBeGreaterThan(0);
+    expect(mockArrivalReads.every(deposit => deposit === null)).toBe(true);
+    expect(mockFetchRelayAccount).not.toHaveBeenCalled();
+    // No direct RPC read of the address's token balances either.
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByTestId('deposit-review-slide-knob'), { key: 'Enter' });
+    await settle();
+    expect(mockArrivalReads[mockArrivalReads.length - 1]).toEqual(expect.objectContaining({ address: RELAY }));
+  });
+
+  it('offers only the chains that the relay service serves', async () => {
+    mockServedChains = [];
+    await renderRelay();
+
+    expect(screen.getByTestId('deposit-token-selector')).not.toHaveAccessibleName(
+      'depositFlowTokenOnNetworkChange {"token":"ETH","network":"Sepolia"}'
+    );
+    fireEvent.click(screen.getByTestId('deposit-token-selector'));
+    expect(screen.queryByTestId(`deposit-token-${CHAIN_ID}:ETH`)).not.toBeInTheDocument();
+  });
+
+  it.each<[string, readonly number[] | undefined, unknown]>([
+    ['the service list leaves it out', [1], undefined],
+    ['the relay answers unsupported_chain', undefined, new RelayApiError('unsupported_chain', 400, 'unsupported')]
+  ])('fails a pending deposit on a chain that is not served when %s', async (_case, chains, error) => {
+    mockServedChains = chains;
+    mockArrivalError = error;
+    mockPending = [storedEthDeposit()];
+    await renderRelay('stored-1');
+    await setRelayBalance(ETH_DEPOSIT);
+
+    expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('depositFlowChainNotServed');
+    expect(screen.queryByTestId('deposit-address-waiting')).not.toBeInTheDocument();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    expect(mockPending.map(entry => entry.id)).toEqual(['stored-1']);
   });
 });
 
@@ -831,39 +899,90 @@ describe('EvmBridgeDepositScreen from a relay source: the start of the bridge', 
     await renderRelay();
     await pickUsdc();
     await typeAmount('1.505');
+    // The typed amount is what the user sends: the fee comes out of it, and the rest arrives.
     expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent('0.0015 USDC');
+    // 1.5035 at the receipt's rounding.
+    expect(screen.getByTestId('deposit-receipt-total-amount')).toHaveTextContent('1.5 USDC');
+    // The search asks for the typed amount out, then for it less the fee.
+    expect(mockEpochState.quoteEVMToMiden.mock.calls.map(([params]) => params.minTokenOut)).toEqual([
+      '1505000',
+      '1503500'
+    ]);
     await toAddress();
     expect(mockPending[0]).toEqual(
-      expect.objectContaining({ route: 'epoch', amountBaseUnits: QUOTED_IN.toString(), token: expect.anything() })
+      expect.objectContaining({
+        route: 'epoch',
+        amount: '1.505',
+        amountBaseUnits: USDC_DEPOSIT.toString(),
+        outputAmount: '1.5035',
+        token: expect.anything()
+      })
     );
+    expect(screen.getByTestId('deposit-address-amount')).toHaveTextContent('1.505');
     const quotesBefore = mockEpochState.quoteEVMToMiden.mock.calls.length;
-    await setRelayBalance(QUOTED_IN);
+    await setRelayBalance(USDC_DEPOSIT);
     await settle();
 
-    expect(mockEpochState.quoteEVMToMiden.mock.calls.length).toBe(quotesBefore + 1);
+    // The arrival search: two quotes again, for the amount at the address.
+    expect(mockEpochState.quoteEVMToMiden.mock.calls.length).toBe(quotesBefore + 2);
     expect(mockEpochState.quoteEVMToMiden).toHaveBeenLastCalledWith(
-      expect.objectContaining({ evmSourceAddress: RELAY, sourceChainId: CHAIN_ID }),
+      expect.objectContaining({ evmSourceAddress: RELAY, sourceChainId: CHAIN_ID, minTokenOut: '1503500' }),
       RELAY
     );
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'epoch', sourceAddress: RELAY })
+      expect.objectContaining({
+        provider: 'epoch',
+        sourceAddress: RELAY,
+        sourceAmount: '1.505',
+        outputAmount: '1.5035',
+        amount: EPOCH_RECEIVED
+      })
     );
     await waitFor(() => expect(mockEpochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx'));
     expect(mockRelaySendCalls).not.toHaveBeenCalled();
   });
 
-  it('waits for the rest when the new Epoch quote asks for more than arrived', async () => {
+  const arriveWithEpochFee = async (arrivalFee: bigint) => {
     await renderRelay();
     await pickUsdc();
     await typeAmount('1.505');
     await toAddress();
-    quoteWith(QUOTED_IN + 1n);
-    await setRelayBalance(QUOTED_IN);
+    quoteWith(arrivalFee);
+    await setRelayBalance(USDC_DEPOSIT);
     await settle();
+  };
+
+  it.each<[string, bigint, bigint]>([
+    // What arrives for 1.505 sent: 1.504 with the lower fee, 1.5035 as reviewed, 1.4985 within 0.5 % of 1.5035.
+    ['a lower fee', EPOCH_FEE - 500_000_000_000_000n, 1_504_000n],
+    ['the same fee', EPOCH_FEE, EPOCH_RECEIVED],
+    ['a fee within the tolerance', EPOCH_FEE + 5_000_000_000_000_000n, 1_498_500n]
+  ])('starts the Epoch deposit at arrival with %s', async (_case, arrivalFee, received) => {
+    await arriveWithEpochFee(arrivalFee);
+
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'epoch', amount: received })
+    );
+  });
+
+  it('fails the address step, keeps the deposit and signs nothing when the arrival quote is past the tolerance', async () => {
+    await arriveWithEpochFee(EPOCH_FEE + 10_000_000_000_000_000n);
 
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
-    expect(screen.getByTestId('deposit-address-partial')).toBeInTheDocument();
-    expect(screen.getByTestId('deposit-address-amount')).toHaveTextContent('1.506500000000000001');
+    expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('depositFlowTermsChanged');
+    expect(mockPending.map(entry => entry.route)).toEqual(['epoch']);
+    expect(mockEpochState.executeEVMToMiden).not.toHaveBeenCalled();
+  });
+
+  it('shows the no-quote state when the Epoch fee takes the whole amount', async () => {
+    await renderRelay();
+    await pickUsdc();
+    quoteWith(2n * USDC_DEPOSIT);
+    await typeAmount('1.505');
+
+    expect(screen.getByTestId('deposit-quote-failed')).toHaveTextContent('depositFlowAmountBelowFee');
+    expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent('–');
+    expect(screen.getByTestId('deposit-amount-review')).toBeDisabled();
   });
 });
 
@@ -911,6 +1030,7 @@ describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intent
       <EvmBridgeDepositScreen
         evmAddress={RELAY}
         relaySource={RELAY_SOURCE}
+        relayServedChains={[CHAIN_ID]}
         midenAccount={midenAccount}
         onRelayUnsupported={onRelayUnsupported}
         onClose={onClose}
@@ -930,6 +1050,7 @@ describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intent
       <EvmBridgeDepositScreen
         evmAddress={RELAY}
         relaySource={RELAY_SOURCE}
+        relayServedChains={[CHAIN_ID]}
         midenAccount={midenAccount}
         onRelayUnsupported={onRelayUnsupported}
         onClose={onClose}
@@ -948,6 +1069,7 @@ describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intent
       <EvmBridgeDepositScreen
         evmAddress={RELAY}
         relaySource={RELAY_SOURCE}
+        relayServedChains={[CHAIN_ID]}
         midenAccount={midenAccount}
         onRelayUnsupported={onRelayUnsupported}
         onClose={onClose}
@@ -990,6 +1112,7 @@ describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intent
       <EvmBridgeDepositScreen
         evmAddress={RELAY}
         relaySource={RELAY_SOURCE}
+        relayServedChains={[CHAIN_ID]}
         midenAccount={midenAccount}
         onRelayUnsupported={onRelayUnsupported}
         onClose={onClose}

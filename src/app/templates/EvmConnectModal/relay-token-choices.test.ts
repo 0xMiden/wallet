@@ -179,15 +179,20 @@ describe('depositSourceNetworks', () => {
   };
 
   it('lists every chain that offers a deposit, in the document order, with a bridge network', () => {
-    expect(depositSourceNetworks(snapshot, false).map(network => network.id)).toEqual(['ethereum', 'base', 'arc']);
+    expect(depositSourceNetworks(snapshot, null).map(network => network.id)).toEqual(['ethereum', 'base', 'arc']);
   });
 
-  it('lists only the chains that the relay serves for a relay source', () => {
-    expect(depositSourceNetworks(snapshot, true).map(network => network.id)).toEqual(['ethereum', 'arc']);
+  it('lists only the chains that the relay service serves and the wallet can relay on, for a relay source', () => {
+    expect(depositSourceNetworks(snapshot, [1, 42, 8453]).map(network => network.id)).toEqual(['ethereum', 'arc']);
+  });
+
+  it('lists no chain that the relay service does not serve', () => {
+    expect(depositSourceNetworks(snapshot, [42]).map(network => network.id)).toEqual(['arc']);
+    expect(depositSourceNetworks(snapshot, [])).toEqual([]);
   });
 
   it('lists no chain while the document is not loaded', () => {
-    expect(depositSourceNetworks(SNAPSHOT, false)).toEqual([]);
+    expect(depositSourceNetworks(SNAPSHOT, null)).toEqual([]);
   });
 });
 

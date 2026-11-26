@@ -30,6 +30,8 @@ import { Spinner } from 'components/ui/Spinner';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import { searchEpochSendQuote } from 'lib/epoch/send-amount-search';
+import type { EVMToMidenIntentParams } from 'lib/epoch/types';
 import { evmPaymentLinks } from 'lib/evm/payment-links';
 import type { BatchCall } from 'lib/evm-relay/batch';
 import {
@@ -52,8 +54,7 @@ import {
   savePendingRelayDeposit
 } from 'lib/evm-relay/pending-deposit';
 import { buildRelayProvider, type RelaySource } from 'lib/evm-relay/source';
-import { depositArrivalOf, useDepositArrival } from 'lib/evm-relay/use-deposit-arrival';
-import { useRelayAccount } from 'lib/evm-relay/use-relay-account';
+import { useDepositArrival } from 'lib/evm-relay/use-deposit-arrival';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
@@ -126,6 +127,7 @@ import {
   type UsdcxExecutorFeeShortfall,
   type UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
+import { executorSendSplit } from 'lib/usdcx/executor-send';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { sendEvmContractTransaction } from 'lib/walletconnect/contract-send';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
@@ -159,13 +161,7 @@ import {
   type RelayFormReport,
   type RelayOpeningForm
 } from './deposit-handover';
-import {
-  arrivalKeyOf,
-  mergeRouteOptions,
-  RELAY_ROUTES_BY_COST,
-  RELAY_ROUTES_BY_RANK,
-  STATED_MINUTES
-} from './deposit-routes';
+import { arrivalKeyOf, mergeRouteOptions, RELAY_ROUTES_BY_COST } from './deposit-routes';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
 import { EpochWithdrawalGate } from './EpochWithdrawalGate';
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
@@ -175,7 +171,17 @@ import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
 import { type DepositEpochRow, type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
-import { NO_FEE_YET } from './near-deposit';
+import {
+  amountValueText,
+  amountValueUsd,
+  epochReceiveOf,
+  type EpochSendQuote,
+  type RelayAmountsInput,
+  relayRouteRows,
+  relayRouteView,
+  unitsValue
+} from './relay-amounts';
+import { arrivalTermsHold, reviewedReceiveUnits } from './relay-arrival-terms';
 import {
   claimPendingRelayDeposit,
   decodeRelayDepositForm,
@@ -277,13 +283,22 @@ interface EvmBridgeDepositScreenProps {
    * external wallet takes part, and only chains that the relay serves are offered.
    */
   relaySource?: RelaySource;
+  /**
+   * A relay source only: the chains that the relay service serves (`GET /v1/chains`). Only these chains are offered,
+   * and a pending deposit on another chain cannot start. Undefined while the answer is not known: no chain is offered,
+   * and a pending deposit reads its arrival and lets the relay answer for its chain.
+   */
+  relayServedChains?: readonly number[];
   midenAccount: WalletAccount;
   /**
    * An external wallet only: leaves the current source wallet and reopens the wallet picker to connect another one. A
    * relay source has no wallet to leave.
    */
   onConnectAnother?: () => void;
-  /** A relay source only: the relay answers `deduct` gas mode, which this flow does not support yet. */
+  /**
+   * A relay source only: the relay answers `deduct` gas mode for a pending deposit on its address step, which this flow
+   * does not support yet. Before the address step the flow reads the gas mode from the service (`GET /v1/chains`).
+   */
   onRelayUnsupported?: () => void;
   onClose: () => void;
   /** Leaves the flow for Home (the close of the address and processing steps). Defaults to `onClose`. */
@@ -377,14 +392,86 @@ function quoteFailedFor(executor: boolean, failedFor: string | null, amount: str
   return executor && failedFor !== null && failedFor === amount.trim();
 }
 
-/** Epoch's fee and Circle's executor fee come on top of the amount: they show with no minus sign. */
-function feeComesOnTop(route: RelayRoute, executor: boolean): boolean {
-  return route === 'epoch' || (route === 'usdcx' && executor);
-}
-
 /** The route is ready and what the user sends is known. */
 function sendReady(canConfirm: boolean, sendUnits: bigint | null): boolean {
   return canConfirm && sendUnits !== null;
+}
+
+/**
+ * True when the Epoch quote in the store is the one for the amount on screen. A relay source types what it sends: the
+ * quote must be the accepted one of the search for that amount. An external wallet types what it receives: the quote
+ * must ask for that amount out.
+ */
+function fastQuoteMatches(
+  relay: boolean,
+  send: EpochSendQuote | null,
+  amount: string,
+  minTokenOut: string,
+  decimals: number
+): boolean {
+  if (!relay) return minTokenOut === evmToMidenMinTokenOut(amount, decimals);
+  return (
+    send !== null &&
+    send.send === amount.trim() &&
+    send.receiveUnits !== null &&
+    minTokenOut === send.receiveUnits.toString()
+  );
+}
+
+/** The decimals of the Miden token of the Fast route, or undefined while there is none. */
+function midenUsdcDecimalsOf(midenUsdc: MidenUsdc | null): number | undefined {
+  return midenUsdc === null ? undefined : midenUsdc.decimals;
+}
+
+/** Ends a quote of an Epoch search that a newer search (or a reset of the store) replaced. */
+class EpochSearchSupersededError extends Error {
+  constructor() {
+    super('The Epoch search was replaced');
+    this.name = 'EpochSearchSupersededError';
+  }
+}
+
+/**
+ * The Circle amount that the deposit sends: for a relay source on Circle's executor route, once the fee is quoted again
+ * at arrival, the burn that leaves Circle's fee inside the amount sent (`executorSendSplit`); else the typed amount (a
+ * direct xReserve deposit is 1:1, and an external wallet pays the fee on top).
+ */
+function usdcxDepositAmountOf(
+  amount: string,
+  route: BridgeRoute,
+  relay: boolean,
+  executor: boolean,
+  arrivalFee: { fee: bigint } | null
+): string {
+  if (route !== 'usdcx' || !relay || !executor || arrivalFee === null) return amount;
+  const units = toBaseUnits(amount, CIRCLE_USDC_DECIMALS);
+  const split = units === null ? null : executorSendSplit(units, arrivalFee.fee);
+  return split === null ? amount : formatUnits(split.burnUnits, CIRCLE_USDC_DECIMALS);
+}
+
+/**
+ * The pending deposit whose arrival the address step reads, or null: none off the address step, and none on a chain
+ * that the relay service does not serve (the step then says so, and reads nothing). `servedChains` undefined: the
+ * service answer is not known, so the read goes on and the relay answers for the chain itself.
+ */
+function arrivalTargetOf(
+  step: RelayStep,
+  deposit: PendingRelayDeposit | null,
+  servedChains: readonly number[] | undefined
+): PendingRelayDeposit | null {
+  if (step !== 'address' || deposit === null) return null;
+  return servedChains === undefined || servedChains.includes(deposit.chainId) ? deposit : null;
+}
+
+/** False when the relay does not serve the chain of the pending deposit: by the service list, or by its answer. */
+function pendingChainServed(
+  deposit: PendingRelayDeposit | null,
+  servedChains: readonly number[] | undefined,
+  arrivalError: unknown
+): boolean {
+  if (deposit === null) return true;
+  if (arrivalError instanceof RelayApiError && arrivalError.code === 'unsupported_chain') return false;
+  return servedChains === undefined || servedChains.includes(deposit.chainId);
 }
 
 /** The amount a review shows while its quote refreshes. */
@@ -920,6 +1007,7 @@ const BRIDGE_ROUTES: Route[] = [
 const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   evmAddress,
   relaySource,
+  relayServedChains,
   midenAccount,
   onConnectAnother,
   onRelayUnsupported,
@@ -984,10 +1072,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxSources = useMemo(() => usdcxSourceChains(bridgeConfig), [bridgeConfig]);
   // Every chain a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers a
   // token, or an AggLayer chain that takes deposits. The list is the same for every token. A relay source takes only a
-  // chain that the relay serves.
+  // chain that the relay service serves, and none while that answer is not known.
   const sourceNetworks = useMemo<readonly BridgeNetwork[]>(
-    () => depositSourceNetworks(bridgeConfig, relaySource !== undefined),
-    [bridgeConfig, relaySource]
+    () => depositSourceNetworks(bridgeConfig, relaySource === undefined ? null : (relayServedChains ?? [])),
+    [bridgeConfig, relaySource, relayServedChains]
   );
   // The picked chain, else Circle's default source, else the first chain listed. Zero while the config lists none: the
   // form then asks for a network instead of naming a compiled default.
@@ -999,6 +1087,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   // Circle's source on the picked chain, when that chain is one.
   const usdcxSource = usdcxSources.get(sourceChainId);
+  // Circle's executor route burns on this chain and Circle executes on Arc. A relay source takes its fee out of the
+  // amount sent; an external wallet pays it on top.
+  const usdcxExecutorRoute = isExecutorSource(usdcxSource);
+  // Circle's fee for the burn of a pending relay deposit on the executor route, quoted again when its funds arrived.
+  const [arrivalFee, setArrivalFee] = useState<{ id: string; fee: bigint } | null>(null);
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
   // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
   // was quoted for, so a fee for an earlier amount is never shown.
@@ -1089,8 +1182,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     status: 'idle',
     tokens: []
   });
+  // A relay source reads no holdings of its deposit address: its balance is read only on the address step.
   useEffect(() => {
-    if (!offersHoldings || tokenApiUrl === undefined) {
+    if (relay || !offersHoldings || tokenApiUrl === undefined) {
       setHoldings({ status: 'idle', tokens: [] });
       return;
     }
@@ -1107,7 +1201,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [offersHoldings, tokenApiUrl, evmAddress]);
+  }, [relay, offersHoldings, tokenApiUrl, evmAddress]);
   // What the picker offers: the document's tokens first, then the wallet's other holdings, each once by address. A
   // holding takes its faucet from the registry when the bridge holds one for it already.
   const offeredErc20s = useMemo<OfferedErc20[]>(() => {
@@ -1332,14 +1426,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // Every Epoch token's balance on the source chain, each row settling on its own: the native coin is the account's own
   // balance, any other token its ERC-20 balance. Keyed on the chain and token set, not the array a config publish
-  // rebuilds: two chains can list the same entry, native ETH at the zero address above all.
+  // rebuilds: two chains can list the same entry, native ETH at the zero address above all. A relay source reads none of
+  // these balances here (its funds arrive after the review): this and the three reads below stay unread for it, and a
+  // handler reads the balance when it signs.
   const epochTokensRef = useRef(epochTokens);
   epochTokensRef.current = epochTokens;
   useEffect(() => {
     const identity = epochBalancesIdentity(evmAddress, epochTokensKey);
     commitStampedBalanceMap(setEpochBalanceSlot, identity, () => ({}), sameEpochBalancesIdentity);
     const tokens = epochTokensRef.current;
-    if (tokens.length === 0) return;
+    if (relay || tokens.length === 0) return;
     let cancelled = false;
     const settle = (key: string, balance: BridgeBalance) => {
       if (cancelled) return;
@@ -1372,7 +1468,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, epochTokensKey]);
+  }, [relay, evmAddress, epochTokensKey]);
 
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
@@ -1384,7 +1480,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       usdcxPending
     );
     commitStampedBalance(setCircleBalanceSlot, identity, EMPTY_BALANCE, sameCircleBalanceIdentity);
-    if (usdcxPending) return;
+    if (relay || usdcxPending) return;
     let cancelled = false;
     const evidence = createBalanceEvidence('circle_usdc');
 
@@ -1422,13 +1518,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, usdcxAvailable, usdcxPending, usdcxSource]);
+  }, [relay, evmAddress, usdcxAvailable, usdcxPending, usdcxSource]);
 
   useEffect(() => {
     const identity = ethBalanceIdentity(evmAddress, agglayerChainId, agglayerPending);
     let cancelled = false;
     commitStampedBalance(setEthBalanceSlot, identity, EMPTY_BALANCE, sameEthBalanceIdentity);
-    if (agglayerPending) return;
+    if (relay || agglayerPending) return;
     const evidence = createBalanceEvidence('native');
 
     const ethRead =
@@ -1465,7 +1561,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, agglayerChainId, agglayerPending]);
+  }, [relay, evmAddress, agglayerChainId, agglayerPending]);
 
   // Every registered ERC-20's balance on the AggLayer chain, each row settling on its own: one failed read marks only
   // its token, which the amount step then shows when that token is picked.
@@ -1478,7 +1574,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     const chainId = agglayerChainId;
     commitStampedBalanceMap(setErc20BalanceSlot, identity, () => ({}), sameErc20BalanceIdentity);
     const offered = offeredRef.current;
-    if (chainId === undefined || offered.length === 0) return;
+    if (relay || chainId === undefined || offered.length === 0) return;
     let cancelled = false;
     // Ends the reads in flight when the identity changes, so a stale answer never costs a request to settle.
     const abort = new AbortController();
@@ -1515,31 +1611,69 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       reads.clear();
       abort.abort();
     };
-  }, [evmAddress, agglayerChainId, offeredKey]);
+  }, [relay, evmAddress, agglayerChainId, offeredKey]);
 
   // A fresh EVM→Miden reverse-quote for the current amount. The typed amount is
   // the Miden-side output (`minTokenOut`, faucet base units); the allocator
   // answers with the EVM `tokenIn` to deposit. Extracted so a failed deposit can
   // re-quote to recover (executeEVMToMiden requires status 'quoted', so without
   // this a failed attempt dead-ends until the amount is edited).
+  // A relay source types what it SENDS: it searches (`searchEpochSendQuote`, at most three reverse quotes through the
+  // store) for the largest amount out whose deposit is not above the typed amount. The accepted quote is the last one
+  // asked for, so it is the quote that the store keeps and that `executeEVMToMiden` runs. `epochSend` is the answer for
+  // one typed amount; it is null while a search runs, so nothing reads an intermediate quote as the accepted one.
+  const [epochSend, setEpochSend] = useState<EpochSendQuote | null>(null);
+  const epochSearchRun = useRef(0);
   const requote = useCallback(() => {
     if (!evmUsdc || !midenUsdc) return undefined;
+    const base: Omit<EVMToMidenIntentParams, 'minTokenOut'> = {
+      sourceChainId: evmUsdc.chainId,
+      destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
+      evmSourceAddress: evmAddress,
+      evmTokenAddress: evmUsdc.address,
+      isNative: fastNative,
+      midenRecipientId: midenAccount.publicKey,
+      midenFaucetId: midenUsdc.faucetId
+    };
+    if (relay) {
+      const sendUnits = toBaseUnits(debouncedAmount, evmUsdc.decimals);
+      if (sendUnits === null || sendUnits <= 0n) return undefined;
+      epochSearchRun.current += 1;
+      const run = epochSearchRun.current;
+      const sendText = debouncedAmount.trim();
+      setEpochSend(null);
+      const quoteThroughStore = async (receiveUnits: bigint): Promise<bigint> => {
+        const params: EVMToMidenIntentParams = { ...base, minTokenOut: receiveUnits.toString() };
+        await quoteEVMToMiden(params, evmAddress);
+        if (run !== epochSearchRun.current) throw new EpochSearchSupersededError();
+        const { status, quote } = useEpochStore.getState();
+        if (status !== 'quoted' || quote === null || !('sourceChainId' in quote.params)) {
+          throw new EpochSearchSupersededError();
+        }
+        if (quote.params.minTokenOut !== params.minTokenOut) throw new EpochSearchSupersededError();
+        return BigInt(String(quote.quoteResult.tokenIn));
+      };
+      return searchEpochSendQuote({
+        sendUnits,
+        sourceDecimals: evmUsdc.decimals,
+        receiveDecimals: midenUsdc.decimals,
+        quote: quoteThroughStore
+      })
+        .then(result => {
+          if (run === epochSearchRun.current)
+            setEpochSend({ send: sendText, receiveUnits: result?.receiveUnits ?? null });
+        })
+        .catch(err => {
+          // A failed quote leaves the store `failed` with its error, which the amount step shows.
+          if (!(err instanceof EpochSearchSupersededError)) console.error('[EvmBridgeDepositScreen] quote failed', err);
+        });
+    }
     const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, midenUsdc.decimals);
     if (!minTokenOut) return undefined;
-    return quoteEVMToMiden(
-      {
-        sourceChainId: evmUsdc.chainId,
-        destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
-        evmSourceAddress: evmAddress,
-        evmTokenAddress: evmUsdc.address,
-        isNative: fastNative,
-        midenRecipientId: midenAccount.publicKey,
-        midenFaucetId: midenUsdc.faucetId,
-        minTokenOut
-      },
-      evmAddress
-    ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, evmUsdc, fastNative, midenAccount.publicKey, midenUsdc, quoteEVMToMiden]);
+    return quoteEVMToMiden({ ...base, minTokenOut }, evmAddress).catch(err =>
+      console.error('[EvmBridgeDepositScreen] quote failed', err)
+    );
+  }, [debouncedAmount, evmAddress, evmUsdc, fastNative, midenAccount.publicKey, midenUsdc, quoteEVMToMiden, relay]);
 
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
@@ -1777,6 +1911,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [t, depositError, usdcxFeeAboveBalanceMessage]
   );
 
+  // What the Circle route deposits or burns: the typed amount, but for a relay source on the executor route the burn that
+  // leaves Circle's fee (quoted again at arrival) inside the typed amount.
+  const usdcxDepositAmount = usdcxDepositAmountOf(amount, route, relay, usdcxExecutorRoute, arrivalFee);
+
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (depositSource.client === 'wagmi' && !walletProvider)) {
@@ -2005,7 +2143,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleUsdcxDeposit = useCallback(
     async (trackingTxId: string) => {
-      if (!isValidAmount(amount) || (depositSource.client === 'wagmi' && !walletProvider)) {
+      if (!isValidAmount(usdcxDepositAmount) || (depositSource.client === 'wagmi' && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
         setSlowError({ text: message, id: 'raw_bridge_deposit_failed' });
         setSlowStatus('failed');
@@ -2171,7 +2309,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         if (!isAddress(evmAddress)) throw walletRaised(new Error(`Invalid EVM address: ${evmAddress}`));
         step = 'precheck_balance';
         await ensureBalanceCovers(
-          parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
+          parseUnits(usdcxDepositAmount.trim(), CIRCLE_USDC_DECIMALS),
           CIRCLE_USDC_DECIMALS,
           usdcxChain.id,
           readBalance
@@ -2206,7 +2344,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         switch (usdcxSource.route) {
           case 'xreserve': {
             const { xReserve } = usdcxSource;
-            await runUsdcxDeposit(trackingTxId, amount, recipient, {
+            await runUsdcxDeposit(trackingTxId, usdcxDepositAmount, recipient, {
               sourceChainId: usdcxChain.id,
               source: usdcxSource,
               signer: xReserveSigner(xReserve),
@@ -2224,7 +2362,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             // The burn mints to Circle's executor on Arc, which deposits into Arc's xReserve; the registration
             // check therefore reads Arc's xReserve, where the deposit lands.
             const { tokenMessengerWithFees, target } = usdcxSource;
-            await runUsdcxExecutorDeposit(trackingTxId, amount, recipient, {
+            // A relay source burns the typed amount less Circle's fee, so the burn and the fee fit in what it sent.
+            await runUsdcxExecutorDeposit(trackingTxId, usdcxDepositAmount, recipient, {
               source: usdcxSource,
               depositor: evmAddress,
               signer: executorSigner(tokenMessengerWithFees),
@@ -2258,7 +2397,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       }
     },
     [
-      amount,
       depositSource,
       ensureBalanceCovers,
       evmAddress,
@@ -2267,6 +2405,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       readBalanceOrFail,
       settleFailedSend,
       switchChainAsync,
+      usdcxDepositAmount,
       usdcxDepositError,
       usdcxSource,
       walletProvider,
@@ -2449,7 +2588,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     epochStatus === 'quoted' &&
     !!epochQuote &&
     !!midenUsdc &&
-    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals) &&
+    fastQuoteMatches(relay, epochSend, amount, epochQuote.params.minTokenOut, midenUsdc.decimals) &&
     quotedTokenIn !== null &&
     (relay || (usdcBalance.value !== null && quotedTokenIn <= usdcBalance.value));
   // Picking Slow can move the USDC to the AggLayer chain's, so the amount is held to that balance here as well.
@@ -2534,7 +2673,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     () => (route === 'epoch' && quotedTokenIn ? formatUnits(quotedTokenIn, usdcDecimals) : undefined),
     [route, quotedTokenIn, usdcDecimals]
   );
-  const depositAmount = quotedDeposit ?? amount;
+  // A relay source's Circle burn is less than the typed amount (Circle's fee comes out of it); every other source
+  // amount is the typed one.
+  const depositAmount = quotedDeposit ?? usdcxDepositAmount;
   // What the Review hero prints; its fiat prices this figure, not the exact quote.
   const reviewAmount = quotedDeposit
     ? formatMoneyAmount(quotedDeposit, 'pays', tokenSymbol)
@@ -2578,11 +2719,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const error = displayedError?.text;
   const errorId = displayedError?.id;
 
-  // Output the recipient receives on Miden, exact, as the tracking row stores it. Every route
-  // receives what was typed: Fast asks the reverse quote for `minTokenOut` (pinned to the typed
-  // amount by `fastReady`), Slow (Agglayer) and USDCx (xReserve, maxFee 0) deliver the deposit 1:1.
+  // Output the recipient receives on Miden, exact, as the tracking row stores it. Fast receives the
+  // `minTokenOut` of its quote (`fastReady` holds the quote to the amount on screen), Slow (Agglayer) and
+  // USDCx deliver what is deposited or burned 1:1 (xReserve has maxFee 0).
   const outputAmount = useMemo(() => {
-    if (route !== 'epoch') return isValidAmount(amount) ? amount : undefined;
+    if (route !== 'epoch') return isValidAmount(usdcxDepositAmount) ? usdcxDepositAmount : undefined;
     const minTokenOut = epochQuote?.params.minTokenOut;
     if (minTokenOut === undefined || !midenUsdc) return undefined;
     try {
@@ -2590,7 +2731,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     } catch {
       return undefined;
     }
-  }, [route, amount, epochQuote?.params.minTokenOut, midenUsdc]);
+  }, [route, usdcxDepositAmount, epochQuote?.params.minTokenOut, midenUsdc]);
 
   // Undefined while no chain is listed: the form then asks for a network instead of naming a compiled default.
   const bridgeNetwork = getBridgeNetworkByChainId(sourceChainId);
@@ -2709,13 +2850,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     try {
       hapticMedium();
       // The Miden-side amount in faucet base units: Epoch quotes it, the other
-      // two routes deliver the typed amount 1:1 in their own token's scale.
+      // two routes deliver what they deposit or burn 1:1 in their own token's scale.
       const expectedAmount = (() => {
         switch (route) {
           case 'agglayer':
             return parseUnits(amount.trim(), slowSourceDecimals);
           case 'usdcx':
-            return parseUnits(amount.trim(), USDCX_DECIMALS);
+            return parseUnits(usdcxDepositAmount.trim(), USDCX_DECIMALS);
           case 'epoch':
           default:
             return BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
@@ -2821,7 +2962,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     sourceChainId,
     erc20,
     slowSourceDecimals,
-    tokenSymbol
+    tokenSymbol,
+    usdcxDepositAmount
   ]);
 
   const renderDepositStep = useCallback(
@@ -3122,20 +3264,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const pendingRoute = relayRouteOf(pendingDeposit);
   const [relayStartError, setRelayStartError] = useState<DepositError | null>(null);
   const [startPhase, setStartPhase] = useState<RelayStartPhase>('idle');
-  // An Epoch deposit whose new quote at arrival asks for more than the record: what the address must hold now.
-  const [requiredUnits, setRequiredUnits] = useState<bigint | null>(null);
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   const [qrSheetOpen, setQrSheetOpen] = useState(false);
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const [slideResetKey, setSlideResetKey] = useState(0);
   // The pending deposits whose start this mounted screen runs. The claim in storage guards every other page and mount.
   const startedIds = useRef(new Set<string>());
-  // The Epoch quote in the store when the start asked for a new one: only a newer quote can start the deposit.
-  const quoteAtRequest = useRef<typeof epochQuote>(null);
+  // The Epoch search answer when the start asked for a new one: only a newer answer can start the deposit.
+  const sendAtRequest = useRef<EpochSendQuote | null>(null);
   // The pending deposit whose start asked for that quote.
   const quoteRequestedFor = useRef<string | null>(null);
-  // Circle's fee for the burn of a pending deposit on the executor route, quoted again when its funds arrived.
-  const [arrivalFee, setArrivalFee] = useState<{ id: string; fee: bigint } | null>(null);
 
   // `?pending=<id>`: open on the address step of that deposit with its form state. An unknown id opens the amount step.
   const selectTokenRef = useRef(selectToken);
@@ -3160,7 +3298,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         setRoute(form.route);
         setAmount(form.amount);
         setRelayStartError(null);
-        setRequiredUnits(null);
         setStartPhase('idle');
         setPendingDeposit(deposit);
         setRelayStep('address');
@@ -3174,24 +3311,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [pendingDepositId, relayAccountKey, relayAddress]);
 
-  // The balance at the address, read while the address step is on screen.
-  const arrival = useDepositArrival(relayStep === 'address' ? pendingDeposit : null);
-  // The relay's gas mode before the address step, for the chosen chain.
-  const relayAccount = useRelayAccount({
-    chainId: relay && (relayStep === 'amount' || relayStep === 'review') && sourceChainId > 0 ? sourceChainId : null,
-    address: relaySource?.address
-  });
-  const relayMode = arrival.mode ?? relayAccount.account?.mode ?? null;
+  // The balance at the address, read only while the address step is on screen (`GET /v1/account`), and not for a
+  // deposit on a chain that the relay service does not serve. Before the address step nothing reads the address: the
+  // flow that holds this screen read the served chains and the gas mode from the service (`GET /v1/chains`).
+  const relayArrival = useDepositArrival(arrivalTargetOf(relayStep, pendingDeposit, relayServedChains));
+  const relayMode = relayArrival.mode;
   // A relay that takes its gas out of the deposit cannot run this flow yet: the flow that holds this screen says so.
   useEffect(() => {
     if (relay && relayMode === 'deduct') onRelayUnsupported?.();
   }, [relay, relayMode, onRelayUnsupported]);
+  // The relay serves the chain of the pending deposit: by the service list, and by the arrival read's answer.
+  const pendingServed = pendingChainServed(pendingDeposit, relayServedChains, relayArrival.error);
 
-  // What the address must hold: the reviewed amount, or more when a new Epoch quote asks for more.
-  const recordUnits = pendingDeposit === null ? null : BigInt(pendingDeposit.amountBaseUnits);
-  const neededUnits =
-    recordUnits !== null && requiredUnits !== null && requiredUnits > recordUnits ? requiredUnits : recordUnits;
-  const relayArrival = neededUnits === null ? arrival : depositArrivalOf(arrival.balance, neededUnits);
+  // What the address must hold: the amount that the user was asked to send (the typed amount).
+  const neededUnits = pendingDeposit === null ? null : BigInt(pendingDeposit.amountBaseUnits);
 
   // Circle's USDC takes Circle xReserve, and Epoch where an Epoch token names the same contract; every other token takes
   // Agglayer and Epoch.
@@ -3218,68 +3351,31 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   };
   const arrivesInOf = (value: RelayRoute, chainId: number): string => t(arrivalKeyOf(value, chainId));
 
-  // Circle's executor route burns on this chain and Circle executes on Arc: its fee comes on top of the amount.
-  const usdcxExecutorRoute = isExecutorSource(usdcxSource);
-  // The bridge fee of a route, on top of the received amount, in source base units, or null while it is not known:
-  // Agglayer and a direct xReserve deposit take none, Circle's executor route takes the fee Circle quoted for the amount,
-  // and Epoch's fee is known only from the quote of the chosen Epoch route (its quote asks for the typed amount out).
-  const routeFeeUnits = (candidate: RelayRoute): bigint | null => {
-    switch (candidate) {
-      case 'agglayer':
-        return 0n;
-      case 'usdcx':
-        return usdcxExecutorRoute ? (usdcxQuotedFeeUnits ?? null) : 0n;
-      case 'epoch':
-        if (relayRoute !== 'epoch' || !fastReady || quotedTokenIn === null || typedUnits === null) return null;
-        return quotedTokenIn > typedUnits ? quotedTokenIn - typedUnits : 0n;
-    }
-  };
-  // What the user sends: the typed amount on Agglayer and on a direct xReserve deposit (1:1), the quoted deposit on
-  // Epoch, and the amount plus Circle's quoted fee on Circle's executor route.
-  const relaySendUnits = ((): bigint | null => {
-    switch (relayRoute) {
-      case 'epoch':
-        return fastReady ? quotedTokenIn : null;
-      case 'agglayer':
-        return typedUnits;
-      case 'usdcx': {
-        const fee = routeFeeUnits('usdcx');
-        return typedUnits === null || fee === null ? null : typedUnits + fee;
-      }
-    }
-  })();
-  const relaySent: DepositAmountValue | undefined =
-    relaySendUnits === null ? undefined : { amount: relaySendUnits, decimals: sourceDecimals };
-  // What arrives: the typed amount on every route.
-  const relayReceived: DepositAmountValue | undefined =
-    typedUnits === null ? undefined : { amount: formatUnits(typedUnits, sourceDecimals) };
-  // Circle refused the display quote of this amount: its fee has no value to show.
+  // The typed amount is what the user sends (the mock-up's `fees()`): each route's fee comes out of it, and "You receive"
+  // is the rest (`relay-amounts.ts`). Circle refused the display quote of this amount: its fee has no value to show.
   const usdcxQuoteFailed = quoteFailedFor(usdcxExecutorRoute, usdcxQuoteFailedFor, amount);
-  const feeOf = (candidate: RelayRoute): DepositFee => {
-    const fee = routeFeeUnits(candidate);
-    if (fee === null) {
-      const waiting = typedUnits !== null && !(candidate === 'usdcx' && usdcxQuoteFailed);
-      return { kind: 'rate', text: waiting ? t('loading') : NO_FEE_YET };
-    }
-    return fee > 0n ? { kind: 'amount', value: { amount: fee, decimals: sourceDecimals } } : { kind: 'none' };
+  const relayAmountsInput: RelayAmountsInput = {
+    typedUnits,
+    typedText: amount.trim(),
+    sourceDecimals,
+    circleExecutor: usdcxExecutorRoute,
+    circleFee: usdcxQuotedFeeUnits,
+    circleQuoteFailed: usdcxQuoteFailed,
+    epochReceive: epochReceiveOf(relayRoute, fastReady, epochSend, midenUsdcDecimalsOf(midenUsdc)),
+    epochSend,
+    loadingText: t('loading')
   };
-  const relayFee = feeOf(relayRoute);
-  // Circle's executor fee and Epoch's fee come on top of the amount, so they show with no minus sign.
-  const relayFeeOnTop = feeComesOnTop(relayRoute, usdcxExecutorRoute);
-  const relayFeeShare =
-    relayFee.kind === 'amount' &&
-    relaySendUnits !== null &&
-    relaySendUnits > 0n &&
-    typeof relayFee.value.amount === 'bigint'
-      ? Number(relayFee.value.amount) / Number(relaySendUnits)
-      : undefined;
-  const relayUsd =
-    typedUnits === null || depositPrice.priceUsd === undefined
-      ? undefined
-      : Number(formatUnits(typedUnits, sourceDecimals)) * depositPrice.priceUsd;
-  // An Epoch amount takes no more fraction digits than the Miden token it arrives as.
-  const relayInputDecimals =
-    relayRoute === 'epoch' && midenUsdc ? Math.min(sourceDecimals, midenUsdc.decimals) : sourceDecimals;
+  const relayView = relayRouteView(relayRoute, relayAmountsInput);
+  // What the user sends: the typed amount, once the route's numbers are known (Review waits until then).
+  const relaySendUnits = relayView.sendUnits;
+  const relaySent = unitsValue(relaySendUnits, sourceDecimals);
+  const relayReceived = relayView.received;
+  const relayFee = relayView.fee;
+  const relayFeeShare = relayView.feeShare;
+  const relayUsd = amountValueUsd(unitsValue(typedUnits, sourceDecimals), depositPrice.priceUsd);
+  const relayReceivedUsd = amountValueUsd(relayReceived, depositPrice.priceUsd);
+  // The typed amount is in the source token, so it takes the source token's decimals on every route.
+  const relayInputDecimals = sourceDecimals;
   const relaySourceToken = { symbol: tokenLabel, logoFaucetId: outputFaucetId };
   const relayReceivedToken = { symbol: arrivingName, logoFaucetId: outputFaucetId };
   const relayNetwork = { id: bridgeNetwork?.id ?? '', name: networkName };
@@ -3287,6 +3383,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // route.
   const relayQuoteError = ((): DepositError | null => {
     if (!relay || relayStep !== 'amount') return null;
+    // No quote fits the typed amount: the fee takes all of it. The receipt shows no number for it.
+    if (relayView.noFit) return { text: t('depositFlowAmountBelowFee'), id: 'raw_bridge_deposit_failed' };
     switch (relayRoute) {
       case 'epoch':
         return epochFlow === 'evm-to-miden' && epochError
@@ -3302,31 +3400,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   useUserVisibleError(relayQuoteError === null ? null : relayQuoteError.id, 'notice');
 
-  // Every route delivers the typed amount, so the one that receives most is the one with the smallest fee on top. The
-  // rows go by that fee, a known fee before one that is not known yet, and by the mock-up's cost order on a tie
-  // (`routeRowsV`). "Fastest" is the route with the shortest time that the wallet states, by the mock-up's rank on a tie.
-  const relayRoutesByReceived = [...availableRelayRoutes].sort((a, b) => {
-    const feeA = routeFeeUnits(a);
-    const feeB = routeFeeUnits(b);
-    if (feeA !== null && feeB !== null && feeA !== feeB) return feeA < feeB ? -1 : 1;
-    if ((feeA === null) !== (feeB === null)) return feeA === null ? 1 : -1;
-    return RELAY_ROUTES_BY_COST.indexOf(a) - RELAY_ROUTES_BY_COST.indexOf(b);
+  // Each row receives what its route gives for the typed send amount, so the tags go by the real numbers: "Most
+  // received" is the row that receives most, "Fastest" the route with the shortest stated time (`rankRouteOptions`, the
+  // mock-up's `routeRowsV`). The Epoch numbers are known only while Epoch is the chosen route.
+  const relayRouteOptions = relayRouteRows({
+    routes: availableRelayRoutes,
+    selected: relayRoute,
+    chainId: sourceChainId,
+    amounts: relayAmountsInput,
+    nameOf: routeNameOf,
+    arrivesInOf
   });
-  const minutesOf = (candidate: RelayRoute): number => STATED_MINUTES[arrivalKeyOf(candidate, sourceChainId)];
-  const fastestRelayRoute = [...availableRelayRoutes].sort(
-    (a, b) => minutesOf(a) - minutesOf(b) || RELAY_ROUTES_BY_RANK.indexOf(a) - RELAY_ROUTES_BY_RANK.indexOf(b)
-  )[0];
-  const relayRouteOptions: DepositRouteOption[] = relayRoutesByReceived.map((candidate, index) => ({
-    id: candidate,
-    name: routeNameOf(candidate),
-    arrivesIn: arrivesInOf(candidate, sourceChainId),
-    received: relayReceived,
-    // A fee that is not known yet (the Epoch fee of a route that is not chosen) shows no fee line.
-    fee: candidate === relayRoute ? relayFee : routeFeeUnits(candidate) === null ? undefined : feeOf(candidate),
-    best: index === 0,
-    fastest: candidate === fastestRelayRoute,
-    selected: candidate === relayRoute
-  }));
   // The relay routes and the routes of another flow (NEAR Intents) for this pair, in one sheet.
   const sheetRouteOptions = mergeRouteOptions(relayRouteOptions, otherRoutes, sourceChainId);
 
@@ -3359,7 +3443,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     onFormChange?.({ chainId: sourceChainId, token, amount, step: relayStep });
   }, [amount, onFormChange, relayStep, sourceChainId, token]);
 
-  // Review needs what the user sends: Epoch's quote, or Circle's fee on its executor route.
+  // Review needs the route's numbers for the typed amount: Epoch's search, or Circle's fee on its executor route.
   const relayReviewReady = sendReady(canConfirmRoute, relaySendUnits);
   const handleRelayReview = useCallback(() => {
     if (!relayReviewReady) return;
@@ -3368,10 +3452,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setRelayStep('review');
   }, [relayReviewReady]);
 
-  // The slide on Review: the pending deposit is saved, then the address shows.
+  // The slide on Review: the pending deposit is saved, then the address shows. The record keeps the typed amount as
+  // what the user sends (`amount`) and what the review said arrives (`outputAmount`).
   const handleRelaySlide = useCallback(async () => {
     const resetSlide = () => setSlideResetKey(count => count + 1);
-    if (relaySource === undefined || relaySendUnits === null || typedUnits === null || !canConfirmRoute) {
+    if (relaySource === undefined || relaySendUnits === null || relayReceived === undefined || !canConfirmRoute) {
       resetSlide();
       return;
     }
@@ -3379,7 +3464,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       resetSlide();
       return;
     }
-    const output = relayRoute === 'epoch' ? outputAmount : formatUnits(typedUnits, sourceDecimals);
+    const output = amountValueText(relayReceived);
     const deposit = pendingRelayDepositOf({
       id: createPendingRelayDepositId(),
       accountPublicKey: relaySource.accountPublicKey,
@@ -3389,14 +3474,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       token: { address: lowerHexAddress(sourceTokenAddress), symbol: tokenLabel, decimals: sourceDecimals },
       amount: formatUnits(relaySendUnits, sourceDecimals),
       amountBaseUnits: relaySendUnits.toString(),
-      ...(output === undefined ? {} : { outputAmount: output }),
+      outputAmount: output,
       outputSymbol: arrivingName,
       createdAt: Date.now(),
       form: encodeRelayDepositForm({
         token,
         chainId: sourceChainId,
         route: relayRoute,
-        amount: formatUnits(typedUnits, sourceDecimals)
+        amount: formatUnits(relaySendUnits, sourceDecimals)
       })
     });
     // The record holds only what its parser takes, the route included.
@@ -3413,14 +3498,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return;
     }
     setRelayStartError(null);
-    setRequiredUnits(null);
+    setArrivalFee(null);
     setStartPhase('idle');
     setPendingDeposit(deposit);
     setRelayStep('address');
   }, [
     arrivingName,
     canConfirmRoute,
-    outputAmount,
+    relayReceived,
     relayRoute,
     relaySendUnits,
     relaySource,
@@ -3428,8 +3513,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     sourceDecimals,
     sourceTokenAddress,
     token,
-    tokenLabel,
-    typedUnits
+    tokenLabel
   ]);
 
   // Back on the address step: Review again, and the pending deposit is removed (the mock-up's `back`). Not while the
@@ -3443,7 +3527,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     setPendingDeposit(null);
     setRelayStartError(null);
-    setRequiredUnits(null);
     setArrivalFee(null);
     quoteRequestedFor.current = null;
     setStartPhase('idle');
@@ -3451,31 +3534,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setRelayStep('review');
   }, [pendingDeposit, startPhase]);
 
-  // "Deposit X instead": Review again with what arrived. On Epoch the received amount is scaled by the share that
-  // arrived, so the next quote asks for about that deposit.
+  // "Deposit X instead": Review again with what arrived as the typed amount. The typed amount is what the user sends on
+  // every route, so what arrived is the new amount with no route-specific rule; the review quotes it again.
   const handleDepositReceived = useCallback(() => {
-    if (relayArrival.state !== 'partial' || neededUnits === null || neededUnits <= 0n) return;
-    const arrived = relayArrival.balance;
-    const next = ((): string | null => {
-      switch (relayRoute) {
-        case 'agglayer':
-          return formatUnits(arrived, sourceDecimals);
-        case 'epoch': {
-          const minOut = midenUsdc ? evmToMidenMinTokenOut(amount, midenUsdc.decimals) : undefined;
-          if (minOut === undefined || !midenUsdc) return null;
-          return formatUnits((BigInt(minOut) * arrived) / neededUnits, midenUsdc.decimals);
-        }
-        case 'usdcx': {
-          // Circle's executor fee is a fixed amount on top: what arrived less that fee can be deposited.
-          const fee = typedUnits === null ? null : neededUnits - typedUnits;
-          if (fee === null || fee < 0n || arrived <= fee) return null;
-          return formatUnits(arrived - fee, sourceDecimals);
-        }
-      }
-    })();
+    if (relayArrival.state !== 'partial' || pendingDeposit === null) return;
+    const next = formatUnits(relayArrival.balance, pendingDeposit.token.decimals);
     leaveAddressStep();
-    if (next !== null) setAmount(next);
-  }, [amount, leaveAddressStep, midenUsdc, neededUnits, relayArrival, relayRoute, sourceDecimals, typedUnits]);
+    setAmount(next);
+  }, [leaveAddressStep, pendingDeposit, relayArrival]);
 
   // The start of the bridge for a pending deposit. The record is claimed first, so only one page or mount runs it; no
   // row: the record goes back, the failure shows, and the deposit can start again.
@@ -3516,12 +3582,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [handleConfirm, onExit, t]
   );
 
-  // Starts the bridge once when the funds are at the address. An Epoch deposit asks for a new quote first and starts
-  // only on a quote newer than that request, for an amount the address holds.
+  // Starts the bridge once when the funds are at the address: the balance of the token there is at least the amount
+  // that the user was asked to send. Epoch's and Circle's fees can move after the review, so those routes quote again
+  // for the amount that is there (the reviewed send amount) and start only when the user receives at least the
+  // reviewed amount less `RELAY_ARRIVAL_TOLERANCE_BPS` (`arrivalTermsHold`). Else the address step fails with its own
+  // text, the pending deposit stays, and nothing is signed for worse terms than the review.
   useEffect(() => {
-    if (relaySource === undefined || relayStep !== 'address' || pendingDeposit === null) return;
+    if (relaySource === undefined || relayStep !== 'address' || pendingDeposit === null || !pendingServed) return;
     if (relayStartError !== null || startedIds.current.has(pendingDeposit.id) || relayMode === 'deduct') return;
     if (relayArrival.state !== 'arrived') return;
+    const termsChanged = () => {
+      quoteRequestedFor.current = null;
+      setStartPhase('idle');
+      setRelayStartError({ text: t('depositFlowTermsChanged'), id: 'raw_bridge_deposit_failed' });
+    };
     if (relayRoute === 'epoch') {
       switch (startPhase) {
         case 'idle':
@@ -3530,7 +3604,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           // The store can render again inside `requote`, before the phase changes: the ref blocks a second request.
           if (quoteRequestedFor.current === pendingDeposit.id) return;
           quoteRequestedFor.current = pendingDeposit.id;
-          quoteAtRequest.current = useEpochStore.getState().quote;
+          sendAtRequest.current = epochSend;
           setStartPhase('quoting');
           if (requote() === undefined) {
             quoteRequestedFor.current = null;
@@ -3538,7 +3612,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             setRelayStartError({ text: t('depositFlowStartFailedBody'), id: 'raw_bridge_deposit_failed' });
           }
           return;
-        case 'quoting':
+        case 'quoting': {
           if (epochStatus === 'failed') {
             quoteRequestedFor.current = null;
             setStartPhase('idle');
@@ -3548,21 +3622,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             });
             return;
           }
-          if (!fastReady || quotedTokenIn === null || epochQuote === quoteAtRequest.current) return;
-          if (arrival.balance === null || quotedTokenIn > arrival.balance) {
-            // The new quote asks for more than arrived: the address waits for the rest.
-            quoteRequestedFor.current = null;
-            setRequiredUnits(quotedTokenIn);
-            setStartPhase('idle');
+          // The search for the amount at the address has not answered yet.
+          if (epochSend === null || epochSend === sendAtRequest.current || midenUsdc === null) return;
+          const reviewed = reviewedReceiveUnits(pendingDeposit, midenUsdc.decimals);
+          if (
+            epochSend.receiveUnits === null ||
+            reviewed === null ||
+            !arrivalTermsHold(epochSend.receiveUnits, reviewed)
+          ) {
+            termsChanged();
             return;
           }
+          // The accepted quote deposits at most the send amount, which the address holds.
+          if (!fastReady || quotedTokenIn === null || relayArrival.balance < quotedTokenIn) return;
           break;
+        }
         case 'starting':
           return;
       }
-    } else if (relayRoute === 'usdcx' && usdcxSource?.route === 'cctp-executor') {
-      // The burn pulls Circle's fee on top of the amount, and a quote lives about two minutes. The fee is quoted again
-      // when the funds arrive, and the burn starts only when the address holds the amount and that fee.
+    } else if (relayRoute === 'usdcx' && usdcxSource !== undefined && usdcxSource.route === 'cctp-executor') {
+      // Circle's fee comes out of the amount sent, and a quote lives about two minutes. The fee is quoted again when the
+      // funds arrive; the burn is the amount less that fee (`usdcxDepositAmountOf`).
       switch (startPhase) {
         case 'idle': {
           if (quoteRequestedFor.current === pendingDeposit.id) return;
@@ -3592,13 +3672,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         }
         case 'quoting': {
           if (arrivalFee === null || arrivalFee.id !== pendingDeposit.id || typedUnits === null) return;
-          const needed = typedUnits + arrivalFee.fee;
-          if (arrival.balance === null || needed > arrival.balance) {
-            // The new fee asks for more than arrived: the address waits for the rest.
-            quoteRequestedFor.current = null;
+          const split = executorSendSplit(typedUnits, arrivalFee.fee);
+          const reviewed = reviewedReceiveUnits(pendingDeposit, USDCX_DECIMALS);
+          if (split === null || reviewed === null || !arrivalTermsHold(split.burnUnits, reviewed)) {
             setArrivalFee(null);
-            setRequiredUnits(needed);
-            setStartPhase('idle');
+            termsChanged();
             return;
           }
           break;
@@ -3615,18 +3693,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     startRelayDeposit(pendingDeposit);
   }, [
     amount,
-    arrival.balance,
     arrivalFee,
     canConfirmRoute,
     debouncedAmount,
     epochError,
-    epochQuote,
+    epochSend,
     epochStatus,
     evmAddress,
     fastReady,
     midenAccount.publicKey,
+    midenUsdc,
     pendingDeposit,
+    pendingServed,
     quotedTokenIn,
+    relayArrival.balance,
     relayArrival.state,
     relayMode,
     relayRoute,
@@ -3650,6 +3730,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     });
     if (relayStartError !== null) return failed(relayStartError.text, relayStartError.id);
     if (startPhase === 'starting') return { kind: 'starting' };
+    // The relay service no longer serves the deposit's chain: the deposit cannot start, so the step does not wait.
+    if (!pendingServed) {
+      return failed(t('depositFlowChainNotServed', { network: relayNetwork.name }), 'raw_bridge_deposit_failed');
+    }
     switch (relayArrival.state) {
       case 'partial':
         return {
@@ -3671,7 +3755,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setBridgeTxId(null);
     setPendingDeposit(null);
     setRelayStartError(null);
-    setRequiredUnits(null);
     setArrivalFee(null);
     setStartPhase('idle');
     setSlowStatus('idle');
@@ -3779,15 +3862,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             receivedToken={relayReceivedToken}
             network={relayNetwork}
             onSelectToken={handleOpenTokenDrawer}
+            // Every relay route takes its fee out of the amount sent, so the fee reads with a minus sign.
             bridgeFee={relayFee}
-            bridgeFeeDeducted={!relayFeeOnTop}
             routeName={routeNameOf(relayRoute)}
             routeCount={sheetRouteOptions.length}
             onChangeRoute={() => setRouteSheetOpen(true)}
             // The mock-up states no arrival time for Circle and leaves the row out (`viewAmount`).
             arrivesIn={relayRoute === 'usdcx' ? undefined : arrivesInOf(relayRoute, sourceChainId)}
             received={relayReceived}
-            receivedUsd={relayUsd}
+            receivedUsd={relayReceivedUsd}
             depositCapUsd={capVerdict.state === 'exceeded' ? capVerdict.capUsd : undefined}
             depositCapUnpriced={capVerdict.state === 'unpriced' ? capHoldError?.text : undefined}
             notice={
@@ -3806,7 +3889,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           <DepositReviewView
             layout={layout}
             received={relayReceived ?? ZERO_AMOUNT}
-            receivedUsd={relayUsd}
+            receivedUsd={relayReceivedUsd}
             receivedToken={relayReceivedToken}
             amount={relaySent ?? ZERO_AMOUNT}
             sourceToken={relaySourceToken}

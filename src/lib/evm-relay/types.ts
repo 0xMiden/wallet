@@ -43,6 +43,19 @@ export interface RelayAccount {
 }
 
 /**
+ * The answer of `GET /v1/chains`: what the relay service serves, the same for every address. The wallet reads it
+ * before it offers a relay route, so it reads no balance of a deposit address to learn it.
+ */
+export interface RelayService {
+  /** The gas mode of the relay on every chain that it serves. */
+  mode: RelayGasMode;
+  /** The relayer account, in lower case. Only this account can execute a batch. */
+  executor: Address;
+  /** The ids of the chains that the relay serves, ascending, each one time. */
+  chains: number[];
+}
+
+/**
  * `pending`: not final. `succeeded`, `reverted`: the batch was mined. `expired`: final; the batch was not executed and
  * never will be, and `txHash` is the relayer's cancel transaction.
  */

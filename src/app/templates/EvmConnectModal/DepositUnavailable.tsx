@@ -14,8 +14,10 @@ import { Notice } from 'components/ui/Notice';
  * - `no-address`: the relay is on, but the account has no deposit address (no stored EVM key), and NEAR Intents is off.
  * - `deduct`: the relay answers `deduct` gas mode, which the flow does not support yet, and NEAR Intents does not serve
  *   the pair.
+ * - `unreachable`: the relay service cannot be read (`GET /v1/chains`: network, timeout, a refused answer, or an older
+ *   service with no such route), so no relay route is offered, and NEAR Intents does not serve the selection.
  */
-export type DepositUnavailableCause = 'off' | 'no-address' | 'deduct';
+export type DepositUnavailableCause = 'off' | 'no-address' | 'deduct' | 'unreachable';
 
 /** The i18n key of the text of each cause. */
 function bodyKeyOf(cause: DepositUnavailableCause): string {
@@ -26,6 +28,8 @@ function bodyKeyOf(cause: DepositUnavailableCause): string {
       return 'depositFlowUnavailableNoAddress';
     case 'deduct':
       return 'depositFlowUnavailableDeduct';
+    case 'unreachable':
+      return 'depositFlowUnavailableUnreachable';
   }
 }
 

@@ -2,6 +2,7 @@ import React from 'react';
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { RelayServiceState } from 'lib/evm-relay/use-relay-service';
 import type { NearIntentsCatalog, NearIntentsConfig } from 'lib/one-click/types';
 import {
   createLocationState,
@@ -49,6 +50,33 @@ jest.mock('lib/evm-relay/base-url', () => ({ getRelayBaseUrl: () => (mockRelayOn
 const RELAY = '0x00000000000000000000000000000000000000e5';
 let mockRelaySource: { accountPublicKey: string; address: string } | null = null;
 jest.mock('lib/evm-relay/source', () => ({ relaySourceOf: () => mockRelaySource }));
+// The relay service (`GET /v1/chains`): it serves the one chain of the relay token below, unless a case says otherwise.
+let mockService: RelayServiceState = {
+  status: 'ready',
+  service: { mode: 'sponsor', executor: '0x00000000000000000000000000000000000000e1', chains: [1] }
+};
+jest.mock('lib/evm-relay/use-relay-service', () => ({
+  useRelayService: (enabled: boolean) => (enabled ? mockService : { status: 'off' })
+}));
+jest.mock('app/templates/EvmConnectModal/relay-token-choices', () => ({
+  ...jest.requireActual('app/templates/EvmConnectModal/relay-token-choices'),
+  depositSourceNetworks: () => [],
+  relayTokenChoices: () => [
+    {
+      option: {
+        id: '1:ETH',
+        symbol: 'ETH',
+        receivedSymbol: 'ETH',
+        logoFaucetId: undefined,
+        network: { id: 'ethereum', name: 'Ethereum' }
+      },
+      chainId: 1,
+      token: 'ETH',
+      address: '0x0000000000000000000000000000000000000000',
+      routes: ['agglayer']
+    }
+  ]
+}));
 
 // NEAR Intents: off unless a case sets a config. Its flow is stubbed; `DepositFlow` has its own suite.
 let mockNearConfig: NearIntentsConfig | null = null;
@@ -127,6 +155,10 @@ const CATALOG: NearIntentsCatalog = {
 
 let warn: jest.SpyInstance;
 beforeEach(() => {
+  mockService = {
+    status: 'ready',
+    service: { mode: 'sponsor', executor: '0x00000000000000000000000000000000000000e1', chains: [1] }
+  };
   mockRelayOn = false;
   mockRelaySource = null;
   mockNearConfig = null;
@@ -206,6 +238,25 @@ describe('BridgeDeposit: the relay serves the account', () => {
 
     expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-relay', RELAY);
     expect(screen.queryByTestId('near-deposit-flow')).not.toBeInTheDocument();
+  });
+
+  it('opens NEAR Intents, with no relay route, when the deposit service cannot be reached', () => {
+    mockService = { status: 'unreachable', error: new Error('relay (404 not_found)') };
+    mockNearConfig = NEAR_CONFIG;
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('near-deposit-flow')).toBeInTheDocument();
+    expect(screen.queryByTestId('bridge-deposit-screen')).not.toBeInTheDocument();
+  });
+
+  it('says the deposit service cannot be reached when NEAR Intents is off too', () => {
+    mockService = { status: 'unreachable', error: new Error('relay (404 not_found)') };
+    render(<BridgeDeposit />);
+
+    const notice = screen.getByTestId('deposit-unavailable');
+    expect(notice).toHaveAttribute('data-cause', 'unreachable');
+    expect(notice).toHaveTextContent('depositFlowUnavailableUnreachable');
+    expect(warn).toHaveBeenCalledWith('[deposit] the Deposit flow is not available:', 'unreachable');
   });
 });
 

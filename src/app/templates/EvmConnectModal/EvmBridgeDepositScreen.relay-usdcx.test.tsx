@@ -189,7 +189,10 @@ const mockUseVersion = () => {
 interface MockEpochState {
   status: string;
   flow: string | null;
-  quote: { params: { minTokenOut: string }; quoteResult: { tokenIn: string; tokenOut: string } } | null;
+  quote: {
+    params: { minTokenOut: string; sourceChainId?: number };
+    quoteResult: { tokenIn: string; tokenOut: string };
+  } | null;
   error: string | null;
   compactWatchClosed: boolean;
   quoteEVMToMiden: jest.Mock;
@@ -220,13 +223,14 @@ jest.mock('lib/epoch', () => ({
     { getState: () => mockEpochState }
   )
 }));
-/** Every Epoch quote is for 1.5 USDC out, with a deposit of `tokenIn`. */
-const quoteWith = (tokenIn: bigint) => {
-  mockEpochState.quoteEVMToMiden.mockImplementation(async () => {
+/** The allocator's reverse quote: the deposit for `minTokenOut` out is that amount plus a flat `fee` (same decimals). */
+const quoteWith = (fee: bigint) => {
+  mockEpochState.quoteEVMToMiden.mockImplementation(async (params: { minTokenOut: string; sourceChainId: number }) => {
+    const tokenIn = BigInt(params.minTokenOut) + fee;
     Object.assign(mockEpochState, {
       status: 'quoted',
       flow: 'evm-to-miden',
-      quote: { params: { minTokenOut: '1500000' }, quoteResult: { tokenIn: tokenIn.toString(), tokenOut: '1500000' } }
+      quote: { params, quoteResult: { tokenIn: tokenIn.toString(), tokenOut: params.minTokenOut } }
     });
     mockBump();
   });
@@ -307,12 +311,6 @@ jest.mock('lib/evm-relay/use-deposit-arrival', () => {
     }
   };
 });
-jest.mock('lib/evm-relay/use-relay-account', () => ({
-  useRelayAccount: ({ chainId }: { chainId: number | null }) => {
-    mockUseVersion();
-    return { account: chainId === null ? undefined : { mode: 'sponsor' }, error: undefined, isLoading: false };
-  }
-}));
 
 // The pending deposits of the account, in memory. The record keeps the route as an id that it does not read.
 let mockPending: PendingRelayDeposit[] = [];
@@ -428,6 +426,7 @@ const renderRelay = async () => {
     <EvmBridgeDepositScreen
       evmAddress={RELAY}
       relaySource={RELAY_SOURCE}
+      relayServedChains={[CHAIN_ID]}
       midenAccount={midenAccount}
       onConnectAnother={onConnectAnother}
       onClose={onClose}
@@ -479,7 +478,8 @@ beforeEach(() => {
   mockAllowance = 0n;
   mockChainBalance = FUNDED;
   Object.assign(mockEpochState, { status: 'idle', flow: null, quote: null, error: null });
-  quoteWith(AMOUNT + 1_000n);
+  // Epoch's fee: 0.001 USDC.
+  quoteWith(1_000n);
   answerReads();
   jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
   jest.mocked(waitForEvmReceipt).mockResolvedValue(undefined);
@@ -654,17 +654,36 @@ describe('EvmBridgeDepositScreen from a relay source: Circle executor route', ()
     mockCircleSource = EXECUTOR_SOURCE;
   });
 
-  it('asks for the amount plus Circle fee, shown on top of the amount', async () => {
+  it('asks for the typed amount and takes Circle fee out of it', async () => {
     await renderRelay();
     await typeAmount('1.5');
 
-    expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent('0.02 USDC');
-    expect(screen.getByTestId('deposit-receipt-total-amount')).toHaveTextContent('1.5 USDCx');
-    await toAddress();
+    expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent('− 0.02 USDC');
+    expect(screen.getByTestId('deposit-receipt-total-amount')).toHaveTextContent('1.48 USDCx');
+    fireEvent.click(screen.getByTestId('deposit-amount-review'));
+    await settle();
+    expect(screen.getByTestId('deposit-review-send')).toHaveTextContent('"amount":"1.5 USDC"');
+    fireEvent.keyDown(screen.getByTestId('deposit-review-slide-knob'), { key: 'Enter' });
+    await settle();
     expect(mockPending[0]).toEqual(
-      expect.objectContaining({ route: 'usdcx', amountBaseUnits: (AMOUNT + FEE).toString(), outputAmount: '1.5' })
+      expect.objectContaining({
+        route: 'usdcx',
+        amount: '1.5',
+        amountBaseUnits: AMOUNT.toString(),
+        outputAmount: '1.48'
+      })
     );
-    expect(screen.getByTestId('deposit-address-amount')).toHaveTextContent('1.52');
+    expect(screen.getByTestId('deposit-address-amount')).toHaveTextContent('1.5');
+    expect(screen.getByTestId('deposit-address-amount')).not.toHaveTextContent('1.52');
+  });
+
+  it('shows the no-quote state when Circle fee takes the whole amount', async () => {
+    mockFee = AMOUNT;
+    await renderRelay();
+    await typeAmount('1.5');
+
+    expect(screen.getByTestId('deposit-quote-failed')).toHaveTextContent('depositFlowAmountBelowFee');
+    expect(screen.getByTestId('deposit-amount-review')).toBeDisabled();
   });
 
   it('says so, and holds Review, when Circle does not quote the fee', async () => {
@@ -683,19 +702,28 @@ describe('EvmBridgeDepositScreen from a relay source: Circle executor route', ()
       if (extra?.relayJob) events.push('job');
     });
     relayAnswers(async () => MINED, events);
-    await depositArrives(AMOUNT + FEE);
+    await depositArrives(AMOUNT);
 
     expect(mockRelaySendCalls).toHaveBeenCalledTimes(1);
     const [approve, burn] = sentCalls();
     expect(sentCalls()).toHaveLength(2);
+    // The burn and its fee together are the amount sent.
     expect(decodeFunctionData({ abi: ERC20_APPROVE_ABI, data: approve?.data ?? '0x' }).args).toEqual([
       getAddress(MESSENGER),
-      AMOUNT + FEE
+      AMOUNT
     ]);
     expect(burn).toMatchObject({ to: MESSENGER, value: 0n });
     const decoded = decodeFunctionData({ abi: TOKEN_MESSENGER_WITH_FEES_ABI, data: burn?.data ?? '0x' });
     expect(decoded.functionName).toBe('depositForBurnWithHookAndFees');
-    expect(decoded.args?.[0]).toBe(AMOUNT);
+    expect(decoded.args?.[0]).toBe(AMOUNT - FEE);
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'usdcx',
+        amount: AMOUNT - FEE,
+        sourceAmount: '1.48',
+        outputAmount: '1.48'
+      })
+    );
     const facts = {
       usdcxRemoteRecipient: RECIPIENT,
       cctp: { sourceDomain: 0, forwarded: true, forwardFee: FEE.toString() }
@@ -706,18 +734,34 @@ describe('EvmBridgeDepositScreen from a relay source: Circle executor route', ()
     expect(mockSwitchChain).not.toHaveBeenCalled();
   });
 
-  it('waits for the rest when the fee quoted on arrival asks for more than arrived', async () => {
+  const arriveWithCircleFee = async (arrivalFee: bigint) => {
     await renderRelay();
     await typeAmount('1.5');
     await toAddress();
-    mockFee = FEE + 5_000n;
-    await setRelayBalance(AMOUNT + FEE);
+    mockFee = arrivalFee;
+    await setRelayBalance(AMOUNT);
     await settle();
     await settle();
+  };
+
+  it.each<[string, bigint]>([
+    ['a lower fee', FEE - 5_000n],
+    ['the same fee', FEE],
+    ['a fee within the tolerance', FEE + 5_000n]
+  ])('starts the burn at arrival with %s, taking that fee out of the amount sent', async (_case, arrivalFee) => {
+    await arriveWithCircleFee(arrivalFee);
+
+    const burn = decodeFunctionData({ abi: TOKEN_MESSENGER_WITH_FEES_ABI, data: sentCalls()[1]?.data ?? '0x' });
+    expect(burn.args?.[0]).toBe(AMOUNT - arrivalFee);
+  });
+
+  it('fails the address step, keeps the deposit and signs nothing when the fee is past the tolerance', async () => {
+    await arriveWithCircleFee(FEE + 10_000n);
 
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
-    expect(screen.getByTestId('deposit-address-partial')).toBeInTheDocument();
-    expect(screen.getByTestId('deposit-address-amount')).toHaveTextContent('1.525');
+    expect(mockRelaySendCalls).not.toHaveBeenCalled();
+    expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('depositFlowTermsChanged');
+    expect(mockPending.map(entry => entry.route)).toEqual(['usdcx']);
   });
 });
 
