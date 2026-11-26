@@ -14,6 +14,7 @@ import {
   TOKENS_METADATA_SCHEMA_STORAGE_KEY,
   TOKENS_METADATA_SCHEMA_VERSION
 } from 'lib/miden/metadata/storage';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { _resetInteractionPriorityForTest, beginInteraction } from 'lib/ui/interaction-priority';
 
@@ -27,6 +28,8 @@ _g.__cnSwrTest = {
   kv: {} as Record<string, any>,
   fetchFromStorageCalls: [] as string[],
   fetchFromStorageFailKey: null as string | null,
+  fetchFromStorageOverride: null as ((key: string) => Promise<any>) | null,
+  classifySwapOrderNotes: jest.fn(async () => new Map()),
   putToStorageCalls: [] as Array<{ key: string; value: any }>,
   consumableNotes: [] as any[],
   proxyGetConsumableNotes: jest.fn(async () => [] as any[]),
@@ -111,6 +114,9 @@ jest.mock('../sdk/helpers', () => ({
 jest.mock('./storage', () => ({
   fetchFromStorage: async (key: string) => {
     _g.__cnSwrTest.fetchFromStorageCalls.push(key);
+    if (_g.__cnSwrTest.fetchFromStorageOverride) {
+      return _g.__cnSwrTest.fetchFromStorageOverride(key);
+    }
     if (_g.__cnSwrTest.fetchFromStorageFailKey === key) {
       throw new Error(`storage read failed: ${key}`);
     }
@@ -168,7 +174,7 @@ jest.mock('lib/miden/note-quarantine', () => ({
 }));
 
 jest.mock('lib/miden/swap/classification', () => ({
-  classifySwapOrderNotes: async () => new Map(),
+  classifySwapOrderNotes: (...a: any[]) => _g.__cnSwrTest.classifySwapOrderNotes(...a),
   isHeldBackPeerSwapPayback: () => false,
   isPeerSwapPayback: () => false,
   localSwapOrders: async () => [],
@@ -230,6 +236,8 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     _g.__cnSwrTest.kv = {};
     _g.__cnSwrTest.fetchFromStorageCalls = [];
     _g.__cnSwrTest.fetchFromStorageFailKey = null;
+    _g.__cnSwrTest.fetchFromStorageOverride = null;
+    _g.__cnSwrTest.classifySwapOrderNotes = jest.fn(async () => new Map());
     _g.__cnSwrTest.putToStorageCalls = [];
     _g.__cnSwrTest.consumableNotes = [];
     _g.__cnSwrTest.metadataCache = {};
@@ -1400,5 +1408,132 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     expect(hOvrd.result.current.data).toEqual([]);
     expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
     hOvrd.unmount();
+  });
+
+  it('shares iOS debugInfo across coalesced subscribers, isolates !enabled hooks, and records classifySwapOrderNotes errors', async () => {
+    let calls = 0;
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => {
+      calls++;
+      if (calls === 1) return [makeNote('n-dbg-1')];
+      return [makeNote('n-dbg-1'), makeNote('n-dbg-2')];
+    });
+
+    let sub1Debug: any;
+    let sub2Debug: any;
+    function Sub1() {
+      sub1Debug = useClaimableNotes('pk-shared-debug').debugInfo;
+      return null;
+    }
+    function Sub2() {
+      sub2Debug = useClaimableNotes('pk-shared-debug').debugInfo;
+      return null;
+    }
+
+    const wrapper = createWrapper();
+    const view = render(React.createElement(wrapper, null, React.createElement(Sub1), React.createElement(Sub2)));
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(calls).toBe(1);
+    expect(sub1Debug?.lastFetchTime).not.toBe('never');
+    expect(sub1Debug?.notesWithMetadataCount).toBe(1);
+    expect(sub2Debug?.lastFetchTime).not.toBe('never');
+    expect(sub2Debug?.notesWithMetadataCount).toBe(1);
+
+    // Disabled hook on the same cacheKey must not expose the active subscriber telemetry.
+    const disabledHook = renderHook(() => useClaimableNotes('pk-shared-debug', false), { wrapper });
+    expect(disabledHook.result.current.debugInfo?.lastFetchTime).toBe('never');
+    expect(disabledHook.result.current.debugInfo?.notesWithMetadataCount).toBe(0);
+    disabledHook.unmount();
+
+    // Leader-dispatched requestNotesRefresh() updates debugInfo on Sub2 as well.
+    await act(async () => {
+      requestNotesRefresh();
+      await flushMicrotasks(12);
+    });
+    expect(calls).toBe(2);
+    expect(sub2Debug?.notesWithMetadataCount).toBe(2);
+    view.unmount();
+
+    // classifySwapOrderNotes catch must record debugInfo.error even when the failure trips isSyncFused and pauses SWR onError.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+      noteSyncWatchdogEviction('claimable-notes');
+    }
+    expect(isSyncFused('claimable-notes')).toBe(false);
+    _g.__cnSwrTest.classifySwapOrderNotes = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog', new Error('lineage hang'));
+    });
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => [makeNote('n-swap-err')]);
+    const hErr = renderHook(() => useClaimableNotes('pk-swap-dbg-err'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(isSyncFused('claimable-notes')).toBe(true);
+    expect(hErr.result.current.debugInfo?.error).toContain('classifySwapOrderNotes failed:');
+    hErr.unmount();
+  });
+
+  it('suppresses redundant setCachedFallback renders on concurrent co-subscribers after live landing and resets on unmount', async () => {
+    const keyLive = 'claimable_notes:v1:https://rpc.mainnet.miden.io|mainnet:pk-shared-live';
+    const cachedLive = {
+      id: 'cached-live',
+      faucetId: 'miden-faucet',
+      amount: '100',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      standardPayment: true,
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
+    _g.__cnSwrTest.kv[keyLive] = [cachedLive];
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async () => [makeNote('live-win')]);
+
+    let resolveStorage: ((val: any) => void) | null = null;
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === keyLive) {
+        return new Promise(resolve => {
+          resolveStorage = resolve;
+        });
+      }
+      return Promise.resolve(null);
+    };
+
+    let sub2Renders = 0;
+    function Sub1() {
+      useClaimableNotes('pk-shared-live');
+      return null;
+    }
+    function Sub2() {
+      sub2Renders++;
+      useClaimableNotes('pk-shared-live');
+      return null;
+    }
+
+    const wrapper = createWrapper();
+    const view = render(React.createElement(wrapper, null, React.createElement(Sub1), React.createElement(Sub2)));
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    const rendersAtLiveSettle = sub2Renders;
+
+    // Resolving deferred storage AFTER live data landed must not cause an extra setCachedFallback render on Sub2.
+    await act(async () => {
+      resolveStorage?.([cachedLive]);
+      await flushMicrotasks(12);
+    });
+    expect(sub2Renders).toBe(rendersAtLiveSettle);
+    view.unmount();
+
+    // After full unmount and cache reset, fresh mount with pending live read still surfaces cached fallback.
+    __resetClaimableNotesCacheForTests();
+    _g.__cnSwrTest.fetchFromStorageOverride = null;
+    _g.__cnSwrTest.kv[keyLive] = [cachedLive];
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(() => new Promise(() => {}));
+    const hFresh = renderHook(() => useClaimableNotes('pk-shared-live'), { wrapper: createWrapper() });
+    await act(async () => {
+      await flushMicrotasks(12);
+    });
+    expect(hFresh.result.current.data?.map(n => n.id)).toEqual(['cached-live']);
+    hFresh.unmount();
   });
 });

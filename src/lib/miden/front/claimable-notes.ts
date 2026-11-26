@@ -54,6 +54,19 @@ export type ClaimableNotesDebugInfo = {
   error?: string;
 };
 
+function createInitialDebugInfo(): ClaimableNotesDebugInfo {
+  return {
+    rawNotesCount: 0,
+    parsedNotesCount: 0,
+    notesWithMetadataCount: 0,
+    missingFaucetIds: [],
+    metadataCacheKeys: [],
+    lastFetchTime: 'never'
+  };
+}
+
+const INITIAL_DEBUG_INFO: ClaimableNotesDebugInfo = createInitialDebugInfo();
+
 // -------------------- Types --------------------
 
 type ParsedNote = {
@@ -252,7 +265,7 @@ async function persistMetadataIfAny(
 
 async function fetchNotesFromLocalClient(
   publicAddress: string,
-  debugInfoRef: React.MutableRefObject<ClaimableNotesDebugInfo>
+  coordinator: CacheKeyRefreshCoordinator
 ): Promise<ParsedNote[]> {
   // Block numbers only name blocks on the endpoint the notes are read from.
   const readScope = getEffectiveRpcUrl();
@@ -285,11 +298,7 @@ async function fetchNotesFromLocalClient(
     // nothing about a note read whose call is parked, and a single counter let either
     // fact erase the other.
     noteProbeFailure('claimable-notes', e);
-    debugInfoRef.current = {
-      ...debugInfoRef.current,
-      error: `getConsumableNotes failed: ${e}`,
-      lastFetchTime: new Date().toISOString()
-    };
+    recordCoordinatorDebugError(coordinator, 'getConsumableNotes failed', e);
     throw e;
   }
 
@@ -326,6 +335,7 @@ async function fetchNotesFromLocalClient(
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.
     noteProbeFailure('claimable-notes', e);
+    recordCoordinatorDebugError(coordinator, 'classifySwapOrderNotes failed', e);
     throw e;
   }
 
@@ -536,9 +546,20 @@ interface CacheKeyRefreshCoordinator {
   rerunAfterInFlight: boolean;
   trailingPromise: Promise<void> | null;
   resolveTrailing: (() => void) | null;
+  debugInfo: ClaimableNotesDebugInfo;
+  // Whether a LIVE read has already landed for this cacheKey while subscribers are active.
+  liveLanded: boolean;
   unsubscribeRefresh?: () => void;
   errorRetryTimer?: ReturnType<typeof setTimeout>;
   removeWakeListeners?: () => void;
+}
+
+function recordCoordinatorDebugError(coordinator: CacheKeyRefreshCoordinator, label: string, error: unknown): void {
+  coordinator.debugInfo = {
+    ...coordinator.debugInfo,
+    error: `${label}: ${error}`,
+    lastFetchTime: new Date().toISOString()
+  };
 }
 
 const coordinatorsByKey = new Map<string, CacheKeyRefreshCoordinator>();
@@ -569,7 +590,9 @@ function ensureCoordinator(cacheKey: string): CacheKeyRefreshCoordinator {
       abortedBeforeRead: false,
       rerunAfterInFlight: false,
       trailingPromise: null,
-      resolveTrailing: null
+      resolveTrailing: null,
+      debugInfo: createInitialDebugInfo(),
+      liveLanded: false
     };
     coordinatorsByKey.set(cacheKey, entry);
   }
@@ -698,6 +721,8 @@ function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator)
   entry.inFlightStartedRead = false;
   entry.abortedBeforeRead = false;
   entry.rerunAfterInFlight = false;
+  entry.liveLanded = false;
+  entry.debugInfo = createInitialDebugInfo();
   const resolve = entry.resolveTrailing;
   entry.trailingPromise = null;
   entry.resolveTrailing = null;
@@ -932,24 +957,10 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
 function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const { cache } = useSWRConfig();
   const { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata } = useTokensMetadata();
-  const debugInfoRef = useRef<ClaimableNotesDebugInfo>({
-    rawNotesCount: 0,
-    parsedNotesCount: 0,
-    notesWithMetadataCount: 0,
-    missingFaucetIds: [],
-    metadataCacheKeys: [],
-    lastFetchTime: 'never'
-  });
 
   const cacheKey = claimableNotesCacheKey(publicAddress);
   const swrKey = useMemo(() => ['claimable-notes', cacheKey] as const, [cacheKey]);
   const serializedKey = unstable_serialize(swrKey);
-
-  // Cache key whose LIVE read has already landed in this mount. Once it has, the
-  // persisted list is stale by definition and publishing it as a fallback would only
-  // cost a render — the storage read and the first live read race on every mount, and
-  // on a warm client the live read frequently wins.
-  const liveLandedForRef = useRef<string | null>(null);
 
   const fetchClaimableNotes = useCallback((): Promise<ClaimableNoteWithMetadata[] | undefined> => {
     const entry = ensureCoordinator(cacheKey);
@@ -973,7 +984,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       if (coordinatorsByKey.get(cacheKey) === entry) {
         entry.inFlightStartedRead = true;
       }
-      const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(isListedClaimableNote);
+      const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, entry)).filter(isListedClaimableNote);
 
       let storedV2Promise: Promise<Map<string, AssetMetadata>> | null = null;
       const loadStoredV2 = () => {
@@ -1019,18 +1030,19 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
       // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
       const result = sortClaimableNotes(attachMetadataToNotes(parsedNotes, metadataByFaucetId));
 
-      liveLandedForRef.current = cacheKey;
-
-      // Update debug info
-      debugInfoRef.current = {
-        rawNotesCount: parsedNotes.length,
-        parsedNotesCount: parsedNotes.length,
-        notesWithMetadataCount: result.length,
-        missingFaucetIds,
-        metadataCacheKeys: Object.keys(allTokensBaseMetadataRef.current || {}),
-        lastFetchTime: new Date().toISOString(),
-        error: undefined
-      };
+      if (coordinatorsByKey.get(cacheKey) === entry) {
+        entry.liveLanded = true;
+        // Update debug info
+        entry.debugInfo = {
+          rawNotesCount: parsedNotes.length,
+          parsedNotesCount: parsedNotes.length,
+          notesWithMetadataCount: result.length,
+          missingFaucetIds,
+          metadataCacheKeys: Object.keys(allTokensBaseMetadataRef.current || {}),
+          lastFetchTime: new Date().toISOString(),
+          error: undefined
+        };
+      }
 
       return result;
     })();
@@ -1103,7 +1115,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
         if (cancelled || !notes) return;
         // The live read for this account already answered — it is strictly better than
         // the cache, so do not publish behind it.
-        if (liveLandedForRef.current === cacheKey) return;
+        if (coordinatorsByKey.get(cacheKey)?.liveLanded) return;
         // Bail out when the state initialiser already took this exact list out of the
         // memory cache: a remount must not cost a second render for the same data.
         setCachedFallback(previous =>
@@ -1154,11 +1166,10 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     isPaused: isClaimableNotesPaused,
     onError: e => {
       console.error('Error fetching claimable notes:', e);
-      debugInfoRef.current = {
-        ...debugInfoRef.current,
-        error: `SWR error: ${e}`,
-        lastFetchTime: new Date().toISOString()
-      };
+      const coordinator = coordinatorsByKey.get(cacheKey);
+      if (coordinator) {
+        recordCoordinatorDebugError(coordinator, 'SWR error', e);
+      }
     }
   });
 
@@ -1233,7 +1244,11 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // True while the list is the persisted cache rather than a live read: a consumer that treats the first
     // list as what exists at load waits for a live one.
     isFallback: fallbackData !== undefined && swrResult.data === fallbackData,
-    debugInfo: isIOS() ? debugInfoRef.current : undefined
+    debugInfo: isIOS()
+      ? enabled
+        ? (coordinatorsByKey.get(cacheKey)?.debugInfo ?? INITIAL_DEBUG_INFO)
+        : INITIAL_DEBUG_INFO
+      : undefined
   };
 }
 

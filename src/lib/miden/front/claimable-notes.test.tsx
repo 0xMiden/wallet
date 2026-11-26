@@ -1846,16 +1846,23 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await _g.__cnTest.lastFetchPromise;
     rerender();
     await waitFor(() => expect(_g.__cnTest.puts).toBe(1));
+    await _g.__cnTest.lastFetchPromise;
+    await Promise.resolve();
+    await Promise.resolve();
 
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'second' })];
     rerender();
     await _g.__cnTest.lastFetchPromise;
+    await Promise.resolve();
+    await Promise.resolve();
     rerender();
     await waitFor(() => expect(_g.__cnTest.puts).toBe(2));
 
     failFirstWrite(new Error('Storage unavailable'));
     await new Promise(resolve => setTimeout(resolve, 0));
     await _g.__cnTest.lastFetchPromise;
+    await Promise.resolve();
+    await Promise.resolve();
     rerender();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(_g.__cnTest.puts).toBe(2);
