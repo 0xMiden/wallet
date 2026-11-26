@@ -1,23 +1,23 @@
 // POST /v1/relay: check a signed relay batch, simulate it and hand it to the Sender of its chain. The checks run from
-// the cheapest to the most expensive: the body, the config, the envelope, the signatures, the address rate limit, the
-// stored relay and then the chain read. The route never logs the body, a signature or an RPC URL.
+// the cheapest to the most expensive: the body, the chain, the envelope, the call rules, the signatures, the address
+// rate limit, the stored relay and then the chain read. The route takes the calls as the wallet sends them and never
+// builds a call. It never logs the body, a signature or an RPC URL.
 import { recoverAuthorizationAddress } from 'viem/utils';
 
 import {
   batchDigest,
   encodeExecution,
-  nonceKeyOf,
+  isRelayNonce,
+  readFeeCall,
   recoverBatchSigner,
   type BatchCall,
-  type BatchEnvelope,
-  type RelayKind
+  type BatchEnvelope
 } from '../../../../src/lib/evm-relay/batch';
 import { RpcUnavailableError, maxFeeOf, type RelayAuthorization, type RelayCall, type RelayState } from '../chain';
-import { routeConfig, type ChainConfig, type GasMode, type TokenPolicy } from '../config';
+import { routeConfig, type ChainConfig, type GasMode } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json, readJson } from '../http';
-import { bindRelay, isRelayKind, type BoundRelay } from '../kinds';
-import { ParseError, address, amount, fail, hexBytes, safeInteger, shape, type Hex } from '../parse';
+import { ParseError, address, amount, fail, hexBytes, hexData, safeInteger, shape, type Hex } from '../parse';
 import { limitRelayAddress } from '../rate-limit';
 import { relayerAddress } from '../secrets';
 import type { RelayJob } from '../sender';
@@ -29,12 +29,14 @@ const DEADLINE_MIN_S = 60;
 const DEADLINE_MAX_S = 24 * 60 * 60 + 5 * 60;
 /** secp256k1n / 2. A node skips an authorization with a larger `s`, and then the simulation checks nothing. */
 const HALF_CURVE_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
+/** The most calls that one batch can have. */
+const MAX_CALLS = 8;
 
 interface RelayRequest {
   chainId: number;
-  kind: string;
   evmAddress: Hex;
-  params: unknown;
+  /** The calls of the batch, in the order that the wallet signed them. */
+  calls: BatchCall[];
   /** The full Calibur nonce: `key << 64 | sequence`. */
   batchNonce: bigint;
   salt: Hex;
@@ -46,7 +48,7 @@ interface RelayRequest {
 
 const badSignature = (message: string): ApiError => new ApiError(400, 'bad_signature', message);
 const stale = (message: string): ApiError => new ApiError(409, 'stale_request', message);
-const unsupportedKind = (): ApiError => new ApiError(400, 'unsupported_kind', 'The chain does not support the kind.');
+const feeTooLow = (message: string): ApiError => new ApiError(400, 'fee_too_low', message);
 
 /** Run a parse. A ParseError is a malformed request. */
 function parsed<T>(parse: () => T): T {
@@ -73,16 +75,30 @@ function parseAuthorization(value: unknown): RelayAuthorization | null {
   };
 }
 
+function parseCall(value: unknown, path: string): BatchCall {
+  const fields = shape(value, path, ['to', 'value', 'data']);
+  return {
+    to: address(fields.to, `${path}.to`),
+    value: amount(fields.value, `${path}.value`),
+    data: hexData(fields.data, `${path}.data`)
+  };
+}
+
+/** The `calls` list: 1 to MAX_CALLS calls, in the order of the request. */
+function parseCalls(value: unknown): BatchCall[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CALLS) {
+    fail('calls', `must be an array of 1 to ${MAX_CALLS} calls`);
+  }
+  return value.map((call: unknown, index) => parseCall(call, `calls.${index}`));
+}
+
 function parseRequest(body: Record<string, unknown>): RelayRequest {
-  const required = ['chainId', 'kind', 'evmAddress', 'params', 'batchNonce', 'salt', 'deadline', 'signature'];
+  const required = ['chainId', 'evmAddress', 'calls', 'batchNonce', 'salt', 'deadline', 'signature'];
   const fields = shape(body, 'body', required, ['authorization']);
-  const { kind } = fields;
-  if (typeof kind !== 'string') fail('kind', 'must be a string');
   return {
     chainId: safeInteger(fields.chainId, 'chainId', 1),
-    kind,
     evmAddress: address(fields.evmAddress, 'evmAddress'),
-    params: fields.params,
+    calls: parseCalls(fields.calls),
     batchNonce: amount(fields.batchNonce, 'batchNonce'),
     salt: hexBytes(fields.salt, 'salt', 32),
     deadline: safeInteger(fields.deadline, 'deadline', 1),
@@ -91,42 +107,50 @@ function parseRequest(body: Record<string, unknown>): RelayRequest {
   };
 }
 
-/** The kind and its parsed params. Refuse a kind that the chain does not support before the params parse. */
-function boundRelayOf(chain: ChainConfig, kind: string, params: unknown): { kind: RelayKind; bound: BoundRelay } {
-  if (!isRelayKind(kind)) throw unsupportedKind();
-  const bound = parsed(() => bindRelay(kind, chain.kinds, params));
-  if (bound === null) throw unsupportedKind();
-  return { kind, bound };
-}
-
-/** Check the fee of the gas mode. Return the fee recipient of the batch: null in sponsor mode. */
-function feeRecipientOf(gasMode: GasMode, chain: ChainConfig, bound: BoundRelay, policy: TokenPolicy): Hex | null {
-  switch (gasMode) {
-    case 'sponsor':
-      if (bound.fee !== 0n) throw invalidRequest('params.fee must be 0 in sponsor mode.');
-      return null;
-    case 'deduct':
-      if (bound.fee < policy.fee) throw new ApiError(400, 'fee_too_low', 'The fee is below the configured fee.');
-      return chain.feeRecipient;
-  }
-}
-
-function checkEnvelope(request: RelayRequest, kind: RelayKind, relayer: Hex): void {
+function checkEnvelope(request: RelayRequest, relayer: Hex): void {
   if (request.evmAddress === relayer) throw invalidRequest('evmAddress must not be the relayer.');
-  if (request.batchNonce >> 64n !== nonceKeyOf(kind)) {
-    throw invalidRequest('batchNonce does not have the nonce key of the kind.');
-  }
+  if (!isRelayNonce(request.batchNonce)) throw invalidRequest('batchNonce does not have the relay nonce key.');
   const now = Math.floor(Date.now() / 1000);
   if (request.deadline <= now + DEADLINE_MIN_S || request.deadline > now + DEADLINE_MAX_S) {
     throw stale('The deadline is too near or too far. Sign again.');
   }
 }
 
-function callsOf(bound: BoundRelay, feeRecipient: Hex | null): BatchCall[] {
-  try {
-    return bound.buildCalls(feeRecipient);
-  } catch {
-    throw invalidRequest('The params do not build a batch.');
+/** Check that the call pays at least the configured fee of its token to the chain's fee recipient. */
+function checkFee(chain: ChainConfig, call: BatchCall): void {
+  const fee = readFeeCall(call);
+  if (fee === null) throw feeTooLow('The last call of the batch must pay the fee.');
+  if (fee.recipient.toLowerCase() !== chain.feeRecipient) throw feeTooLow('The fee must go to the fee recipient.');
+  const configured = chain.fees.get(`0x${fee.token.slice(2).toLowerCase()}`);
+  if (configured === undefined) throw feeTooLow('The chain takes no fee in the token.');
+  if (fee.amount < configured) throw feeTooLow('The fee is below the configured fee.');
+}
+
+/**
+ * Apply the fee rule of the gas mode. Return the calls that the target rule checks. In `deduct` mode the last call is
+ * the fee call: after its check, the target rule does not apply to it.
+ */
+function feeCheckedCalls(gasMode: GasMode, chain: ChainConfig, calls: BatchCall[]): BatchCall[] {
+  switch (gasMode) {
+    case 'sponsor':
+      return calls;
+    case 'deduct': {
+      const feeCall = calls[calls.length - 1];
+      if (calls.length < 2 || feeCall === undefined) {
+        throw invalidRequest('A deduct batch needs a call before the fee call.');
+      }
+      checkFee(chain, feeCall);
+      return calls.slice(0, -1);
+    }
+  }
+}
+
+/** When the chain has `allowedTargets`, every call must go to one of them. */
+function checkTargets(chain: ChainConfig, calls: readonly BatchCall[]): void {
+  const allowed = chain.allowedTargets;
+  if (allowed === null) return;
+  if (calls.some(call => !allowed.includes(`0x${call.to.slice(2).toLowerCase()}`))) {
+    throw new ApiError(400, 'target_not_allowed', 'A call goes to an address that the chain does not allow.');
   }
 }
 
@@ -188,17 +212,11 @@ export async function relay(context: RequestContext): Promise<Response> {
 
   const chain = config.chains.get(request.chainId);
   if (chain === undefined) throw new ApiError(400, 'unsupported_chain', 'The chain is not supported.');
-  const { kind, bound } = boundRelayOf(chain, request.kind, request.params);
-  const policy = chain.tokens.get(bound.token);
-  if (policy === undefined) throw new ApiError(400, 'token_not_allowed', 'The token is not allowed on the chain.');
-  if (bound.deposit < policy.minAmount) {
-    throw new ApiError(400, 'below_minimum', 'The deposit is below the minimum amount.');
-  }
-  const feeRecipient = feeRecipientOf(config.gasMode, chain, bound, policy);
-  checkEnvelope(request, kind, relayer);
+  checkEnvelope(request, relayer);
+  checkTargets(chain, feeCheckedCalls(config.gasMode, chain, request.calls));
 
-  const calls = callsOf(bound, feeRecipient);
-  const { evmAddress, signature } = request;
+  // The batch has the calls exactly as the request sends them, in the same order.
+  const { calls, evmAddress, signature } = request;
   const envelope: BatchEnvelope = {
     chainId: chain.chainId,
     evmAddress,

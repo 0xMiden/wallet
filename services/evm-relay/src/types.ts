@@ -1,18 +1,14 @@
 // Types of the bindings, the request context and the wire shapes. The config types are in config.ts.
 import type { ChainReader } from './chain';
 import type { GasMode, Hex } from './config';
-import type { PublicKindConfig } from './kinds';
 import type { SenderDirectory } from './sender';
 import type { RelaySenderObject } from './sender-object';
-import type { RelayKind } from '../../../src/lib/evm-relay/batch';
 
 /** The error codes of the API contract (README), and the two codes of a broken deployment. */
 export type ErrorCode =
   | 'invalid_request'
   | 'unsupported_chain'
-  | 'unsupported_kind'
-  | 'token_not_allowed'
-  | 'below_minimum'
+  | 'target_not_allowed'
   | 'fee_too_low'
   | 'bad_signature'
   | 'stale_request'
@@ -72,11 +68,15 @@ export interface HealthResponse {
   revision: string;
 }
 
-/** One configured token of the chain. The amounts are decimal strings in base units. */
+/** The balance of one token of the `tokens` query, a decimal string in base units. */
 export interface AccountBalance {
   token: Hex;
   balance: string;
-  minAmount: string;
+}
+
+/** The fee of one token, a decimal string in base units. */
+export interface AccountFee {
+  token: Hex;
   fee: string;
 }
 
@@ -90,7 +90,12 @@ export interface AccountResponse {
   needsAuthorization: boolean;
   authorizationNonce: number;
   salt: Hex;
-  /** The Calibur sequence of each kind, and the public values of the kind's config on the chain. */
-  kinds: Partial<Record<RelayKind, { sequence: string; config: PublicKindConfig }>>;
+  /** `getSeq(RELAY_NONCE_KEY)` of the address, as a decimal string. */
+  sequence: string;
+  /** The configured fees in config order in `deduct` mode. Empty in `sponsor` mode. */
+  fees: AccountFee[];
+  /** The allowed call targets of the chain, or null when any target is allowed. */
+  allowedTargets: Hex[] | null;
+  /** One balance for each token of the `tokens` query, in query order. */
   balances: AccountBalance[];
 }

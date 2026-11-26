@@ -49,6 +49,12 @@ export function hexBytes(value: unknown, path: string, bytes: number): Hex {
   return `0x${value.slice(2).toLowerCase()}`;
 }
 
+/** `0x` and any whole number of bytes of hex, also none (`0x`), returned in lower case. */
+export function hexData(value: unknown, path: string): Hex {
+  if (typeof value !== 'string' || !/^0x(?:[0-9a-fA-F]{2})*$/.test(value)) fail(path, 'must be hex bytes');
+  return `0x${value.slice(2).toLowerCase()}`;
+}
+
 /** A JSON number that is a safe integer of at least `min`. */
 export function safeInteger(value: unknown, path: string, min: number): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {

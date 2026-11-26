@@ -1,21 +1,14 @@
 // Read the chain RPC for the routes and the Sender, and send signed relay transactions. The account read sends at most
 // two JSON-RPC batches; the relay read, the receipt read and the fee read one batch each; the broadcast one call. It is
 // not a general RPC proxy.
-import { decodeFunctionResult, encodeFunctionData, hexToBigInt, isHex, keccak256, numberToHex } from 'viem';
+import { decodeFunctionResult, encodeFunctionData, erc20Abi, hexToBigInt, isHex, keccak256, numberToHex } from 'viem';
 
 import type { ChainConfig, Hex } from './config';
 import { notConfigured } from './errors';
 import { isRecord } from './http';
 import { rpcUrlOf } from './secrets';
 import type { Env } from './types';
-import {
-  CALIBUR_ABI,
-  ERC20_ABI,
-  isCaliburDelegation,
-  isNativeToken,
-  nonceKeyOf,
-  type RelayKind
-} from '../../../src/lib/evm-relay/batch';
+import { CALIBUR_ABI, RELAY_NONCE_KEY, isCaliburDelegation, isNativeToken } from '../../../src/lib/evm-relay/batch';
 
 /** The time budget of one account read, for both batches together. */
 export const RPC_TIMEOUT_MS = 8_000;
@@ -29,10 +22,10 @@ export interface AccountState {
   authorizationNonce: number;
   /** The salt of the Calibur EIP-712 domain of the address. */
   salt: Hex;
-  /** One balance per token of the chain, in config order. */
+  /** One balance per requested token, in request order. */
   balances: bigint[];
-  /** The Calibur sequence of each requested kind. */
-  sequences: ReadonlyMap<RelayKind, bigint>;
+  /** `getSeq(RELAY_NONCE_KEY)` of the address. */
+  sequence: bigint;
 }
 
 /** An EIP-7702 authorization of the address, as the Sender signs it into a type 4 transaction. */
@@ -91,7 +84,8 @@ export function maxFeeOf({ baseFee, priorityFee }: FeeQuote): bigint {
 
 /** The chain access of the routes. The tests give a fake. */
 export interface ChainReader {
-  readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState>;
+  /** Read the address and the balance of each token. The zero address is the native coin. */
+  readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState>;
   readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState>;
 }
 
@@ -204,12 +198,12 @@ function ethCall(to: Hex, data: Hex, override: Record<string, unknown> | null): 
 
 function balanceCall(token: Hex, address: Hex): RpcCall {
   if (isNativeToken(token)) return { method: 'eth_getBalance', params: [address, 'latest'] };
-  return ethCall(token, encodeFunctionData({ abi: ERC20_ABI, functionName: 'balanceOf', args: [address] }), null);
+  return ethCall(token, encodeFunctionData({ abi: erc20Abi, functionName: 'balanceOf', args: [address] }), null);
 }
 
 function decodeBalance(token: Hex, result: Hex): bigint {
   if (isNativeToken(token)) return decoded(() => hexToBigInt(result));
-  return decoded(() => decodeFunctionResult({ abi: ERC20_ABI, functionName: 'balanceOf', data: result }));
+  return decoded(() => decodeFunctionResult({ abi: erc20Abi, functionName: 'balanceOf', data: result }));
 }
 
 function decodeNonce(result: Hex): number {
@@ -249,7 +243,7 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
   const now = options.now ?? Date.now;
   const cache = options.cache ?? IMPLEMENTATION_CACHE;
 
-  async function readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState> {
+  async function readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState> {
     const url = rpcUrlOf(env, chain.chainId);
     if (url === null) throw notConfigured();
     const signal = AbortSignal.timeout(RPC_TIMEOUT_MS);
@@ -257,7 +251,6 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     const cacheKey = `${chain.chainId}:${pin.address}:${pin.runtimeHash}`;
     const cached = cache.get(cacheKey);
     const known = cached !== undefined && cached.expiresAt > now() ? cached.code : null;
-    const tokens = [...chain.tokens.keys()];
 
     // Batch 1: the account code, the nonce, the balances and, when the cache has none, the Calibur code.
     const first = await rpcBatch(
@@ -278,38 +271,29 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     }
     const delegated = isCaliburDelegation(resultAt(first, 0), pin);
 
-    // Batch 2: the sequences and the domain. Storage of an earlier delegation stays on the address, so an address
+    // Batch 2: the sequence and the domain. Storage of an earlier delegation stays on the address, so an address
     // that does not delegate now reads them with the Calibur code put on it by a state override.
     const override = delegated ? null : { [address]: { code: implementation } };
     const second = await rpcBatch(
       fetcher,
       url,
       [
-        ...kinds.map(kind =>
-          ethCall(
-            address,
-            encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [nonceKeyOf(kind)] }),
-            override
-          )
+        ethCall(
+          address,
+          encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [RELAY_NONCE_KEY] }),
+          override
         ),
         ethCall(address, encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'eip712Domain' }), override)
       ],
       signal
     );
-    const sequences = new Map<RelayKind, bigint>();
-    kinds.forEach((kind, index) => {
-      const data = resultAt(second, index);
-      sequences.set(
-        kind,
-        decoded(() => decodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', data }))
-      );
-    });
+    const sequence = resultAt(second, 0);
     return {
       delegated,
       authorizationNonce: decodeNonce(resultAt(first, 1)),
-      salt: verifiedSalt(resultAt(second, kinds.length), chain, address),
+      salt: verifiedSalt(resultAt(second, 1), chain, address),
       balances: tokens.map((token, index) => decodeBalance(token, resultAt(first, 2 + index))),
-      sequences
+      sequence: decoded(() => decodeFunctionResult({ abi: CALIBUR_ABI, functionName: 'getSeq', data: sequence }))
     };
   }
 

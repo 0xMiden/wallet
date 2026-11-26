@@ -2,11 +2,18 @@
  * @jest-environment node
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { keccak256, parseTransaction, type Hex } from 'viem';
+import { decodeFunctionData, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
 import { CALIBUR_ADDRESS, TEST_EXECUTOR, transactionSigner } from './harness';
 import { memoryDatabase, type MemoryDatabase } from './sqlite';
+import {
+  CALIBUR_ABI,
+  batchNonceOf,
+  encodeExecution,
+  type BatchCall,
+  type BatchEnvelope
+} from '../../../src/lib/evm-relay/batch';
 import type { BroadcastOutcome, FeeQuote, ReceiptStatus, RelayAuthorization } from '../src/chain';
 import {
   FINAL_ROW_TTL_MS,
@@ -273,6 +280,44 @@ describe('RelaySender tick', () => {
     await world.fire();
     expect(world.sentAt(2)).toBe(raw);
     expect(world.rows()[0]?.attempts).toBe(2);
+  });
+
+  it('signs a multi-call batch again with the same execute calldata and the calls in the same order', async () => {
+    const calls: BatchCall[] = [
+      { to: `0x${'2a'.repeat(20)}`, value: 0n, data: '0x095ea7b3' },
+      { to: `0x${'3b'.repeat(20)}`, value: 7n, data: '0x' },
+      { to: `0x${'4c'.repeat(20)}`, value: 0n, data: '0xcafe0001deadbeef' }
+    ];
+    const envelope: BatchEnvelope = {
+      chainId: 8453,
+      evmAddress: ADDRESS_A,
+      executor: RELAYER_A,
+      batchNonce: batchNonceOf(3n),
+      salt: `0x${'00'.repeat(12)}${CALIBUR_ADDRESS.slice(2)}`,
+      deadline: 1_900_000_000n
+    };
+    const data = encodeExecution(envelope, calls, `0x${'11'.repeat(65)}`);
+    const world = new World();
+    await world.submit({ data });
+    expect(JSON.parse(String(world.rows()[0]?.request))).toEqual({
+      to: ADDRESS_A,
+      data,
+      gas: '240000',
+      authorization: null
+    });
+    world.now = START + REPLACE_AFTER_MS;
+    await world.fire();
+
+    const first = parseTransaction(world.sentAt(0));
+    const replacement = parseTransaction(world.sentAt(1));
+    expect(replacement.nonce).toBe(first.nonce);
+    expect(replacement.data).toBe(data);
+    expect(first.data).toBe(data);
+    const decoded = decodeFunctionData({ abi: CALIBUR_ABI, data });
+    if (decoded.functionName !== 'execute') throw new Error('The calldata is not execute');
+    expect(decoded.args[0].batchedCall.calls.map(call => [call.to.toLowerCase(), call.value, call.data])).toEqual(
+      calls.map(call => [call.to, call.value, call.data])
+    );
   });
 
   it('completes the row with the old hash when the old transaction is mined after a replacement', async () => {

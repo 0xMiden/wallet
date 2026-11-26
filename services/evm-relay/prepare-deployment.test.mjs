@@ -28,14 +28,7 @@ const chain = (extra = {}) => ({
     domainName: 'Calibur',
     domainVersion: '1.0.0'
   },
-  kinds: {
-    'agglayer-deposit': {
-      bridgeAddress: `0x${'cc'.repeat(20)}`,
-      midenNetworkId: 1,
-      forceUpdateGlobalExitRoot: true
-    }
-  },
-  tokens: { [`0x${'00'.repeat(20)}`]: { minAmount: '1000', fee: '0' } },
+  allowedTargets: [`0x${'cc'.repeat(20)}`],
   ...extra
 });
 const relayConfig = (chains = { 8453: chain() }) => JSON.stringify({ chains });
@@ -145,11 +138,27 @@ test("runs the Worker's own parse and reports its path", () => {
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ calibur: { address: '0x1' } }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.calibur/
   );
-  // Deduct mode needs a fee recipient and a fee on every token.
+  // The old token policy field is gone: the Worker refuses it.
+  refuses(
+    { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ tokens: {} }) }) },
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.tokens is not a known field/
+  );
+  refuses(
+    { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ allowedTargets: [] }) }) },
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.allowedTargets must be a non-empty array/
+  );
+  // Deduct mode needs a fee recipient and at least one fee.
   refuses({ EVM_RELAY_GAS_MODE: 'deduct' }, /Worker refuses the release config: .*feeRecipient is required/);
+  refuses(
+    {
+      EVM_RELAY_GAS_MODE: 'deduct',
+      EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ feeRecipient: `0x${'dd'.repeat(20)}` }) })
+    },
+    /Worker refuses the release config: .*fees must name a token when GAS_MODE is deduct/
+  );
   const deduct = chain({
     feeRecipient: `0x${'dd'.repeat(20)}`,
-    tokens: { [`0x${'00'.repeat(20)}`]: { minAmount: '1000', fee: '10' } }
+    fees: { [`0x${'00'.repeat(20)}`]: '10' }
   });
   const release = validateRelease(
     env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: relayConfig({ 8453: deduct }) }),

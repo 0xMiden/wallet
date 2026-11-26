@@ -1,15 +1,16 @@
-// GET /v1/account: the balances of a deposit address and the values that the wallet needs to sign a batch.
+// GET /v1/account: the values that the wallet needs to sign a batch, and the balances of the tokens it asks for.
 import { ChainIntegrityError, RpcUnavailableError, type AccountState } from '../chain';
 import { routeConfig, type ChainConfig, type Hex, type RelayConfig } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { json } from '../http';
-import { kindsOf, publicConfigOf } from '../kinds';
 import { limitReadAddress } from '../rate-limit';
 import { relayerAddress } from '../secrets';
 import type { AccountResponse, RequestContext } from '../types';
 
 const CHAIN_ID = /^[1-9][0-9]{0,15}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** The most tokens that one read can ask for. */
+const MAX_TOKENS = 16;
 /** The browser may keep the answer for 5 seconds. The wallet polls the route. */
 const CACHE_CONTROL = 'private, max-age=5';
 
@@ -31,9 +32,34 @@ function addressOf(value: string | null, executor: Hex): Hex {
   return address;
 }
 
-async function readState(context: RequestContext, chain: ChainConfig, address: Hex): Promise<AccountState> {
+/**
+ * The tokens of the `tokens` query: a comma list of 1 to 16 distinct addresses, in lower case. The zero address is the
+ * native coin. No `tokens` parameter means no token.
+ */
+function tokensOf(values: string[]): Hex[] {
+  const [value] = values;
+  if (value === undefined) return [];
+  if (values.length > 1) throw invalidRequest('tokens must be given once.');
+  const items = value.split(',');
+  if (items.length > MAX_TOKENS) throw invalidRequest(`tokens must name at most ${MAX_TOKENS} tokens.`);
+  const tokens: Hex[] = [];
+  for (const item of items) {
+    if (!ADDRESS.test(item)) throw invalidRequest('tokens must be 20-byte hex addresses.');
+    const token: Hex = `0x${item.slice(2).toLowerCase()}`;
+    if (tokens.includes(token)) throw invalidRequest('tokens must not repeat a token.');
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+async function readState(
+  context: RequestContext,
+  chain: ChainConfig,
+  address: Hex,
+  tokens: readonly Hex[]
+): Promise<AccountState> {
   try {
-    return await context.reader.readAccount(chain, address, kindsOf(chain.kinds));
+    return await context.reader.readAccount(chain, address, tokens);
   } catch (error) {
     if (error instanceof RpcUnavailableError) {
       throw new ApiError(502, 'rpc_unavailable', 'The chain RPC does not answer.');
@@ -54,17 +80,12 @@ export async function account(context: RequestContext): Promise<Response> {
   const executor = relayerAddress(context.env);
   if (executor === null) throw notConfigured();
   const address = addressOf(searchParams.get('address'), executor);
+  const tokens = tokensOf(searchParams.getAll('tokens'));
   await limitReadAddress(context, address);
-  const state = await readState(context, chain, address);
+  const state = await readState(context, chain, address, tokens);
 
   // In sponsor mode the relayer pays the gas, so no token fee applies whatever the config holds.
   const sponsored = config.gasMode === 'sponsor';
-  const kinds: AccountResponse['kinds'] = {};
-  for (const [kind, sequence] of state.sequences) {
-    const kindConfig = publicConfigOf(kind, chain.kinds);
-    if (kindConfig === null) throw new Error('The reader returned a kind that the chain does not support.');
-    kinds[kind] = { sequence: sequence.toString(), config: kindConfig };
-  }
   const body: AccountResponse = {
     chainId: chain.chainId,
     address,
@@ -74,12 +95,13 @@ export async function account(context: RequestContext): Promise<Response> {
     needsAuthorization: !state.delegated,
     authorizationNonce: state.authorizationNonce,
     salt: state.salt,
-    kinds,
-    balances: [...chain.tokens].map(([token, policy], index) => {
+    sequence: state.sequence.toString(),
+    fees: sponsored ? [] : [...chain.fees].map(([token, fee]) => ({ token, fee: fee.toString() })),
+    allowedTargets: chain.allowedTargets === null ? null : [...chain.allowedTargets],
+    balances: tokens.map((token, index) => {
       const balance = state.balances[index];
       if (balance === undefined) throw new Error('The reader returned fewer balances than tokens.');
-      const fee = sponsored ? '0' : policy.fee.toString();
-      return { token, balance: balance.toString(), minAmount: policy.minAmount.toString(), fee };
+      return { token, balance: balance.toString() };
     })
   };
   return json(body, 200, { 'Cache-Control': CACHE_CONTROL });

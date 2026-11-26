@@ -1,6 +1,6 @@
 # EVM relay
 
-This Worker relays the EVM side of the deposit-address bridge. A user sends tokens to an EVM address that the wallet derives. The wallet signs an EIP-7702 batch for the Uniswap Calibur account at that address. The Worker builds the calls of the batch again from the request parameters, simulates the batch, and submits it from its relayer account, which pays the gas. In `deduct` mode, the batch also pays a fixed token fee to a fee recipient.
+This Worker relays signed EVM batches for the relay addresses of the wallet. A relay address is an EOA that the wallet derives and that delegates to Uniswap Calibur through EIP-7702. The wallet puts the calls that it must send in a Calibur "signed batched call" and signs the batch with the key of the relay address. The Worker checks the batch, simulates it, and submits it from its relayer account, which pays the gas. In `deduct` mode, the last call of the batch pays a fixed token fee to a fee recipient.
 
 This Worker is separate from `services/wallet-api`. The wallet-api Worker stores encrypted backups, and it must not share a deploy with a funded key.
 
@@ -23,7 +23,6 @@ The service contains the config parse, the router, CORS, the error bodies, the r
 | `src/index.ts` | CORS gate, `handleRequest`, the default `fetch` |
 | `src/router.ts` | Typed route match, the method check, the rate limit and the dispatch |
 | `src/config.ts` | Strict parse of `GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` into `RelayConfig` |
-| `src/kinds.ts` | The relay kind registry: one handler per kind (below) |
 | `src/parse.ts` | The strict parse helpers of the config and the request bodies |
 | `src/rate-limit.ts` | The read and relay rate limits per caller IP and per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
@@ -46,7 +45,7 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | --- | --- | --- |
 | `ALLOWED_ORIGINS` | Worker variable | JSON array of exact allowed origins, no wildcard. `[]` refuses every request that sends an `Origin` header |
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
-| `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each token pays a fixed fee to `feeRecipient` |
+| `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fixed token fee to `feeRecipient` |
 | `RELAY_CONFIG` | Worker variable | JSON of the chains, below |
 | `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
 | `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay`. A relay that passes the signature checks also counts on the key `relay-address:<evmAddress>` |
@@ -62,24 +61,27 @@ The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `D
 { "chains": { "<chainId as decimal string>": {
     "calibur": { "address": "0x<40 hex>", "runtimeHash": "0x<64 hex>", "domainName": "Calibur", "domainVersion": "1.0.0" },
     "feeRecipient": "0x<40 hex>",
-    "kinds": { "agglayer-deposit": { "bridgeAddress": "0x<40 hex>", "midenNetworkId": 1, "forceUpdateGlobalExitRoot": true } },
-    "tokens": { "0x<token address, zero address = native coin>": { "minAmount": "<positive decimal integer>", "fee": "<non-negative decimal integer>" } }
+    "fees": { "0x<token address; zero address = native coin>": "<positive decimal integer>" },
+    "allowedTargets": ["0x<40 hex>"]
 } } }
 ```
 
 The parse is strict. It refuses an unknown field and a missing field, and it lower-cases every address and hash.
 
 - A chain id is a positive safe integer.
-- An address is 20 bytes of hex. Only a token key can be the zero address, which means the native coin.
+- An address is 20 bytes of hex. Only a key of `fees` can be the zero address, which means the native coin.
 - A hash is 32 bytes of hex. `domainName` and `domainVersion` are non-empty strings.
-- `kinds` maps a relay kind to its config. It is required and can be empty. The registry parses each entry and refuses a kind that it does not know. For `agglayer-deposit`: `midenNetworkId` is an integer from 0 to 2^32-1 and `forceUpdateGlobalExitRoot` is a boolean.
-- `minAmount` and `fee` are decimal strings below 2^256. `minAmount` is above 0.
-- `feeRecipient` is optional. When `GAS_MODE` is `deduct`, every chain needs `feeRecipient`, and every token needs a `fee` above 0 and a `minAmount` above its `fee`.
+- `calibur` is required. `feeRecipient`, `fees` and `allowedTargets` are optional.
+- `fees` maps a token to its fee in base units: a decimal string above 0 and below 2^256. A token occurs one time only, in any case. No `fees` is the same as `{}`. The Worker keeps the config order.
+- `allowedTargets` is a non-empty list of distinct addresses that are not the zero address. Without it, a call can go to any address.
+- When `GAS_MODE` is `deduct`, every chain needs `feeRecipient` and at least one entry in `fees`.
 - An empty `chains` object is valid.
 
-### Relay kinds
+### No bridge code
 
-`src/kinds.ts` holds one handler per relay kind (`RelayKind` of the shared batch module). A handler parses the config of its kind, gives the public values of that config (`publicConfig`, which `GET /v1/account` echoes), parses the `params` of a relay request, gives the token, the fee and the deposit total (`amount + fee`) of the parsed params, and builds the calls of the batch from the config, the params and the fee recipient. The routes use only the registry, so a new bridge is one entry in the registry and one kind in the batch module.
+The Worker does not know a bridge. A bridge flow in the wallet gives the transactions that it must send (`to`, `value`, `data`). The wallet puts them in a batch as calls, signs the batch and sends the calls in the relay request. The Worker relays the calls as the request sends them, in the same order, and never builds a call. It checks only rules that do not depend on a bridge: the signature, the nonce key, the deadline, the fee call in `deduct` mode, and `allowedTargets` when the chain has it. A new bridge thus needs no change to the Worker; if the chain has `allowedTargets`, add the contracts of the bridge to the list.
+
+In `sponsor` mode a chain without `allowedTargets` pays the gas of any batch that a relay address signs, whatever its calls do. The rate limits are then the only bound on that cost. Set `allowedTargets` on a `sponsor` chain to limit the gas to the calls of known contracts.
 
 `/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and each chain in `RELAY_CONFIG` has a valid `RPC_URL_<chainId>`. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
@@ -89,8 +91,8 @@ The Worker writes logs, with invocation logs off. `GET /v1/account` writes one l
 
 `GET /v1/account` charges the caller IP, checks the query, then charges the address. Then it reads the chain in two JSON-RPC batches, with one time budget of 8 seconds for both:
 
-1. The code of the address, its pending transaction count, the balance of each configured token (`eth_getBalance` for the native coin, `balanceOf` for an ERC-20) and, when the memory cache has none, the code at the Calibur address. The Worker checks that the keccak256 of the Calibur code is `runtimeHash`, and keeps the verified code in isolate memory for 5 minutes per chain.
-2. `getSeq(nonceKeyOf(kind))` for each relay kind of the chain and `eip712Domain()`, both on the address. When the address does not delegate to the pinned Calibur, both calls send a state override that puts the Calibur code on the address, because the storage of an earlier delegation stays. The Worker checks that the domain has the configured name and version, the chain id, the address as verifying contract, and the Calibur address in the last 20 bytes of the salt.
+1. The code of the address, its pending transaction count, the balance of each token of the `tokens` query (`eth_getBalance` for the native coin, `balanceOf` for an ERC-20) and, when the memory cache has none, the code at the Calibur address. The Worker checks that the keccak256 of the Calibur code is `runtimeHash`, and keeps the verified code in isolate memory for 5 minutes per chain.
+2. `getSeq(RELAY_NONCE_KEY)` and `eip712Domain()`, both on the address. When the address does not delegate to the pinned Calibur, both calls send a state override that puts the Calibur code on the address, because the storage of an earlier delegation stays. The Worker checks that the domain has the configured name and version, the chain id, the address as verifying contract, and the Calibur address in the last 20 bytes of the salt.
 
 One call thus makes two HTTP requests to the RPC, cold or warm. A failed request, an RPC error in the batch or a time-out gives `502 rpc_unavailable`. A wrong Calibur code or domain gives `503 service_unavailable`.
 
@@ -100,17 +102,19 @@ The 200 response has `Cache-Control: private, max-age=5`, so the browser of the 
 
 `POST /v1/relay` runs its checks from the cheapest to the most expensive. A failed check stops the request.
 
-1. The caller IP is charged on `relay:<CF-Connecting-IP>`. The body is read with the 64 KiB cap, and every field is parsed strictly. An unknown field is refused.
-2. The config: the chain (`unsupported_chain`), the kind of the chain (`unsupported_kind`), the `params` of the kind through the registry (`invalid_request`), the token (`token_not_allowed`), `amount + fee` against `minAmount` (`below_minimum`), and the fee rule: in `sponsor` mode the fee must be 0 (`invalid_request`); in `deduct` mode it must be at least the configured fee (`fee_too_low`), and the batch pays it to the chain's `feeRecipient`.
-3. The envelope: `evmAddress` is not the relayer (`invalid_request`), the top 192 bits of `batchNonce` are `nonceKeyOf(kind)` (`invalid_request`), and the deadline is more than 60 seconds and at most 24 hours and 5 minutes after now (`stale_request`).
-4. The Worker builds the calls from its config and the params, recovers the batch signer and compares it with `evmAddress` (`bad_signature`). The `id` is the EIP-712 digest of the batch.
-5. An authorization must name the pinned Calibur and the chain, have an `s` of at most secp256k1n/2, and recover to `evmAddress` (`bad_signature`).
-6. The address is charged on `relay-address:<evmAddress>`.
-7. When the Sender already holds a relay with this `id`, the route answers it and reads nothing from the chain.
-8. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, and `eth_estimateGas` from the relayer to the address with the `execute` calldata. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing.
-9. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one. A revert of the estimate gives `409 simulation_failed`. An RPC failure gives `502 rpc_unavailable`.
-10. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
-11. The route hands the job to the Sender of the chain and answers its result.
+1. The caller IP is charged on `relay:<CF-Connecting-IP>`. The body is read with the 64 KiB cap, and every field is parsed strictly. An unknown field is refused. `calls` has 1 to 8 calls; a call has a `to` that is not the zero address, a decimal `value` below 2^256 and `data` of whole bytes of hex (`0x` is valid).
+2. The chain (`unsupported_chain`).
+3. The envelope: `evmAddress` is not the relayer (`invalid_request`), `isRelayNonce(batchNonce)` is true, so the top 192 bits are `RELAY_NONCE_KEY` (`invalid_request`), and the deadline is more than 60 seconds and at most 24 hours and 5 minutes after now (`stale_request`).
+4. The fee rule. `sponsor` mode has none. In `deduct` mode the batch needs a call before the fee call (`invalid_request`), and the last call must be a fee call that `readFeeCall` reads, to the chain's `feeRecipient`, in a token of `fees`, of at least the configured fee of that token (`fee_too_low`). A fee call is an ERC-20 `transfer(recipient, amount)` with no value, or a native transfer of `amount` with no data.
+5. The target rule: when the chain has `allowedTargets`, every call must go to an address in the list (`target_not_allowed`). In `deduct` mode the fee call that step 4 checked is not in this rule.
+6. The Worker builds the batch from the calls exactly as the request sends them, in the same order. It recovers the batch signer and compares it with `evmAddress` (`bad_signature`). The `id` is the EIP-712 digest of the batch.
+7. An authorization must name the pinned Calibur and the chain, have an `s` of at most secp256k1n/2, and recover to `evmAddress` (`bad_signature`).
+8. The address is charged on `relay-address:<evmAddress>`.
+9. When the Sender already holds a relay with this `id`, the route answers it and reads nothing from the chain.
+10. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, and `eth_estimateGas` from the relayer to the address with the `execute` calldata. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing.
+11. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one. A revert of the estimate gives `409 simulation_failed`. An RPC failure gives `502 rpc_unavailable`.
+12. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
+13. The route hands the job to the Sender of the chain and answers its result.
 
 One new relay thus makes two HTTP requests to the RPC: the read batch and the broadcast. A repeated request makes none.
 
@@ -123,7 +127,7 @@ The Sender is the Durable Object `RelaySenderObject` (binding `RELAY_SENDER`, SQ
 Its storage has two tables, created in the constructor:
 
 - `meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)`: `next_nonce` (the nonce after the last stored transaction), `chain_id` (the Sender refuses a job of another chain) and `relayer` (the address of the key that `next_nonce` counts for).
-- `inflight`: `id` (primary key, the batch digest), `evm_address`, `relayer` (the address of the key that signed the row), `tx_hash` (the current hash; the mined hash once final), `sent_hashes` (JSON array of every hash broadcast for the row, the current one last), `raw_tx` and `request` (the signed bytes, and JSON of `to`, `data`, `gas` and `authorization` for a fee replacement; both null once the row is final, because both hold the user's signature), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline` (unix seconds), `state` (`pending`, `succeeded` or `reverted`), `attempts` (signatures of the row), `nonce_used` (1 when a node said that a mined transaction holds the nonce), `created_at`, `signed_at` (the last signature), `updated_at` (milliseconds). A check refuses a `pending` row without `raw_tx` or `request`. Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `(relayer, nonce)`.
+- `inflight`: `id` (primary key, the batch digest), `evm_address`, `relayer` (the address of the key that signed the row), `tx_hash` (the current hash; the mined hash once final), `sent_hashes` (JSON array of every hash broadcast for the row, the current one last), `raw_tx` and `request` (the signed bytes, and JSON of `to`, `data`, `gas` and `authorization` for a fee replacement; `data` is the `execute` calldata, which holds every call of the batch in the signed order; both null once the row is final, because both hold the user's signature), `nonce`, `max_fee`, `max_priority_fee` (decimal text), `deadline` (unix seconds), `state` (`pending`, `succeeded` or `reverted`), `attempts` (signatures of the row), `nonce_used` (1 when a node said that a mined transaction holds the nonce), `created_at`, `signed_at` (the last signature), `updated_at` (milliseconds). A check refuses a `pending` row without `raw_tx` or `request`. Two partial unique indexes allow one `pending` row per `evm_address` and one `pending` row per `(relayer, nonce)`.
 
 No Sender is deployed yet, so the schema has no migration: `CREATE TABLE IF NOT EXISTS` builds it in a new object.
 
@@ -200,7 +204,7 @@ This section is the reference for the wallet client. The three routes implement 
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
 
-`GET /v1/account?chainId=<int>&address=<0x40hex>` returns everything the wallet needs to sign:
+`GET /v1/account?chainId=<int>&address=<0x40hex>[&tokens=<comma list of 1 to 16 addresses; zero address = native coin>]` returns everything the wallet needs to sign:
 
 ```
 200 { chainId, address,
@@ -210,33 +214,37 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
       needsAuthorization: <boolean; true when the address does not delegate to the pinned Calibur>,
       authorizationNonce: <number; the pending transaction count of the address>,
       salt: <0x64hex; the Calibur EIP-712 domain salt of the address>,
-      kinds: { "agglayer-deposit": { sequence: "<decimal>",
-                                     config: { bridgeAddress, midenNetworkId, forceUpdateGlobalExitRoot } } },
-      balances: [ { token, balance, minAmount, fee } ] }
+      sequence: "<decimal; getSeq(RELAY_NONCE_KEY) of the address>",
+      fees: [ { token, fee } ],
+      allowedTargets: [ <address> ] | null,
+      balances: [ { token, balance } ] }
 ```
 
-- `kinds` has one entry for each kind in the chain's `kinds` config. `config` holds the public values of that kind on that chain, as the registry holds them (addresses in lower case). The wallet compares them with its own values and shows a config error, instead of signing a batch that fails as `bad_signature`.
-- `balances` lists every configured token of the chain in config order.
-- In `sponsor` mode every `fee` is `"0"` and `feeRecipient` is `null`, whatever the config holds. In `deduct` mode they are the configured values.
-- Errors: `invalid_request` for a bad `chainId` or `address`, or for the relayer's own address; `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.
+- The wallet signs with `batchNonce = batchNonceOf(sequence)`.
+- `fees` lists the configured fees of the chain in config order in `deduct` mode. In `sponsor` mode `fees` is `[]` and `feeRecipient` is `null`, whatever the config holds.
+- `allowedTargets` is the chain's list, or `null` when a call can go to any address. The wallet can check its calls against it before it signs.
+- `balances` has one entry for each token of the `tokens` query, in query order, and is `[]` without `tokens`. The tokens need not be in `fees`.
+- Errors: `invalid_request` for a bad `chainId` or `address`, for the relayer's own address, and for a bad `tokens` value: an empty value, a value that is not an address, a token that occurs two times (in any case), more than 16 tokens, or a second `tokens` parameter. `unsupported_chain` for a chain that is not in `RELAY_CONFIG`.
 
 `POST /v1/relay` with
 
 ```
-{ chainId: <number>, kind: "agglayer-deposit", evmAddress,
-  params: { token, amount, midenAccountHex, fee },   // decimal strings; amount = bridged amount after the fee; fee = "0" in sponsor mode
-  batchNonce: "<decimal; the FULL Calibur nonce: key << 64 | sequence>",
+{ chainId: <number>, evmAddress,
+  calls: [ { to: <0x40hex>, value: "<decimal string>", data: "<0x hex, even length, may be 0x>" } ],
+  batchNonce: "<decimal; the FULL Calibur nonce: RELAY_NONCE_KEY << 64 | sequence>",
   salt: <0x64hex>, deadline: <JSON number; unix seconds>,
   signature: <0x130hex>,
   authorization?: { address, chainId: <number>, nonce: <number>, r: <0x64hex>, s: <0x64hex>, yParity: 0 | 1 } }
 → 200 { id, state: "pending" | "succeeded" | "reverted", txHash }
 ```
 
+- `calls` has 1 to 8 calls. `to` is not the zero address. `value` is below 2^256. Addresses and data can be in any case.
 - `id` is the EIP-712 digest of the batch, lower case. `txHash` is always present.
-- The server builds the calls again from `params` and its own config, with the chain's `feeRecipient` in `deduct` mode; it never accepts calldata. The request authenticates itself through the signature; there is no login.
+- The server builds the batch from `calls` exactly as the request sends them, in the same order, and never adds, removes or changes a call. The request authenticates itself through the signature; there is no login.
+- In `deduct` mode the last call is the fee call: `buildFeeCall({ token, recipient: feeRecipient, amount })` with a token of `fees` and an amount of at least its fee. A batch needs at least one other call before it.
+- When `allowedTargets` is not null, every call goes to an address in it, except the fee call in `deduct` mode.
 - The same request sent again returns the stored relay in its current state (any of the three), not a new transaction. The id is the digest, so a request with another signature encoding of the same batch also returns it.
-- `below_minimum` compares `amount + fee`, the full deposit, with the token's `minAmount`.
-- A `batchNonce` whose key is not the kind's key is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
+- A `batchNonce` whose key is not `RELAY_NONCE_KEY` is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
 - Send `authorization` when `/v1/account` says `needsAuthorization`, with `nonce` = `authorizationNonce`. For an address that delegates already, the server ignores it.
 
 `GET /v1/relay/{id}[?chainId=<int>]` → `200 { id, state: "pending" | "succeeded" | "reverted", txHash }` or `404 not_found`.
@@ -253,10 +261,8 @@ An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seco
 | --- | --- | --- |
 | `invalid_request` | 400 | The request is malformed |
 | `unsupported_chain` | 400 | The chain is not in `RELAY_CONFIG` |
-| `unsupported_kind` | 400 | The kind is not known |
-| `token_not_allowed` | 400 | The token is not in the chain's tokens |
-| `below_minimum` | 400 | The amount is below `minAmount` |
-| `fee_too_low` | 400 | The fee is below the configured fee |
+| `target_not_allowed` | 400 | A call goes to an address that is not in the chain's `allowedTargets` |
+| `fee_too_low` | 400 | In `deduct` mode, the last call is not a fee call to `feeRecipient` in a token of `fees`, or it pays less than the configured fee |
 | `bad_signature` | 400 | The signature or the authorization does not verify |
 | `stale_request` | 409 | A nonce, the salt or the authorization is out of date: read `/v1/account` and sign again |
 | `simulation_failed` | 409 | The batch fails in simulation |
@@ -338,7 +344,7 @@ The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`
 
 ### Change the gas mode or the config
 
-`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a `feeRecipient` on every chain and a `fee` above 0 on every token, and the release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
+`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a `feeRecipient` and at least one entry in `fees` on every chain, and the release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
 
 `--secrets-file` adds and replaces secrets, and it does not delete one. When a chain leaves the config, its `RPC_URL_<chainId>` secret stays on the Worker, unused. Delete it with `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`.
 

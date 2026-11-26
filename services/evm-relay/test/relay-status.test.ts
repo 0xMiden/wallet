@@ -7,7 +7,7 @@ import type { Hex } from 'viem';
 import { bodyOf, chainEntry, createHarness, send, type Harness } from './harness';
 import type { SubmitJob } from '../src/sender';
 
-const CONFIG = JSON.stringify({ chains: { '8453': chainEntry(), '1': chainEntry(false) } });
+const CONFIG = JSON.stringify({ chains: { '8453': chainEntry(), '1': chainEntry() } });
 const CALLER = { 'CF-Connecting-IP': '203.0.113.7' };
 const ID_BASE: Hex = `0x${'b1'.repeat(32)}`;
 const ID_MAINNET: Hex = `0x${'e1'.repeat(32)}`;

@@ -2,10 +2,10 @@
  * @jest-environment node
  */
 import { describe, expect, it } from '@jest/globals';
-import { encodeFunctionResult, type Hex } from 'viem';
+import { encodeFunctionResult, erc20Abi, type Hex } from 'viem';
 
-import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, TEST_RPC_URL, USDC, chainEntry } from './harness';
-import { CALIBUR_ABI, ERC20_ABI, nonceKeyOf } from '../../../src/lib/evm-relay/batch';
+import { CALIBUR_ADDRESS, IMPLEMENTATION_CODE, NATIVE, TEST_RPC_URL, USDC, chainEntry } from './harness';
+import { CALIBUR_ABI, RELAY_NONCE_KEY } from '../../../src/lib/evm-relay/batch';
 import {
   ChainIntegrityError,
   RpcUnavailableError,
@@ -53,9 +53,10 @@ type Failure = 'reject' | 'status' | 'item';
 const FAILURES: Failure[] = ['reject', 'status', 'item'];
 
 const DOMAIN: Domain = { name: 'Calibur', version: '1.0.0', chainId: 8453n, verifyingContract: ADDRESS, salt: SALT };
+const TOKENS: Hex[] = [USDC, NATIVE];
 
-function chainOf(withKinds = true): ChainConfig {
-  const chain = parseChains(JSON.stringify({ chains: { '8453': chainEntry(withKinds) } }), 'sponsor').get(8453);
+function chainOf(): ChainConfig {
+  const chain = parseChains(JSON.stringify({ chains: { '8453': chainEntry() } }), 'sponsor').get(8453);
   if (chain === undefined) throw new Error('The test chain did not parse');
   return chain;
 }
@@ -131,7 +132,7 @@ class FakeNode {
   private callResult(transaction: unknown): Hex {
     if (!isRecord(transaction) || typeof transaction.data !== 'string') throw new Error('Bad eth_call');
     if (transaction.to === USDC) {
-      return encodeFunctionResult({ abi: ERC20_ABI, functionName: 'balanceOf', result: 2_500_000n });
+      return encodeFunctionResult({ abi: erc20Abi, functionName: 'balanceOf', result: 2_500_000n });
     }
     if (transaction.data.startsWith('0x84b0196e')) {
       const { name, version, chainId, verifyingContract, salt } = this.domain;
@@ -159,13 +160,13 @@ function setup(node = new FakeNode(), cache = new Map<string, CachedCode>()) {
 describe('createRpcReader', () => {
   it('reads a delegated address in two batches and sends no state override', async () => {
     const { node, reader } = setup();
-    const state = await reader.readAccount(chainOf(), ADDRESS, ['agglayer-deposit']);
+    const state = await reader.readAccount(chainOf(), ADDRESS, TOKENS);
     expect(state).toEqual({
       delegated: true,
       authorizationNonce: 5,
       salt: SALT,
       balances: [2_500_000n, 100n],
-      sequences: new Map([['agglayer-deposit', 9n]])
+      sequence: 9n
     });
     expect(node.urls).toEqual([TEST_RPC_URL, TEST_RPC_URL]);
     const [first, second] = node.batches;
@@ -183,14 +184,40 @@ describe('createRpcReader', () => {
     expect(
       isRecord(getSeq) &&
         typeof getSeq.data === 'string' &&
-        getSeq.data.endsWith(nonceKeyOf('agglayer-deposit').toString(16).padStart(64, '0'))
+        getSeq.data.endsWith(RELAY_NONCE_KEY.toString(16).padStart(64, '0'))
     ).toBe(true);
+  });
+
+  it('reads the balances in the order of the tokens', async () => {
+    const { node, reader } = setup();
+    const state = await reader.readAccount(chainOf(), ADDRESS, [NATIVE, USDC]);
+    expect(state.balances).toEqual([100n, 2_500_000n]);
+    expect(node.batches[0]?.map(call => call.method)).toEqual([
+      'eth_getCode',
+      'eth_getTransactionCount',
+      'eth_getBalance',
+      'eth_call',
+      'eth_getCode'
+    ]);
+  });
+
+  it('reads no balance and still the sequence and the domain when no token is asked', async () => {
+    const { node, reader } = setup();
+    const state = await reader.readAccount(chainOf(), ADDRESS, []);
+    expect(state.balances).toEqual([]);
+    expect(state.sequence).toBe(9n);
+    expect(node.batches[0]?.map(call => call.method)).toEqual([
+      'eth_getCode',
+      'eth_getTransactionCount',
+      'eth_getCode'
+    ]);
+    expect(node.batches[1]).toHaveLength(2);
   });
 
   it('reads a non-delegated address with the Calibur code as a state override', async () => {
     const node = new FakeNode();
     node.accountCode = '0x';
-    const state = await setup(node).reader.readAccount(chainOf(), ADDRESS, ['agglayer-deposit']);
+    const state = await setup(node).reader.readAccount(chainOf(), ADDRESS, TOKENS);
     expect(state.delegated).toBe(false);
     const override = { [ADDRESS]: { code: IMPLEMENTATION_CODE } };
     expect(node.batches[1]?.map(call => call.params[2])).toEqual([override, override]);
@@ -204,8 +231,8 @@ describe('createRpcReader', () => {
 
   it('keeps the verified Calibur code in memory and leaves it out of the next batch', async () => {
     const { node, cache, reader } = setup();
-    await reader.readAccount(chainOf(), ADDRESS, ['agglayer-deposit']);
-    await reader.readAccount(chainOf(), ADDRESS, ['agglayer-deposit']);
+    await reader.readAccount(chainOf(), ADDRESS, TOKENS);
+    await reader.readAccount(chainOf(), ADDRESS, TOKENS);
     expect(node.batches).toHaveLength(4);
     expect(node.batches[2]?.map(call => call.method)).toEqual([
       'eth_getCode',
@@ -214,13 +241,6 @@ describe('createRpcReader', () => {
       'eth_getBalance'
     ]);
     expect([...cache.values()].map(entry => entry.code)).toEqual([IMPLEMENTATION_CODE]);
-  });
-
-  it('reads only the domain for a chain without relay kinds', async () => {
-    const { node, reader } = setup();
-    const state = await reader.readAccount(chainOf(false), ADDRESS, []);
-    expect(state.sequences.size).toBe(0);
-    expect(node.batches[1]).toHaveLength(1);
   });
 
   it('refuses a Calibur code with another hash after one batch and caches nothing', async () => {

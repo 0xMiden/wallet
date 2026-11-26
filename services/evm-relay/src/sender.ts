@@ -65,7 +65,7 @@ export interface SubmitJob {
   id: Hex;
   chainId: number;
   evmAddress: Hex;
-  /** The calldata of `execute` on the address. */
+  /** The calldata of `execute` on the address. It encodes every call of the batch. */
   data: Hex;
   gas: bigint;
   maxFeePerGas: bigint;
@@ -118,7 +118,11 @@ const SCHEMA = [
   "CREATE UNIQUE INDEX IF NOT EXISTS inflight_pending_nonce ON inflight (relayer, nonce) WHERE state = 'pending'"
 ];
 
-/** What the Sender needs to sign a relay again: the transaction without its nonce and its fees. */
+/**
+ * What the Sender needs to sign a relay again: the transaction without its nonce and its fees. `data` is the
+ * `execute` calldata, which holds every call of the batch in the signed order, the envelope and the user's signature.
+ * A fee replacement signs the same `data`, so the replacement executes the same calls.
+ */
 interface SignRequest {
   to: Hex;
   data: Hex;

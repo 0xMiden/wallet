@@ -13,22 +13,17 @@ const CALIBUR = {
   domainName: 'Calibur',
   domainVersion: '1.0.0'
 };
-const AGGLAYER = { bridgeAddress: `0x${'2A'.repeat(20)}`, midenNetworkId: 1, forceUpdateGlobalExitRoot: true };
 const USDC = `0x${'Aa'.repeat(20)}`;
 const FEE_RECIPIENT = `0x${'Fe'.repeat(20)}`;
+const TARGET = `0x${'2A'.repeat(20)}`;
+const OTHER_TARGET = `0x${'3b'.repeat(20)}`;
 
-/** The kinds of a chain with an Agglayer deposit config that has the overrides. */
-function agglayer(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { 'agglayer-deposit': { ...AGGLAYER, ...overrides } };
-}
-
-/** A chain with one ERC-20 and the native coin, valid in both gas modes. */
+/** A chain with a fee in one ERC-20 and in the native coin, valid in both gas modes. */
 function chain(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     calibur: CALIBUR,
     feeRecipient: FEE_RECIPIENT,
-    kinds: agglayer(),
-    tokens: { [USDC]: { minAmount: '2000000', fee: '100000' }, [ZERO]: { minAmount: '1000', fee: '10' } },
+    fees: { [USDC]: '100000', [ZERO]: '10' },
     ...overrides
   };
 }
@@ -56,43 +51,42 @@ describe('parseConfig', () => {
   });
 
   it('parses a full chain and lower-cases every address and hash', () => {
-    const config = parseConfig({ ...env({ '8453': chain() }, 'deduct'), ALLOWED_ORIGINS: JSON.stringify(['a://b']) });
+    const value = env({ '8453': chain({ allowedTargets: [TARGET, OTHER_TARGET] }) }, 'deduct');
+    const config = parseConfig({ ...value, ALLOWED_ORIGINS: JSON.stringify(['a://b']) });
     expect(config.gasMode).toBe('deduct');
     expect([...config.allowedOrigins]).toEqual(['a://b']);
     expect(config.chains.get(8453)).toEqual({
       chainId: 8453,
       calibur: { ...CALIBUR, address: `0x${'ab'.repeat(20)}`, runtimeHash: `0x${'cd'.repeat(32)}` },
       feeRecipient: `0x${'fe'.repeat(20)}`,
-      kinds: { 'agglayer-deposit': { ...AGGLAYER, bridgeAddress: `0x${'2a'.repeat(20)}` } },
-      tokens: new Map([
-        [`0x${'aa'.repeat(20)}`, { minAmount: 2_000_000n, fee: 100_000n }],
-        [ZERO, { minAmount: 1000n, fee: 10n }]
-      ])
+      fees: new Map([
+        [`0x${'aa'.repeat(20)}`, 100_000n],
+        [ZERO, 10n]
+      ]),
+      allowedTargets: [`0x${'2a'.repeat(20)}`, OTHER_TARGET]
     });
   });
 
-  it('accepts a sponsor chain without feeRecipient, with no kinds and a fee of 0', () => {
-    const { feeRecipient: _feeRecipient, ...bare } = chain({
-      kinds: {},
-      tokens: { [USDC]: { minAmount: '1', fee: '0' } }
-    });
-    const parsed = parseConfig(env({ '1': bare })).chains.get(1);
+  it('keeps the fees in config order', () => {
+    const parsed = parseConfig(env({ '1': chain({ fees: { [ZERO]: '1', [USDC]: '2' } }) })).chains.get(1);
+    expect([...(parsed?.fees.keys() ?? [])]).toEqual([ZERO, `0x${'aa'.repeat(20)}`]);
+  });
+
+  it('accepts a sponsor chain with only calibur: no fee recipient, no fees and any target', () => {
+    const parsed = parseConfig(env({ '1': { calibur: CALIBUR } })).chains.get(1);
     expect(parsed?.feeRecipient).toBeNull();
-    expect(parsed?.kinds).toEqual({});
-    expect(parsed?.tokens.get(`0x${'aa'.repeat(20)}`)).toEqual({ minAmount: 1n, fee: 0n });
+    expect(parsed?.fees).toEqual(new Map());
+    expect(parsed?.allowedTargets).toBeNull();
   });
 
-  it('accepts an amount of 2^256 - 1 and a midenNetworkId of 2^32 - 1', () => {
+  it('accepts an empty fees object in sponsor mode', () => {
+    expect(parseConfig(env({ '1': chain({ fees: {} }) })).chains.get(1)?.fees.size).toBe(0);
+  });
+
+  it('accepts a fee of 2^256 - 1', () => {
     const max = (2n ** 256n - 1n).toString();
-    const value = env({
-      '1': chain({
-        kinds: agglayer({ midenNetworkId: 2 ** 32 - 1 }),
-        tokens: { [USDC]: { minAmount: max, fee: '0' } }
-      })
-    });
-    const parsed = parseConfig(value).chains.get(1);
-    expect(parsed?.tokens.get(`0x${'aa'.repeat(20)}`)?.minAmount).toBe(2n ** 256n - 1n);
-    expect(parsed?.kinds['agglayer-deposit']?.midenNetworkId).toBe(2 ** 32 - 1);
+    const parsed = parseConfig(env({ '1': chain({ fees: { [USDC]: max } }) })).chains.get(1);
+    expect(parsed?.fees.get(`0x${'aa'.repeat(20)}`)).toBe(2n ** 256n - 1n);
   });
 
   it.each([
@@ -133,6 +127,7 @@ describe('parseConfig', () => {
   it.each([
     ['a chain that is not an object', [], `${at} must be an object.`],
     ['an unknown chain field', chain({ rpcUrl: 'https://x' }), `${at}.rpcUrl is not a known field.`],
+    ['the old tokens field', chain({ tokens: {} }), `${at}.tokens is not a known field.`],
     ['a missing calibur', chain({ calibur: undefined }), `${at}.calibur is missing.`],
     ['a calibur that is not an object', chain({ calibur: 'Calibur' }), `${at}.calibur must be an object.`],
     [
@@ -172,95 +167,54 @@ describe('parseConfig', () => {
     ],
     ['a zero feeRecipient', chain({ feeRecipient: ZERO }), `${at}.feeRecipient must not be the zero address.`],
     ['a null feeRecipient', chain({ feeRecipient: null }), `${at}.feeRecipient must be a 20-byte hex address.`],
-    ['a missing kinds', chain({ kinds: undefined }), `${at}.kinds is missing.`],
-    ['kinds an array', chain({ kinds: [] }), `${at}.kinds must be an object.`],
+    ['fees an array', chain({ fees: [] }), `${at}.fees must be an object.`],
+    ['fees null', chain({ fees: null }), `${at}.fees must be an object.`],
     [
-      'an unknown kind',
-      chain({ kinds: { ...agglayer(), 'cctp-deposit': {} } }),
-      `${at}.kinds.cctp-deposit is not a known relay kind.`
-    ],
-    ['the old agglayer field', chain({ agglayer: AGGLAYER }), `${at}.agglayer is not a known field.`],
-    [
-      'a zero bridgeAddress',
-      chain({ kinds: agglayer({ bridgeAddress: ZERO }) }),
-      `${at}.kinds.agglayer-deposit.bridgeAddress must not be the zero address.`
+      'a fee key that is not an address',
+      chain({ fees: { usdc: '1' } }),
+      `${at}.fees.usdc must be a 20-byte hex address.`
     ],
     [
-      'an unknown Agglayer field',
-      chain({ kinds: agglayer({ fee: '1' }) }),
-      `${at}.kinds.agglayer-deposit.fee is not a known field.`
+      'a fee key repeated in another case',
+      chain({ fees: { [USDC]: '1', [USDC.toLowerCase()]: '1' } }),
+      `${at}.fees.${USDC.toLowerCase()} repeats a token address.`
+    ],
+    ['a numeric fee', chain({ fees: { [USDC]: 1 } }), `${at}.fees.${USDC} must be a decimal integer string.`],
+    [
+      'a fee with a leading zero',
+      chain({ fees: { [USDC]: '01' } }),
+      `${at}.fees.${USDC} must be a decimal integer string.`
+    ],
+    ['a negative fee', chain({ fees: { [USDC]: '-1' } }), `${at}.fees.${USDC} must be a decimal integer string.`],
+    ['a fee of 2^256', chain({ fees: { [USDC]: (2n ** 256n).toString() } }), `${at}.fees.${USDC} must be below 2^256.`],
+    [
+      'a fee of 79 digits',
+      chain({ fees: { [USDC]: '1'.repeat(79) } }),
+      `${at}.fees.${USDC} must be a decimal integer string.`
+    ],
+    ['a fee of 0', chain({ fees: { [USDC]: '0' } }), `${at}.fees.${USDC} must be above 0.`],
+    [
+      'a fee that is an object',
+      chain({ fees: { [USDC]: { fee: '1' } } }),
+      `${at}.fees.${USDC} must be a decimal integer string.`
+    ],
+    ['allowedTargets an object', chain({ allowedTargets: {} }), `${at}.allowedTargets must be a non-empty array.`],
+    ['allowedTargets null', chain({ allowedTargets: null }), `${at}.allowedTargets must be a non-empty array.`],
+    ['an empty allowedTargets', chain({ allowedTargets: [] }), `${at}.allowedTargets must be a non-empty array.`],
+    [
+      'a target that is not an address',
+      chain({ allowedTargets: [TARGET, '0x12'] }),
+      `${at}.allowedTargets.1 must be a 20-byte hex address.`
     ],
     [
-      'a fractional midenNetworkId',
-      chain({ kinds: agglayer({ midenNetworkId: 1.5 }) }),
-      `${at}.kinds.agglayer-deposit.midenNetworkId must be an integer.`
+      'the zero address as a target',
+      chain({ allowedTargets: [ZERO] }),
+      `${at}.allowedTargets.0 must not be the zero address.`
     ],
     [
-      'a string midenNetworkId',
-      chain({ kinds: agglayer({ midenNetworkId: '1' }) }),
-      `${at}.kinds.agglayer-deposit.midenNetworkId must be an integer.`
-    ],
-    [
-      'a negative midenNetworkId',
-      chain({ kinds: agglayer({ midenNetworkId: -1 }) }),
-      `${at}.kinds.agglayer-deposit.midenNetworkId must be in 0..2^32-1.`
-    ],
-    [
-      'a midenNetworkId of 2^32',
-      chain({ kinds: agglayer({ midenNetworkId: 2 ** 32 }) }),
-      `${at}.kinds.agglayer-deposit.midenNetworkId must be in 0..2^32-1.`
-    ],
-    [
-      'a string forceUpdateGlobalExitRoot',
-      chain({ kinds: agglayer({ forceUpdateGlobalExitRoot: 'true' }) }),
-      `${at}.kinds.agglayer-deposit.forceUpdateGlobalExitRoot must be a boolean.`
-    ],
-    ['tokens an array', chain({ tokens: [] }), `${at}.tokens must be an object.`],
-    [
-      'a token key that is not an address',
-      chain({ tokens: { usdc: { minAmount: '1', fee: '0' } } }),
-      `${at}.tokens.usdc must be a 20-byte hex address.`
-    ],
-    [
-      'a token key repeated in another case',
-      chain({ tokens: { [USDC]: { minAmount: '1', fee: '0' }, [USDC.toLowerCase()]: { minAmount: '1', fee: '0' } } }),
-      `${at}.tokens.${USDC.toLowerCase()} repeats a token address.`
-    ],
-    ['a token without fee', chain({ tokens: { [USDC]: { minAmount: '1' } } }), `${at}.tokens.${USDC}.fee is missing.`],
-    [
-      'an unknown token field',
-      chain({ tokens: { [USDC]: { minAmount: '1', fee: '0', decimals: 6 } } }),
-      `${at}.tokens.${USDC}.decimals is not a known field.`
-    ],
-    [
-      'a numeric minAmount',
-      chain({ tokens: { [USDC]: { minAmount: 1, fee: '0' } } }),
-      `${at}.tokens.${USDC}.minAmount must be a decimal integer string.`
-    ],
-    [
-      'a minAmount with a leading zero',
-      chain({ tokens: { [USDC]: { minAmount: '01', fee: '0' } } }),
-      `${at}.tokens.${USDC}.minAmount must be a decimal integer string.`
-    ],
-    [
-      'a negative fee',
-      chain({ tokens: { [USDC]: { minAmount: '1', fee: '-1' } } }),
-      `${at}.tokens.${USDC}.fee must be a decimal integer string.`
-    ],
-    [
-      'a minAmount of 2^256',
-      chain({ tokens: { [USDC]: { minAmount: (2n ** 256n).toString(), fee: '0' } } }),
-      `${at}.tokens.${USDC}.minAmount must be below 2^256.`
-    ],
-    [
-      'a minAmount of 79 digits',
-      chain({ tokens: { [USDC]: { minAmount: '1'.repeat(79), fee: '0' } } }),
-      `${at}.tokens.${USDC}.minAmount must be a decimal integer string.`
-    ],
-    [
-      'a minAmount of 0',
-      chain({ tokens: { [USDC]: { minAmount: '0', fee: '0' } } }),
-      `${at}.tokens.${USDC}.minAmount must be above 0.`
+      'a target repeated in another case',
+      chain({ allowedTargets: [TARGET, TARGET.toLowerCase()] }),
+      `${at}.allowedTargets.1 repeats a target address.`
     ]
   ])('refuses %s', (_name, value, message) => {
     expect(parseError(env({ '1': value }))).toBe(message);
@@ -273,27 +227,14 @@ describe('parseConfig', () => {
         chain({ feeRecipient: undefined }),
         `${at}.feeRecipient is required when GAS_MODE is deduct.`
       ],
-      [
-        'a fee of 0',
-        chain({ tokens: { [USDC]: { minAmount: '10', fee: '0' } } }),
-        `${at}.tokens.${USDC}.fee must be above 0 when GAS_MODE is deduct.`
-      ],
-      [
-        'a minAmount equal to the fee',
-        chain({ tokens: { [USDC]: { minAmount: '10', fee: '10' } } }),
-        `${at}.tokens.${USDC}.minAmount must be above the fee when GAS_MODE is deduct.`
-      ],
-      [
-        'a minAmount below the fee',
-        chain({ tokens: { [USDC]: { minAmount: '9', fee: '10' } } }),
-        `${at}.tokens.${USDC}.minAmount must be above the fee when GAS_MODE is deduct.`
-      ]
+      ['a chain without fees', chain({ fees: undefined }), `${at}.fees must name a token when GAS_MODE is deduct.`],
+      ['a chain with empty fees', chain({ fees: {} }), `${at}.fees must name a token when GAS_MODE is deduct.`]
     ])('refuses %s', (_name, value, message) => {
       expect(parseError(env({ '1': value }, 'deduct'))).toBe(message);
     });
 
     it('accepts the same chains in sponsor mode', () => {
-      const value = chain({ feeRecipient: undefined, tokens: { [USDC]: { minAmount: '9', fee: '10' } } });
+      const value = chain({ feeRecipient: undefined, fees: undefined });
       expect(parseConfig(env({ '1': value })).chains.size).toBe(1);
     });
   });

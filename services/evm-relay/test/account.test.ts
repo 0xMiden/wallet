@@ -4,9 +4,9 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
-  AGGLAYER_DEPOSIT,
   FEE_RECIPIENT,
   NATIVE,
+  TARGET,
   TEST_EXECUTOR,
   USDC,
   bodyOf,
@@ -22,19 +22,20 @@ const ADDRESS = `0x${'12'.repeat(20)}`;
 const MIXED_CASE_ADDRESS = `0x${'1A'.repeat(20)}`;
 const CALLER = { 'CF-Connecting-IP': '203.0.113.7' };
 const SALT = `0x${'00'.repeat(12)}${'ca'.repeat(20)}`;
-const CONFIG = JSON.stringify({ chains: { '8453': chainEntry(), '1': chainEntry(false) } });
+const OTHER_TARGET = `0x${'3b'.repeat(20)}`;
+const CONFIG = JSON.stringify({
+  chains: { '8453': chainEntry(), '1': chainEntry({ allowedTargets: [TARGET, OTHER_TARGET] }) }
+});
 
 function harnessFor(gasMode = 'sponsor'): Harness {
   const harness = createHarness({ gasMode, relayConfig: CONFIG });
-  harness.reader.state = readState({
-    balances: [2_500_000n, 100n],
-    sequences: new Map([['agglayer-deposit', 9n]])
-  });
+  harness.reader.state = readState({ balances: [2_500_000n, 100n], sequence: 9n });
   return harness;
 }
 
-function accountPath(chainId: string, address: string): string {
-  return `/v1/account?chainId=${chainId}&address=${address}`;
+function accountPath(chainId: string, address: string, tokens?: string): string {
+  const query = tokens === undefined ? '' : `&tokens=${tokens}`;
+  return `/v1/account?chainId=${chainId}&address=${address}${query}`;
 }
 
 afterEach(() => {
@@ -42,9 +43,10 @@ afterEach(() => {
 });
 
 describe('GET /v1/account', () => {
-  it('answers the full sponsor response with no fee and no fee recipient', async () => {
+  it('answers the full sponsor response with no fee, no fee recipient and the balances of the tokens', async () => {
     const harness = harnessFor();
-    const response = await send(harness, accountPath('8453', MIXED_CASE_ADDRESS), { headers: CALLER });
+    const tokens = `${USDC.toUpperCase().replace('0X', '0x')},${NATIVE}`;
+    const response = await send(harness, accountPath('8453', MIXED_CASE_ADDRESS, tokens), { headers: CALLER });
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, max-age=5');
     const address = MIXED_CASE_ADDRESS.toLowerCase();
@@ -57,23 +59,60 @@ describe('GET /v1/account', () => {
       needsAuthorization: false,
       authorizationNonce: 3,
       salt: SALT,
-      kinds: { 'agglayer-deposit': { sequence: '9', config: AGGLAYER_DEPOSIT } },
+      sequence: '9',
+      fees: [],
+      allowedTargets: null,
       balances: [
-        { token: USDC, balance: '2500000', minAmount: '2000000', fee: '0' },
-        { token: NATIVE, balance: '100', minAmount: '1000', fee: '0' }
+        { token: USDC, balance: '2500000' },
+        { token: NATIVE, balance: '100' }
       ]
     });
-    expect(harness.reader.calls).toEqual([{ chainId: 8453, address, kinds: ['agglayer-deposit'] }]);
+    expect(harness.reader.calls).toEqual([{ chainId: 8453, address, tokens: [USDC, NATIVE] }]);
   });
 
-  it('answers the configured fees and fee recipient in deduct mode', async () => {
-    const body = await bodyOf(await send(harnessFor('deduct'), accountPath('8453', ADDRESS)));
+  it('answers the configured fees in config order and the fee recipient in deduct mode', async () => {
+    const body = await bodyOf(await send(harnessFor('deduct'), accountPath('8453', ADDRESS, `${USDC},${NATIVE}`)));
     expect(body.mode).toBe('deduct');
     expect(body.feeRecipient).toBe(FEE_RECIPIENT);
-    expect(body.balances).toEqual([
-      { token: USDC, balance: '2500000', minAmount: '2000000', fee: '100000' },
-      { token: NATIVE, balance: '100', minAmount: '1000', fee: '10' }
+    expect(body.fees).toEqual([
+      { token: USDC, fee: '100000' },
+      { token: NATIVE, fee: '10' }
     ]);
+  });
+
+  it.each(['sponsor', 'deduct'])('answers the allowed targets of the chain in %s mode', async gasMode => {
+    const harness = harnessFor(gasMode);
+    harness.reader.state = readState();
+    const body = await bodyOf(await send(harness, accountPath('1', ADDRESS)));
+    expect(body.allowedTargets).toEqual([TARGET, OTHER_TARGET]);
+  });
+
+  it('answers no balance and reads no token without a tokens parameter', async () => {
+    const harness = harnessFor();
+    const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS)));
+    expect(body.balances).toEqual([]);
+    expect(harness.reader.calls).toEqual([{ chainId: 8453, address: ADDRESS, tokens: [] }]);
+  });
+
+  it('reads the balances in query order', async () => {
+    const harness = harnessFor();
+    harness.reader.state = readState({ balances: [100n, 2_500_000n] });
+    const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS, `${NATIVE},${USDC}`)));
+    expect(body.balances).toEqual([
+      { token: NATIVE, balance: '100' },
+      { token: USDC, balance: '2500000' }
+    ]);
+    expect(harness.reader.calls[0]?.tokens).toEqual([NATIVE, USDC]);
+  });
+
+  it('accepts 16 tokens, a token that the config does not name and the native coin alone', async () => {
+    const sixteen = Array.from({ length: 16 }, (_value, index) => `0x${(index + 1).toString(16).padStart(40, '0')}`);
+    const harness = harnessFor();
+    harness.reader.state = readState({ balances: sixteen.map(() => 1n) });
+    expect((await send(harness, accountPath('8453', ADDRESS, sixteen.join(',')))).status).toBe(200);
+    harness.reader.state = readState({ balances: [7n] });
+    const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS, NATIVE)));
+    expect(body.balances).toEqual([{ token: NATIVE, balance: '7' }]);
   });
 
   it('asks for an authorization when the address does not delegate to Calibur', async () => {
@@ -83,14 +122,15 @@ describe('GET /v1/account', () => {
     expect(body.needsAuthorization).toBe(true);
   });
 
-  it('reads no relay kind on a chain without kinds', async () => {
+  it('fails when the reader returns fewer balances than tokens', async () => {
     const harness = harnessFor();
-    harness.reader.state = readState({ balances: [1n, 2n] });
-    const body = await bodyOf(await send(harness, accountPath('1', ADDRESS)));
-    expect(body.kinds).toEqual({});
-    expect(harness.reader.calls).toEqual([{ chainId: 1, address: ADDRESS, kinds: [] }]);
+    harness.reader.state = readState({ balances: [] });
+    const response = await send(harness, accountPath('8453', ADDRESS, USDC));
+    expect(response.status).toBe(500);
+    expect((await bodyOf(response)).error).toBe('internal_error');
   });
 
+  const seventeen = Array.from({ length: 17 }, (_value, index) => `0x${(index + 1).toString(16).padStart(40, '0')}`);
   it.each([
     ['no chainId', `/v1/account?address=${ADDRESS}`, 'invalid_request'],
     ['chainId 0', accountPath('0', ADDRESS), 'invalid_request'],
@@ -101,7 +141,19 @@ describe('GET /v1/account', () => {
     ['no address', '/v1/account?chainId=8453', 'invalid_request'],
     ['a short address', accountPath('8453', ADDRESS.slice(0, -1)), 'invalid_request'],
     ['an address that is not hex', accountPath('8453', `0x${'zz'.repeat(20)}`), 'invalid_request'],
-    ['the relayer address', accountPath('8453', TEST_EXECUTOR.toUpperCase().replace('0X', '0x')), 'invalid_request']
+    ['the relayer address', accountPath('8453', TEST_EXECUTOR.toUpperCase().replace('0X', '0x')), 'invalid_request'],
+    ['an empty tokens parameter', accountPath('8453', ADDRESS, ''), 'invalid_request'],
+    ['a token that is not an address', accountPath('8453', ADDRESS, `${USDC},usdc`), 'invalid_request'],
+    ['a short token', accountPath('8453', ADDRESS, USDC.slice(0, -2)), 'invalid_request'],
+    ['an empty token in the list', accountPath('8453', ADDRESS, `${USDC},`), 'invalid_request'],
+    ['a token with a space', accountPath('8453', ADDRESS, `${USDC},%20${NATIVE}`), 'invalid_request'],
+    [
+      'a token repeated in another case',
+      accountPath('8453', ADDRESS, `${USDC},${USDC.toUpperCase().replace('0X', '0x')}`),
+      'invalid_request'
+    ],
+    ['17 tokens', accountPath('8453', ADDRESS, seventeen.join(',')), 'invalid_request'],
+    ['a second tokens parameter', `${accountPath('8453', ADDRESS, USDC)}&tokens=${NATIVE}`, 'invalid_request']
   ])('answers 400 for %s and reads nothing', async (_name, path, code) => {
     const harness = harnessFor();
     const response = await send(harness, path, { headers: CALLER });
@@ -138,9 +190,19 @@ describe('GET /v1/account', () => {
     expect(log.mock.calls).toEqual([[`evm-relay: ${message}`]]);
   });
 
+  it('passes on an unexpected reader failure', async () => {
+    const harness = harnessFor();
+    harness.reader.error = new Error('unexpected');
+    expect((await send(harness, accountPath('8453', ADDRESS))).status).toBe(500);
+  });
+
   it.each([
     ['RELAYER_PRIVATE_KEY is missing', createHarness({ relayConfig: CONFIG, relayerKey: null })],
-    ['RELAY_CONFIG does not parse', createHarness({ relayConfig: '{}' })]
+    ['RELAY_CONFIG does not parse', createHarness({ relayConfig: '{}' })],
+    [
+      'RELAY_CONFIG has the old tokens field',
+      createHarness({ relayConfig: JSON.stringify({ chains: { '8453': chainEntry({ tokens: {} }) } }) })
+    ]
   ])('answers 503 when %s', async (_name, harness) => {
     const response = await send(harness, accountPath('8453', ADDRESS));
     expect(response.status).toBe(503);

@@ -3,7 +3,6 @@ import { keccak256, recoverTransactionAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { memoryDatabase, type MemoryDatabase } from './sqlite';
-import type { RelayKind } from '../../../src/lib/evm-relay/batch';
 import type { AccountState, ChainReader, ReceiptStatus, RelayCall, RelayState } from '../src/chain';
 import type { ChainConfig, Hex } from '../src/config';
 import { isRecord } from '../src/http';
@@ -26,13 +25,14 @@ export const CALIBUR_ADDRESS: Hex = `0x${'ca'.repeat(20)}`;
 export const USDC: Hex = `0x${'aa'.repeat(20)}`;
 export const NATIVE: Hex = `0x${'0'.repeat(40)}`;
 export const FEE_RECIPIENT: Hex = `0x${'fe'.repeat(20)}`;
-export const BRIDGE: Hex = `0x${'2a'.repeat(20)}`;
+/** A contract that a batch calls, for example a bridge. The relay does not know what it does. */
+export const TARGET: Hex = `0x${'2a'.repeat(20)}`;
 
-/** The Agglayer deposit config of the test chains. */
-export const AGGLAYER_DEPOSIT = { bridgeAddress: BRIDGE, midenNetworkId: 1, forceUpdateGlobalExitRoot: true };
-
-/** A chain entry of RELAY_CONFIG with USDC and the native coin, valid in both gas modes. */
-export function chainEntry(withKinds = true): Record<string, unknown> {
+/**
+ * A chain entry of RELAY_CONFIG with fees in USDC and in the native coin, valid in both gas modes. It has no
+ * `allowedTargets` unless `extra` sets it.
+ */
+export function chainEntry(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     calibur: {
       address: CALIBUR_ADDRESS,
@@ -41,8 +41,8 @@ export function chainEntry(withKinds = true): Record<string, unknown> {
       domainVersion: '1.0.0'
     },
     feeRecipient: FEE_RECIPIENT,
-    kinds: withKinds ? { 'agglayer-deposit': AGGLAYER_DEPOSIT } : {},
-    tokens: { [USDC]: { minAmount: '2000000', fee: '100000' }, [NATIVE]: { minAmount: '1000', fee: '10' } }
+    fees: { [USDC]: '100000', [NATIVE]: '10' },
+    ...extra
   };
 }
 
@@ -58,7 +58,7 @@ export function readState(overrides: Partial<AccountState> = {}): AccountState {
     authorizationNonce: 3,
     salt: `0x${'00'.repeat(12)}${'ca'.repeat(20)}`,
     balances: [],
-    sequences: new Map(),
+    sequence: 0n,
     ...overrides
   };
 }
@@ -79,14 +79,14 @@ export function relayState(overrides: Partial<RelayState> = {}): RelayState {
 
 /** A chain reader that answers from memory and records each call. */
 export class FakeReader implements ChainReader {
-  readonly calls: { chainId: number; address: Hex; kinds: readonly RelayKind[] }[] = [];
+  readonly calls: { chainId: number; address: Hex; tokens: readonly Hex[] }[] = [];
   readonly relayCalls: { chainId: number; call: RelayCall }[] = [];
   state: AccountState = readState();
   relay: RelayState = relayState();
   error: Error | null = null;
 
-  async readAccount(chain: ChainConfig, address: Hex, kinds: readonly RelayKind[]): Promise<AccountState> {
-    this.calls.push({ chainId: chain.chainId, address, kinds });
+  async readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState> {
+    this.calls.push({ chainId: chain.chainId, address, tokens });
     if (this.error !== null) throw this.error;
     return this.state;
   }
