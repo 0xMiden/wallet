@@ -292,6 +292,36 @@ describe('command-ai orchestrator', () => {
     expect(res.chips).toHaveLength(1);
   });
 
+  it.each([
+    ['a saved contact address', VALID_MIDEN_ALICE],
+    ['an address that is not in the contacts', 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnew']
+  ])('uses a complete typed address without asking: %s', (_label, address) => {
+    const base = createContext();
+    const ctx = { ...base, contacts: base.contacts.slice(0, 1) };
+    const { map } = redactPrompt(`send 10 MIDEN to ${address}`, { contacts: ctx.contacts });
+    const res = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'send',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: 'MIDEN',
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: 'ADDR_1',
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    expect(res.kind).toBe('handoff');
+    if (res.kind !== 'handoff' || res.handoff.action !== 'send') return;
+    expect(res.handoff.draft.recipientAddress).toBe(address);
+  });
+
   it('surfaces bridge clarification chips and completes via chip click or patch_slots', () => {
     const ctx = createContext();
     const { map } = redactPrompt('bridge 500 usdc to miden', { contacts: ctx.contacts });
