@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.
 - [FIX][all] Clarify what Bread Command shares when answering a help question.
 - [FIX][all] Show when Claim All is waiting for an automatic retry.
 - [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.

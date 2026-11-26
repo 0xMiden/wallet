@@ -140,7 +140,10 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
     expect(systemPrompt).toContain('Choose Safety for questions about sharing secrets, even with support.');
     expect(systemPrompt).toContain('Choose Recovery for how to restore wallet access.');
-    expect(systemPrompt).toContain("The sender's account and some metadata are public.");
+    expect(systemPrompt).toContain('Bread accounts are private by default');
+    expect(systemPrompt).toContain('the recipient can read it');
+    expect(systemPrompt).toContain('Never call a transaction anonymous or unlinkable.');
+    expect(systemPrompt).not.toContain("The sender's account and some metadata are public.");
     expect(systemPrompt).toContain('Compare Public and Private in send review.');
     expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
     expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
@@ -151,7 +154,7 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('Choose Assistant for what the AI can see.');
     expect(systemPrompt).toContain('Help sends no chat or wallet history.');
     expect(systemPrompt).toContain('two of three validators');
-    expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5000);
+    expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5300);
     expect(JSON.stringify(help.response_format)).toContain('"explain"');
     expect(JSON.stringify(legacy.response_format)).not.toContain('"explain"');
     const refused = await send(service, env, '/v1/compile', {
