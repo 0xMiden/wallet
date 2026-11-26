@@ -13,6 +13,7 @@ const entries: IHistoryEntry[] = Array.from({ length: 7 }, (_, index) => ({
   message: 'Received',
   type: HistoryEntryType.CompletedTransaction,
   txType: 'consume',
+  transactionIcon: 'RECEIVE',
   amount: `${index + 1}.00`,
   token: 'IETH'
 }));
