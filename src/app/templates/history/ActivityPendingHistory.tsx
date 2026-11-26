@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { UsdAmount } from 'components/ui/TokenAmount';
+import { useActivityContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
@@ -11,6 +12,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
+import { activityCounterpartyNames } from './activityGroups';
 import { pendingNoteUnreadKey } from './activityUnread';
 import History, { ActivityFilter } from './History';
 import type { IHistoryEntry } from './IHistoryEntry';
@@ -38,6 +40,8 @@ export const ActivityPendingHistory = ({
   emptyState
 }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
+  const activityContacts = useActivityContacts();
+  const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
   const {
     representedItems,
     listItems,
@@ -49,7 +53,7 @@ export const ActivityPendingHistory = ({
     hidden,
     declinedIds,
     hiddenCount
-  } = useActivityClaimList(search, filter);
+  } = useActivityClaimList(search, filter, undefined, nameOf);
   useUserVisibleError(hidden.failed ? 'activityHiddenNotesError' : null, 'inline');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   useBridgeConfigSnapshot({ load: false });
