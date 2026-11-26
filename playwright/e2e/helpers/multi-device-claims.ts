@@ -19,7 +19,7 @@
  */
 import type { Page, Request } from '@playwright/test';
 
-import { type TxStatusName, txStatusName } from './history';
+import { PENDING_LOADING_BAR, type TxStatusName, txStatusName } from './history';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
@@ -607,10 +607,12 @@ export async function waitForNoPendingCard(
   if (!isOnPendingList(wallet.page)) await openPendingList(wallet);
   await pollUntil(
     wallet.page,
-    // `undefined` is a read that failed or ran off the Pending list: it never proves the card gone.
+    // `undefined` is a read that failed, left the Pending list or met a list still fetching: none shows the card gone.
     async () => {
       if (!isOnPendingList(wallet.page)) return undefined;
-      return evaluatePendingCard(wallet, noteId).catch(() => undefined);
+      const card = await evaluatePendingCard(wallet, noteId).catch(() => undefined);
+      if (card !== null) return card;
+      return (await wallet.page.locator(PENDING_LOADING_BAR).count().catch(() => 1)) === 0 ? null : undefined;
     },
     card => card === null,
     {

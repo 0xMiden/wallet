@@ -251,18 +251,32 @@ describe('multi-device claims helpers', () => {
 
 describe('waitForNoPendingCard', () => {
   const PENDING_URL = 'chrome-extension://id/fullpage.html#/history?filter=pending';
+  const card = { entryKey: NOTE_A, status: 'pending', acceptEnabled: true };
+
+  const walletWith = (evaluate: jest.Mock, loadingBars: jest.Mock): Parameters<typeof waitForNoPendingCard>[0] =>
+    ({
+      page: {
+        url: () => PENDING_URL,
+        evaluate,
+        locator: () => ({ count: loadingBars }),
+        waitForTimeout: () => Promise.resolve()
+      }
+    }) as unknown as Parameters<typeof waitForNoPendingCard>[0];
 
   it('does not take a failed read for a card that is gone', async () => {
-    const card = { entryKey: NOTE_A, status: 'pending', acceptEnabled: true };
     const evaluate = jest
       .fn()
       .mockRejectedValueOnce(new Error('Execution context was destroyed'))
       .mockResolvedValueOnce(card)
       .mockResolvedValueOnce(null);
-    const wallet = {
-      page: { url: () => PENDING_URL, evaluate, waitForTimeout: () => Promise.resolve() }
-    } as unknown as Parameters<typeof waitForNoPendingCard>[0];
-    await waitForNoPendingCard(wallet, NOTE_A, 60_000);
+    await waitForNoPendingCard(walletWith(evaluate, jest.fn().mockResolvedValue(0)), NOTE_A, 60_000);
+    expect(evaluate).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not take a card missing from a list that still fetches for a card that is gone', async () => {
+    const evaluate = jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(card).mockResolvedValueOnce(null);
+    const loadingBars = jest.fn().mockResolvedValueOnce(1).mockResolvedValue(0);
+    await waitForNoPendingCard(walletWith(evaluate, loadingBars), NOTE_A, 60_000);
     expect(evaluate).toHaveBeenCalledTimes(3);
   });
 });

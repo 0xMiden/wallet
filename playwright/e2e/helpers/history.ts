@@ -51,6 +51,9 @@ export function txStatusName(status: number): TxStatusName | undefined {
   return (TX_STATUS_NAME as Record<number, TxStatusName | undefined>)[status];
 }
 
+/** The progress bar that the Pending list shows while it fetches (`ClaimsLoadingBar`); `claim-drain.ts` reads the same. */
+export const PENDING_LOADING_BAR = '[role="progressbar"]';
+
 /** Mirror of `USER_CANCELLED_TRANSACTION_REASON` (src/lib/miden/transaction/constants.ts). */
 export const USER_CANCELLED_REASON = 'Transaction was cancelled by user';
 

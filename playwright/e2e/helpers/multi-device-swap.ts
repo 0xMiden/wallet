@@ -19,7 +19,7 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
-import { txStatusName } from './history';
+import { PENDING_LOADING_BAR, txStatusName } from './history';
 import type { MidenCli } from './miden-cli';
 import { describeRows, type HistoryRow, type HistoryStatus, readHistory, requestBackupRefresh } from './multi-device';
 import {
@@ -762,9 +762,6 @@ export interface PeerPaybackWatchReport {
   /** Reads that failed (a navigation in progress, for example). They are no verdict. */
   sampleErrors: string[];
 }
-
-/** The progress bar that the Pending list shows while it fetches its history and notes (`ClaimsLoadingBar`). */
-const PENDING_LOADING_BAR = '[role="progressbar"][aria-label="Fetching your transaction history and notes"]';
 
 /**
  * The Pending list is on screen and has finished its fetch, so a missing card is a real read. The header renders
