@@ -308,7 +308,8 @@ const sharedDefine = {
   'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
   'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
   'process.env.FEATURE_ELIGIBILITY_URL': JSON.stringify(process.env.FEATURE_ELIGIBILITY_URL ?? ''),
-  'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : '')
+  'process.env.MIDEN_ELIGIBILITY_OPEN': JSON.stringify(devEligibilityOpen(process.env) ? 'true' : ''),
+  'process.env.COMMAND_AI_PROXY_URL': JSON.stringify(process.env.COMMAND_AI_PROXY_URL ?? '')
 };
 
 export default defineConfig({

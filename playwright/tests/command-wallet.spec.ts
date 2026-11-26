@@ -123,6 +123,94 @@ async function seedChartPreview(page: Page, accountId: string) {
   );
 }
 
+test('Bread answers questions without moving the composer while the model replies', async ({
+  extensionContext,
+  extensionId
+}, info) => {
+  test.setTimeout(250_000);
+  await importWallet(extensionContext, extensionId);
+  const command = await extensionContext.newPage();
+  await command.setViewportSize({ width: 390, height: 844 });
+  await command.addInitScript(() => {
+    localStorage.setItem('bread_command_ai_proxy_url', 'http://127.0.0.1:47989');
+  });
+  let finishReply!: () => void;
+  const pendingReply = new Promise<void>(resolve => {
+    finishReply = resolve;
+  });
+  let requests = 0;
+  await command.route('http://127.0.0.1:47989/v1/compile', async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'POST',
+          'access-control-allow-headers': 'content-type'
+        }
+      });
+      return;
+    }
+    requests++;
+    const first = requests === 1;
+    expect(route.request().postDataJSON()).toEqual(
+      first
+        ? { redactedText: 'How private is it?', helpContext: null }
+        : { redactedText: 'How can I check?', helpContext: 'Privacy' }
+    );
+    if (!first) await pendingReply;
+    await route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' },
+      json: {
+        output: {
+          result: {
+            op: 'explain',
+            topic: first ? 'Privacy' : 'Verify',
+            answer: first
+              ? 'Private notes keep their contents off the public chain. The sending account is still public.'
+              : 'Check the Public or Private choice before you confirm.'
+          }
+        }
+      }
+    });
+  });
+
+  try {
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    const input = command.getByTestId('command-ai-input');
+    const submit = command.getByTestId('command-ai-submit');
+    const answer = command.getByTestId('command-ai-help-answer');
+    await input.fill('How private is it?');
+    await input.press('Enter');
+    await expect(answer).toContainText('Private notes keep their contents off the public chain.');
+    await expect(answer).toBeInViewport();
+    const closeIcon = answer.getByRole('button', { name: 'Close' }).locator('svg');
+    await expect(closeIcon).toHaveAttribute('fill', 'currentColor');
+    await expect(closeIcon.locator('path')).not.toHaveCSS('fill', 'none');
+    await captureCommand(command, info, 'command-ai-privacy-answer-390x844');
+
+    await input.fill('How can I check?');
+    const composerBefore = await submit.boundingBox();
+    const answerBefore = await answer.boundingBox();
+    await input.press('Enter');
+    await expect(submit).toHaveAttribute('aria-busy', 'true');
+    await expect(answer).toContainText('The sending account is still public.');
+    expect(await submit.boundingBox()).toEqual(composerBefore);
+    expect(await answer.boundingBox()).toEqual(answerBefore);
+    expect(await command.getByTestId('command-ai-bar').locator('form').getAttribute('class')).toContain(
+      'command-ai-wave-busy'
+    );
+
+    finishReply();
+    await expect(answer).toContainText('Check the Public or Private choice before you confirm.');
+    await expect(command.getByTestId('command-workbench')).toHaveCount(0);
+    expect(requests).toBe(2);
+  } finally {
+    finishReply();
+    await command.close();
+  }
+});
+
 test('compact launcher opens the real Command workspace and preserves a minimized unsigned Send draft', async ({
   extensionContext,
   extensionId
@@ -130,6 +218,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   test.setTimeout(330_000);
   await importWallet(extensionContext, extensionId);
   const popup = await openPopup(extensionContext, extensionId);
+  await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(0);
+  const popupUrl = `chrome-extension://${extensionId}/popup.html`;
+  await popup.goto(`${popupUrl}#/settings/advanced-settings`);
+  const fullscreenSetting = popup.getByRole('button', { name: 'Show fullscreen button' });
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'false');
+  await fullscreenSetting.click();
+  await expect(fullscreenSetting).toHaveAttribute('aria-pressed', 'true');
+  await captureCommand(popup, info, 'command-fullscreen-preference-360x600');
+  await popup.goto(`${popupUrl}#/`);
   const balanceAction = popup.getByTestId('balance-card-action');
   const launcher = balanceAction.getByRole('button', { name: 'Open fullscreen' });
   await expect(launcher).toBeVisible();
@@ -182,29 +279,35 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   if (!address) throw new Error('Mock wallet receive address is missing');
   await seedChartPreview(command, address);
   await command.getByTestId('command-workbench').getByRole('button', { name: 'Minimize' }).click();
-  // Capture the selected range, not an intermediate frame of the sliding indicator.
+  await expect(command).toHaveURL(/#\/$/);
   await command.emulateMedia({ reducedMotion: 'reduce' });
+  // Reload the observations written directly to IndexedDB after the dashboard first mounted.
+  await command.reload({ waitUntil: 'domcontentloaded' });
   const week = command.getByRole('radio', { name: '1W', exact: true });
   await week.click();
   await expect(week).toHaveAttribute('aria-checked', 'true');
-  const area = command.locator('[data-command-chart-area]');
-  await expect(area).toHaveAttribute('d', /^M [^M]+ Z$/);
+  const chart = command.getByTestId('command-chart');
+  const line = chart.locator('[data-command-chart-line]');
+  await expect(line).toHaveAttribute('d', /^M [^MZ]+ [CL] [^MZ]+$/);
   await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(0);
-  // The range selection and point marker must fit, including at the right endpoint.
+  // Inspect the latest point at the right edge, where the marker must still fit.
+  const marker = chart.getByTestId('command-chart-marker');
+  await chart.hover({ position: { x: (await chart.boundingBox())!.width - 1, y: 1 } });
   await expect(week).toBeInViewport({ ratio: 1 });
-  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
+  await expect(marker).toBeInViewport({ ratio: 1 });
   await captureCommand(command, info, 'command-dashboard-chart-1440x1000');
   await command.setViewportSize({ width: 1600, height: 1000 });
   await captureCommand(command, info, 'command-dashboard-chart-1600x1000');
   await command.setViewportSize({ width: 390, height: 844 });
-  await captureCommand(command, info, 'command-dashboard-chart-390x844');
+  await chart.hover({ position: { x: (await chart.boundingBox())!.width - 1, y: 1 } });
   await expect(week).toBeInViewport({ ratio: 1 });
-  await expect(command.getByTestId('command-chart-marker')).toBeInViewport({ ratio: 1 });
+  await expect(marker).toBeInViewport({ ratio: 1 });
+  await captureCommand(command, info, 'command-dashboard-chart-390x844');
   await command.emulateMedia({ reducedMotion: 'no-preference' });
   await command.setViewportSize({ width: 1440, height: 1000 });
   await command.getByRole('radio', { name: '1M', exact: true }).click();
   await expect(command.locator('[data-command-chart-sweep]')).toHaveCount(1);
-  await expect(area).toBeAttached();
+  await expect(line).toHaveAttribute('d', /^M /);
   await command.emulateMedia({ reducedMotion: null });
 
   await command.keyboard.press('Control+k');
@@ -230,7 +333,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(backdrop).toHaveAttribute('aria-hidden', 'true');
   await expect(backdrop).toHaveCSS('opacity', '0.3');
   const dashboardHandle = await backdrop.elementHandle();
-  await expect(backdrop.locator('[data-command-chart-area]')).toHaveAttribute('d', /^M /);
+  await expect(backdrop.locator('[data-command-chart-line]')).toHaveAttribute('d', /^M /);
   await composer.getByTestId('send-amount-input').fill('1.234500');
   await captureCommand(command, info, 'command-send-1440x1000');
   await assertWorkbenchFrames(command, async () => {

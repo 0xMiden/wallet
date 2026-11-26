@@ -132,6 +132,7 @@ export default defineConfig({
     'process.env.MIDEN_WALLET_API_URL': JSON.stringify(process.env.MIDEN_WALLET_API_URL ?? ''),
     // Loopback-only development override of the deposit relay base URL; see vite.extension.config.ts.
     'process.env.MIDEN_EVM_RELAY_URL': JSON.stringify(process.env.MIDEN_EVM_RELAY_URL ?? ''),
+    'process.env.COMMAND_AI_PROXY_URL': JSON.stringify(process.env.COMMAND_AI_PROXY_URL ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
