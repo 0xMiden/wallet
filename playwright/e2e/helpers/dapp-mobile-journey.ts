@@ -251,18 +251,46 @@ async function fundOne(
   wallet: MobileWallet,
   address: string,
   faucetId: string,
-  amount: bigint
+  amount: bigint,
+  knownTokenId?: string
 ): Promise<string> {
-  await cli.mint(faucetId, address, amount, 'public');
+  const { noteId } = await cli.mint(faucetId, address, amount, 'public');
   await cli.sync();
   await wallet.claimAllNotes(FUND_CLAIM_MS, [faucetId]);
   const until = Date.now() + FUND_SETTLE_MS;
   for (;;) {
-    const row = (await accountRows(wallet)).rows.find(entry => entry.symbol === TOKEN);
+    const { rows } = await accountRows(wallet);
+    const row = rows.find(entry => entry.symbol === TOKEN);
     if (row !== undefined && rowUnits(row) === amount) return row.tokenId;
     if (Date.now() > until) {
+      const deadline = deadlineIn(5_000, 'funding failure diagnostics');
+      const expectedNote = normalizeHex(noteId);
+      const statuses = await beforeMobileDeadline(deadline, 'read claim rows', () => readRows(wallet, deadline))
+        .then(
+          transactions =>
+            transactions
+              .filter(
+                tx =>
+                  tx.type === 'consume' &&
+                  [tx.noteId ?? '', ...(tx.noteIds ?? [])].some(id => normalizeHex(id) === expectedNote)
+              )
+              .map(tx => tx.status ?? 'unknown')
+              .join(', ') || 'no matching row'
+        )
+        .catch(() => 'unavailable');
+      // Wallet A resolves the token identity for the same fixture faucet before wallet B is funded.
+      const faucetRow = rows.find(entry => entry.tokenId === knownTokenId);
+      const faucet =
+        knownTokenId === undefined
+          ? 'unverified'
+          : faucetRow === undefined
+            ? 'absent'
+            : faucetRow.symbol === ''
+              ? 'missing symbol'
+              : 'symbol present';
       throw new Error(
-        `${address} holds ${row === undefined ? 'no' : rowUnits(row).toString()} ${TOKEN} after the claim, expected ${amount}`
+        `Funding wallet holds ${row === undefined ? 'no' : rowUnits(row).toString()} ${TOKEN} after the claim, expected ${amount}; ` +
+          `expected faucet row: ${faucet}; expected note claim statuses: ${statuses}`
       );
     }
     await sleep(3_000);
@@ -494,7 +522,7 @@ export async function startMobileJourney(input: MobileJourneyInput): Promise<Mob
       await midenCli.init();
       cliFaucetId = await midenCli.createFaucet();
       tokenFaucetId = await fundOne(midenCli, walletA, primary, cliFaucetId, FUND_A);
-      await fundOne(midenCli, walletB, addressB, cliFaucetId, FUND_B);
+      await fundOne(midenCli, walletB, addressB, cliFaucetId, FUND_B, tokenFaucetId);
     });
     const held = { w4: { noteId: '', amount: HELD_W4 }, r7: { noteId: '', amount: HELD_R7 } };
     await steps.step('mint_held_notes', async () => {
