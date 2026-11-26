@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+
 ## 1.18.2 (TBD)
 
 - [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
