@@ -26,6 +26,8 @@ import {
   RecoveryPreparation,
   SerializedConsumableNote,
   SignEvmOperation,
+  RelaySignRequest,
+  RelaySignResult,
   SeedPhraseStatus,
   UsdcxBurnFeeEstimate,
   WalletAccount,
@@ -215,6 +217,8 @@ export interface WalletActions {
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
+  /** Signs with the account's relay key; the backend builds what it signs (`lib/miden/relay-key/sign-rules.ts`). */
+  signRelay: (accountPublicKey: string, request: RelaySignRequest) => Promise<RelaySignResult>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   /** Installs the everyday key from a saved key pair on a recovered account that has none. */

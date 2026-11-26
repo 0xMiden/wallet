@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; an EIP-1193 provider relays the transactions of a bridge flow through the relay service; and the remote config gains the `relay` section behind `features.relayDeposit`.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
 - [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.

@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
+import { parseSignature } from 'viem';
 import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
@@ -34,7 +35,9 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import { planRelaySignature, RelaySignRuleError, relaySignChainId } from 'lib/miden/relay-key/sign-rules';
 import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -57,6 +60,7 @@ import {
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getEffectiveNetworkName,
   getEffectiveRpcUrl,
@@ -65,6 +69,8 @@ import {
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { getRelayChain } from 'lib/remote-config/values';
 import {
   BackupRefreshOutcome,
   BackupRefreshReason,
@@ -76,6 +82,8 @@ import {
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
+  RelaySignRequest,
+  RelaySignResult,
   SerializedSpend,
   SignEvmOperation,
   WalletAccount,
@@ -567,6 +575,10 @@ function unlockUsing(createVault: () => Promise<Vault>, canAdopt: () => boolean)
             })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
+        // Best-effort, like the resume above: a record with no relay address only waits for the next unlock.
+        await vault
+          .backfillRelayEvmAddresses()
+          .catch(e => console.warn('[unlock] relay address backfill failed (non-fatal):', e));
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -865,6 +877,56 @@ export function signEvm(accountPublicKey: string, operation: SignEvmOperation) {
   return withUnlocked(async ({ vault }) => {
     return await vault.signEvm(accountPublicKey, operation);
   });
+}
+
+function signatureParity(yParity: number | undefined): 0 | 1 {
+  switch (yParity) {
+    case 0:
+      return 0;
+    case 1:
+      return 1;
+    default:
+      throw new PublicError('Relay signature has no parity');
+  }
+}
+
+/**
+ * Sign with the relay key of an account under the relay rules (`lib/miden/relay-key/sign-rules.ts`). The backend
+ * builds the digest from its own config and from the account: the request cannot name the delegate or the executor,
+ * and it cannot give a raw digest. The request comes over a port, so the rules read it as untrusted JSON.
+ */
+export async function signRelay(accountPublicKey: string, request: RelaySignRequest): Promise<RelaySignResult> {
+  try {
+    const chainId = relaySignChainId(request);
+    await initBridgeConfig();
+    const chain = getRelayChain(chainId);
+    if (!chain) throw new PublicError('The relay does not serve this chain');
+    await ensureSdkWasmReady();
+    return await withUnlocked(async ({ vault }) => {
+      const account = (await vault.fetchAccounts()).find(acc => sameWalletAccountId(acc.publicKey, accountPublicKey));
+      if (!account?.relayEvmAddress) throw new PublicError('Account has no relay key');
+      const plan = planRelaySignature(request, {
+        relayAddress: account.relayEvmAddress,
+        chain,
+        nowSeconds: Math.floor(Date.now() / 1000)
+      });
+      const signature = await vault.signRelayDigest(account.publicKey, plan.digest);
+      switch (plan.op) {
+        case 'authorization': {
+          const { r, s, yParity } = parseSignature(signature);
+          return {
+            op: 'authorization',
+            authorization: { ...plan.authorization, r, s, yParity: signatureParity(yParity) }
+          };
+        }
+        case 'batch':
+          return { op: 'batch', digest: plan.digest, signature };
+      }
+    });
+  } catch (error) {
+    if (error instanceof RelaySignRuleError) throw new PublicError(error.message);
+    throw error;
+  }
 }
 
 export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {

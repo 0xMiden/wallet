@@ -89,6 +89,8 @@ export enum WalletMessageType {
   SignWordResponse = 'SIGN_WORD_RESPONSE',
   SignEvmRequest = 'SIGN_EVM_REQUEST',
   SignEvmResponse = 'SIGN_EVM_RESPONSE',
+  SignRelayRequest = 'SIGN_RELAY_REQUEST',
+  SignRelayResponse = 'SIGN_RELAY_RESPONSE',
   PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
@@ -596,6 +598,12 @@ export interface WalletAccount {
    * signing operation.
    */
   evmAddress?: string;
+  /**
+   * Address of the account's relay key, the deposit address the user sends bridge funds to. Public data. The vault
+   * derives the relay key from the stored EVM key (`lib/miden/relay-key/derive.ts`) when it signs and stores no
+   * second secret. Absent when the account has no stored EVM key.
+   */
+  relayEvmAddress?: string;
 }
 
 export interface ImportedAccountBackup {
@@ -1027,6 +1035,55 @@ export interface SignEvmResponse extends WalletMessageBase {
   result: `0x${string}`;
 }
 
+/** One call of a relay batch. `value` is a decimal string, `data` is hex. */
+export interface RelaySignCall {
+  to: string;
+  value: string;
+  data: `0x${string}`;
+}
+
+/**
+ * What the relay key of an account may sign (`lib/miden/relay-key/sign-rules.ts`). Big integers are decimal strings.
+ * The request names no delegate contract and no executor: the backend takes them from its config, and builds the
+ * signed bytes itself. `batchNonce` is the full Calibur nonce, `deadline` is in unix seconds.
+ */
+export type RelaySignRequest =
+  | { op: 'authorization'; chainId: number; nonce: number }
+  | {
+      op: 'batch';
+      chainId: number;
+      calls: RelaySignCall[];
+      batchNonce: string;
+      salt: `0x${string}`;
+      deadline: number;
+    };
+
+/** A signed EIP-7702 authorization of the relay key. `address` is the delegate: the pinned Calibur. */
+export interface RelaySignedAuthorization {
+  address: `0x${string}`;
+  chainId: number;
+  nonce: number;
+  r: `0x${string}`;
+  s: `0x${string}`;
+  yParity: 0 | 1;
+}
+
+export type RelaySignResult =
+  | { op: 'authorization'; authorization: RelaySignedAuthorization }
+  | { op: 'batch'; digest: `0x${string}`; signature: `0x${string}` };
+
+export interface SignRelayRequest extends WalletMessageBase {
+  type: WalletMessageType.SignRelayRequest;
+  /** Miden bech32 WalletAccount.publicKey selecting whose relay key signs. */
+  accountPublicKey: string;
+  request: RelaySignRequest;
+}
+
+export interface SignRelayResponse extends WalletMessageBase {
+  type: WalletMessageType.SignRelayResponse;
+  result: RelaySignResult;
+}
+
 export interface PersistNewHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.PersistNewHotKeyRequest;
   newHotPubKey: string;
@@ -1450,6 +1507,7 @@ export type WalletRequest =
   | SignTransactionRequest
   | SignWordRequest
   | SignEvmRequest
+  | SignRelayRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | ImportHotKeyPairRequest
@@ -1531,6 +1589,7 @@ export type WalletResponse =
   | SignTransactionResponse
   | SignWordResponse
   | SignEvmResponse
+  | SignRelayResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | ImportHotKeyPairResponse

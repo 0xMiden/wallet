@@ -11,6 +11,8 @@ import {
   EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
+  type RelayChainConfig,
+  type RelayConfig,
   type SupportedEvmChainConfig
 } from './schema';
 import { bridgeConfigBaseUrl } from './source';
@@ -229,6 +231,35 @@ export function selectBackupBaseUrl(s: BridgeConfigSnapshot): string | null {
 }
 
 /**
+ * The deposit-address relay (`relay`): its base URL and the values for every chain, addresses in lowercase. Null
+ * while no document is accepted, or while `features.relayDeposit` is not exactly true.
+ */
+export function selectRelayConfig(s: BridgeConfigSnapshot): RelayConfig | null {
+  return s.config?.features.relayDeposit === true ? (s.config.relay ?? null) : null;
+}
+
+/**
+ * The relay values for `chainId`, with its optional `feeRecipient` (the only recipient of a `deduct` fee). The relay
+ * applies to every chain of the document's `supportedEvmChains`, so this is null only while `selectRelayConfig` is
+ * null or while the document (as this build reads it) does not list the chain. The relay service tells at run time
+ * whether it serves the chain (`unsupported_chain`). A new object on each call: no caller keeps its identity.
+ */
+export function selectRelayChain(s: BridgeConfigSnapshot, chainId: number): RelayChainConfig | null {
+  const relay = selectRelayConfig(s);
+  if (s.config === null || relay === null) return null;
+  const entry = Object.entries(s.config.supportedEvmChains).find(([, chain]) => chain.chainId === chainId);
+  if (entry === undefined) return null;
+  return {
+    key: entry[0],
+    chainId,
+    executor: relay.executor,
+    calibur: relay.calibur,
+    maxFee: relay.maxFee,
+    ...(relay.feeRecipient === undefined ? {} : { feeRecipient: relay.feeRecipient })
+  };
+}
+
+/**
  * The absolute URL of a listed vault's `logo`: the path resolved against the base URL the network's document is
  * fetched from (`bridgeConfigBaseUrl`). Null when the entry names no logo. Draw it only through an `<img>`, so an SVG
  * never runs.
@@ -394,6 +425,22 @@ export function getEarnMarket(): EarnMarket {
  */
 export function getBackupBaseUrl(): string | null {
   return selectBackupBaseUrl(getBridgeConfigSnapshot());
+}
+
+/**
+ * This realm's `selectRelayConfig`: null, never a throw, while the relay is off. A path that runs without a user
+ * action awaits `initBridgeConfig()` first, since this realm may not have hydrated its snapshot yet.
+ */
+export function getRelayConfig(): RelayConfig | null {
+  return selectRelayConfig(getBridgeConfigSnapshot());
+}
+
+/**
+ * This realm's `selectRelayChain`: null, never a throw, while the relay is off or the document does not list
+ * `chainId`.
+ */
+export function getRelayChain(chainId: number): RelayChainConfig | null {
+  return selectRelayChain(getBridgeConfigSnapshot(), chainId);
 }
 
 /** This realm's `selectEarnVaults`: an empty list, never a throw, when the document lists none. */

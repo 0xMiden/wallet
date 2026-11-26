@@ -1,11 +1,23 @@
+import type { Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { hashAuthorization, recoverAuthorizationAddress } from 'viem/utils';
 import type { Runtime } from 'webextension-polyfill';
 
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
 import type { BackupSignalReason } from 'lib/backup/adopt-signal';
+import { batchNonceOf, buildFeeCall, type BatchCall } from 'lib/evm-relay/batch';
+import {
+  SEPOLIA_CALIBUR_PIN,
+  TEST_ERC20,
+  TEST_EXECUTOR,
+  TEST_FEE_RECIPIENT,
+  TEST_TARGET
+} from 'lib/evm-relay/batch/testing';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
 import { SendTransaction } from 'lib/miden/db/types';
+import { planRelaySignature } from 'lib/miden/relay-key/sign-rules';
 import { spendingLimits, transactions } from 'lib/miden/repo';
 import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
@@ -13,9 +25,11 @@ import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import type { RelayChainConfig } from 'lib/remote-config/schema';
 import {
   type BackupRefreshOutcome,
   type BackupRefreshReason,
+  type RelaySignRequest,
   EstimateUsdcxBurnFeeRequest,
   type UsdcxBurnFeeEstimate,
   WalletMessageType,
@@ -39,6 +53,7 @@ import {
   editAccount,
   updateSettings,
   signTransaction,
+  signRelay,
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
@@ -85,6 +100,24 @@ const mockEstimateUsdcxBurnFeeReserve = jest.fn<Promise<UsdcxBurnFeeEstimate>, [
 jest.mock('lib/usdcx/burn-fee', () => ({
   estimateUsdcxBurnFeeReserve: (accountPublicKey: string, destinationChainId: number) =>
     mockEstimateUsdcxBurnFeeReserve(accountPublicKey, destinationChainId)
+}));
+
+// The relay sign action reads its config through these. A test sets them; the default is "no relay".
+const mockInitBridgeConfig = jest.fn();
+const mockGetRelayChain = jest.fn<RelayChainConfig | null, [number]>(() => null);
+jest.mock('lib/remote-config/runtime', () => {
+  const actual = jest.requireActual('lib/remote-config/runtime');
+  return {
+    ...actual,
+    initBridgeConfig: async () => {
+      mockInitBridgeConfig();
+      return actual.getBridgeConfigSnapshot();
+    }
+  };
+});
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  getRelayChain: (chainId: number) => mockGetRelayChain(chainId)
 }));
 
 const mockedResolve = jest.mocked(resolveSpendsUsd);
@@ -139,6 +172,7 @@ const mockVault = {
   updateGuardianBinding: jest.fn(),
   swapHotKey: jest.fn(),
   importHotKeyPair: jest.fn(),
+  signRelayDigest: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -642,6 +676,7 @@ describe('actions', () => {
       fetchSettings: jest.fn().mockResolvedValue({}),
       getCurrentAccount: jest.fn().mockResolvedValue(null),
       isOwnMnemonic: jest.fn().mockResolvedValue(true),
+      backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined),
       insertKeySink: jest.fn()
     });
 
@@ -752,7 +787,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
@@ -784,6 +820,30 @@ describe('actions', () => {
       expect(migrations.backfillGuardianEndpoints).not.toHaveBeenCalled();
     });
 
+    it('stamps relay addresses before it reads the accounts it publishes', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const vault = unlockableVault();
+      Vault.setup.mockResolvedValueOnce(vault);
+
+      await unlock('pw');
+
+      expect(vault.backfillRelayEvmAddresses).toHaveBeenCalledTimes(1);
+      expect(vault.backfillRelayEvmAddresses.mock.invocationCallOrder[0]).toBeLessThan(
+        vault.fetchAccounts.mock.invocationCallOrder[0]!
+      );
+      expect(mockUnlocked).toHaveBeenCalled();
+    });
+
+    it('still unlocks when the relay address backfill fails', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const vault = unlockableVault();
+      vault.backfillRelayEvmAddresses.mockRejectedValueOnce(new Error('backfill failed'));
+      Vault.setup.mockResolvedValueOnce(vault);
+
+      await expect(unlock('pw')).resolves.toBeUndefined();
+      expect(mockUnlocked).toHaveBeenCalled();
+    });
+
     it('still unlocks when the resumed seed removal fails, leaving the status at removing', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       // removeSeedPhrase throws seedRemovalFailed by design, and reaches the
@@ -796,7 +856,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
@@ -819,7 +880,8 @@ describe('actions', () => {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
-        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+        isOwnMnemonic: jest.fn().mockResolvedValue(true),
+        backfillRelayEvmAddresses: jest.fn().mockResolvedValue(undefined)
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
       installNavigatorLocksMock(null); // the loop holds it
@@ -1816,6 +1878,130 @@ describe('actions', () => {
 
       expect(mockVault.signTransaction).toHaveBeenCalledWith('pk1', 'inputs');
       expect(result).toBe('signature');
+    });
+  });
+
+  describe('signRelay', () => {
+    const CHAIN_ID = 11155111;
+    // The pinned v1 relay key of Hardhat key #0 (lib/miden/relay-key/derive.test.ts) and its address.
+    const relayKey = privateKeyToAccount('0x1772fe91fd5a0e606a5fed77763cffebdf7d0a44f86be481c60319286db10e6f');
+    const RELAY_ADDRESS = '0x69ee74A6F96658C72fb4Db3bDE950972cc865bfA';
+    const CHAIN: RelayChainConfig = {
+      key: 'sepolia',
+      chainId: CHAIN_ID,
+      executor: TEST_EXECUTOR,
+      calibur: SEPOLIA_CALIBUR_PIN,
+      maxFee: { [TEST_ERC20]: '1000' }
+    };
+    const salt: Hex = `0x${'0'.repeat(24)}${SEPOLIA_CALIBUR_PIN.address.slice(2).toLowerCase()}`;
+    const calls: BatchCall[] = [
+      { to: TEST_TARGET, value: 0n, data: '0xcafe0001' },
+      buildFeeCall({ token: TEST_ERC20, recipient: TEST_FEE_RECIPIENT, amount: 1000n })
+    ];
+    const batchRequest = (deadline: number): RelaySignRequest => ({
+      op: 'batch',
+      chainId: CHAIN_ID,
+      calls: calls.map(call => ({ to: call.to, value: call.value.toString(), data: call.data })),
+      batchNonce: batchNonceOf(2n).toString(),
+      salt,
+      deadline
+    });
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: 1_800_000_000_000, doNotFake: ['nextTick', 'setImmediate'] });
+      mockInitBridgeConfig.mockClear();
+      mockGetRelayChain.mockReset().mockReturnValue(CHAIN);
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1_suffix', relayEvmAddress: RELAY_ADDRESS }]);
+      mockVault.signRelayDigest
+        .mockReset()
+        .mockImplementation(async (_pk: string, digest: Hex) => relayKey.sign({ hash: digest }));
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('signs an authorization to the pinned Calibur and returns it split', async () => {
+      const result = await signRelay('pk1_suffix', { op: 'authorization', chainId: CHAIN_ID, nonce: 5 });
+
+      const unsigned = { address: SEPOLIA_CALIBUR_PIN.address, chainId: CHAIN_ID, nonce: 5 };
+      expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+      expect(mockGetRelayChain).toHaveBeenCalledWith(CHAIN_ID);
+      expect(mockVault.signRelayDigest).toHaveBeenCalledWith('pk1_suffix', hashAuthorization(unsigned));
+      if (result.op !== 'authorization') throw new Error('expected an authorization');
+      expect(result.authorization).toEqual(expect.objectContaining(unsigned));
+      expect([0, 1]).toContain(result.authorization.yParity);
+      expect(await recoverAuthorizationAddress({ authorization: result.authorization })).toBe(RELAY_ADDRESS);
+    });
+
+    it("signs a batch of the request's calls with the config executor and the account's relay address", async () => {
+      const request = batchRequest(1_800_000_600);
+      const result = await signRelay('pk1_suffix', request);
+
+      const expected = planRelaySignature(request, {
+        relayAddress: RELAY_ADDRESS,
+        chain: CHAIN,
+        nowSeconds: 1_800_000_000
+      });
+      expect(mockVault.signRelayDigest).toHaveBeenCalledWith('pk1_suffix', expected.digest);
+      expect(result).toEqual({
+        op: 'batch',
+        digest: expected.digest,
+        signature: await relayKey.sign({ hash: expected.digest })
+      });
+    });
+
+    it('refuses a batch whose deadline is past 24 hours from the clock', async () => {
+      await expect(signRelay('pk1_suffix', batchRequest(1_800_000_000 + 86_401))).rejects.toThrow(
+        new PublicError('Relay signature refused: deadline')
+      );
+      expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('refuses while the relay does not serve the chain', async () => {
+      mockGetRelayChain.mockReturnValue(null);
+      await expect(signRelay('pk1_suffix', { op: 'authorization', chainId: CHAIN_ID, nonce: 0 })).rejects.toThrow(
+        PublicError
+      );
+      expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('refuses a batch with a call to the relay address itself', async () => {
+      const request = batchRequest(1_800_000_600);
+      if (request.op !== 'batch') throw new Error('expected a batch');
+      const selfCall: RelaySignRequest = { ...request, calls: [{ to: RELAY_ADDRESS, value: '0', data: '0x' }] };
+      await expect(signRelay('pk1_suffix', selfCall)).rejects.toThrow('Relay signature refused: call-to');
+      expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('passes on an error that is not a rule refusal', async () => {
+      mockVault.signRelayDigest.mockRejectedValueOnce(new PublicError('Failed to sign relay payload'));
+      await expect(signRelay('pk1_suffix', batchRequest(1_800_000_600))).rejects.toThrow(
+        'Failed to sign relay payload'
+      );
+    });
+
+    it('refuses a caller-supplied digest', async () => {
+      const base: RelaySignRequest = { op: 'authorization', chainId: CHAIN_ID, nonce: 0 };
+      // A port can deliver any shape; this one passes the type but asks for a raw digest.
+      const hostile = Object.assign({}, base, { op: 'typed-data', digest: `0x${'11'.repeat(32)}` });
+      await expect(signRelay('pk1_suffix', hostile)).rejects.toThrow('Relay signature refused: op');
+      expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('refuses an account with no relay address', async () => {
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1_suffix' }]);
+      await expect(signRelay('pk1_suffix', { op: 'authorization', chainId: CHAIN_ID, nonce: 0 })).rejects.toThrow(
+        'Account has no relay key'
+      );
+      expect(mockVault.signRelayDigest).not.toHaveBeenCalled();
+    });
+
+    it('refuses a request with no chain before it reads the config', async () => {
+      const base: RelaySignRequest = { op: 'authorization', chainId: CHAIN_ID, nonce: 0 };
+      const hostile = Object.assign({}, base, { chainId: 0 });
+      await expect(signRelay('pk1_suffix', hostile)).rejects.toThrow('Relay signature refused: chain-id');
+      expect(mockInitBridgeConfig).not.toHaveBeenCalled();
     });
   });
 

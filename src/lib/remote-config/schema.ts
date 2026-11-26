@@ -220,6 +220,8 @@ export interface BridgeConfig {
      * exactly when true.
      */
     encryptedBackup?: boolean;
+    /** The deposit-address relay; only there when the document sets it, absent means off, and `relay` exists exactly when true. */
+    relayDeposit?: boolean;
     openFullscreen?: boolean;
   };
   /**
@@ -264,6 +266,11 @@ export interface BridgeConfig {
    * (`lib/backup/api-client.ts`).
    */
   backup?: BackupConfig;
+  /**
+   * The deposit-address relay. Present exactly when `features.relayDeposit` is true. Read it through
+   * `selectRelayConfig` / `getRelayConfig` (`values.ts`).
+   */
+  relay?: RelayConfig;
 }
 
 export interface BackupConfig {
@@ -271,7 +278,69 @@ export interface BackupConfig {
   baseUrl: string;
 }
 
+/** A 32-byte hash, lowercase. */
+export type Bytes32 = `0x${string}`;
+
+/** The longest EIP-712 domain name and version of the relay's Calibur contract. */
+export const MAX_RELAY_DOMAIN_NAME_LENGTH = 32;
+export const MAX_RELAY_DOMAIN_VERSION_LENGTH = 16;
+
+/** The Calibur contract that a deposit address delegates to under EIP-7702. The wallet signs each batch for it. */
+export interface RelayCaliburConfig {
+  /** The implementation the deposit address delegates to. Never the zero address. */
+  address: EvmAddress;
+  /** The keccak256 of the deployed runtime bytecode. */
+  runtimeHash: Bytes32;
+  /** The EIP-712 domain name and version of the batch signature. */
+  domainName: string;
+  domainVersion: string;
+}
+
+/**
+ * The deposit-address relay service (`services/evm-relay`). One set of values applies to every chain of the
+ * document's `supportedEvmChains`: the document names no chain list for the relay. The service tells at run time
+ * whether it serves a chain (`unsupported_chain`).
+ */
+export interface RelayConfig {
+  /** The service's base URL: absolute `https:`, without credentials, query, fragment or trailing slash. */
+  baseUrl: string;
+  /** The account that executes the signed batches, the same on every chain. Never the zero address. */
+  executor: EvmAddress;
+  /** The Calibur contract that the deposit address delegates to, the same on every chain. */
+  calibur: RelayCaliburConfig;
+  /**
+   * The highest fee the wallet accepts per fee token, in base units as a decimal string, on every chain. The key is
+   * the token address in lowercase; the zero address is the chain's native coin. A token without an entry is not
+   * accepted as a fee. Empty when the document gives no `maxFee`.
+   */
+  maxFee: Record<EvmAddress, string>;
+  /**
+   * The only fee recipient that the wallet pays in `deduct` mode. Never the zero address. Without it the wallet does
+   * not take `deduct` mode: it refuses a relayer that asks for a fee there.
+   */
+  feeRecipient?: EvmAddress;
+}
+
+/** The relay values for one EVM chain of the document's `supportedEvmChains` (`selectRelayChain`). */
+export interface RelayChainConfig {
+  /** The key of the chain in the document's `supportedEvmChains`. */
+  key: string;
+  chainId: number;
+  /** The account that executes the signed batches. Never the zero address. */
+  executor: EvmAddress;
+  calibur: RelayCaliburConfig;
+  /** `RelayConfig.maxFee`. */
+  maxFee: Record<EvmAddress, string>;
+  /** `RelayConfig.feeRecipient`. */
+  feeRecipient?: EvmAddress;
+}
+
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
+const ZERO_EVM_ADDRESS = '0x0000000000000000000000000000000000000000';
+// A positive integer in decimal, with no sign and no leading zero.
+const POSITIVE_DECIMAL = /^[1-9][0-9]*$/;
+const UINT256_LIMIT = 2n ** 256n;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
 // An ERC-20 symbol as an AggLayer or Epoch route keys it: 1 to 11 upper-case ASCII letters or digits. The same rule
 // as the config repo's validator (scripts/validate.mjs).
@@ -524,6 +593,64 @@ function readBackup(value: ConfigValue, enabled: boolean): BackupConfig | undefi
   if (!enabled) return invalid();
   const baseUrl = read(section(value), 'baseUrl', backupBaseUrl);
   return baseUrl === undefined ? invalid() : { baseUrl };
+}
+
+function bytes32(value: unknown): Bytes32 {
+  if (typeof value !== 'string' || !BYTES32.test(value)) return invalid();
+  return `0x${value.slice(2).toLowerCase()}`;
+}
+
+// An address that receives authority (the executor, the delegation target), so the zero address is refused.
+function nonZeroEvmAddress(value: unknown): EvmAddress {
+  const address = evmAddress(value);
+  return address === ZERO_EVM_ADDRESS ? invalid() : address;
+}
+
+// A uint256 above zero, as a decimal string. A JSON number is refused: it loses precision above 2^53.
+function positiveUint256(value: unknown): string {
+  if (typeof value !== 'string' || !POSITIVE_DECIMAL.test(value) || BigInt(value) >= UINT256_LIMIT) return invalid();
+  return value;
+}
+
+// The fee ceilings by token address. The map can be empty. Two keys that differ only in case are ambiguous.
+function relayMaxFee(value: unknown): Record<EvmAddress, string> {
+  const maxFee: Record<EvmAddress, string> = {};
+  for (const [token, amount] of Object.entries(record(value))) {
+    const address = evmAddress(token);
+    if (Object.prototype.hasOwnProperty.call(maxFee, address)) return invalid();
+    maxFee[address] = positiveUint256(amount);
+  }
+  return maxFee;
+}
+
+function relayCalibur(value: unknown): RelayCaliburConfig {
+  const calibur = record(value);
+  return {
+    address: nonZeroEvmAddress(calibur.address),
+    runtimeHash: bytes32(calibur.runtimeHash),
+    domainName: guardianLabel(calibur.domainName, MAX_RELAY_DOMAIN_NAME_LENGTH),
+    domainVersion: guardianLabel(calibur.domainVersion, MAX_RELAY_DOMAIN_VERSION_LENGTH)
+  };
+}
+
+/**
+ * The deposit-address relay (`services/evm-relay`): the section exists exactly while `features.relayDeposit` is on,
+ * so a stale executor or Calibur pin cannot linger behind a switched-off feature. A bad section rejects the document.
+ * One set of values applies to every chain of `supportedEvmChains`. Unknown keys are ignored, as in the other
+ * sections; this includes `chains`, the per-chain list of an older document shape.
+ */
+function readRelay(value: ConfigValue, enabled: boolean): RelayConfig | undefined {
+  if (value === undefined) return enabled ? invalid() : undefined;
+  if (!enabled) return invalid();
+  const relay = record(value);
+  return {
+    baseUrl: backupBaseUrl(relay.baseUrl),
+    executor: nonZeroEvmAddress(relay.executor),
+    calibur: relayCalibur(relay.calibur),
+    maxFee: relay.maxFee === undefined ? {} : relayMaxFee(relay.maxFee),
+    // The fee recipient receives funds, so the zero address is refused.
+    ...(relay.feeRecipient === undefined ? {} : { feeRecipient: nonZeroEvmAddress(relay.feeRecipient) })
+  };
 }
 
 function requiredBoolean(value: ConfigValue): boolean {
@@ -857,6 +984,7 @@ function readConfig(
   const earn = readEarn(body.earn, earnEnabled, body.supportedEvmChains);
   const arcade = readArcade(body.arcade, featureSwitch(features, 'arcadeGcPurchase'));
   const backup = readBackup(body.backup, featureSwitch(features, 'encryptedBackup'));
+  const relay = readRelay(body.relay, featureSwitch(features, 'relayDeposit'));
   return {
     network,
     version,
@@ -878,7 +1006,7 @@ function readConfig(
       earn: earnEnabled,
       nearIntents: featureSwitch(features, 'nearIntents'),
       ...Object.fromEntries(
-        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'encryptedBackup', 'openFullscreen']
+        ['fastBridge', 'bridgeIn', 'bridgeOut', 'arcadeGcPurchase', 'encryptedBackup', 'relayDeposit', 'openFullscreen']
           .filter(name => features[name] !== undefined)
           .map(name => [name, featureSwitch(features, name)])
       )
@@ -891,6 +1019,7 @@ function readConfig(
     ...(earn === undefined ? {} : { earn }),
     ...(arcade === undefined ? {} : { arcade }),
     ...(backup === undefined ? {} : { backup }),
+    ...(relay === undefined ? {} : { relay }),
     ...(geo === undefined ? {} : { geo })
   };
 }
