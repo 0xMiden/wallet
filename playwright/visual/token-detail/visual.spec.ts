@@ -130,7 +130,9 @@ test('captures the real token detail page in compact light and dark layouts', as
   await expect(page.getByRole('dialog', { name: 'Token details' })).toBeVisible();
 });
 
-test('retains honest identity when metadata and native-faucet discovery are unavailable', async ({ page }, testInfo) => {
+test('retains honest identity when metadata and native-faucet discovery are unavailable', async ({
+  page
+}, testInfo) => {
   const query = ['missing', 'unverified', 'nativeUnknown', 'sidePanel'];
   if (testInfo.project.name.endsWith('dark')) query.push('dark');
   if (testInfo.project.name.startsWith('mobile')) query.push('mobile');
@@ -144,7 +146,9 @@ test('retains honest identity when metadata and native-faucet discovery are unav
   await expect(page.getByTestId('token-detail-receive')).toBeVisible();
 });
 
-test('shows pending claim lines beside the available balance and the reconciling states', async ({ page }, testInfo) => {
+test('shows pending claim lines beside the available balance and the reconciling states', async ({
+  page
+}, testInfo) => {
   test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline has no pending lines');
   const project = testInfo.project.name;
   const mode = project.endsWith('dark') ? 'dark' : 'light';
