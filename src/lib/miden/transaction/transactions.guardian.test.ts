@@ -5976,6 +5976,80 @@ describe('generateTransaction - Guardian routing', () => {
     ).toBeUndefined();
   });
 
+  it('Guardian send: direct hold loss immediately after submitting stamp retracts stage back to proving (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-direct-eviction-after-submitting';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let revokedOnSubmitting = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          const current = txStore.find(row => row.id === query.id);
+          if (!revokedOnSubmitting && current?.stage === 'submitting') {
+            revokedOnSubmitting = true;
+            revokeHold();
+          }
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(revokedOnSubmitting).toBe(true);
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId);
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.stage).toBe('proving');
+    expect(stored?.submitEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(stored?.guardianCandidate).toBeUndefined();
+    expect(stored?.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+  });
+
   it('Guardian send: an eviction during delegated proving retires a late submit-stage stamp', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

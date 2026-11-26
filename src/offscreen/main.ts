@@ -1231,21 +1231,43 @@ const DISPATCH: Record<string, DispatchFn> = {
             evidence: readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
           };
         };
+        const retractGateBestEffort = async (): Promise<void> => {
+          try {
+            await retractSubmitGate(context);
+          } catch (retractError) {
+            console.warn(`${TAG} failed to retract submit gate`, retractError);
+          }
+        };
         attempt = await withFreshProof({
           executeAndProve,
           expirationBlockOf: proven => proven.evidence.expirationBlock,
           readTip: readChainTip,
           assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip'),
           budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
-          commitSubmitGate: async proven => {
-            // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-            await passSubmitGate(context, proven.evidence);
-            // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
-            assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
-          },
-          retractSubmitGate: () => retractSubmitGate(context)
+          submitGate: {
+            commit: async proven => {
+              if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
+              // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+              await passSubmitGate(context, proven.evidence);
+              // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+              try {
+                assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+              } catch (error) {
+                await retractGateBestEffort();
+                throw error;
+              }
+            },
+            retract: () => retractSubmitGate(context)
+          }
         });
-        if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
+        if (oneClickRequired) {
+          try {
+            assertOneClickDeadline(oneClickDeadline ?? undefined);
+          } catch (error) {
+            await retractGateBestEffort();
+            throw error;
+          }
+        }
       } catch (preSubmitError) {
         // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
         // own shape: markErrorBeforeSubmit never tags one.

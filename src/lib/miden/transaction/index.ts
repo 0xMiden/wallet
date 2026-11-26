@@ -3223,36 +3223,61 @@ const runGuardianPipeline = async (
       }
       return { executedTx, provenTx, evidence };
     };
+    const retractStageBestEffort = async (): Promise<void> => {
+      if (!retractSubmittingStage) return;
+      try {
+        await retractSubmittingStage();
+      } catch (retractError) {
+        console.warn('[Guardian] failed to retract submitting stage', retractError);
+      }
+    };
     const { executedTx, provenTx } = await withFreshProof({
       executeAndProve,
       expirationBlockOf: proven => proven.evidence.expirationBlock,
       readTip: readChainTip,
       assertLive: () => assertStillHoldingLock(hold, 'after reading the chain tip'),
       budgetMs: INLINE_PROOF_BUDGET_MS,
-      commitSubmitGate: async proven => {
-        // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
-        // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
-        // the abandoned callback keeps running and can still reach `submit()`, so a
-        // row that throws here must carry the crossing rather than look never-
-        // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
-        // the error shape, and exempts only the stages that are provably pre-WRITE;
-        // checking before the write would drop this pipeline's own record of it.
-        //
-        // Still pre-submit as to the BROADCAST - that is the next step after the
-        // post-gate freshness check - so throwing here cannot orphan a transaction
-        // the network has seen.
-        try {
-          await setStage('submitting', { evidence: proven.evidence });
-        } catch (error) {
-          observe(error, 'submitting_stage_write');
-          throw error;
+      submitGate: {
+        commit: async proven => {
+          if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
+          // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
+          // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
+          // the abandoned callback keeps running and can still reach `submit()`, so a
+          // row that throws here must carry the crossing rather than look never-
+          // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
+          // the error shape, and exempts only the stages that are provably pre-WRITE;
+          // checking before the write would drop this pipeline's own record of it.
+          //
+          // Still pre-submit as to the BROADCAST - that is the next step after the
+          // post-gate freshness check - so throwing here cannot orphan a transaction
+          // the network has seen.
+          try {
+            await setStage('submitting', { evidence: proven.evidence });
+          } catch (error) {
+            observe(error, 'submitting_stage_write');
+            throw error;
+          }
+          escaped = undefined;
+          try {
+            assertStillHoldingLock(hold, 'before submit');
+          } catch (error) {
+            await retractStageBestEffort();
+            throw error;
+          }
+        },
+        retract: async () => {
+          await retractSubmittingStage?.();
         }
-        escaped = undefined;
-        assertStillHoldingLock(hold, 'before submit');
-      },
-      retractSubmitGate: retractSubmittingStage
+      }
     });
-    if (oneClickRequired) assertOneClickDeadline(oneClickDeadline);
+    if (oneClickRequired) {
+      try {
+        assertOneClickDeadline(oneClickDeadline);
+      } catch (error) {
+        await retractStageBestEffort();
+        throw error;
+      }
+    }
     onSubmitCallReached?.();
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
@@ -5234,7 +5259,8 @@ const generateGuardianTransaction = async (
   // its candidate is abandoned instead of held for the Guardian's grace (#1644).
   const retractAttemptSubmittingStage = async (): Promise<void> => {
     await retractSubmitCrossing(transaction.id, transaction.attemptId, 'proving');
-    inlineSubmittingStageStarted = false;
+    // Keep `inlineSubmittingStageStarted` true: once an inline pass entered 'submitting' and retracted before
+    // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
     submitStageRecorded = false;
   };
   const submitGate = offscreenSubmitGate(stampStage, () =>
@@ -5507,6 +5533,7 @@ const generateGuardianTransaction = async (
           error: abandonError
         });
         if (
+          hasErrorBeforeSubmit(error) ||
           gateShut ||
           inlineSubmitNotReached ||
           (!offscreenDispatched && !isKilledPipeline(error) && !submitStageRecorded)

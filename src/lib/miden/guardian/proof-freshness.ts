@@ -197,14 +197,11 @@ interface FreshProofSteps<T> {
   assertLive: () => void;
   /** Running time the leaf's passes may reach before the limit that watches it. */
   budgetMs: number;
-  /**
-   * Runs once a proof passes its pre-gate freshness check to record the crossing / 'submitting' stage before broadcast.
-   * When present, freshness is checked again immediately after it returns so a slow DB update or gate round trip
-   * never submits an expired proof (#2325).
-   */
-  commitSubmitGate?: (proven: T) => Promise<void>;
-  /** Retracts a crossing committed by `commitSubmitGate` when the post-gate freshness check rejects the proof. */
-  retractSubmitGate?: (proven: T) => Promise<void>;
+  /** Paired submit-gate entry (`commit`) and rollback (`retract`) around the crossing / `'submitting'` write (#2325). */
+  submitGate?: {
+    commit: (proven: T) => Promise<void>;
+    retract: () => Promise<void>;
+  };
 }
 
 /**
@@ -229,8 +226,7 @@ export async function withFreshProof<T>({
   readTip,
   assertLive,
   budgetMs,
-  commitSubmitGate,
-  retractSubmitGate
+  submitGate
 }: FreshProofSteps<T>): Promise<T> {
   const startedAt = runningNow();
   let proveLocally = false;
@@ -244,10 +240,10 @@ export async function withFreshProof<T>({
     assertLive();
     return tipRead;
   };
-  const retractBestEffort = async (proven: T): Promise<void> => {
-    if (!retractSubmitGate) return;
+  const retractBestEffort = async (): Promise<void> => {
+    if (!submitGate) return;
     try {
-      await retractSubmitGate(proven);
+      await submitGate.retract();
     } catch (retractError) {
       console.warn('[Guardian] failed to retract submit gate after freshness check', retractError);
     }
@@ -257,19 +253,18 @@ export async function withFreshProof<T>({
     provePace: number,
     expirationBlock: number,
     tip: number,
-    afterGate: boolean,
-    proven: T
+    afterGate: boolean
   ): Promise<void> => {
     const now = runningNow();
     const elapsed = now - startedAt;
     const pace = now - paceFrom;
     if (reexecutions === MAX_PROOF_REEXECUTIONS || elapsed + pace > budgetMs) {
-      if (afterGate) await retractBestEffort(proven);
+      if (afterGate) await retractBestEffort();
       throw new StaleProofError();
     }
-    if (afterGate && retractSubmitGate) {
+    if (afterGate && submitGate) {
       try {
-        await retractSubmitGate(proven);
+        await submitGate.retract();
       } catch (retractError) {
         assertLive();
         console.warn('[Guardian] failed to retract stale submit gate; stopping before retry', retractError);
@@ -292,9 +287,14 @@ export async function withFreshProof<T>({
     const proven = await executeAndProve({ reexecuting: reexecutions > 0, proveLocally, delegatedProveFailed });
     const expirationBlock = expirationBlockOf(proven);
     if (expirationBlock === undefined) {
-      if (commitSubmitGate) {
-        await commitSubmitGate(proven);
-        assertLive();
+      if (submitGate) {
+        await submitGate.commit(proven);
+        try {
+          assertLive();
+        } catch (error) {
+          await retractBestEffort();
+          throw error;
+        }
       }
       return proven;
     }
@@ -302,18 +302,24 @@ export async function withFreshProof<T>({
     if (!tipRead.ok) throw markErrorBeforeSubmit(buildProofFreshnessUnknownError(tipRead));
     const provePace = runningNow() - paceFrom;
     if (isProofStale(expirationBlock, tipRead.tip)) {
-      await advanceOrThrowStale(reexecutions, provePace, expirationBlock, tipRead.tip, false, proven);
+      await advanceOrThrowStale(reexecutions, provePace, expirationBlock, tipRead.tip, false);
       continue;
     }
-    if (!commitSubmitGate) return proven;
-    await commitSubmitGate(proven);
-    assertLive();
-    const postTipRead = await readFreshTip();
+    if (!submitGate) return proven;
+    await submitGate.commit(proven);
+    let postTipRead: TipReadOutcome;
+    try {
+      assertLive();
+      postTipRead = await readFreshTip();
+    } catch (error) {
+      await retractBestEffort();
+      throw error;
+    }
     if (!postTipRead.ok) {
-      await retractBestEffort(proven);
+      await retractBestEffort();
       throw markErrorBeforeSubmit(buildProofFreshnessUnknownError(postTipRead));
     }
     if (!isProofStale(expirationBlock, postTipRead.tip)) return proven;
-    await advanceOrThrowStale(reexecutions, provePace, expirationBlock, postTipRead.tip, true, proven);
+    await advanceOrThrowStale(reexecutions, provePace, expirationBlock, postTipRead.tip, true);
   }
 }

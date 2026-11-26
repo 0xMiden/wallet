@@ -65,6 +65,7 @@ import {
   GuardianBackpressureError
 } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { ONE_CLICK_EXPIRED_ERROR, OneClickDeadlineError } from 'lib/one-click/deadline';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -2679,6 +2680,19 @@ describe('guardian leaf records the submit crossing', () => {
     const { inline, service } = arrange('one-click-expired-inline', row, makeResult(), () => {
       now = Date.parse(fundingDeadline);
     });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let sawSubmittingStage = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (draft: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (draft: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          if (txStore.find(item => item.id === query.id)?.stage === 'submitting') sawSubmittingStage = true;
+        }
+      };
+    });
 
     try {
       await generateTransaction(
@@ -2688,17 +2702,84 @@ describe('guardian leaf records the submit crossing', () => {
         provider as never
       );
     } finally {
+      repo.transactions.where.mockImplementation(realWhere);
       nowSpy.mockRestore();
     }
 
+    expect(sawSubmittingStage).toBe(false);
     expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
     expect(inline.__submit).not.toHaveBeenCalled();
     expect(mockComplete.send).not.toHaveBeenCalled();
     const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.stage).toBe('proving');
     expect(finalRow.mayHaveSubmitted).toBeUndefined();
     expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
     expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
+  it('retracts inline submitting stage when a 1Click deadline expires during the stage write (#2325)', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        oneClick: {
+          fundingDeadline,
+          request: { deadline: fundingDeadline },
+          quote: {
+            quoteRequest: { deadline: fundingDeadline },
+            quote: { deadline: providerDeadline }
+          }
+        }
+      }
+    };
+    const { inline, service } = arrange('one-click-expired-during-gate-inline', row);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let expiredOnStageWrite = false;
+    let sawSubmittingStage = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (draft: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (draft: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          const current = txStore.find(item => item.id === query.id);
+          if (!expiredOnStageWrite && current?.stage === 'submitting') {
+            expiredOnStageWrite = true;
+            sawSubmittingStage = true;
+            now = Date.parse(fundingDeadline);
+          }
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('one-click-expired-during-gate-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      nowSpy.mockRestore();
+    }
+
+    expect(sawSubmittingStage).toBe(true);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-during-gate-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.stage).toBe('proving');
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(finalRow.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
   });
 
   const nearIntentsBridgedSend = (fundingDeadline: string, providerDeadline: string) => ({
@@ -3713,6 +3794,31 @@ describe('guardian offscreen submit gate (#1644)', () => {
       provider as never
     );
     expect(secondService.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    clearGuardianAccountLocks();
+  });
+
+  it('records unabandoned candidate on abandonCandidate failure after hasErrorBeforeSubmit even when gateShut is false (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = true;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      await gate({ transactionId: `0x${'e'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      throw new OneClickDeadlineError(ONE_CLICK_EXPIRED_ERROR);
+    });
+    const { service } = arrange('gate-open-before-submit-abandon-fails', sendRow);
+    service.abandonCandidate.mockRejectedValueOnce(new Error('guardian offline'));
+
+    await generateTransaction(
+      buildTx('gate-open-before-submit-abandon-fails', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
     expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
     clearGuardianAccountLocks();
   });

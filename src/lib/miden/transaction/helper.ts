@@ -1057,11 +1057,11 @@ export const retractSubmitCrossing = async (
       const index = entries.findIndex(candidate => candidate.attemptId === attemptId);
       if (index !== -1) {
         const entry = entries[index]!;
-        if (entry.source === 'pin') {
+        if (entry.source === 'pin' || entry.preSubmitEnd === true) {
           const resetEntry: ISubmitEvidence = {
             attemptId: entry.attemptId,
             capturedAt: entry.capturedAt,
-            source: 'pin',
+            source: entry.source,
             ...(entry.submitContext !== undefined ? { submitContext: entry.submitContext } : {}),
             ...(entry.guardianProposalNonce !== undefined
               ? { guardianProposalNonce: entry.guardianProposalNonce }
@@ -1074,6 +1074,9 @@ export const retractSubmitCrossing = async (
           const next = [...entries];
           next[index] = resetEntry;
           tx.submitEvidence = next;
+          if (entry.preSubmitEnd === true && entry.raisedFlag === true) {
+            tx.mayHaveSubmitted = undefined;
+          }
           changed = true;
         } else {
           const remaining = entries.filter(candidate => candidate.attemptId !== attemptId);
