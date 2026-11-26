@@ -28,7 +28,7 @@ const ACTIVITY_PATH = '/history';
 export interface ActivityGroupPageProps {
   /** `:kind` from the route. Anything this is not sends the user back to the tab. */
   kind?: string;
-  /** `:id` — the counterparty address of an `address` group; absent for a category group. */
+  /** The route's address or dApp origin. */
   id?: string;
 }
 
@@ -47,6 +47,7 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const address = kind === 'address' ? id?.trim() : undefined;
+  const origin = kind === 'dapp' ? id : undefined;
   const storedKeys = useRef<{
     account: string;
     route?: string;
@@ -96,15 +97,19 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
   // An unknown kind, or an address group with no address: nothing to narrow by, so there is no
   // page to show. Back to the tab rather than an empty list that looks like "no activity".
   if (!isActivityGroupKind(kind) || !filterEntries) return <Redirect to={ACTIVITY_PATH} />;
-  if (kind === 'address' && !address) return <Redirect to={ACTIVITY_PATH} />;
+  if ((kind === 'address' && !address) || (kind === 'dapp' && !origin)) return <Redirect to={ACTIVITY_PATH} />;
 
   // The title wears the same mark as the row that opened it: a contact's avatar, or the
   // category's glyph on its own colour (`ActivityGroupAvatar`).
   const title = (
     <span className="flex min-w-0 items-center gap-2">
-      <ActivityGroupAvatar kind={kind} id={address ?? kind} name={contactName} size="sm" />
+      <ActivityGroupAvatar kind={kind} id={address ?? origin ?? kind} name={contactName} size="sm" />
       <span className="min-w-0 truncate">
-        {kind !== 'address' ? t(ACTIVITY_GROUP_LABELS[kind]) : address && (contactName ?? shortAddr(address))}
+        {kind === 'dapp'
+          ? origin
+          : kind === 'address'
+            ? address && (contactName ?? shortAddr(address))
+            : t(ACTIVITY_GROUP_LABELS[kind])}
       </span>
     </span>
   );
@@ -118,6 +123,7 @@ export const ActivityGroupPage: FC<ActivityGroupPageProps> = ({ kind, id }) => {
         centerEmptyState
         scrollParentRef={bodyRef}
         filterEntries={filterEntries}
+        counterpartyNameOf={kind === 'dapp' ? nameOf : undefined}
         pendingItems={representedItems}
         drawnPendingItems={drawnPendingItems}
         renderPendingItem={renderPendingItem}

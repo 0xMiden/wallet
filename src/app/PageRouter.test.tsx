@@ -1107,6 +1107,13 @@ describe('app/PageRouter - encoded route parameters', () => {
     expect(page).not.toHaveAttribute('data-id');
   });
 
+  it('decodes a dApp group origin without dropping its scheme or port', () => {
+    renderAt('/activity/group/dapp/https%3A%2F%2Fexample.test%3A8443', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'dapp');
+    expect(page).toHaveAttribute('data-id', 'https://example.test:8443');
+  });
+
   it('redirects a contact whose address will not decode to the address book', () => {
     renderAt('/contacts/%', ready);
     expect(screen.queryByTestId('contact-detail')).not.toBeInTheDocument();

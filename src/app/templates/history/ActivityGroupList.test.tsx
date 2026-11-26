@@ -347,6 +347,20 @@ describe('ActivityGroupList', () => {
     expect(listed[1]).toHaveAttribute('href', '/activity/group/swap');
   });
 
+  it('titles a dApp group with its origin and finds it by the latest transaction contact', () => {
+    const origin = 'https://dapp.test:8443';
+    renderList([entry({ initiatingDappOrigin: origin, secondaryAddress: 'mtst1alice' })], {
+      nameOf: activityCounterpartyNames([{ address: 'mtst1alice', name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('href', '/activity/group/dapp/https%3A%2F%2Fdapp.test%3A8443');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(origin)).toBeTruthy();
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
   it('names a known counterparty and ellipsises an unknown address', () => {
     renderList(
       [

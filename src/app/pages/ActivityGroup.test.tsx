@@ -160,6 +160,28 @@ describe('ActivityGroupPage', () => {
     expect(screen.getByTestId('contact-avatar')).toBeTruthy();
   });
 
+  it('opens the verified origin and resolves the transaction counterparty independently of its heading', () => {
+    const origin = 'https://dapp.test:8443';
+    const secondaryAddress = 'mtst1aliceaddress0000';
+    const initiated = entry({ secondaryAddress, initiatingDappOrigin: origin });
+    const grantOnly = entry({ secondaryAddress, dappOrigins: [origin] });
+    const anotherPort = entry({ secondaryAddress, initiatingDappOrigin: 'https://dapp.test' });
+    mockClaims.items = [{ note: claimNote('note-1', secondaryAddress), status: 'pending' }];
+
+    render(<ActivityGroupPage kind="dapp" id={origin} />);
+
+    expect(screen.getByRole('heading', { name: origin })).toBeTruthy();
+    expect(filterGroupEntries([grantOnly, anotherPort, initiated])).toEqual([initiated]);
+    expect(historyProps.drawnPendingItems).toEqual([]);
+    expect(historyProps.counterpartyNameOf).toEqual(expect.any(Function));
+    expect((historyProps.counterpartyNameOf as (address: string) => string)(secondaryAddress)).toBe('Alice');
+  });
+
+  it('redirects a dApp group without its origin', () => {
+    render(<ActivityGroupPage kind="dapp" />);
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/history');
+  });
+
   it('opens a group detail using a saved alias without writing settings', () => {
     const savedContacts = contacts.value;
     try {

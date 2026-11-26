@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
 - [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
 - [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
