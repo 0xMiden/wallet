@@ -31,7 +31,9 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
 }));
 jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: (prices: Record<string, typeof quote>, id: string) =>
-    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id]
+    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id],
+  // 'unlisted' stands for a token no list prices (MICO on mainnet): no quote can ever arrive for it.
+  quoteMayArrive: (id: string) => id !== 'fixed' && id !== 'unlisted'
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
@@ -393,4 +395,54 @@ it('refuses nominal or stale quotes and a balance proof from an old read', () =>
   );
   view.rerender(<Probe />);
   expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+});
+
+const prove = (capturedAt = Date.now()) =>
+  tagBalanceSnapshot(
+    rows,
+    { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt },
+    scope.accountId
+  );
+
+it.each(['loading', 'error'] as const)(
+  'values fixed holdings beside a token no quote can reach while the feed is %s',
+  status => {
+    rows = [row('fixed', 4.25), row('unlisted', 12.5)];
+    useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: status });
+    prove();
+    render(<Probe />);
+    const text = screen.getByRole('status').textContent;
+    expect(text).toContain('"value":"4.25"');
+    expect(text).toContain('"coverage":"partial"');
+    expect(text).toContain('"canRecord":false');
+  }
+);
+
+it('waits for the feed while a held token without a quote may still be quoted', () => {
+  rows = [row('fixed', 4.25), row('pending', 1)];
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  prove();
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+});
+
+it('shows the last proven balance past the record window without recording it', () => {
+  prove(Date.now() - 2 * 60 * 60_000);
+  render(<Probe />);
+  const text = screen.getByRole('status').textContent;
+  expect(text).toContain('"value":"6"');
+  expect(text).toContain('"assets":["priced"]');
+  expect(text).toContain('"canRecord":false');
+});
+
+it('values a cached quote up to a day old without recording it, and none older', () => {
+  useWalletStore.setState({ tokenPrices: {}, tokenPricesStatus: 'loading' });
+  prove();
+  mockCachedPrices = { priced: { ...quote, observedAt: Date.now() - 3 * 60 * 60_000 } };
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":"6"');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  mockCachedPrices = { priced: { ...quote, observedAt: Date.now() - 25 * 60 * 60_000 } };
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
 });

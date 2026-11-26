@@ -5,15 +5,19 @@ import { readCachedDisplayQuotes, selectDisplayQuotes } from './display-cache';
 
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn() }));
 
-it('returns only fresh cached market prices without inventing a daily change', async () => {
+it('returns cached market prices up to a day old without inventing a daily change', async () => {
+  const now = 1_000_000;
   jest.mocked(fetchFromStorage).mockResolvedValue({
-    ETH: { priceMicro: '2501000000', fetchedAt: 990 },
-    SOL: { priceMicro: '190000000', fetchedAt: 399 },
-    BTC: { priceMicro: '90000000000', fetchedAt: 1001 },
-    BAD: { priceMicro: '-2', fetchedAt: 990 }
+    ETH: { priceMicro: '2501000000', fetchedAt: now - 10 },
+    // Past the spend cache's 10 minutes, still a last-known price to show.
+    SOL: { priceMicro: '190000000', fetchedAt: now - 3_600 },
+    OLD: { priceMicro: '1000000', fetchedAt: now - 86_401 },
+    BTC: { priceMicro: '90000000000', fetchedAt: now + 1 },
+    BAD: { priceMicro: '-2', fetchedAt: now - 10 }
   });
-  expect(await readCachedDisplayQuotes(1000)).toEqual({
-    ETH: { price: 2501, observedAt: 990000, kind: 'market', change24h: NaN, percentageChange24h: NaN }
+  expect(await readCachedDisplayQuotes(now)).toEqual({
+    ETH: { price: 2501, observedAt: (now - 10) * 1000, kind: 'market', change24h: NaN, percentageChange24h: NaN },
+    SOL: { price: 190, observedAt: (now - 3_600) * 1000, kind: 'market', change24h: NaN, percentageChange24h: NaN }
   });
 });
 
@@ -45,11 +49,17 @@ it('keeps the winning quote object, including a cached NaN change', () => {
 
   const nominal = quote(1, now, 'nominal', 0);
   expect(selectDisplayQuotes({ ETH: nominal }, { ETH: cached }, now).ETH).toBe(cached);
-  const unusableCache = quote(8, now - 20 * 60_000, 'market', 3);
+  const unusableCache = quote(8, now - 25 * 60 * 60_000, 'market', 3);
   const unchanged = { ETH: nominal, BTC: fresh };
   expect(selectDisplayQuotes(unchanged, { ETH: unusableCache }, now)).toBe(unchanged);
-  expect(selectDisplayQuotes({ BTC: fresh }, { ETH: quote(8, now - 11 * 60_000, 'market', 3) }, now)).toEqual({
+  expect(selectDisplayQuotes({ BTC: fresh }, { ETH: quote(8, now - 25 * 60 * 60_000, 'market', 3) }, now)).toEqual({
     BTC: fresh
   });
   expect(selectDisplayQuotes({ SOL: quote(4, now + 60_000, 'market', 1) }, { SOL: cached }, now).SOL).toBe(cached);
+});
+
+it('shows a cached quote an hour old when nothing live replaces it', () => {
+  const now = 1_700_000_000_000;
+  const hourOld = quote(5, now - 60 * 60_000, 'market', Number.NaN);
+  expect(selectDisplayQuotes({}, { ETH: hourOld }, now).ETH).toBe(hourOld);
 });

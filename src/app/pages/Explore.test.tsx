@@ -12,7 +12,7 @@ import {
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH, TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -735,6 +735,44 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
     });
 
+    it('shows a cached total from a quote and a balance proof older than the spend windows', async () => {
+      mockRealBalance = true;
+      const hourAgo = Date.now() - 60 * 60_000;
+      mockCachedQuotes = {
+        ETH: { price: 2, observedAt: hourAgo, kind: 'market', change24h: Number.NaN, percentageChange24h: Number.NaN }
+      };
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      tagBalanceSnapshot(
+        mockAllBalances,
+        {
+          network: getEffectiveNetworkName(),
+          effectiveNetwork: getEffectiveNetworkName(),
+          rpcUrl: getEffectiveRpcUrl(),
+          accountNonce: '1',
+          capturedAt: Date.now() - 2 * 60 * 60_000
+        },
+        mockAccount.publicKey
+      );
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^14\.50$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('keeps the dash once a cached quote is more than a day old', async () => {
+      mockRealBalance = true;
+      mockCachedQuotes = { ETH: { ...cachedEth(0).ETH!, observedAt: Date.now() - 25 * 60 * 60_000 } };
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 7.25)];
+      mockTokenPrices = {};
+      scopeSnapshot();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
     it('shows the dash placeholder when the account holds tokens and none of them has a price', async () => {
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
       mockPortfolioTotal = null;
@@ -742,6 +780,44 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+    });
+
+    // The installed 1.18.2 wallet: USDCx (fixed $1) beside a token no list prices (MICO on mainnet).
+    const holdUsdcxAndUnlisted = () => {
+      mockRealBalance = true;
+      mockVerifiedPriceAssets.set(TEST_TOKEN_IUSDT.faucetId, 'USDCX');
+      mockAllBalances = [
+        makeToken('mtst1unlisted', 'MICO', 'Mico', 12.5),
+        makeToken(TEST_TOKEN_IUSDT.faucetId, 'USDCX', 'USDCx', 7.25)
+      ];
+      mockTokenPrices = {};
+    };
+
+    it('shows the total before any price loads when a held token has no price asset to wait for', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      holdUsdcxAndUnlisted();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^7\.25$/);
+    });
+
+    it('keeps the dash while the bridge config that could still price that token is loading', async () => {
+      holdUsdcxAndUnlisted();
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^—$/);
+    });
+
+    it('shows an empty wallet as 0.00 before any price loads', async () => {
+      mockRealBalance = true;
+      mockAllBalances = [];
+      mockTokenPrices = {};
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^0\.00$/);
     });
 
     it('shows the total off mainnet before any price has loaded when no held token is one the feed lists', async () => {

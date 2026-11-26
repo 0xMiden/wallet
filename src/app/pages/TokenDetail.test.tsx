@@ -639,6 +639,23 @@ describe('TokenDetail', () => {
     expect(hero.querySelector('p')).toHaveTextContent('\u2014');
   });
 
+  // MICO on mainnet: no list prices it, so no feed answer can give it a fiat line to wait for.
+  it('shows no fiat line for a token no list prices, even before prices load', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const unlistedId = 'mtst1unlisted';
+    renderPage(
+      {
+        balances: [{ tokenId: unlistedId, balance: 12.5, metadata: { symbol: 'MICO', decimals: 4 } }],
+        tokenPrices: {}
+      },
+      unlistedId
+    );
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toBeNull();
+  });
+
   // IETH is priced at ETH, which never takes the nominal rate, so its line waits on the feed.
   it('shows the placeholder dash in the fiat line off mainnet while prices have not loaded, for a listed token', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);

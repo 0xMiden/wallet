@@ -135,6 +135,14 @@ describe('PriceProvider', () => {
     expect(mockUseRetryableSWR.mock.calls[0]![0]).toBeNull();
   });
 
+  it('reports prices as loading until a wallet exists, never ready before the feed has run', () => {
+    mockWallet.ready = false;
+    mockUseRetryableSWR.mockReturnValue({ isLoading: false });
+    render(<PriceProvider />);
+    expect(mockSetPriceState).toHaveBeenCalledWith({ tokenPricesStatus: 'loading' });
+    expect(mockSetPriceState).not.toHaveBeenCalledWith({ tokenPricesStatus: 'ready' });
+  });
+
   it.each([
     ['locked', { locked: true, ready: false }],
     ['ready', { locked: false, ready: true }]

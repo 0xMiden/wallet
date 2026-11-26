@@ -30,6 +30,7 @@ import {
   getSwapTokenBySymbol,
   normalizedFaucetId,
   priceSymbolFor,
+  quoteMayArrive,
   strictPriceSymbolFor,
   tokenQuote,
   _allowlistedPriceSymbolsForTest,
@@ -680,5 +681,35 @@ describe('verified list price mapping', () => {
     );
     expect(priceSymbolFor(TEST_TOKEN_IETH.faucetId, 'IETH')).toBe('IETH');
     expect(priceSymbolFor('mtst1listed', 'BTC')).toBe('IBTC');
+  });
+});
+
+describe('quoteMayArrive', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IETH.faucetId, 'ETH'],
+        [TEST_TOKEN_IUSDT.faucetId, 'USDCX']
+      ])
+    );
+  });
+
+  it('never waits for a token without a price asset once the lists that could map it have loaded', () => {
+    expect(priceSymbolFor('mtst1unlisted', 'MICO')).toBeUndefined();
+    expect(quoteMayArrive('mtst1unlisted', 'MICO')).toBe(false);
+  });
+
+  it.each([
+    ['the verified list has not loaded', () => jest.mocked(peekTokenPriceAssets).mockReturnValue(undefined)],
+    ['the bridge config is still loading', () => mockSnapshot.mockReturnValue(UNLOADED)]
+  ])('waits for a token without a price asset while %s', (_case, unload) => {
+    unload();
+    expect(quoteMayArrive('mtst1unlisted', 'MICO')).toBe(true);
+  });
+
+  it('never waits for a fixed rate, and waits for a market the feed has not ruled out', () => {
+    expect(quoteMayArrive(TEST_TOKEN_IUSDT.faucetId, 'USDCX')).toBe(false);
+    expect(quoteMayArrive(TEST_TOKEN_IETH.faucetId, 'ETH')).toBe(true);
   });
 });
