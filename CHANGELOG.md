@@ -2,6 +2,7 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes.
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
 
 - [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.

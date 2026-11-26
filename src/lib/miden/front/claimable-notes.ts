@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
-import { applyOverrideFor } from 'lib/miden/metadata/overrides';
+import { applyOverrideFor, getTokenMetadataOverrides, type TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import {
+  TOKENS_BASE_METADATA_STORAGE_KEY,
+  TOKENS_METADATA_SCHEMA_STORAGE_KEY,
+  TOKENS_METADATA_SCHEMA_VERSION
+} from 'lib/miden/metadata/storage';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
@@ -19,7 +24,7 @@ import { isOwnClaimableNote } from '../claimable-note-ownership';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
-import { onNotesRefresh } from './note-refresh';
+import { onNotesRefresh, requestNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
@@ -120,18 +125,40 @@ function parseNotes(
   return parsed;
 }
 
+async function readStoredV2Metadata(): Promise<Record<string, AssetMetadata>> {
+  try {
+    const version = await fetchFromStorage<unknown>(TOKENS_METADATA_SCHEMA_STORAGE_KEY);
+    if (typeof version !== 'number' || version < TOKENS_METADATA_SCHEMA_VERSION) return {};
+    return (await fetchFromStorage<Record<string, AssetMetadata>>(TOKENS_BASE_METADATA_STORAGE_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 async function buildMetadataMapFromCache(
   notes: ParsedNote[],
   cache: Record<string, AssetMetadata> | undefined
 ): Promise<Record<string, AssetMetadata>> {
   const map: Record<string, AssetMetadata> = {};
   const nativeId = getNativeAssetIdSync();
+  const missingFromRef: ParsedNote[] = [];
   for (const n of notes) {
     if (n.faucetId === nativeId) {
       map[n.faucetId] = getNativeDisplayMetadataSync(cache?.[n.faucetId], n.faucetId);
     } else {
       const cached = cache?.[n.faucetId];
       if (cached) map[n.faucetId] = cached;
+      else missingFromRef.push(n);
+    }
+  }
+  if (missingFromRef.length > 0) {
+    const [stored, overrides] = await Promise.all([
+      readStoredV2Metadata(),
+      getTokenMetadataOverrides().catch((): TokenMetadataOverrides => ({}))
+    ]);
+    for (const n of missingFromRef) {
+      const entry = stored[n.faucetId];
+      if (entry) map[n.faucetId] = applyOverrideFor(n.faucetId, entry, overrides);
     }
   }
   return map;
@@ -458,10 +485,133 @@ async function writeCachedClaimableNotes(cacheKey: string, notes: readonly Claim
   }
 }
 
-/** Test-only: drops the in-memory half of the cache. */
+const CLAIMABLE_NOTES_POLL_MS = 5_000;
+
+interface CacheKeyRefreshCoordinator {
+  mutates: Set<() => Promise<unknown> | void>;
+  erroredCount: number;
+  inFlight: Promise<unknown> | null;
+  pendingIdle: boolean;
+  rerunAfterInFlight: boolean;
+  unsubscribeRefresh?: () => void;
+  errorRetryTimer?: ReturnType<typeof setInterval>;
+  removeWakeListeners?: () => void;
+}
+
+const coordinatorsByKey = new Map<string, CacheKeyRefreshCoordinator>();
+const inFlightMetadataFaucets = new Set<string>();
+
+function isClaimableNotesPaused(): boolean {
+  return isTestSyncPaused() || isSyncFused('claimable-notes');
+}
+
+function canRecoverClaimableNotesNow(): boolean {
+  if (isClaimableNotesPaused()) return false;
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  return true;
+}
+
+function runCoordinatedMutate(cacheKey: string): void {
+  const entry = coordinatorsByKey.get(cacheKey);
+  if (!entry || entry.mutates.size === 0 || isClaimableNotesPaused()) return;
+  if (entry.inFlight) {
+    entry.rerunAfterInFlight = true;
+    return;
+  }
+  const leaderMutate = entry.mutates.values().next().value;
+  if (!leaderMutate) return;
+  const result = leaderMutate();
+  if (result && typeof (result as Promise<unknown>).then === 'function') {
+    const inFlight = Promise.resolve(result).finally(() => {
+      if (coordinatorsByKey.get(cacheKey) !== entry) return;
+      if (entry.inFlight === inFlight) entry.inFlight = null;
+      if (entry.rerunAfterInFlight && entry.mutates.size > 0 && !isClaimableNotesPaused()) {
+        entry.rerunAfterInFlight = false;
+        scheduleCoordinatedRefresh(cacheKey);
+      } else {
+        entry.rerunAfterInFlight = false;
+      }
+    });
+    entry.inFlight = inFlight;
+  }
+}
+
+function scheduleCoordinatedRefresh(cacheKey: string): void {
+  const entry = coordinatorsByKey.get(cacheKey);
+  if (!entry || entry.mutates.size === 0 || isClaimableNotesPaused()) return;
+  if (entry.inFlight) {
+    entry.rerunAfterInFlight = true;
+    return;
+  }
+  if (entry.pendingIdle) return;
+  entry.pendingIdle = true;
+  void whenInteractionIdle().then(() => {
+    entry.pendingIdle = false;
+    if (coordinatorsByKey.get(cacheKey) !== entry) return;
+    runCoordinatedMutate(cacheKey);
+  });
+}
+
+function syncCoordinatorErrorRecovery(cacheKey: string, entry: CacheKeyRefreshCoordinator): void {
+  if (entry.erroredCount > 0 && entry.mutates.size > 0) {
+    if (!entry.errorRetryTimer) {
+      const tryRecover = () => {
+        if (canRecoverClaimableNotesNow()) scheduleCoordinatedRefresh(cacheKey);
+      };
+      entry.errorRetryTimer = setInterval(tryRecover, CLAIMABLE_NOTES_POLL_MS);
+      const onVisibility = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') tryRecover();
+      };
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('online', tryRecover);
+        window.addEventListener('focus', tryRecover);
+      }
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', onVisibility);
+      }
+      entry.removeWakeListeners = () => {
+        if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+          window.removeEventListener('online', tryRecover);
+          window.removeEventListener('focus', tryRecover);
+        }
+        if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+          document.removeEventListener('visibilitychange', onVisibility);
+        }
+      };
+    }
+    return;
+  }
+  if (entry.errorRetryTimer) {
+    clearInterval(entry.errorRetryTimer);
+    entry.errorRetryTimer = undefined;
+  }
+  entry.removeWakeListeners?.();
+  entry.removeWakeListeners = undefined;
+}
+
+function disposeCoordinator(cacheKey: string, entry: CacheKeyRefreshCoordinator): void {
+  entry.unsubscribeRefresh?.();
+  entry.unsubscribeRefresh = undefined;
+  if (entry.errorRetryTimer) {
+    clearInterval(entry.errorRetryTimer);
+    entry.errorRetryTimer = undefined;
+  }
+  entry.removeWakeListeners?.();
+  entry.removeWakeListeners = undefined;
+  entry.pendingIdle = false;
+  entry.rerunAfterInFlight = false;
+  coordinatorsByKey.delete(cacheKey);
+}
+
+/** Test-only: drops the in-memory half of the cache and refresh coordinators. */
 export function __resetClaimableNotesCacheForTests(): void {
   claimableNotesMemCache.clear();
   writtenClaimableNotes.clear();
+  inFlightMetadataFaucets.clear();
+  for (const [cacheKey, entry] of coordinatorsByKey) {
+    disposeCoordinator(cacheKey, entry);
+  }
 }
 
 // -------------------- Extension hook (reads from Zustand) --------------------
@@ -705,18 +855,26 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
     // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
     const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
-    if (missingFaucetIds.length > 0) {
+    const toFetchMetadataIds = missingFaucetIds.filter(id => !inFlightMetadataFaucets.has(id));
+    if (toFetchMetadataIds.length > 0) {
+      for (const id of toFetchMetadataIds) inFlightMetadataFaucets.add(id);
       runWhenClientIdle(async () => {
-        const fetched: Record<string, AssetMetadata> = {};
-        for (const id of missingFaucetIds) {
-          try {
-            fetched[id] = await fetchMetadata(id);
-          } catch (e) {
-            console.warn('Metadata fetch failed for', id, e);
+        try {
+          const fetched: Record<string, AssetMetadata> = {};
+          for (const id of toFetchMetadataIds) {
+            try {
+              fetched[id] = await fetchMetadata(id);
+            } catch (e) {
+              console.warn('Metadata fetch failed for', id, e);
+            }
           }
-        }
-        if (Object.keys(fetched).length > 0) {
-          await persistMetadataIfAny(fetched, setTokensBaseMetadata);
+          if (Object.keys(fetched).length > 0) {
+            await persistMetadataIfAny(fetched, setTokensBaseMetadata);
+            // Surface the newly described notes right away instead of waiting out dedupingInterval.
+            requestNotesRefresh();
+          }
+        } finally {
+          for (const id of toFetchMetadataIds) inFlightMetadataFaucets.delete(id);
         }
       });
     }
@@ -787,7 +945,10 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     fallbackData,
     revalidateOnFocus: false,
     dedupingInterval: 10_000,
-    refreshInterval: 5_000,
+    refreshInterval: CLAIMABLE_NOTES_POLL_MS,
+    shouldRetryOnError: false,
+    isOnline: () =>
+      typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true,
     // Lets an E2E hook quiesce this (heavy, WASM-lock-bound) poll while it does
     // its own single-threaded-WASM read; otherwise the read is livelocked on
     // mobile by the 5s re-fire. No-op in production (tree-shaken).
@@ -796,7 +957,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // the right gate rather than an early return — it withholds the HOLD while leaving
     // the last good note list on screen, where returning [] would have read to the user
     // as "your claimable notes are gone".
-    isPaused: () => isTestSyncPaused() || isSyncFused('claimable-notes'),
+    isPaused: isClaimableNotesPaused,
     onError: e => {
       console.error('Error fetching claimable notes:', e);
       debugInfoRef.current = {
@@ -816,27 +977,50 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     void writeCachedClaimableNotes(cacheKey, liveNotes);
   }, [enabled, cacheKey, liveNotes]);
 
-  // Revalidate immediately when a sync completes or the app foregrounds, so a
-  // just-imported note surfaces without waiting out the 5s SWR interval (#462).
+  // Coordinate `onNotesRefresh` across all active subscribers for the same `cacheKey` so one
+  // sync/foreground event launches one refresh read rather than N concurrent WASM reads whose
+  // earlier results SWR discards, and recover polling if SWR latched `cache.error` while
+  // offline, hidden, or paused behind a sync fuse.
   const { mutate } = swrResult;
+  const hasError = Boolean(swrResult.error);
   useEffect(() => {
     if (!enabled) return;
-    let subscribed = true;
-    let pending = false;
-    const unsubscribe = onNotesRefresh(() => {
-      // The revalidation re-renders the list; let a moving pager finish first. Events during one wait share it.
-      if (pending) return;
-      pending = true;
-      void whenInteractionIdle().then(() => {
-        pending = false;
-        if (subscribed) void mutate();
-      });
-    });
+    let entry = coordinatorsByKey.get(cacheKey);
+    if (!entry) {
+      entry = {
+        mutates: new Set(),
+        erroredCount: 0,
+        inFlight: null,
+        pendingIdle: false,
+        rerunAfterInFlight: false
+      };
+      entry.unsubscribeRefresh = onNotesRefresh(() => scheduleCoordinatedRefresh(cacheKey));
+      coordinatorsByKey.set(cacheKey, entry);
+    }
+    const triggerMutate = () => mutate();
+    entry.mutates.add(triggerMutate);
+    syncCoordinatorErrorRecovery(cacheKey, entry);
     return () => {
-      subscribed = false;
-      unsubscribe();
+      entry.mutates.delete(triggerMutate);
+      if (entry.mutates.size === 0) {
+        disposeCoordinator(cacheKey, entry);
+      } else {
+        syncCoordinatorErrorRecovery(cacheKey, entry);
+      }
     };
-  }, [enabled, mutate]);
+  }, [enabled, cacheKey, mutate]);
+
+  useEffect(() => {
+    if (!enabled || !hasError) return;
+    const entry = coordinatorsByKey.get(cacheKey);
+    if (!entry) return;
+    entry.erroredCount += 1;
+    syncCoordinatorErrorRecovery(cacheKey, entry);
+    return () => {
+      entry.erroredCount = Math.max(0, entry.erroredCount - 1);
+      syncCoordinatorErrorRecovery(cacheKey, entry);
+    };
+  }, [enabled, cacheKey, hasError]);
 
   return {
     ...swrResult,
