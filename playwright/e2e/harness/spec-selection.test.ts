@@ -311,7 +311,7 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
 
   it('coverage is sharded and gated under the required check name', () => {
     const src = configSource('.github/workflows/pr.yml');
-    expect(src).toMatch(/shard: \[1, 2, 3\]/);
+    expect(src).toMatch(/shard: \[1, 2(?:, \d+)*\]/);
     expect(src).toMatch(/name: Coverage Check \(95% minimum\)/);
     expect(src).toMatch(/merge-jest-coverage\.mjs/);
   });

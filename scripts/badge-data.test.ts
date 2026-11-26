@@ -270,11 +270,11 @@ describe('badge workflows', () => {
     const coverage = jobText('pr.yml', 'coverage');
     const scripts = runScripts(coverage);
     const blocks = stepBlocks(coverage);
-    const tests = blocks.findIndex(b => runScripts(b).some(r => r.includes('yarn test:coverage')));
+    const tests = blocks.findIndex(b => runScripts(b).some(r => r.includes('bash scripts/ci/run-jest-shard.sh')));
     const count = blocks.findIndex(b => runScripts(b).some(r => r.includes('badge-data.mjs count')));
     const upload = blocks.findIndex(b => /uses: actions\/upload-artifact@/.test(b));
 
-    expect(scripts.find(r => r.includes('yarn test:coverage'))).not.toContain('badge-data.mjs');
+    expect(scripts.find(r => r.includes('bash scripts/ci/run-jest-shard.sh'))).not.toContain('badge-data.mjs');
     expect(scripts.filter(r => r.includes('badge-data.mjs count'))).toHaveLength(1);
     expect(blocks[count]).toMatch(/^\s*continue-on-error: true$/m);
     expect(tests).toBeGreaterThan(-1);
