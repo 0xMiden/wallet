@@ -29,10 +29,12 @@ export function containsCommandSecret(input: string): boolean {
   ) {
     return true;
   }
-  for (const [, label = '', value = ''] of input.matchAll(
-    /^\s*(?:my\s+)?(password|private key|recovery phrase|seed phrase)\s+is\s+(\S+)/gim
-  )) {
-    if (!/phrase$/i.test(label) || !/^(?:missing|lost|gone|forgotten)[.,?!]*$/i.test(value)) return true;
+  const labelledValue = /(?:^\s*|\bmy\s+)(?:password|private key|recovery phrase|seed phrase)\s+is\s+(?=\S)/gim;
+  const troubleshooting =
+    /^(?:missing|lost|gone|forgotten|stolen|compromised|leaked|exposed|wrong|incorrect|safe|not[ \t]+(?:working|accepted))(?=[ \t]*(?:[.,?!;]+(?=\s|$)|\r?\n|$))/i;
+  for (const match of input.matchAll(labelledValue)) {
+    const valueStart = (match.index ?? 0) + match[0].length;
+    if (!troubleshooting.test(input.slice(valueStart))) return true;
   }
 
   const scalar = /^(?:0x)?[0-9a-f]{64}$/i.exec(input.trim())?.[0];
