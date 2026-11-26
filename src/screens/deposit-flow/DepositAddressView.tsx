@@ -16,6 +16,7 @@ import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { cn } from 'lib/ui/util';
 
+import { formatCountdown, useCountdown } from './expiry-countdown';
 import {
   DepositAmount,
   depositAmountText,
@@ -38,19 +39,27 @@ import type {
 const QR_SIZE = 300;
 /** The mock-up's `lines7`: an address breaks into lines of about this many characters. */
 const ADDRESS_LINE_CHARS = 22;
+/**
+ * The memo value of the details card, a tap-to-copy button in the `.dcard b` type. The mock-up has no memo: the row
+ * takes the card's row style, and the copy glyph follows the value.
+ */
+const MEMO_VALUE =
+  'inline-flex min-w-0 items-center justify-end gap-1.5 text-right disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary';
 
 /**
  * Where the deposit stands:
  * - `waiting`: nothing has arrived yet.
- * - `partial`: less than the reviewed amount arrived. The screen offers to deposit what arrived.
+ * - `partial`: less than the reviewed amount arrived. `received` is that amount, when it is known. With
+ *   `onDepositReceived`, the screen offers to deposit what arrived; without it, the screen asks for the rest.
  * - `failed`: the deposit cannot be used, or the bridge did not start. `title` and `reason` replace the default texts.
- *   `errorId` reports the failure (default `raw_bridge_deposit_failed`).
+ *   `errorId` reports the failure (default `raw_bridge_deposit_failed`; null reports nothing). `hideAddress`: the
+ *   address takes no deposit any more (it expired), so the screen does not show it, its QR code or its actions.
  * - `starting`: the funds are at the address and the bridge is starting. The actions are disabled.
  */
 export type DepositAddressStatus =
   | { kind: 'waiting' }
-  | { kind: 'partial'; received: DepositAmountValue }
-  | { kind: 'failed'; title?: string; reason?: string; errorId?: UserErrorId }
+  | { kind: 'partial'; received?: DepositAmountValue }
+  | { kind: 'failed'; title?: string; reason?: string; errorId?: UserErrorId | null; hideAddress?: boolean }
   | { kind: 'starting' };
 
 export interface DepositAddressViewProps {
@@ -72,12 +81,25 @@ export interface DepositAddressViewProps {
   /** The route's arrival time, already translated. */
   arrivesIn: string;
   status: DepositAddressStatus;
+  /**
+   * The time (Unix milliseconds) after which the address takes no deposit. With it, the extension details card shows
+   * "Address expires in" with a countdown, and the mobile strip says when the address expires. Omit it for an address
+   * that does not expire (the relay address): the screen then shows no countdown.
+   */
+  expiresAt?: number;
+  /**
+   * The address is the wallet's own EVM address (the relay address): the extension details card names it in an
+   * Address row. Set false for an address of a provider (a NEAR Intents deposit address). Default true.
+   */
+  ownAddress?: boolean;
+  /** A memo that the deposit must carry. The details card shows it with a copy action, and a warning follows. */
+  memo?: string;
   /** Mobile: opens the QR sheet. */
   onShowQr: () => void;
   /** Mobile: opens the wallet sheet. Omit when no wallet link exists: the action is not shown. */
   onOpenWallet?: () => void;
-  /** `partial`: goes back to review with the amount that arrived. */
-  onDepositReceived: () => void;
+  /** `partial`: goes back to review with the amount that arrived. Omit it when the route cannot do that. */
+  onDepositReceived?: () => void;
 }
 
 /** The mock-up's `lines7`: the address in lines of at most about 22 characters, all lines the same length. */
@@ -102,6 +124,11 @@ function shortAddress(address: string): string {
   return address.length > 16 ? `${address.slice(0, 8)}…${address.slice(-6)}` : address;
 }
 
+/** True when the status says that the address takes no deposit any more. */
+function addressHidden(status: DepositAddressStatus): boolean {
+  return status.kind === 'failed' && status.hideAddress === true;
+}
+
 /**
  * The deposit address screen. Mobile (`viewAddressH`): the amount and the address as tap-to-copy
  * blocks, three actions, the details card and the waiting strip. Extension (`viewAddressQR`): the
@@ -122,6 +149,8 @@ const MobileAddress: React.FC<DepositAddressViewProps> = ({
   routeName,
   arrivesIn,
   status,
+  expiresAt,
+  memo,
   onShowQr,
   onOpenWallet,
   onDepositReceived
@@ -130,7 +159,8 @@ const MobileAddress: React.FC<DepositAddressViewProps> = ({
   const amountText = depositExactText(amount);
   const amountCopy = useClipboardCopy(amountText);
   const addressCopy = useClipboardCopy(address);
-  const locked = status.kind === 'starting';
+  const hidden = addressHidden(status);
+  const locked = status.kind === 'starting' || hidden;
 
   const copyAmount = () => {
     hapticLight();
@@ -142,7 +172,10 @@ const MobileAddress: React.FC<DepositAddressViewProps> = ({
   };
 
   return (
-    <HomeGroupPaneBody top="header" footer={status.kind === 'failed' ? undefined : <WaitingStrip status={status} />}>
+    <HomeGroupPaneBody
+      top="header"
+      footer={status.kind === 'failed' ? undefined : <WaitingStrip status={status} expiresAt={expiresAt} />}
+    >
       <div className={cn(s.BASE, s.H8, s.TOP_AFTER_HEADER.addressMobile)} data-testid="deposit-address-mobile">
         <span className={s.LAB8} aria-live="polite" data-testid="deposit-address-amount-label">
           {amountCopy.copied ? t('depositFlowAmountCopied') : t('depositFlowDepositAmount')}
@@ -169,80 +202,86 @@ const MobileAddress: React.FC<DepositAddressViewProps> = ({
           </b>
         </span>
         <div aria-hidden="true" className={s.RULE8} />
-        <span className={cn(s.LAB8, s.LAB8_S)}>{t('depositFlowToThisAddress')}</span>
-        <button
-          type="button"
-          onClick={copyAddress}
-          disabled={locked}
-          aria-label={t('depositFlowCopyAddress')}
-          className={s.ADC8}
-          data-testid="deposit-address-block"
-        >
-          <span className={s.AD7} data-testid="deposit-address-lines">
-            {addressLines(address).map(line => (
-              <span key={line}>{line}</span>
-            ))}
-          </span>
-        </button>
-        <div className={s.ACT8}>
-          <button
-            type="button"
-            onClick={copyAddress}
-            disabled={locked}
-            className={s.A8}
-            data-testid="deposit-address-copy"
-          >
-            <i className={cn(s.A8_CIRCLE, s.A8_CIRCLE_LEAD)}>
-              <AnimatedCopyIcon copied={addressCopy.copied} size="sm" />
-            </i>
-            <span aria-live="polite">
-              <CopyLabel copied={addressCopy.copied} copiedLabel={t('copied')}>
-                {t('copy')}
-              </CopyLabel>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              onShowQr();
-            }}
-            disabled={locked}
-            aria-haspopup="dialog"
-            className={s.A8}
-            data-testid="deposit-address-qr"
-          >
-            <i className={s.A8_CIRCLE}>
-              <Icon name={IconName.QrScan} fill="currentColor" aria-hidden="true" className={s.ICON_20} />
-            </i>
-            {t('depositFlowQrCode')}
-          </button>
-          {onOpenWallet && (
+        {!hidden && (
+          <>
+            <span className={cn(s.LAB8, s.LAB8_S)}>{t('depositFlowToThisAddress')}</span>
             <button
               type="button"
-              onClick={() => {
-                hapticLight();
-                onOpenWallet();
-              }}
+              onClick={copyAddress}
               disabled={locked}
-              aria-haspopup="dialog"
-              className={s.A8}
-              data-testid="deposit-address-open-wallet"
+              aria-label={t('depositFlowCopyAddress')}
+              className={s.ADC8}
+              data-testid="deposit-address-block"
             >
-              <i className={s.A8_CIRCLE}>
-                <Icon name={IconName.Wallet} aria-hidden="true" className={s.ICON_20} />
-              </i>
-              {t('openWallet')}
+              <span className={s.AD7} data-testid="deposit-address-lines">
+                {addressLines(address).map(line => (
+                  <span key={line}>{line}</span>
+                ))}
+              </span>
             </button>
-          )}
-        </div>
+            <div className={s.ACT8}>
+              <button
+                type="button"
+                onClick={copyAddress}
+                disabled={locked}
+                className={s.A8}
+                data-testid="deposit-address-copy"
+              >
+                <i className={cn(s.A8_CIRCLE, s.A8_CIRCLE_LEAD)}>
+                  <AnimatedCopyIcon copied={addressCopy.copied} size="sm" />
+                </i>
+                <span aria-live="polite">
+                  <CopyLabel copied={addressCopy.copied} copiedLabel={t('copied')}>
+                    {t('copy')}
+                  </CopyLabel>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  hapticLight();
+                  onShowQr();
+                }}
+                disabled={locked}
+                aria-haspopup="dialog"
+                className={s.A8}
+                data-testid="deposit-address-qr"
+              >
+                <i className={s.A8_CIRCLE}>
+                  <Icon name={IconName.QrScan} fill="currentColor" aria-hidden="true" className={s.ICON_20} />
+                </i>
+                {t('depositFlowQrCode')}
+              </button>
+              {onOpenWallet && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticLight();
+                    onOpenWallet();
+                  }}
+                  disabled={locked}
+                  aria-haspopup="dialog"
+                  className={s.A8}
+                  data-testid="deposit-address-open-wallet"
+                >
+                  <i className={s.A8_CIRCLE}>
+                    <Icon name={IconName.Wallet} aria-hidden="true" className={s.ICON_20} />
+                  </i>
+                  {t('openWallet')}
+                </button>
+              )}
+            </div>
+          </>
+        )}
         <DepositFactCard className={s.H8_DCARD} data-testid="deposit-address-facts">
           <DepositFactRow label={t('depositFlowBridgeFee')}>
             <DepositFeeValue fee={bridgeFee} symbol={sourceToken.symbol} />
           </DepositFactRow>
           <DepositFactRow label={t('route')}>{routeName}</DepositFactRow>
           <DepositFactRow label={t('depositFlowArrivesIn')}>{arrivesIn}</DepositFactRow>
+          {memo && !hidden && <MemoRow memo={memo} disabled={locked} />}
         </DepositFactCard>
+        {memo && !hidden && <MemoWarning className={s.H8_NOTICE} />}
         <StatusNotice
           status={status}
           amount={amount}
@@ -265,9 +304,13 @@ const ExtensionAddress: React.FC<DepositAddressViewProps> = ({
   receivedToken,
   arrivesIn,
   status,
+  expiresAt,
+  ownAddress = true,
+  memo,
   onDepositReceived
 }) => {
   const { t } = useTranslation();
+  const hidden = addressHidden(status);
   const note = (() => {
     switch (status.kind) {
       case 'waiting':
@@ -285,27 +328,31 @@ const ExtensionAddress: React.FC<DepositAddressViewProps> = ({
         className={cn(s.BASE, s.BODY_STACK, s.TOP_AFTER_HEADER.body.extension)}
         data-testid="deposit-address-extension"
       >
-        <div className={s.QRCARD_EXT} data-testid="deposit-address-qr-card">
-          <QRCode address={qrValue ?? address} payload="plain" size={QR_SIZE} palette="blue" />
-        </div>
+        {!hidden && (
+          <div className={s.QRCARD_EXT} data-testid="deposit-address-qr-card">
+            <QRCode address={qrValue ?? address} payload="plain" size={QR_SIZE} palette="blue" />
+          </div>
+        )}
         <span className={s.CHIP_ON} data-testid="deposit-address-network">
           {network.name}
         </span>
-        <CopyButton
-          text={address}
-          label={shortAddress(address)}
-          icon="leading"
-          iconClassName={s.ICON_18}
-          checkClassName="text-positive-ink"
-          disabled={status.kind === 'starting'}
-          aria-label={t('depositFlowCopyAddress')}
-          className={cn(s.COPY_PILL, 'text-[16px] leading-[22px]')}
-          contentClassName="gap-2"
-          data-testid="deposit-address-copy-pill"
-        />
+        {!hidden && (
+          <CopyButton
+            text={address}
+            label={shortAddress(address)}
+            icon="leading"
+            iconClassName={s.ICON_18}
+            checkClassName="text-positive-ink"
+            disabled={status.kind === 'starting'}
+            aria-label={t('depositFlowCopyAddress')}
+            className={cn(s.COPY_PILL, 'text-[16px] leading-[22px]')}
+            contentClassName="gap-2"
+            data-testid="deposit-address-copy-pill"
+          />
+        )}
         <StatusNotice status={status} amount={amount} sourceToken={sourceToken} onDepositReceived={onDepositReceived} />
         <DepositFactCard layout="extension" data-testid="deposit-address-facts">
-          <DepositFactRow label={t('address')}>{t('depositFlowYourEvmAddress')}</DepositFactRow>
+          {ownAddress && <DepositFactRow label={t('address')}>{t('depositFlowYourEvmAddress')}</DepositFactRow>}
           <DepositFactRow label={t('depositFlowYouReceive')}>
             <DepositAmount value={received} symbol={receivedToken.symbol} rounding="down" />
           </DepositFactRow>
@@ -313,7 +360,14 @@ const ExtensionAddress: React.FC<DepositAddressViewProps> = ({
             <DepositAmount value={amount} symbol={sourceToken.symbol} rounding="exact" />
           </DepositFactRow>
           <DepositFactRow label={t('depositFlowArrivesIn')}>{arrivesIn}</DepositFactRow>
+          {expiresAt !== undefined && (
+            <DepositFactRow label={t('depositFlowAddressExpiresIn')} data-testid="deposit-address-expiry">
+              <Countdown expiresAt={expiresAt} />
+            </DepositFactRow>
+          )}
+          {memo && !hidden && <MemoRow memo={memo} disabled={status.kind === 'starting'} />}
         </DepositFactCard>
+        {memo && !hidden && <MemoWarning />}
         <p className={cn(s.NOTE, 'text-center')} aria-live="polite" data-testid="deposit-address-note">
           {note}
         </p>
@@ -322,19 +376,76 @@ const ExtensionAddress: React.FC<DepositAddressViewProps> = ({
   );
 };
 
+/** The time left until `expiresAt` (mock-up `clock()`). Only this text renders again each second. */
+const Countdown: React.FC<{ expiresAt: number }> = ({ expiresAt }) => {
+  const left = useCountdown(expiresAt);
+  return <>{formatCountdown(left)}</>;
+};
+
+/**
+ * The second line of the waiting strip of an address that expires: "Address expires in <m:ss>. You can leave Bread.
+ * We'll notify you." Only this line renders again each second.
+ */
+const ExpiringWaitingBody: React.FC<{ expiresAt: number }> = ({ expiresAt }) => {
+  const { t } = useTranslation();
+  const left = useCountdown(expiresAt);
+  return <>{t('depositFlowExpiringBody', { countdown: formatCountdown(left) })}</>;
+};
+
 /** The mobile footer strip (`.wait4`): a turning ring and two lines. */
-const WaitingStrip: React.FC<{ status: DepositAddressStatus }> = ({ status }) => {
+const WaitingStrip: React.FC<{ status: DepositAddressStatus; expiresAt?: number }> = ({ status, expiresAt }) => {
   const { t } = useTranslation();
   const starting = status.kind === 'starting';
+  const body = (() => {
+    if (starting) return t('depositFlowStartingBody');
+    if (expiresAt === undefined) return t('depositFlowWaitingBody');
+    return <ExpiringWaitingBody expiresAt={expiresAt} />;
+  })();
   return (
     // The strip runs edge to edge over the footer's own gutter and top space, as the mock-up's does.
     <div role="status" className={cn(s.BASE, s.WAIT4, '-mx-4 -mt-3')} data-testid="deposit-address-waiting">
       <span aria-hidden="true" className={s.DOT4} />
       <span>
         <b className={s.WAIT4_TITLE}>{starting ? t('depositFlowStartingTitle') : t('depositFlowWaitingTitle')}</b>
-        <small className={s.WAIT4_SMALL}>{starting ? t('depositFlowStartingBody') : t('depositFlowWaitingBody')}</small>
+        <small className={s.WAIT4_SMALL} data-testid="deposit-address-waiting-body">
+          {body}
+        </small>
       </span>
     </div>
+  );
+};
+
+/** The Memo row of the details card: the memo as a tap-to-copy value. */
+const MemoRow: React.FC<{ memo: string; disabled: boolean }> = ({ memo, disabled }) => {
+  const { t } = useTranslation();
+  const memoCopy = useClipboardCopy(memo);
+  return (
+    <DepositFactRow label={t('nearIntentsDepositMemo')} data-testid="deposit-address-memo">
+      <button
+        type="button"
+        onClick={() => {
+          hapticLight();
+          memoCopy.copy();
+        }}
+        disabled={disabled}
+        aria-label={t('nearIntentsCopyMemo')}
+        className={MEMO_VALUE}
+        data-testid="deposit-address-memo-copy"
+      >
+        <span className="select-text [overflow-wrap:anywhere]">{memo}</span>
+        <AnimatedCopyIcon copied={memoCopy.copied} size="sm" />
+      </button>
+    </DepositFactRow>
+  );
+};
+
+/** The warning under a details card with a memo: a deposit without the memo can be lost. */
+const MemoWarning: React.FC<{ className?: string }> = ({ className }) => {
+  const { t } = useTranslation();
+  return (
+    <DepositNotice kind="inline" className={className} data-testid="deposit-address-memo-warning">
+      {t('nearIntentsMemoWarning')}
+    </DepositNotice>
   );
 };
 
@@ -343,11 +454,12 @@ const StatusNotice: React.FC<{
   status: DepositAddressStatus;
   amount: DepositAmountValue;
   sourceToken: DepositTokenDisplay;
-  onDepositReceived: () => void;
+  onDepositReceived?: () => void;
   className?: string;
 }> = ({ status, amount, sourceToken, onDepositReceived, className }) => {
   const { t } = useTranslation();
-  useUserVisibleError(status.kind === 'failed' ? (status.errorId ?? 'raw_bridge_deposit_failed') : null, 'notice');
+  const errorId = status.kind === 'failed' ? status.errorId : null;
+  useUserVisibleError(errorId === undefined ? 'raw_bridge_deposit_failed' : errorId, 'notice');
   switch (status.kind) {
     case 'failed':
       return (
@@ -362,28 +474,37 @@ const StatusNotice: React.FC<{
         </DepositNotice>
       );
     case 'partial': {
-      const arrived = `${depositAmountText(status.received, 'exact')} ${sourceToken.symbol}`;
+      const expected = `${depositAmountText(amount, 'exact')} ${sourceToken.symbol}`;
+      const arrived =
+        status.received === undefined
+          ? undefined
+          : `${depositAmountText(status.received, 'exact')} ${sourceToken.symbol}`;
+      // The action deposits what arrived: only a route that can do that offers it.
+      const offersArrived = arrived !== undefined && onDepositReceived !== undefined;
       return (
         <DepositNotice
           kind="big"
           role="status"
-          title={t('depositFlowPartialTitle', {
-            received: arrived,
-            expected: `${depositAmountText(amount, 'exact')} ${sourceToken.symbol}`
-          })}
+          title={
+            arrived === undefined
+              ? t('depositFlowPartialUnknownTitle', { expected })
+              : t('depositFlowPartialTitle', { received: arrived, expected })
+          }
           className={className}
           data-testid="deposit-address-partial"
           action={
-            <Button
-              variant={ButtonVariant.Secondary}
-              title={t('depositFlowPartialAction', { amount: arrived })}
-              onClick={onDepositReceived}
-              className="mt-3 w-full max-w-none"
-              data-testid="deposit-address-partial-action"
-            />
+            offersArrived ? (
+              <Button
+                variant={ButtonVariant.Secondary}
+                title={t('depositFlowPartialAction', { amount: arrived })}
+                onClick={onDepositReceived}
+                className="mt-3 w-full max-w-none"
+                data-testid="deposit-address-partial-action"
+              />
+            ) : undefined
           }
         >
-          {t('depositFlowPartialBody')}
+          {offersArrived ? t('depositFlowPartialBody') : t('depositFlowPartialRestBody')}
         </DepositNotice>
       );
     }

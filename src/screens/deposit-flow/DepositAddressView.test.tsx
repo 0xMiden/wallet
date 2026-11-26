@@ -238,3 +238,109 @@ describe('DepositAddressView in the extension', () => {
     expect(screen.getByTestId('deposit-address-note')).toHaveTextContent('depositFlowWaitingNote');
   });
 });
+
+describe('DepositAddressView with an expiry (NEAR Intents)', () => {
+  const NOW = Date.parse('2026-11-10T14:00:00Z');
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('keeps the relay layout without an expiry: no countdown, the own-address row', () => {
+    render(<DepositAddressView {...props()} />);
+    expect(screen.getByTestId('deposit-address-waiting-body')).toHaveTextContent('depositFlowWaitingBody');
+    cleanup();
+    render(<DepositAddressView {...props({ layout: 'extension' })} />);
+    expect(screen.queryByTestId('deposit-address-expiry')).not.toBeInTheDocument();
+    expect(screen.getByTestId('deposit-address-facts')).toHaveTextContent('depositFlowYourEvmAddress');
+  });
+
+  it('says in the mobile strip when the address expires, counts down and stops at zero', () => {
+    render(<DepositAddressView {...props({ expiresAt: NOW + 1_200_000 })} />);
+    const body = () => screen.getByTestId('deposit-address-waiting-body');
+    expect(body()).toHaveTextContent('depositFlowExpiringBody {"countdown":"20:00"}');
+    act(() => {
+      jest.advanceTimersByTime(3_000);
+    });
+    expect(body()).toHaveTextContent('"countdown":"19:57"');
+    act(() => {
+      jest.advanceTimersByTime(1_300_000);
+    });
+    expect(body()).toHaveTextContent('"countdown":"0:00"');
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps the starting text in the strip while the bridge starts', () => {
+    render(<DepositAddressView {...props({ expiresAt: NOW + 60_000, status: { kind: 'starting' } })} />);
+    expect(screen.getByTestId('deposit-address-waiting-body')).toHaveTextContent('depositFlowStartingBody');
+  });
+
+  it('shows the "Address expires in" row in the extension and no own-address row for a provider address', () => {
+    render(<DepositAddressView {...props({ layout: 'extension', expiresAt: NOW + 292_000, ownAddress: false })} />);
+    const expiry = screen.getByTestId('deposit-address-expiry');
+    expect(expiry).toHaveTextContent('depositFlowAddressExpiresIn');
+    expect(expiry).toHaveTextContent('4:52');
+    act(() => {
+      jest.advanceTimersByTime(2_000);
+    });
+    expect(expiry).toHaveTextContent('4:50');
+    expect(screen.getByTestId('deposit-address-facts')).not.toHaveTextContent('depositFlowYourEvmAddress');
+  });
+
+  it('shows a memo with its copy and warning in both layouts', async () => {
+    jest.useRealTimers();
+    render(<DepositAddressView {...props({ memo: '123456' })} />);
+    expect(screen.getByTestId('deposit-address-memo')).toHaveTextContent('123456');
+    expect(screen.getByTestId('deposit-address-memo-warning')).toHaveTextContent('nearIntentsMemoWarning');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('deposit-address-memo-copy'));
+    });
+    expect(Clipboard.write).toHaveBeenCalledWith({ string: '123456' });
+    expect(hapticLight).toHaveBeenCalled();
+    cleanup();
+    render(<DepositAddressView {...props({ layout: 'extension', memo: '123456' })} />);
+    expect(screen.getByTestId('deposit-address-memo')).toHaveTextContent('123456');
+    expect(screen.getByTestId('deposit-address-memo-warning')).toBeInTheDocument();
+  });
+
+  it('hides the address, its QR code, its actions and the memo of an expired address, and reports nothing', () => {
+    const status = { kind: 'failed', title: 'Expired', reason: 'Get a new address', errorId: null, hideAddress: true };
+    render(<DepositAddressView {...props({ status: { ...status, kind: 'failed' }, memo: '123456' })} />);
+    expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('Expired');
+    for (const id of ['deposit-address-block', 'deposit-address-copy', 'deposit-address-qr', 'deposit-address-memo']) {
+      expect(screen.queryByTestId(id)).not.toBeInTheDocument();
+    }
+    expect(screen.getByTestId('deposit-address-amount')).toBeDisabled();
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+    cleanup();
+    render(<DepositAddressView {...props({ layout: 'extension', status: { ...status, kind: 'failed' } })} />);
+    expect(screen.queryByTestId('qr')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('deposit-address-copy-pill')).not.toBeInTheDocument();
+    expect(screen.getByTestId('deposit-address-network')).toHaveTextContent('Ethereum');
+  });
+
+  it('asks for the rest of a partial deposit when the route cannot deposit what arrived', () => {
+    render(
+      <DepositAddressView
+        {...props({ status: { kind: 'partial', received: { amount: '50' } }, onDepositReceived: undefined })}
+      />
+    );
+    expect(screen.getByTestId('deposit-address-partial')).toHaveTextContent('depositFlowPartialRestBody');
+    expect(screen.queryByTestId('deposit-address-partial-action')).not.toBeInTheDocument();
+  });
+
+  it('names only the expected amount when the received amount is not known', () => {
+    render(<DepositAddressView {...props({ status: { kind: 'partial' } })} />);
+    const notice = screen.getByTestId('deposit-address-partial');
+    expect(notice).toHaveTextContent('depositFlowPartialUnknownTitle {"expected":"70.25 USDC"}');
+    expect(notice).toHaveTextContent('depositFlowPartialRestBody');
+  });
+});

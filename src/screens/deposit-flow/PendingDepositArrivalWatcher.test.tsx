@@ -6,8 +6,11 @@ import type { RelayAccountQuery } from 'lib/evm-relay/client';
 import type { PendingRelayDeposit } from 'lib/evm-relay/pending-deposit';
 import { CHAIN, EXECUTOR, RELAY_ADDRESS, SALT, USDC } from 'lib/evm-relay/testing';
 import type { RelayAccount } from 'lib/evm-relay/types';
+import type { IOneClickPhase } from 'lib/miden/db/types';
 import { WalletStatus } from 'lib/shared/types';
+import { nearTrackingFixture } from 'screens/near-intents-flow/testing';
 
+import type { NearDepositRecord } from './near-pending-deposits';
 import {
   DEPOSIT_ARRIVAL_WATCH_MS,
   PendingDepositArrivalWatcher,
@@ -49,6 +52,21 @@ jest.mock('screens/send-flow/bridge-networks', () => ({ getBridgeNetworkByChainI
 jest.mock('./deposit-arrival-notice', () => ({
   showDepositArrivalNotice: (notice: unknown) => mockShowNotice(notice)
 }));
+let mockNearDeposits: NearDepositRecord[] = [];
+const mockUseNearDeposits = jest.fn();
+jest.mock('./near-pending-deposits', () => ({
+  ...jest.requireActual('./near-pending-deposits'),
+  useNearDeposits: (accountPublicKey: string | undefined, enabled: boolean) => {
+    mockUseNearDeposits(accountPublicKey, enabled);
+    return mockNearDeposits;
+  }
+}));
+
+const nearDeposit = (id: string, phase: IOneClickPhase): NearDepositRecord => ({
+  id,
+  startedAt: 1_000,
+  tracking: nearTrackingFixture({ phase })
+});
 
 const deposit = (id: string, overrides: Partial<PendingRelayDeposit> = {}): PendingRelayDeposit => ({
   id,
@@ -123,6 +141,7 @@ beforeEach(() => {
   mockPlatform.mobile = true;
   mockPlatform.extension = false;
   mockDeposits = [deposit('d1')];
+  mockNearDeposits = [];
   mockPathname = '/';
   mockWallet = { status: WalletStatus.Ready, currentAccount: { publicKey: 'mtst1account' } };
   mockRelayServed = true;
@@ -365,5 +384,58 @@ describe('PendingDepositArrivalWatcher', () => {
     await nextRead();
     expect(container).toBeEmptyDOMElement();
     expect(mockFetchRelayAccount).not.toHaveBeenCalled();
+    expect(mockUseNearDeposits).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendingDepositArrivalWatcher for NEAR Intents deposits', () => {
+  beforeEach(() => {
+    // No relay deposit: only the NEAR rows drive the notice.
+    mockDeposits = [];
+  });
+
+  it('announces a NEAR deposit once when 1Click sees its funds, with no network read', () => {
+    mockNearDeposits = [nearDeposit('row-1', 'pending-deposit')];
+    const view = render(<PendingDepositArrivalWatcher />);
+    expect(mockUseNearDeposits).toHaveBeenLastCalledWith('mtst1account', true);
+    expect(mockShowNotice).not.toHaveBeenCalled();
+
+    mockNearDeposits = [nearDeposit('row-1', 'processing')];
+    view.rerender(<PendingDepositArrivalWatcher />);
+    expect(mockShowNotice).toHaveBeenCalledTimes(1);
+    expect(mockShowNotice).toHaveBeenCalledWith({
+      title: 'appName',
+      body: 'depositFlowArrivalNotice',
+      path: '/receive/near-intents/row-1',
+      tag: 'deposit-arrived:row-1'
+    });
+
+    mockNearDeposits = [nearDeposit('row-1', 'arriving')];
+    view.rerender(<PendingDepositArrivalWatcher />);
+    expect(mockShowNotice).toHaveBeenCalledTimes(1);
+    expect(mockFetchRelayAccount).not.toHaveBeenCalled();
+  });
+
+  it('does not announce a deposit that 1Click had seen at the first read, or one that closed', () => {
+    mockNearDeposits = [nearDeposit('seen', 'processing'), nearDeposit('closing', 'pending-deposit')];
+    const view = render(<PendingDepositArrivalWatcher />);
+    mockNearDeposits = [nearDeposit('seen', 'delivered'), nearDeposit('closing', 'expired')];
+    view.rerender(<PendingDepositArrivalWatcher />);
+    expect(mockShowNotice).not.toHaveBeenCalled();
+  });
+
+  it('does not announce a deposit whose page is on screen', () => {
+    mockPathname = '/receive/near-intents/row-1';
+    mockNearDeposits = [nearDeposit('row-1', 'depositing')];
+    const view = render(<PendingDepositArrivalWatcher />);
+    mockNearDeposits = [nearDeposit('row-1', 'known-deposit-tx')];
+    view.rerender(<PendingDepositArrivalWatcher />);
+    expect(mockShowNotice).not.toHaveBeenCalled();
+  });
+
+  it('reads no NEAR rows while the wallet is locked', () => {
+    mockWallet = { status: WalletStatus.Locked, currentAccount: null };
+    render(<PendingDepositArrivalWatcher />);
+    expect(mockUseNearDeposits).toHaveBeenLastCalledWith(undefined, false);
   });
 });

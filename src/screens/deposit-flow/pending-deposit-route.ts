@@ -14,6 +14,14 @@ export function pendingDepositPath(id: string): string {
   return `${DEPOSIT_SCREEN_PATH}?${PENDING_DEPOSIT_PARAM}=${encodeURIComponent(id)}`;
 }
 
+/** The route prefix of the deposit page of a NEAR Intents tracking row (`/receive/near-intents/:rowId`). */
+export const NEAR_INTENTS_DEPOSIT_PATH = '/receive/near-intents';
+
+/** The deposit page of the NEAR Intents tracking row `rowId`: its address, its progress and its outcome. */
+export function nearIntentsDepositPath(rowId: string): string {
+  return `${NEAR_INTENTS_DEPOSIT_PATH}/${encodeURIComponent(rowId)}`;
+}
+
 /** True when `pathname` is the deposit screen. */
 export function isDepositScreenPath(pathname: string): boolean {
   return pathname === DEPOSIT_SCREEN_PATH || pathname.startsWith(`${DEPOSIT_SCREEN_PATH}/`);

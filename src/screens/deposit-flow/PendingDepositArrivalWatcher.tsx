@@ -15,7 +15,13 @@ import { useWalletStore } from 'lib/store';
 import { useLocation } from 'lib/woozie';
 
 import { showDepositArrivalNotice } from './deposit-arrival-notice';
-import { isDepositScreenPath, pendingDepositPath, servedPendingDeposits } from './pending-deposit-route';
+import { type NearDepositStage, nearDepositStageOf, useNearDeposits } from './near-pending-deposits';
+import {
+  isDepositScreenPath,
+  nearIntentsDepositPath,
+  pendingDepositPath,
+  servedPendingDeposits
+} from './pending-deposit-route';
 
 /** The time between two reads of the watcher. */
 export const DEPOSIT_ARRIVAL_WATCH_MS = 30_000;
@@ -82,22 +88,71 @@ function useDocumentVisible(): boolean {
  * that saw it not arrived. It reads every 30 seconds, only while the wallet is unlocked, a pending deposit exists on a
  * chain that the relay serves, the document is visible and the deposit screen is not open (that screen reads and
  * starts the bridge itself). It starts nothing. Mobile and the extension only: other platforms have no notice path.
+ *
+ * A NEAR Intents deposit gets the same notice when its tracking row moves from waiting to seen (`NearArrivalWatch`).
  */
 export const PendingDepositArrivalWatcher: FC = () => {
   if (!isMobile() && !isExtension()) return null;
   // The list read suspends once. The watcher draws nothing.
   return (
-    <Suspense fallback={null}>
-      <ArrivalWatch />
-    </Suspense>
+    <>
+      <Suspense fallback={null}>
+        <ArrivalWatch />
+      </Suspense>
+      <NearArrivalWatch />
+    </>
   );
+};
+
+/** The current account while the wallet is unlocked, else undefined. */
+function useReadyAccountPublicKey(): string | undefined {
+  return useWalletStore(state => (state.status === WalletStatus.Ready ? state.currentAccount?.publicKey : undefined));
+}
+
+/**
+ * The arrival notice of a NEAR Intents deposit. It follows the tracking rows of the current account through a Dexie
+ * live query and announces a deposit once when its phase moves from waiting (`depositing`, `pending-deposit`,
+ * `incomplete-deposit`) to seen (1Click saw the funds). The tracking loop (`reconcileOneClickSwaps`) writes the phase,
+ * so this makes no network read. The first read of a row only sets its start state, and the deposit page of a row on
+ * screen shows the change itself, so neither announces.
+ */
+const NearArrivalWatch: FC = () => {
+  const { t } = useTranslation();
+  const accountPublicKey = useReadyAccountPublicKey();
+  const deposits = useNearDeposits(accountPublicKey, accountPublicKey !== undefined);
+  const { pathname } = useLocation();
+  const pathnameRef = useRef(pathname);
+  // The last stage of each row id.
+  const stageById = useRef(new Map<string, NearDepositStage>());
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  });
+
+  useEffect(() => {
+    for (const record of deposits) {
+      const stage = nearDepositStageOf(record.tracking.phase);
+      const before = stageById.current.get(record.id);
+      stageById.current.set(record.id, stage);
+      if (stage !== 'seen' || before !== 'waiting' || announcedDepositIds.has(record.id)) continue;
+      const path = nearIntentsDepositPath(record.id);
+      if (pathnameRef.current === path) continue;
+      announcedDepositIds.add(record.id);
+      showDepositArrivalNotice({
+        title: t('appName'),
+        body: t('depositFlowArrivalNotice'),
+        path,
+        tag: `deposit-arrived:${record.id}`
+      });
+    }
+  }, [deposits, t]);
+
+  return null;
 };
 
 const ArrivalWatch: FC = () => {
   const { t } = useTranslation();
-  const accountPublicKey = useWalletStore(state =>
-    state.status === WalletStatus.Ready ? state.currentAccount?.publicKey : undefined
-  );
+  const accountPublicKey = useReadyAccountPublicKey();
   const deposits = usePendingRelayDeposits(accountPublicKey);
   const snapshot = useBridgeConfigSnapshot({ load: false });
   const { pathname } = useLocation();
