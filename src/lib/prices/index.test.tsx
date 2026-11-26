@@ -64,7 +64,10 @@ jest.mock('./basket-nav', () => ({
   fetchBasketPrices: jest.fn(async () => ({}))
 }));
 jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
-jest.mock('./display-feed', () => ({ writeDisplayFeed: jest.fn(async () => undefined) }));
+jest.mock('./display-feed', () => ({
+  ...jest.requireActual('./display-feed'),
+  writeDisplayFeed: jest.fn(async () => undefined)
+}));
 
 // The list key while no list has loaded (`peekPriceListKey` with every peek null).
 const NO_LIST_KEY = JSON.stringify([null, null, null, null]);
@@ -393,7 +396,7 @@ describe('PriceProvider', () => {
       }
     });
     render(<PriceProvider />);
-    expect(writeDisplayFeed).toHaveBeenCalledWith('testnet', exchange, ['GC']);
+    expect(writeDisplayFeed).toHaveBeenCalledWith('testnet', exchange, ['GC'], NO_LIST_KEY);
     // The first prices write is the key-change clear; the run's prices come before the status.
     expect(order.slice(-2)).toEqual(['prices', 'status']);
   });

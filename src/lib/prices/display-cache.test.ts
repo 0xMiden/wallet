@@ -1,11 +1,47 @@
+import { createElement, type ReactNode } from 'react';
+
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { SWRConfig } from 'swr';
+
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
 import type { TokenPriceInfo } from './binance';
-import { readCachedDisplayQuotes, selectDisplayQuotes } from './display-cache';
-import { _resetDisplayFeedForTest } from './display-feed';
+import {
+  primeCachedDisplayQuotes,
+  readCachedDisplayQuotes,
+  selectDisplayQuotes,
+  useCachedDisplayQuotes
+} from './display-cache';
+import { _resetDisplayFeedForTest, peekPriceListKey } from './display-feed';
 
 jest.mock('lib/miden/front/storage', () => ({ fetchFromStorage: jest.fn() }));
+// The network and list revision a mounted reader subscribes to.
+let mockNetwork = 'mainnet';
+let mockListKey: string | undefined = '';
+const mockBridgeListeners = new Set<() => void>();
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
+jest.mock('lib/remote-config/runtime', () => ({
+  subscribeBridgeConfig: (listener: () => void) => {
+    mockBridgeListeners.add(listener);
+    return () => mockBridgeListeners.delete(listener);
+  }
+}));
+jest.mock('lib/token-list/useLoadedList', () => ({ useLoadedList: () => mockListKey }));
+const mockPriceAssets = new Map([['mtst1blue', 'BLUEDW']]);
+jest.mock('lib/token-list/runtime', () => ({
+  peekTokenPriceAssets: () => mockPriceAssets,
+  peekTokenBaskets: () => null,
+  peekTokenDecimals: () => null,
+  peekTokenSymbols: () => null,
+  loadTokenPriceAssets: async () => mockPriceAssets
+}));
+
+beforeEach(() => {
+  mockNetwork = 'mainnet';
+  mockListKey = '';
+  _resetDisplayFeedForTest();
+});
 
 it('returns cached market prices up to a day old without inventing a daily change', async () => {
   const now = 1_000_000;
@@ -74,7 +110,7 @@ it('keeps the newer of a stored basket quote and a market-cache entry', async ()
     jest
       .mocked(fetchFromStorage)
       .mockImplementation(async key =>
-        key === feedKey ? { fetchedAt: basketAt * 1000, baskets: { ETH: 2.5 }, unquoted: [] } : market
+        key === feedKey ? { fetchedAt: basketAt * 1000, baskets: { ETH: 2.5 }, unquoted: [], listKey: '' } : market
       );
     return readCachedDisplayQuotes(now);
   };
@@ -87,4 +123,42 @@ it('keeps the newer of a stored basket quote and a market-cache entry', async ()
     price: 100,
     kind: 'market'
   });
+});
+
+it('serves the basket stored for the subscribed network and list', async () => {
+  // Seconds old: the reader compares against whole seconds.
+  const fetchedAt = Date.now() - 5_000;
+  const feeds: Record<string, unknown> = {
+    'display_feed_v1:mainnet': { fetchedAt, baskets: { BLUEDW: 2 }, unquoted: [], listKey: 'list-a' },
+    'display_feed_v1:testnet': { fetchedAt, baskets: { BLUEDW: 9 }, unquoted: [], listKey: 'list-a' }
+  };
+  jest.mocked(fetchFromStorage).mockImplementation(async key => feeds[key]);
+  mockListKey = 'list-a';
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+  const { result, rerender } = renderHook(() => useCachedDisplayQuotes(), { wrapper });
+  await waitFor(() => expect(result.current?.BLUEDW?.price).toBe(2));
+
+  mockNetwork = 'testnet';
+  act(() => mockBridgeListeners.forEach(listener => listener()));
+  await waitFor(() => expect(result.current?.BLUEDW?.price).toBe(9));
+
+  mockListKey = 'list-b';
+  rerender();
+  await waitFor(() => expect(result.current?.BLUEDW).toBeUndefined());
+});
+
+it('primes the key a mounted reader reads, so its first frame has the stored quotes', async () => {
+  const listKey = peekPriceListKey('mainnet') ?? '';
+  mockListKey = listKey;
+  const fetchedAt = Date.now() - 5_000;
+  jest
+    .mocked(fetchFromStorage)
+    .mockImplementation(async key =>
+      key === 'display_feed_v1:mainnet' ? { fetchedAt, baskets: { BLUEDW: 3 }, unquoted: [], listKey } : undefined
+    );
+  await primeCachedDisplayQuotes(() => true);
+  jest.mocked(fetchFromStorage).mockImplementation(() => new Promise(() => {}));
+  const { result } = renderHook(() => useCachedDisplayQuotes());
+  expect(result.current?.BLUEDW?.price).toBe(3);
 });

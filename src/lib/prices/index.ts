@@ -6,19 +6,13 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
-import {
-  loadTokenPriceAssets,
-  peekTokenBaskets,
-  peekTokenDecimals,
-  peekTokenPriceAssets,
-  peekTokenSymbols
-} from 'lib/token-list/runtime';
+import { peekTokenBaskets, peekTokenDecimals, peekTokenSymbols } from 'lib/token-list/runtime';
 import { useLoadedList } from 'lib/token-list/useLoadedList';
 
 import { basketKlines } from './basket';
 import { basketPriceSources, fetchBasketPrices } from './basket-nav';
 import type { KlineSeries, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
-import { writeDisplayFeed } from './display-feed';
+import { loadPriceListKey, peekPriceListKey, writeDisplayFeed } from './display-feed';
 import { fetchKlineData, fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { writeUsdPriceCache } from './usd';
 
@@ -81,31 +75,6 @@ export function useBasketSparkline(quote: TokenPriceInfo | undefined, prices: To
   }, [composition, candlesBySymbol, price, prices]);
 }
 
-function entries<T>(map: Map<string, T> | null | undefined): [string, T][] | null | undefined {
-  return map ? Array.from(map) : map;
-}
-
-/**
- * Everything the price fetch reads from the loaded list (price assets, baskets, decimals and token symbols), as one
- * string, or undefined before the first load. A refresh that changes any of them changes this key, so the fetch runs
- * again.
- */
-function peekPriceListKey(network: string): string | undefined {
-  const assets = peekTokenPriceAssets(network);
-  if (assets === undefined) return undefined;
-  return JSON.stringify([
-    entries(assets),
-    entries(peekTokenBaskets(network)),
-    entries(peekTokenDecimals(network)),
-    entries(peekTokenSymbols(network))
-  ]);
-}
-
-async function loadPriceListKey(network: string): Promise<string | undefined> {
-  await loadTokenPriceAssets(network);
-  return peekPriceListKey(network);
-}
-
 const sameKey = (a: string | undefined, b: string | undefined): boolean => a === b;
 
 /**
@@ -162,7 +131,7 @@ export function PriceProvider() {
       // is what keeps the cache warm enough that the backend rarely fetches on the send path.
       // The cache keeps `market` quotes only: a basket's value is for display and never values a spend.
       writeUsdPriceCache(prices.prices).catch(() => undefined);
-      writeDisplayFeed(network, { ...prices.basketPrices, ...prices.prices }, prices.unquoted ?? []).catch(
+      writeDisplayFeed(network, { ...prices.basketPrices, ...prices.prices }, prices.unquoted ?? [], listKey).catch(
         () => undefined
       );
     }

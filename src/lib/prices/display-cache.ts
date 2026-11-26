@@ -1,14 +1,20 @@
+import { useSyncExternalStore } from 'react';
+
 import { mutate } from 'swr';
 
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useRetryableSWR } from 'lib/swr';
+import { useLoadedList } from 'lib/token-list/useLoadedList';
 
 import type { TokenPriceInfo, TokenPrices } from './binance';
-import { DISPLAY_QUOTE_MAX_AGE_MS, readDisplayFeed } from './display-feed';
+import { DISPLAY_QUOTE_MAX_AGE_MS, loadPriceListKey, peekPriceListKey, readDisplayFeed } from './display-feed';
 import { PRICE_CACHE_STORAGE_KEY, USD_SCALE } from './usd';
 
 const DISPLAY_CACHE_KEY = 'cached-display-market-quotes';
+const displayCacheKey = (network: string, listKey: string) => [DISPLAY_CACHE_KEY, network, listKey];
+const sameKey = (a: string | undefined, b: string | undefined): boolean => a === b;
 
 function usableObservedAt(quote: TokenPriceInfo, now: number): number | undefined {
   if (quote.kind !== 'market' && quote.kind !== 'basket') return undefined;
@@ -44,11 +50,18 @@ export function selectDisplayQuotes(live: TokenPrices, cached: TokenPrices | und
   return selected ?? live;
 }
 
-/** A display-only view of the market cache and the last feed's basket values. It never authorizes a spend. */
-export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000)): Promise<TokenPrices> {
+/**
+ * A display-only view of the market cache and the last feed's basket values on `network` under list revision
+ * `listKey`. It never authorizes a spend.
+ */
+export async function readCachedDisplayQuotes(
+  now = Math.floor(Date.now() / 1000),
+  network = getEffectiveNetworkName(),
+  listKey = ''
+): Promise<TokenPrices> {
   const [cache, baskets] = await Promise.all([
     fetchFromStorage<Record<string, { priceMicro: string; fetchedAt: number }>>(PRICE_CACHE_STORAGE_KEY),
-    readDisplayFeed(getEffectiveNetworkName(), now * 1000)
+    readDisplayFeed(network, now * 1000, listKey)
   ]);
   const quotes: TokenPrices = { ...baskets };
   for (const [symbol, entry] of Object.entries(cache ?? {})) {
@@ -72,15 +85,27 @@ export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000
   return quotes;
 }
 
+/** Fills the key `useCachedDisplayQuotes` reads for the current network and its loaded list revision. */
 export async function primeCachedDisplayQuotes(isCurrent: () => boolean): Promise<void> {
-  const quotes = await readCachedDisplayQuotes();
-  if (isCurrent()) await mutate(DISPLAY_CACHE_KEY, quotes, { revalidate: false });
+  const network = getEffectiveNetworkName();
+  const listKey = (await loadPriceListKey(network)) ?? '';
+  if (!isCurrent()) return;
+  const quotes = await readCachedDisplayQuotes(undefined, network, listKey);
+  if (isCurrent()) await mutate(displayCacheKey(network, listKey), quotes, { revalidate: false });
 }
 
 export function useCachedDisplayQuotes(): TokenPrices | undefined {
-  return useRetryableSWR(DISPLAY_CACHE_KEY, () => readCachedDisplayQuotes(), {
-    suspense: false,
-    shouldRetryOnError: false,
-    refreshInterval: 60_000
-  }).data;
+  const network = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
+  const listKey = useLoadedList(network, loadPriceListKey, peekPriceListKey, sameKey) ?? '';
+  return useRetryableSWR(
+    displayCacheKey(network, listKey),
+    () => readCachedDisplayQuotes(undefined, network, listKey),
+    {
+      suspense: false,
+      shouldRetryOnError: false,
+      refreshInterval: 60_000,
+      // A network or list change keeps the last quotes for the one storage read, rather than dropping every one.
+      keepPreviousData: true
+    }
+  ).data;
 }
