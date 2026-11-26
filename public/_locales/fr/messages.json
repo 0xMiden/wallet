@@ -3669,10 +3669,6 @@
     "message": "Réseau Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Changer de réseau",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Fournisseur",
     "englishSource": "Provider"
@@ -3696,6 +3692,19 @@
   "commandBridgeTo": {
     "message": "À",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "via $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Aucun jeton trouvé",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Actif, réseau et fournisseur",

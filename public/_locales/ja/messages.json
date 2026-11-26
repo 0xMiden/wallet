@@ -3669,10 +3669,6 @@
     "message": "Midenネットワーク",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "ネットワークの変更",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "プロバイダー",
     "englishSource": "Provider"
@@ -3696,6 +3692,19 @@
   "commandBridgeTo": {
     "message": "To",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "$provider$経由",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "トークンが見つかりません",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "資産、ネットワーク、プロバイダー",
