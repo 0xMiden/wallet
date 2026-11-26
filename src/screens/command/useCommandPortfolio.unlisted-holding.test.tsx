@@ -184,7 +184,7 @@ async function landUserState(held = [row(MICO_FAUCET, 'MICO', 4, '125000')]): Pr
   ]);
 }
 
-const frames: { value: string | null; status: string; coverage: string }[] = [];
+const frames: { value: string | null; status: string | undefined; coverage: string }[] = [];
 function Probe() {
   const portfolio = useCommandPortfolio(SCOPE);
   const status = useWalletStore(state => state.tokenPricesStatus);
