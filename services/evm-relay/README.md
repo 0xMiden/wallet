@@ -1,18 +1,19 @@
 # EVM relay
 
-This Worker relays signed EVM batches for the relay addresses of the wallet. A relay address is an EOA that the wallet derives and that delegates to Uniswap Calibur through EIP-7702. The wallet puts the calls that it must send in a Calibur "signed batched call" and signs the batch with the key of the relay address. The Worker checks the batch, simulates it, and submits it from its relayer account, which pays the gas. In `deduct` mode, the last call of the batch pays a fixed token fee to a fee recipient.
+This Worker relays signed EVM batches for the relay addresses of the wallet. A relay address is an EOA that the wallet derives and that delegates to Uniswap Calibur through EIP-7702. The wallet puts the calls that it must send in a Calibur "signed batched call" and signs the batch with the key of the relay address. The Worker checks the batch, simulates it, and submits it from its relayer account, which pays the gas. In `deduct` mode, the last call of the batch pays a fee to a fee recipient: the simulated gas cost of the batch, priced in a fee token (see Fee rule). The wallet asks `POST /v1/quote` for that fee before it signs.
 
 This Worker is separate from `services/wallet-api`. The wallet-api Worker stores encrypted backups, and it must not share a deploy with a funded key.
 
 ## State of this service
 
-The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the served chains read, the account read, the relay routes and the Sender Durable Object with its timer. The deploy workflow is `.github/workflows/deploy-evm-relay.yml` (see Deployment).
+The service contains the config parse, the router, CORS, the error bodies, the rate limits, `/healthz`, the served chains read, the account read, the quote, the price source, the relay routes and the Sender Durable Object with its timer. The deploy workflow is `.github/workflows/deploy-evm-relay.yml` (see Deployment).
 
 | Route | State |
 | --- | --- |
 | `GET /healthz` | Implemented |
 | `GET /v1/chains` | Implemented |
 | `GET /v1/account` | Implemented |
+| `POST /v1/quote` | Implemented |
 | `POST /v1/relay` | Implemented |
 | `GET /v1/relay/{id}` | Implemented |
 
@@ -27,12 +28,17 @@ The service contains the config parse, the router, CORS, the error bodies, the r
 | `src/parse.ts` | The strict parse helpers of the config and the request bodies |
 | `src/rate-limit.ts` | The read and relay rate limits per caller IP and per address |
 | `src/secrets.ts` | The relayer address from `RELAYER_PRIVATE_KEY`, and the `RPC_URL_<chainId>` of a chain |
-| `src/chain.ts` | The chain reader (the account reads and the relay read, in JSON-RPC batches), the receipt and fee reads of the Sender, and the broadcast |
+| `src/chain.ts` | The chain reader (the account reads, the quote read and the relay read, in JSON-RPC batches, and the cache of token decimals), the receipt and fee reads of the Sender, and the broadcast |
+| `src/fee.ts` | The fee rule in integers: the price parse, the exact fee, the quoted fee and the lowest accepted fee, and the named margins |
+| `src/prices.ts` | The USD prices: Binance, then Kraken, kept in isolate memory and in the Workers Cache API |
+| `src/pricing.ts` | The fee step of the quote and relay routes: the prices of the chain's native coin and the fee token, then the fee rule |
+| `src/quote-gas.ts` | The gas of a quote: the self-call batch, the calibration batch and the named overhead constants |
 | `src/sender.ts` | `RelaySender`: the nonce, the signature, the stored row, the broadcast and the timer. Also the route's Sender client |
 | `src/sender-object.ts` | `RelaySenderObject`: the Durable Object that wraps `RelaySender` and runs its alarm |
 | `src/routes/health.ts` | `/healthz` |
 | `src/routes/chains.ts` | `GET /v1/chains` |
 | `src/routes/account.ts` | `GET /v1/account` |
+| `src/routes/quote.ts` | `POST /v1/quote` |
 | `src/routes/relay.ts` | `POST /v1/relay` |
 | `src/routes/relay-status.ts` | `GET /v1/relay/{id}` |
 | `src/http.ts` | Responses, body read with the 64 KiB cap, CORS |
@@ -47,9 +53,9 @@ The source is TypeScript. Wrangler bundles it directly, with no build step. Requ
 | --- | --- | --- |
 | `ALLOWED_ORIGINS` | Worker variable | JSON array of exact allowed origins, no wildcard. `[]` refuses every request that sends an `Origin` header |
 | `DEPLOYMENT_REVISION` | Worker variable | The source commit that `/healthz` reports |
-| `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each batch pays a fixed token fee to `feeRecipient` |
+| `GAS_MODE` | Worker variable | `sponsor`: the relayer pays the gas. `deduct`: each batch pays its simulated gas cost, priced in a fee token, to `feeRecipient` |
 | `RELAY_CONFIG` | Worker variable | JSON of the Calibur pin, the fee recipient and the values that are different on each chain, below |
-| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/chains`, `GET /v1/account` and `GET /v1/relay/{id}`. `GET /v1/account` also counts on the key `read-address:<address>`, so all callers of one address share one budget |
+| `READ_RATE_LIMIT` | Rate limit binding | About 60 requests per caller IP per 60 seconds, on the key `read:<CF-Connecting-IP>`. Counts `GET /v1/chains`, `GET /v1/account`, `POST /v1/quote` and `GET /v1/relay/{id}`. `GET /v1/account` and `POST /v1/quote` also count on the key `read-address:<address>`, so all callers of one address share one budget |
 | `RELAY_RATE_LIMIT` | Rate limit binding | About 10 requests per caller IP per 60 seconds, on the key `relay:<CF-Connecting-IP>`. Counts `POST /v1/relay`. A relay that passes the signature checks also counts on the key `relay-address:<evmAddress>` |
 | `RELAY_SENDER` | Durable Object binding | The class `RelaySenderObject`, with SQLite storage (migration `v1`, `new_sqlite_classes`). One object per chain, named by the decimal chain id |
 | `RELAYER_PRIVATE_KEY` | Worker secret | The key of the relayer account, `0x` and 64 hex characters. The relayer executes the batches and pays the gas. The Worker derives the `executor` address from it, and the Sender signs the relay transactions with it. The Worker never logs it |
@@ -59,7 +65,7 @@ The committed `wrangler.jsonc` holds placeholders: `ALLOWED_ORIGINS` is `[]`, `D
 
 ### Served chains
 
-The Worker serves exactly the chains that have an `RPC_URL_<chainId>` secret. There is no second chain list. Every EVM chain uses the same Uniswap Calibur at the same address and the same relayer key, so `RELAY_CONFIG` has one Calibur pin and one fee recipient for all chains. Its optional `chains` object holds only the values that are different on each chain: the fees (token addresses are different on each chain) and the allowed targets (contract addresses are different on each chain). A served chain without an entry in `chains` has no fee and no target list. A request for a chain without an RPC URL gets `unsupported_chain`, also when `chains` has an entry for it.
+The Worker serves exactly the chains that have an `RPC_URL_<chainId>` secret. There is no second chain list. Every EVM chain uses the same Uniswap Calibur at the same address and the same relayer key, so `RELAY_CONFIG` has one Calibur pin and one fee recipient for all chains. Its optional `chains` object holds only the values that are different on each chain: the price symbol of the native coin, the fee tokens (token addresses are different on each chain) and the allowed targets (contract addresses are different on each chain). A served chain without an entry in `chains` has no price, no fee token and no target list. A request for a chain without an RPC URL gets `unsupported_chain`, also when `chains` has an entry for it.
 
 `RELAY_CONFIG` has this shape:
 
@@ -67,9 +73,18 @@ The Worker serves exactly the chains that have an `RPC_URL_<chainId>` secret. Th
 { "calibur": { "address": "0x<40 hex>", "runtimeHash": "0x<64 hex>", "domainName": "Calibur", "domainVersion": "1.0.0" },
   "feeRecipient": "0x<40 hex>",
   "chains": { "<chainId as decimal string>": {
-    "fees": { "0x<token address; zero address = native coin>": "<positive decimal integer>" },
+    "nativePrice": "<market symbol of the native coin against USD, for example ETHUSDT, or usd>",
+    "feeTokens": { "0x<ERC-20 token address>": "<market symbol of the token against USD, or usd>" },
     "allowedTargets": ["0x<40 hex>"]
 } } }
+```
+
+For example, a `deduct` setup on Base that takes the fee in the native coin and in USDC:
+
+```json
+{ "calibur": { "…": "the pin" },
+  "feeRecipient": "0x<40 hex>",
+  "chains": { "8453": { "nativePrice": "ETHUSDT", "feeTokens": { "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "usd" } } } }
 ```
 
 For example, a `sponsor` setup for Base only, with no target list, is this `RELAY_CONFIG` and the secret `RPC_URL_8453`:
@@ -80,25 +95,27 @@ For example, a `sponsor` setup for Base only, with no target list, is this `RELA
 
 The parse is strict. It refuses an unknown field and a missing field, and it lower-cases every address and hash.
 
-- `calibur` is required. `feeRecipient` and `chains` are optional. An entry of `chains` has only the optional fields `fees` and `allowedTargets`, so `{}` is a valid entry.
+- `calibur` is required. `feeRecipient` and `chains` are optional. An entry of `chains` has only the optional fields `nativePrice`, `feeTokens` and `allowedTargets`, so `{}` is a valid entry. The old `fees` table is an unknown field and is refused.
 - A chain id (a key of `chains`, and the suffix of each `RPC_URL_` secret) is a positive decimal safe integer with no leading zero. An `RPC_URL_` secret with another suffix is a config error.
-- An address is 20 bytes of hex. Only a key of `fees` can be the zero address, which means the native coin.
+- An address is 20 bytes of hex, and never the zero address.
 - A hash is 32 bytes of hex. `domainName` and `domainVersion` are non-empty strings.
-- `fees` maps a token to its fee in base units: a decimal string above 0 and below 2^256. A token occurs one time only, in any case. No `fees` is the same as `{}`. The Worker keeps the config order.
+- A price symbol is `usd` or 5 to 20 characters of `A-Z0-9`. `usd` is a USD stablecoin, priced at 1 USD with no price request (for example USDC, or the native coin of Arc). Any other symbol is a market symbol of the price sources against USD, in the Binance form: `ETHUSDT`, `POLUSDT`, `BTCUSDC` (see Prices).
+- `nativePrice` is the price symbol of the chain's native coin.
+- `feeTokens` maps an ERC-20 token to its price symbol. A token occurs one time only, in any case. The zero address is refused: the native coin is always a fee token in `deduct` mode, and needs no price. No `feeTokens` is the same as `{}`: the chain then takes the fee in the native coin only. The Worker keeps the config order.
 - `allowedTargets` is a non-empty list of distinct addresses that are not the zero address. Without it, a call can go to any address.
-- When `GAS_MODE` is `deduct`, `feeRecipient` is required, and every served chain needs an entry with at least one token in `fees`.
+- When `GAS_MODE` is `deduct`, `feeRecipient` is required, and every served chain needs an entry with `nativePrice`. In `sponsor` mode the parse checks `nativePrice` and `feeTokens` when they are present, and the Worker does not use them.
 - The parse checks the entry of a chain without an RPC URL, but the Worker does not serve that chain. The release check refuses such an entry (see Release check).
 - No `chains`, and no `RPC_URL_` secret, are valid. With no `RPC_URL_` secret, the Worker serves no chain.
 
 ### No bridge code
 
-The Worker does not know a bridge. A bridge flow in the wallet gives the transactions that it must send (`to`, `value`, `data`). The wallet puts them in a batch as calls, signs the batch and sends the calls in the relay request. The Worker relays the calls as the request sends them, in the same order, and never builds a call. It checks only rules that do not depend on a bridge: the signature, the nonce key, the deadline, the fee call in `deduct` mode, and `allowedTargets` when the chain has it. A new bridge thus needs no change to the Worker; if the chain has `allowedTargets`, add the contracts of the bridge to the list.
+The Worker does not know a bridge. A bridge flow in the wallet gives the transactions that it must send (`to`, `value`, `data`). The wallet puts them in a batch as calls, signs the batch and sends the calls in the relay request. The Worker relays the calls as the request sends them, in the same order, and never builds a call of a relay. (The quote adds a fee call of 1 base unit to the calls for its simulation only.) It checks only rules that do not depend on a bridge: the signature, the nonce key, the deadline, the fee call in `deduct` mode, and `allowedTargets` when the chain has it. A new bridge thus needs no change to the Worker; if the chain has `allowedTargets`, add the contracts of the bridge to the list.
 
 In `sponsor` mode a chain without `allowedTargets` (also a served chain without a `chains` entry) pays the gas of any batch that a relay address signs, whatever its calls do. The rate limits are then the only bound on that cost. Set `allowedTargets` in the `chains` entry of a `sponsor` chain to limit the gas to the calls of known contracts.
 
 `/healthz` answers `200 {"ok":true,"revision":"<DEPLOYMENT_REVISION>"}` when the variables parse, both rate limit bindings and the `RELAY_SENDER` binding are present, `RELAYER_PRIVATE_KEY` is a valid key and the `RPC_URL_<chainId>` of each served chain is an HTTP(S) URL. Else it answers `503` with `ok: false`. It never puts a variable or a secret in its body.
 
-The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, `evm-relay: cancelled nonce <nonce> on chain <chainId> after its deadline, attempt <n>.` for each cancel transaction, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
+The Worker writes logs, with invocation logs off. `GET /v1/account` writes one line when the chain does not hold the pinned Calibur code or the signing domain is not the expected one; the line has no request data. `POST /v1/quote` and `POST /v1/relay` write one fixed line when a fee token does not answer `decimals()` (or answers more than 36), and the quote route when its calibration batch fails in simulation (`evm-relay: The quote calibration batch fails in simulation.`). The price source writes `evm-relay: the price source <binance|kraken> failed.`, `evm-relay: the price source <source> does not know the symbol <symbol>.` (a config error: fix the symbol), `evm-relay: the price source <source> gave a price that is not valid for <symbol>.` and `evm-relay: no price for <symbols>.`; these lines name a source and symbols only, never a URL or the error text of a source. `POST /v1/relay` writes `evm-relay: the relayer account cannot pay the gas on chain <chainId>.` when it answers `relayer_unfunded`. The Sender timer writes `evm-relay: replaced the fee of nonce <nonce> on chain <chainId>, attempt <n>.` for each fee replacement, `evm-relay: cancelled nonce <nonce> on chain <chainId> after its deadline, attempt <n>.` for each cancel transaction, and `evm-relay: a Sender tick failed on chain <chainId>.` when a tick fails. The Worker never logs a request body, a signature, an authorization, signed transaction bytes or an RPC URL.
 
 ## Account read
 
@@ -111,6 +128,117 @@ One call thus makes two HTTP requests to the RPC, cold or warm. A failed request
 
 The 200 response has `Cache-Control: private, max-age=5`, so the browser of the caller can reuse it for 5 seconds. The Worker keeps no shared cache of the response: the Cloudflare documentation does not confirm that the Cache API works on a `workers.dev` hostname ("Workers deployed to custom domains have access to functional `cache` operations").
 
+## Fee rule
+
+`deduct` mode only. The fee of a batch is its gas cost in the native coin, priced in the fee token (`src/fee.ts`):
+
+```
+cost(native) = gas × maxFeePerGas                                      wei
+fee(token)   = cost × price(native in USD) ÷ price(token in USD)       token base units, rounded up
+```
+
+- `maxFeePerGas` is the value that the Sender signs with now: `2 × base fee of the next block + eth_maxPriorityFeePerGas` (`maxFeeOf`).
+- A fee in the native coin is the cost in wei and needs no price. A token's decimals come from its `decimals()`, read in the same JSON-RPC batch as the other chain reads and then kept in isolate memory without expiry (decimals do not change). The native coin has 18. A token that does not answer `decimals()`, or answers more than 36, gives `503 service_unavailable` and a log line.
+- The arithmetic is in integers only. A price arrives as decimal text and is read as an integer and a power of ten. The fee stays one exact fraction until the last step, which rounds up. No step multiplies a token amount by a float.
+- **Quote:** `fee × (1 + QUOTE_MARGIN)`, with `QUOTE_MARGIN` 15 %, rounded up once, and at least 1 base unit. `gas` is the quote gas (see Quote).
+- **Relay:** the signed fee must be at least `fee(relay estimate) × (1 − FEE_TOLERANCE)`, with `FEE_TOLERANCE` 5 %, rounded up. The relay estimate is the route's own `eth_estimateGas` of the signed `execute`; the fee pays for the estimate, not for the gas limit (the estimate plus 20 %).
+
+So a quote passes the relay check for any relay estimate up to `quote gas × 115 / 95` (about +21 %) at the same gas price.
+
+Worked example (the test `fee.test.ts` has the same numbers): gas 250 000, base fee 0.02 gwei and priority fee 0.001 gwei, so `maxFeePerGas` = 0.041 gwei = 41 000 000 wei; `ETHUSDT` at `3456.78`; USDC (6 decimals) at `usd`.
+
+```
+cost   = 250 000 × 41 000 000                       = 10 250 000 000 000 wei (0.00001025 ETH)
+fee    = 0.00001025 ETH × 3456.78 USD ÷ 1 USD × 10^6 = 35 431.995 base units
+quote  = ⌈35 431.995 × 1.15⌉                         = 40 747 (0.040747 USDC)
+lowest = ⌈35 431.995 × 0.95⌉                         = 33 661 (what the relay route accepts at the same gas and gas price)
+```
+
+## Prices
+
+`src/prices.ts` gives the USD price of each market symbol that a fee needs: the native coin's `nativePrice` and the fee token's symbol, without the `usd` ones. A fee in the native coin, or a fee in a `usd` token on a `usd` chain, needs none.
+
+1. A kept price that is not older than `PRICE_CACHE_SECONDS` (45) is used with no request. The Worker keeps each price in isolate memory and in the Workers Cache API (key `https://evm-relay-prices.invalid/v1/<symbol>`, kept for `PRICE_STALE_SECONDS`). The memory layer is there because the Cloudflare documentation does not confirm that the Cache API works on a `workers.dev` hostname; with no working Cache API, each isolate keeps its own prices.
+2. The symbols without a young price go to Binance in one request: `GET https://data-api.binance.vision/api/v3/ticker/price?symbols=["ETHUSDT",…]` (the host of the wallet's own price feed, `src/lib/prices/binance.ts`).
+3. The symbols that Binance does not give (a failure, a time-out of 3 seconds, an unknown symbol, a price that is not valid) go to Kraken in one request: `GET https://api.kraken.com/0/public/Ticker?pair=ETHUSD,…`. The Kraken pair is the base asset of the symbol against USD (`ETHUSDT` → `ETHUSD`, `BTCUSDC` → `XBTUSD`); Kraken can answer under its canonical name (`XETHZUSD`), and the Worker takes both forms. A symbol that does not end in `USDT` or `USDC` has no Kraken fallback.
+4. When both sources fail for a symbol, a kept price that is not older than `PRICE_STALE_SECONDS` (300) is used. Else the route answers `503 price_unavailable`. The Worker never guesses a price.
+
+A price is accepted only as plain decimal text above 0 (at most 30 integer digits and 18 fraction digits, no sign, no exponent). A symbol that a source does not know is a config error: the Worker writes a log line that names the source and the symbol, and the caller gets `price_unavailable` when no other source gives it. Binance does not say which symbol of a list it does not know, so with two symbols the line names both.
+
+## Quote
+
+`POST /v1/quote` charges the caller IP (`read:<CF-Connecting-IP>`), parses the config (`503 service_unavailable` when it does not parse), answers `400 fee_not_needed` in `sponsor` mode before it reads the body, then reads the body with the 64 KiB cap and parses it strictly (`invalid_request`). Then it checks the chain (`unsupported_chain`), that `evmAddress` is not the relayer (`invalid_request`), the fee token (`fee_token_not_accepted`: not the native coin and not in `feeTokens`), and `allowedTargets` for each call of the request (`target_not_allowed`), charges the address (`read-address:<evmAddress>`), and reads the chain in one JSON-RPC batch (8 seconds):
+
+1. `eth_getCode` of the address (does it delegate?), `eth_feeHistory` and `eth_maxPriorityFeePerGas`.
+2. The estimate of the batch as the address itself (below).
+3. Three estimates of the calibration batch (below).
+4. `decimals()` of the fee token, when it is an ERC-20 that the isolate does not know yet.
+
+A revert of the batch estimate gives `409 simulation_failed`. Any RPC error, also a node that refuses a state override in `eth_estimateGas`, gives `502 rpc_unavailable`. A revert of the calibration batch gives `503 service_unavailable` and a log line. Then the route prices the quote gas (Fee rule, Prices) and answers. The quote is not stored and not signed: the relay route decides again from its own simulation.
+
+### Quote gas
+
+At quote time the batch has no signature, so the Worker cannot simulate the real relay transaction, `execute(SignedBatchedCall, signature)` from the relayer. `src/quote-gas.ts` builds the quote gas from two simulations and named constants:
+
+- **The batch as the address itself.** `eth_estimateGas` of `execute(BatchedCall)` (selector `0x99e1d016`, in the pinned Calibur runtime code) from the address to the address, with the calls of the request and a fee call of 1 base unit at the end, and a state override that puts the delegation to the pinned Calibur on the address (as the relay read's `getSeq` does). Calibur takes this self-call with the root key (`msg.sender == address(this)`) and runs each call with the address as `msg.sender`, as the signed path does. The estimate has no gas price, so the address needs no native coin for it.
+- **The calibration batch.** The Worker's own calibration account (a random key of the isolate: new, empty, nonce 0) signs an empty batch with sequence 0 and the largest deadline. The batch measures the self-call (with the delegation override), the signed `execute` from the relayer (with the override), and the signed `execute` with the account's own EIP-7702 authorization (no override). The difference is what the signed path adds on this chain now: the 448 more calldata bytes, ecrecover, the first write of the nonce slot, the salt read and the authorization of an empty account. All these are worst cases. The chain's own gas schedule prices them, so a fork that changes the price of storage writes (as Ethereum Sepolia shows below) changes the quote with no change to the Worker.
+
+```
+quote gas = batch estimate
+          + max(measured difference, MIN_SIGNATURE_CHECK_GAS (+ MIN_AUTHORIZATION_GAS), 448 × CALLDATA_GAS_PER_BYTE_BOUND)
+          + HASH_GAS_PER_CALL × calls (fee call included)
+          + HASH_GAS_PER_BYTE × bytes of the self-call calldata
+          + VARIABLE_CALLDATA_BYTES × CALLDATA_GAS_PER_BYTE_BOUND
+```
+
+| Constant | Value | What it covers |
+| --- | --- | --- |
+| `SIGNED_EXTRA_CALLDATA_BYTES` | 448 | The signed `execute` has exactly 448 calldata bytes more than the self-call of the same calls, for any calls (a test proves it) |
+| `CALLDATA_GAS_PER_BYTE_BOUND` | 64 | The most gas of one calldata byte: 4 tokens × 16. The EIP-7623 floor price is 10 per token (40 per byte) |
+| `MIN_SIGNATURE_CHECK_GAS` | 30 000 | The floor of the measured difference: ecrecover, the cold read and first write of the nonce slot, the salt read |
+| `MIN_AUTHORIZATION_GAS` | 25 000 | The floor of the measured authorization cost: `PER_EMPTY_ACCOUNT_COST` of EIP-7702 |
+| `HASH_GAS_PER_CALL` | 3 000 | The EIP-712 hash of each call in the signed path, which the empty calibration batch does not have |
+| `HASH_GAS_PER_BYTE` | 2 | The hash of the call data and one more copy of the batch into memory in the signed path |
+| `VARIABLE_CALLDATA_BYTES` | 105 | Calldata bytes that the quote does not know: the fee amount (32), the sequence (8), the signature (65) |
+| `QUOTE_MARGIN` / `FEE_TOLERANCE` | 15 % / 5 % | The gas price can move, and the estimates are not the same number: a node's `eth_estimateGas` can be up to 1.5 % above the exact gas |
+
+Why not one constant for the signed path: on Base Sepolia the signed path of an empty batch measures about 37 500 gas, on Ethereum Sepolia about 125 700 (its newer gas schedule prices the first write of the nonce slot higher), and with an authorization about 62 600 and 364 400. Why an empty calibration batch: a batch with much calldata pays the EIP-7623 floor price, and a calibration batch at the floor would measure the floor; the floor term of the formula covers a user batch at the floor. A calibration batch with as many empty calls as the user batch was tried: on Ethereum Sepolia its per-call cost was not the same in the two paths, and it measured less than the real difference, so the per-call part stays a constant.
+
+Evidence (27 November 2026, public RPCs, a new throwaway account with a WETH `deposit()` call, a call of 0 to 20 000 bytes of data and a native fee; 3 or 8 calls; with and without an authorization): the real `eth_estimateGas` of the signed `execute` was 64 % to 97 % of the quote gas on Ethereum Sepolia (reth) and 88 % to 93 % on Base Sepolia, before the margins. The highest ratio, 0.971, was a 3-call batch with no data on Ethereum Sepolia. The relay check passes up to 1.21.
+
+| Chain | Authorization | Calls | Data bytes | Batch estimate | Quote gas | Real estimate | Real / quote |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Base Sepolia | no | 3 | 0 | 103 053 | 157 599 | 144 047 | 0.914 |
+| Base Sepolia | no | 8 | 0 | 157 825 | 229 291 | 208 004 | 0.907 |
+| Base Sepolia | yes | 3 | 2 000 | 134 809 | 218 486 | 203 327 | 0.931 |
+| Base Sepolia | yes | 3 | 20 000 | 837 321 | 956 966 | 845 677 | 0.884 |
+| Ethereum Sepolia | no | 3 | 0 | 165 781 | 308 532 | 299 487 | 0.971 |
+| Ethereum Sepolia | no | 8 | 0 | 235 081 | 394 752 | 377 003 | 0.955 |
+| Ethereum Sepolia | no | 3 | 20 000 | 1 344 964 | 1 527 715 | 1 376 888 | 0.901 |
+| Ethereum Sepolia | yes | 8 | 0 | 235 081 | 633 389 | 429 421 | 0.678 |
+
+The test `quote.test.ts` ("a quote and the relay of the same batch") quotes a batch, then relays the same batch with the quoted fee at the same gas price, and shows that the relay accepts it for every relay estimate up to the quote gas × 115 / 95 and refuses an estimate 2 % above that.
+
+### Request budget
+
+| Request | RPC HTTP requests | Price HTTP requests |
+| --- | --- | --- |
+| `POST /v1/quote` | 1 (one JSON-RPC batch of 7 or 8 calls) | 0 when the prices are young or not needed, 1 (Binance), 2 when Binance fails (Kraken) |
+| `POST /v1/relay`, `deduct` mode | 2 (the read batch, with `decimals()` at most once per token and isolate, and the broadcast) | the same as the quote |
+| `POST /v1/relay`, `sponsor` mode | 2, as before | 0 |
+
+A quote costs 4 `eth_estimateGas` in its batch. Each isolate signs one calibration batch per chain (two secp256k1 signatures) and keeps it.
+
+### Known limits of the fee
+
+- The fee follows the gas price at the time of each request. The quote and the relay route each read `maxFeePerGas` (twice the base fee plus the priority fee) at their own time. When the gas price goes up by more than the margins between the quote and the relay (about 21 % with the same gas), the relay answers `fee_too_low` with a new `required` fee, and the wallet must review the fee again. A long delay between the quote and the relay makes this more likely; `validUntil` (120 seconds) tells the wallet when to ask again.
+- The fee is charged on the estimate at `maxFeePerGas`, which is about twice the base fee. The relayer pays the gas actually used at the effective gas price, which is usually lower. The difference stays with the relayer.
+- The quote gas is an estimate: the quote-gas formula and the live measurements above bound the relay estimate, but a batch whose gas depends on the fee amount (a token with a fee on transfer, a rebasing token as the fee token) or on the state at the time of the relay can need more. The relay route always decides from its own estimate of the signed batch.
+- The quote needs a chain RPC that takes a state override in `eth_estimateGas` (Geth, Reth, Nethermind and Erigon do). A provider that refuses it gives `502 rpc_unavailable` on every quote; relays still work. Test a new RPC URL with one quote before it serves users.
+- The calibration batch measures an empty account. An address that has native coin pays less for its authorization than the empty calibration account, so its first quote is high (on Ethereum Sepolia, up to about 200 000 gas too high with an authorization; on Base Sepolia, about 10 000).
+- A price is the last trade against USDT on Binance, or against USD on Kraken. USDT and USD are taken as equal. The stale limit (300 seconds) bounds how old a price can be when both sources fail.
+- Binance names no symbol in its "Invalid symbol" answer, so a log line for two symbols names both.
+
 ## Relay
 
 `POST /v1/relay` runs its checks from the cheapest to the most expensive. A failed check stops the request.
@@ -118,20 +246,21 @@ The 200 response has `Cache-Control: private, max-age=5`, so the browser of the 
 1. The caller IP is charged on `relay:<CF-Connecting-IP>`. The body is read with the 64 KiB cap, and every field is parsed strictly. An unknown field is refused. `calls` has 1 to 8 calls; a call has a `to` that is not the zero address, a decimal `value` below 2^256 and `data` of whole bytes of hex (`0x` is valid).
 2. The chain (`unsupported_chain`).
 3. The envelope: `evmAddress` is not the relayer (`invalid_request`), `isRelayNonce(batchNonce)` is true, so the top 192 bits are `RELAY_NONCE_KEY` (`invalid_request`), and the deadline is more than 60 seconds and at most 24 hours and 5 minutes after now (`stale_request`).
-4. The fee rule. `sponsor` mode has none. In `deduct` mode the batch needs a call before the fee call (`invalid_request`), and the last call must be a fee call that `readFeeCall` reads, to the chain's `feeRecipient`, in a token of `fees`, of at least the configured fee of that token (`fee_too_low`). A fee call is an ERC-20 `transfer(recipient, amount)` with no value, or a native transfer of `amount` with no data.
+4. The form of the fee call. `sponsor` mode has none. In `deduct` mode the batch needs a call before the fee call (`invalid_request`), and the last call must be a fee call that `readFeeCall` reads, to the chain's `feeRecipient` (`fee_too_low`, with no `required`), in a fee token of the chain: the native coin or a token of `feeTokens` (`fee_token_not_accepted`). A fee call is an ERC-20 `transfer(recipient, amount)` with no value, or a native transfer of `amount` with no data. The amount needs the estimate and the prices, so step 14 checks it.
 5. The target rule: when the chain has `allowedTargets`, every call must go to an address in the list (`target_not_allowed`). In `deduct` mode the fee call that step 4 checked is not in this rule.
 6. The Worker builds the batch from the calls exactly as the request sends them, in the same order. It recovers the batch signer and compares it with `evmAddress` (`bad_signature`). The `id` is the EIP-712 digest of the batch.
 7. An authorization must name the pinned Calibur and the chain, have an `s` of at most secp256k1n/2, and recover to `evmAddress` (`bad_signature`).
 8. The address is charged on `relay-address:<evmAddress>`.
 9. When the Sender already holds a relay with this `id`, the route answers it and reads nothing from the chain.
-10. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, `eth_estimateGas` from the relayer to the address with the `execute` calldata, and `getSeq(RELAY_NONCE_KEY)` on the address. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing. The `getSeq` call sends a state override that puts the EIP-7702 delegation to the pinned Calibur (`0xef0100` and the Calibur address) on the address, because the storage of an earlier delegation stays. For an address that delegates to the pinned Calibur, the override is its own code and changes nothing. The account read puts the verified Calibur code itself on the address; the relay read cannot, because that code is in the memory of some isolates only, and a second request to read it would cost one more HTTP request.
+10. One JSON-RPC batch reads the code and the pending nonce of the address, the pending nonce and the balance of the relayer, `eth_feeHistory` (the base fee of the next block), `eth_maxPriorityFeePerGas`, `eth_estimateGas` from the relayer to the address with the `execute` calldata, `getSeq(RELAY_NONCE_KEY)` on the address and, in `deduct` mode, `decimals()` of an ERC-20 fee token that the isolate does not know yet. The estimate includes the authorization list when the request has an authorization: a plain `eth_call` on an address that does not delegate executes nothing and succeeds, so it checks nothing. The `getSeq` call sends a state override that puts the EIP-7702 delegation to the pinned Calibur (`0xef0100` and the Calibur address) on the address, because the storage of an earlier delegation stays. For an address that delegates to the pinned Calibur, the override is its own code and changes nothing. The account read puts the verified Calibur code itself on the address; the relay read cannot, because that code is in the memory of some isolates only, and a second request to read it would cost one more HTTP request.
 11. An address that does not delegate to the pinned Calibur needs an authorization whose nonce is its pending nonce (`stale_request`). An address that delegates gets no authorization list; the route ignores a supplied one.
 12. The low 64 bits of `batchNonce` must be the sequence that `getSeq` read (`stale_request`). A lower sequence was used by an earlier batch, and a higher one is not reached yet. This check comes before the estimate is judged, because the simulation of such a batch reverts: a stale batch never gives `simulation_failed`.
-13. A revert of the estimate gives `409 simulation_failed`. An RPC failure of any call of the batch, `getSeq` included, gives `502 rpc_unavailable`.
-14. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
-15. The route hands the job to the Sender of the chain and answers its result.
+13. A revert of the estimate gives `409 simulation_failed`. An RPC failure of any call of the batch, `getSeq` included, gives `502 rpc_unavailable`. A fee token that does not answer `decimals()` gives `503 service_unavailable` and a log line.
+14. The fee amount, in `deduct` mode only (Fee rule): the signed fee must be at least `fee(estimate) × 0.95`, rounded up, at the `maxFeePerGas` of step 15. Else `400 fee_too_low` with `required` (the fee that the Worker would quote now: `fee(estimate) × 1.15`, rounded up) and `token`. No price gives `503 price_unavailable`.
+15. The gas limit is the estimate plus 20 %. `maxPriorityFeePerGas` is the node's value and `maxFeePerGas` is twice the base fee plus that value. A relayer balance below `gasLimit × maxFeePerGas` gives `503 relayer_unfunded` and one log line.
+16. The route hands the job to the Sender of the chain and answers its result.
 
-One new relay thus makes two HTTP requests to the RPC: the read batch and the broadcast. A repeated request makes none.
+One new relay thus makes two HTTP requests to the RPC: the read batch and the broadcast. In `deduct` mode it can also make one or two price requests (see Request budget). A repeated request makes none.
 
 When the address delegates already and the request still has an authorization, the estimate includes that authorization but the transaction does not. A node skips an authorization that does not apply, so the gas limit is then a little higher than needed, never too low.
 
@@ -229,7 +358,7 @@ The runbook `scripts/dev/relay-local/README.md` tells how to test the wallet's d
 
 ## API contract
 
-This section is the reference for the wallet client. The four routes implement it.
+This section is the reference for the wallet client. The five routes implement it.
 
 All amounts are decimal strings in token base units. Addresses and hashes are lower-case hex in responses. The zero address means the native coin.
 
@@ -258,16 +387,35 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
       authorizationNonce: <number; the pending transaction count of the address>,
       salt: <0x64hex; the Calibur EIP-712 domain salt of the address>,
       sequence: "<decimal; getSeq(RELAY_NONCE_KEY) of the address>",
-      fees: [ { token, fee } ],
+      feeTokens: [ <address; the zero address first> ],
       allowedTargets: [ <address> ] | null,
       balances: [ { token, balance } ] }
 ```
 
 - The wallet signs with `batchNonce = batchNonceOf(sequence)`.
-- `fees` lists the configured fees of the chain in config order in `deduct` mode. In `sponsor` mode `fees` is `[]` and `feeRecipient` is `null`, whatever the config holds.
+- `feeTokens` lists the tokens that the chain takes a fee in, in `deduct` mode: the zero address (the native coin) first, then the `feeTokens` of the config in config order. The fee itself comes from `POST /v1/quote`. In `sponsor` mode `feeTokens` is `[]` and `feeRecipient` is `null`, whatever the config holds.
 - `allowedTargets` is the chain's list, or `null` when a call can go to any address. The wallet can check its calls against it before it signs.
-- `balances` has one entry for each token of the `tokens` query, in query order, and is `[]` without `tokens`. The tokens need not be in `fees`.
+- `balances` has one entry for each token of the `tokens` query, in query order, and is `[]` without `tokens`. The tokens need not be fee tokens.
 - Errors: `invalid_request` for a bad `chainId` or `address`, for the relayer's own address, and for a bad `tokens` value: an empty value, a value that is not an address, a token that occurs two times (in any case), more than 16 tokens, or a second `tokens` parameter. `unsupported_chain` for a chain that the Worker does not serve (it has no `RPC_URL_<chainId>`).
+
+`POST /v1/quote` (`deduct` mode) gives the fee of a batch before the wallet signs it:
+
+```
+{ chainId: <number>, evmAddress,
+  calls: [ { to: <0x40hex>, value: "<decimal string>", data: "<0x hex, even length, may be 0x>" } ],   1 to 7 calls, without the fee call
+  feeToken: <0x40hex; the zero address is the native coin>,
+  authorization?: true | false }
+→ 200 { chainId, token: <the fee token>, recipient: <feeRecipient>,
+        fee: "<base units of token>", gas: "<decimal; the quote gas>",
+        validUntil: <JSON number; unix seconds, now + 120> }
+```
+
+- `calls` are the calls of the batch in the order the wallet will sign them, without the fee call; the same rules as the calls of `POST /v1/relay`. The wallet then signs the calls with `buildFeeCall({ token, recipient, amount: fee })` as the last call.
+- `authorization`: true when the relay will carry an EIP-7702 authorization, false when not. Without it, the chain decides: true when the address does not delegate to the pinned Calibur.
+- `fee` is the fee rule with the quote margin (Fee rule). The relay route accepts it while the gas price and the batch's gas stay within the margins; else it answers `fee_too_low` with a new `required` fee. `validUntil` (`QUOTE_VALID_SECONDS`, 120) is a hint for the wallet: the relay route does not read it.
+- The quote is not stored and not signed. The 200 response has `Cache-Control: private, no-store`.
+- The caller IP is charged on `read:<CF-Connecting-IP>` and the address on `read-address:<evmAddress>`, as `GET /v1/account`.
+- Errors: `400 fee_not_needed` in `sponsor` mode (for any body, before the body is read); `invalid_request` for a malformed body, an unknown field, 0 or more than 7 calls, a non-boolean `authorization` or the relayer as `evmAddress`; `unsupported_chain`; `target_not_allowed` for a call of the request outside `allowedTargets` (the fee call is not checked); `fee_token_not_accepted`; `409 simulation_failed` when the calls revert; `503 price_unavailable`; `502 rpc_unavailable`; `rate_limited`, `origin_not_allowed`, `method_not_allowed` (`Allow: POST`), `payload_too_large` and `service_unavailable`.
 
 `POST /v1/relay` with
 
@@ -285,7 +433,8 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 - `calls` has 1 to 8 calls. `to` is not the zero address. `value` is below 2^256. Addresses and data can be in any case.
 - `id` is the EIP-712 digest of the batch, lower case. `txHash` is always present.
 - The server builds the batch from `calls` exactly as the request sends them, in the same order, and never adds, removes or changes a call. The request authenticates itself through the signature; there is no login.
-- In `deduct` mode the last call is the fee call: `buildFeeCall({ token, recipient: feeRecipient, amount })` with a token of `fees` and an amount of at least its fee. A batch needs at least one other call before it.
+- In `deduct` mode the last call is the fee call: `buildFeeCall({ token, recipient: feeRecipient, amount })` with a fee token of the chain (`feeTokens` of `/v1/account`) and an amount of at least `fee(the route's estimate) × 0.95`. The `fee` of `POST /v1/quote` passes while the gas price and the batch stay within the margins. A batch needs at least one other call before it.
+- A fee below that gives `400 fee_too_low` with `required` (the fee that the Worker would quote now, decimal base units) and `token`: `{ "error": "fee_too_low", "message": "…", "required": "<base units>", "token": "0x…" }`. The wallet shows the new fee and signs again; it never signs a higher fee by itself. A last call that is not a fee call, or a fee call to another recipient, gives `fee_too_low` with no `required` and no `token`.
 - When `allowedTargets` is not null, every call goes to an address in it, except the fee call in `deduct` mode.
 - The same request sent again returns the stored relay in its current state (any of the four), not a new transaction. The id is the digest, so a request with another signature encoding of the same batch also returns it.
 - A `batchNonce` whose key is not `RELAY_NONCE_KEY` is `invalid_request`. A deadline 60 seconds or less from now, or more than 24 hours and 5 minutes from now, is `stale_request`.
@@ -299,19 +448,22 @@ All amounts are decimal strings in token base units. Addresses and hashes are lo
 - The route reads the Sender storage only, never the chain. The timer of the Sender updates `state` and `txHash`. While the relay is `pending`, `txHash` is the last signed hash: a fee replacement or a cancel changes it. Once final, `txHash` is the hash that was mined, which can be an earlier hash than the last one. For `expired`, it is the mined cancel.
 - A final relay is deleted 24 hours after it became final; the route then answers `404`.
 
-An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seconds> }`. Error codes and status:
+An error body is `{ "error": "<code>", "message": "<text>", "retryAfter"?: <seconds>, "id"?: <relay id>, "required"?: "<base units>", "token"?: <address> }`. Error codes and status:
 
 | Code | Status | Meaning |
 | --- | --- | --- |
 | `invalid_request` | 400 | The request is malformed |
 | `unsupported_chain` | 400 | The Worker does not serve the chain: it has no `RPC_URL_<chainId>` |
 | `target_not_allowed` | 400 | A call goes to an address that is not in the chain's `allowedTargets` |
-| `fee_too_low` | 400 | In `deduct` mode, the last call is not a fee call to `feeRecipient` in a token of `fees`, or it pays less than the configured fee |
+| `fee_too_low` | 400 | In `deduct` mode, the fee call pays less than the fee rule asks now: the body carries `required` (the fee that the Worker would quote now) and `token`. Also, with neither field, when the last call is not a fee call to `feeRecipient` |
+| `fee_token_not_accepted` | 400 | In `deduct` mode, the fee token is not the native coin and not in the chain's `feeTokens` |
+| `fee_not_needed` | 400 | `POST /v1/quote` in `sponsor` mode: the relayer pays the gas |
 | `bad_signature` | 400 | The signature or the authorization does not verify |
 | `stale_request` | 409 | The deadline is too near or too far, the authorization is missing or has an old nonce, or the sequence in `batchNonce` is not the current `getSeq(RELAY_NONCE_KEY)` of the address (an earlier batch used it, or the chain has not reached it): read `/v1/account` and sign again |
 | `simulation_failed` | 409 | The batch fails in simulation |
 | `busy` | 409 | Another relay is open for the address; the body also carries its `id` |
 | `relayer_unfunded` | 503 | The relayer account cannot pay the gas |
+| `price_unavailable` | 503 | In `deduct` mode, no price source gives a price of the native coin or the fee token, and no kept price is 300 seconds old or younger. Try again later |
 | `rpc_unavailable` | 502 | The chain RPC does not answer |
 | `rate_limited` | 429 | Too many requests. The response has `Retry-After: 60` and `retryAfter: 60` |
 | `origin_not_allowed` | 403 | The `Origin` is not in `ALLOWED_ORIGINS`, or a preflight asks for a method or header the API does not allow |
@@ -346,10 +498,10 @@ The workflow reads these from the repository's Actions secrets and variables, or
 | `EVM_RELAY_RPC_URLS` | secret | One JSON object of decimal chain id to the `https:` JSON-RPC URL of that chain, for example `{"8453":"https://base.example/v2/<key>"}`. Each entry becomes the Worker secret `RPC_URL_<chainId>`. Its chains are the chains that the Worker serves |
 | `EVM_RELAY_ALLOWED_ORIGINS` | variable | JSON array of exact wallet origins, no wildcard: each store extension origin `chrome-extension://<id>`, iOS `capacitor://localhost`, Android `http://localhost`, desktop `http://tauri.localhost` and `tauri://localhost`. It becomes `ALLOWED_ORIGINS` |
 | `EVM_RELAY_GAS_MODE` | variable | `sponsor` or `deduct`. It becomes `GAS_MODE` |
-| `EVM_RELAY_CONFIG` | variable | The `RELAY_CONFIG` JSON (shape above): the Calibur pin, and in `deduct` mode the fee recipient and the fees of each chain. It becomes `RELAY_CONFIG` |
+| `EVM_RELAY_CONFIG` | variable | The `RELAY_CONFIG` JSON (shape above): the Calibur pin, and in `deduct` mode the fee recipient and, for each chain, `nativePrice` and the optional `feeTokens`. It becomes `RELAY_CONFIG` |
 | `EVM_RELAY_URL` | variable | The base URL of the deployed Worker, `https:` and no trailing slash, for example `https://miden-evm-relay.<subdomain>.workers.dev` |
 
-The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are one secret, so a new chain needs no change to the workflow: add its URL to `EVM_RELAY_RPC_URLS`. Add an entry for it to the `chains` of `EVM_RELAY_CONFIG` only when it has fees or allowed targets (always in `deduct` mode). GitHub masks a secret only as a whole value, not each URL in it. The scripts never print a secret or a part of one, and Wrangler prints each secret as `(hidden)`.
+The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are one secret, so a new chain needs no change to the workflow: add its URL to `EVM_RELAY_RPC_URLS`. Add an entry for it to the `chains` of `EVM_RELAY_CONFIG` only when it has a native price, fee tokens or allowed targets (always in `deduct` mode, which needs `nativePrice`). GitHub masks a secret only as a whole value, not each URL in it. The scripts never print a secret or a part of one, and Wrangler prints each secret as `(hidden)`.
 
 ### Release check
 
@@ -361,8 +513,8 @@ The workflow sets `DEPLOYMENT_REVISION` to the deployed commit. The RPC URLs are
 - `EVM_RELAY_ALLOWED_ORIGINS` is a nonempty JSON array of strings with no wildcard;
 - `EVM_RELAY_URL` is `https:` with no credentials, query, fragment or trailing slash;
 - `EVM_RELAY_RPC_URLS` is a JSON object that names at least one chain, each key a decimal chain id and each value an `https:` URL;
-- `EVM_RELAY_CONFIG` is a JSON object, and the Worker's own `parseConfig` (`src/config.ts`) accepts it with the gas mode, the origins and the `RPC_URL_<chainId>` keys of `EVM_RELAY_RPC_URLS`. esbuild bundles that parse in memory, so the deploy refuses a config that the live Worker would refuse, for example a `deduct` config without fees for a chain of `EVM_RELAY_RPC_URLS`;
-- each key of the `chains` of `EVM_RELAY_CONFIG` is a chain of `EVM_RELAY_RPC_URLS`. The Worker would ignore an entry for a chain that it does not serve, but such a key is often a mistake, and then the chain that the entry is for gets no fee and no target list;
+- `EVM_RELAY_CONFIG` is a JSON object, and the Worker's own `parseConfig` (`src/config.ts`) accepts it with the gas mode, the origins and the `RPC_URL_<chainId>` keys of `EVM_RELAY_RPC_URLS`. esbuild bundles that parse in memory, so the deploy refuses a config that the live Worker would refuse, for example a `deduct` config without `nativePrice` for a chain of `EVM_RELAY_RPC_URLS`, a config that still has the old `fees` table, a price symbol that is not `usd` or 5 to 20 characters of `A-Z0-9`, or the zero address in `feeTokens`. The check cannot know whether a price source knows a symbol: the Worker logs an unknown symbol at the first fee that needs it;
+- each key of the `chains` of `EVM_RELAY_CONFIG` is a chain of `EVM_RELAY_RPC_URLS`. The Worker would ignore an entry for a chain that it does not serve, but such a key is often a mistake, and then the chain that the entry is for gets no price, no fee token and no target list;
 - `wrangler.jsonc` has the two rate limit bindings (60 and 10 per 60 seconds, two namespaces) and binds `RELAY_SENDER` to `RelaySenderObject` with its SQLite migration.
 
 The step log then prints `Relayer address (executor): 0x…`, the address that the key derives. The address is public.
@@ -375,6 +527,7 @@ After the deploy, `check-deployment.mjs` checks that:
 - a CORS preflight of `POST /v1/relay` from the first configured origin answers `204` with that origin, `Vary: Origin`, the methods `GET` and `POST` and the header `content-type`;
 - `GET /healthz` from an unknown origin answers `403` with no `Access-Control-Allow-Origin`;
 - `GET /v1/account` with no query, from the first configured origin, answers `400 invalid_request`. The route parses the config before it checks the query, so this proves that the router and the config are live. It reads no chain.
+- `POST /v1/quote` with the body `{}`, from the first configured origin, answers `400 fee_not_needed` (sponsor mode) or `400 invalid_request` (deduct mode), with that origin and `no-store`. This proves that the quote route is deployed. It reads no chain and asks no price source.
 
 The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`, `EVM_RELAY_ALLOWED_ORIGINS` and `EVM_RELAY_REVISION` set: `yarn check-deployment` in this folder.
 
@@ -389,9 +542,11 @@ The probe sends no relay and writes no data. Run it by hand with `EVM_RELAY_URL`
 
 ### Change the gas mode or the config
 
-`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a top-level `feeRecipient` and, for every chain of `EVM_RELAY_RPC_URLS`, an entry with at least one token in `fees`. The release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed.
+`GAS_MODE`, `ALLOWED_ORIGINS` and `RELAY_CONFIG` are variables of the deploy. Change `EVM_RELAY_GAS_MODE`, `EVM_RELAY_ALLOWED_ORIGINS` or `EVM_RELAY_CONFIG` (and `EVM_RELAY_RPC_URLS` for a new chain), then run the workflow again. A change in the dashboard does not last: each deploy sets the variables again. `deduct` mode needs a top-level `feeRecipient` and, for every chain of `EVM_RELAY_RPC_URLS`, an entry with `nativePrice`. The release check refuses a config without them. Update the wallet-config `relay` section when it names a value that changed: the wallet pins the fee recipient and a ceiling of the fee per token (`relay.maxFee`), and it refuses a quote above that ceiling.
 
-`--secrets-file` adds and replaces secrets, and it does not delete one. The Worker serves each chain that has an `RPC_URL_<chainId>` secret, so a chain that you remove from `EVM_RELAY_RPC_URLS` stays served until you delete its secret: `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`. In `deduct` mode, delete the secret before you remove the fees of that chain from `EVM_RELAY_CONFIG`, else the Worker refuses its config: the API routes answer `503 service_unavailable` and `/healthz` reports `ok: false`.
+To move a config from the old fixed fee table: remove `fees` from each chain entry, add `nativePrice` (the Binance symbol of the native coin against USDT, for example `ETHUSDT` on Ethereum, Base and Arbitrum One, `POLUSDT` on Polygon, `usd` on Arc), and put each ERC-20 of the old `fees` in `feeTokens` with its symbol (`usd` for USDC). The native coin needs no entry: it is always a fee token.
+
+`--secrets-file` adds and replaces secrets, and it does not delete one. The Worker serves each chain that has an `RPC_URL_<chainId>` secret, so a chain that you remove from `EVM_RELAY_RPC_URLS` stays served until you delete its secret: `npx wrangler@4.151.3 secret delete RPC_URL_<chainId>`. In `deduct` mode, delete the secret before you remove the entry of that chain from `EVM_RELAY_CONFIG`, else the Worker refuses its config: the API routes answer `503 service_unavailable` and `/healthz` reports `ok: false`.
 
 ### Rotate the relayer key
 
