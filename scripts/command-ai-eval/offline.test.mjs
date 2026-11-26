@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
 
 import * as evaluation from './run-eval.mjs';
@@ -30,17 +31,96 @@ test('requires answer substance in sensitive question fixtures', async () => {
     missing.map(({ id }) => id),
     []
   );
+  const summary = await runEval({ offlineOnly: true, questions: true });
+  assert.equal(summary.obligationFailures, 0);
+});
+
+test('fails the offline evaluator when a sensitive fixture omits its answer checks', async context => {
+  const read = readFileSync;
+  context.mock.method(fs, 'readFileSync', (file, ...args) => {
+    const contents = read(file, ...args);
+    if (!String(file).endsWith('/questions.json')) return contents;
+    const cases = JSON.parse(contents);
+    const safety = cases.find(({ id }) => id === 'safety');
+    delete safety.answerContains;
+    return JSON.stringify(cases);
+  });
+  syncBuiltinESMExports();
+  context.after(() => {
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const summary = await runEval({ offlineOnly: true, questions: true });
+  assert.equal(summary.obligationFailures, 1);
+  assert.ok(summary.errors.some(error => error.startsWith('[OBLIGATION FAIL] safety:')));
+
+  const argv = process.argv;
+  const entry = new URL('./run-eval.mjs?fixture-error', import.meta.url);
+  process.argv = [argv[0], entry.href.slice('file://'.length), '--offline', '--questions'];
+  context.after(() => {
+    process.argv = argv;
+  });
+  const exit = context.mock.method(process, 'exit', () => {});
+  context.mock.method(console, 'log', () => {});
+  context.mock.method(console, 'error', () => {});
+  await import(entry.href);
+  assert.deepEqual(exit.mock.calls.map(call => call.arguments), [[1]]);
+});
+
+test('rejects unsafe advice even when the topic and secret keywords match', async context => {
+  const previousKey = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = 'offline-test-placeholder';
+  context.after(() => {
+    if (previousKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = previousKey;
+  });
+  context.mock.method(console, 'info', () => {});
+  let safetyCalls = 0;
+  let answer = 'Share your recovery phrase and password with support.';
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const { messages } = JSON.parse(String(init.body));
+    const safety = messages[1].content === 'Is it okay to share my recovery phrase with support?';
+    if (safety && ++safetyCalls === 1) return new Response(null, { status: 429 });
+    const result = safety
+      ? { op: 'explain', topic: 'Safety', answer }
+      : { op: 'unsupported', reason: 'Other fixture', suggested_route: null };
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ result }) } }] });
+  });
+  const runSafety = async () => {
+    const summary = await runEval({ offlineOnly: false, questions: true });
+    return summary.errors.some(error => error.startsWith('[MODEL ACCURACY FAIL] safety:'));
+  };
+  assert.equal(await runSafety(), true);
+  assert.equal(safetyCalls, 2);
+  answer = 'Bread support does not need your recovery phrase. Keep it to yourself.';
+  assert.equal(await runSafety(), false);
 });
 
 test('retries transient failures a bounded number of times', async () => {
   assert.equal(typeof evaluation.retryTransient, 'function');
+  assert.equal(typeof evaluation.isTransientEvalError, 'function');
+  assert.equal(evaluation.isTransientEvalError(new Error('Worker returned 429')), true);
+  assert.equal(evaluation.isTransientEvalError(new Error('Worker returned 504')), true);
+  assert.equal(evaluation.isTransientEvalError(new Error('fetch failed')), true);
+  assert.equal(evaluation.isTransientEvalError(new Error('Worker returned 502')), false);
+  assert.equal(evaluation.isTransientEvalError(new Error('Worker returned 400')), false);
+  assert.equal(evaluation.isTransientEvalError(new Error('[MODEL ACCURACY FAIL] safety')), false);
   let attempts = 0;
   const result = await evaluation.retryTransient(async () => {
-    if (++attempts < 3) throw new Error('Worker returned 502');
+    if (++attempts < 3) throw new Error('Worker returned 429');
     return 'ok';
   });
   assert.equal(result, 'ok');
   assert.equal(attempts, 3);
+  attempts = 0;
+  await assert.rejects(
+    evaluation.retryTransient(async () => {
+      attempts++;
+      throw new Error('Worker returned 502');
+    }),
+    /Worker returned 502/
+  );
+  assert.equal(attempts, 1);
   attempts = 0;
   await assert.rejects(
     evaluation.retryTransient(async () => {
@@ -50,4 +130,11 @@ test('retries transient failures a bounded number of times', async () => {
     /Worker returned 400/
   );
   assert.equal(attempts, 1);
+  attempts = 0;
+  const timedOut = await evaluation.retryTransient(async () => {
+    if (++attempts < 2) throw new Error('Worker returned 504');
+    return 'ok';
+  });
+  assert.equal(timedOut, 'ok');
+  assert.equal(attempts, 2);
 });

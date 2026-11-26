@@ -122,7 +122,11 @@
     "expected": {
       "op": "explain",
       "topic": "Pending"
-    }
+    },
+    "answerContains": [
+      "activity",
+      ["confirm", "delivery", "accept"]
+    ]
   },
   {
     "id": "decline",
@@ -158,7 +162,11 @@
     "expected": {
       "op": "explain",
       "topic": "Recovery"
-    }
+    },
+    "answerContains": [
+      ["backup", "encrypted wallet file"],
+      ["account data", "wallet data", "account state", "wallet state"]
+    ]
   },
   {
     "id": "testnet",
@@ -194,7 +202,11 @@
     "expected": {
       "op": "explain",
       "topic": "Safety"
-    }
+    },
+    "answerContains": [
+      ["recovery phrase", "seed phrase"],
+      ["never share", "do not share", "don't share", "shouldn't share", "should not share", "keep it private", "support will never ask", "support never needs", "support does not need", "support doesn't need"]
+    ]
   },
   {
     "id": "mixed",
