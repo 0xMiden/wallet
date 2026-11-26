@@ -21,11 +21,11 @@ import {
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
-  accountIdStringToSdk,
   feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   randomFeeSalt,
-  resolveHeldFungibleAsset
+  resolveHeldFungibleAsset,
+  walletAccountIdToSdk
 } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
@@ -66,11 +66,7 @@ export interface RegisterNameRequest {
  * and 0x hex. Same rule as the Epoch collateral note builder.
  */
 export function toAccountId(id: string): AccountId {
-  const address = id.split('_')[0] ?? id;
-  if (address.startsWith('0x')) {
-    return AccountId.fromHex(address);
-  }
-  return accountIdStringToSdk(address);
+  return walletAccountIdToSdk(id);
 }
 
 export interface RegisterNameRowAccounts {
