@@ -1,5 +1,5 @@
 import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
-import Dexie, { type Table } from 'dexie';
+import Dexie, { type DBCoreKeyRange, type Table } from 'dexie';
 
 import {
   type ChunkReadOptions,
@@ -12,6 +12,7 @@ import {
   readTransactionIndexChunks,
   statusIndexSpecs,
   statusTypeIndexSpecs,
+  type TransactionIndexRangeSpec,
   yieldToEventLoop
 } from 'lib/miden/db/index-query';
 import * as Repo from 'lib/miden/repo';
@@ -307,7 +308,6 @@ interface HistoryStreamState {
   negativeExhausted: boolean;
   fallbackExhausted: boolean;
   positiveResumeAt?: Repo.HistoryIndexPosition;
-  positiveResumeAfter?: Repo.HistoryIndexPosition;
   negativeResumeAt?: Repo.HistoryIndexPosition;
   fallbackResumeAt?: Repo.HistoryIndexPosition;
 }
@@ -409,11 +409,14 @@ const pullHistoryRow = async (
 const positiveIndexBound = (
   direction: HistoryDirection,
   bound: CompletedHistoryCursor | null,
-  resumeAt?: Repo.HistoryIndexPosition,
-  resumeAfter?: Repo.HistoryIndexPosition
+  resumeAt?: Repo.HistoryIndexPosition
 ): Repo.HistoryIndexBound | null => {
   if (direction === 'desc' && bound !== null && bound.effectiveTimestamp <= 0) return null;
-  const resume = resumeAt ? { resumeAt } : resumeAfter ? { resumeAfter } : {};
+  const resume = resumeAt
+    ? { resumeAt }
+    : bound !== null && bound.effectiveTimestamp > 0
+      ? { resumeAfter: { key: bound.effectiveTimestamp, primaryKey: bound.transactionId } }
+      : {};
   if (bound === null || direction === 'asc') {
     if (direction === 'asc' && bound !== null && bound.effectiveTimestamp > 0) {
       return { lower: bound.effectiveTimestamp, lowerOpen: false, ...resume };
@@ -428,7 +431,11 @@ const negativeIndexBound = (
   bound: CompletedHistoryCursor | null,
   resumeAt?: Repo.HistoryIndexPosition
 ): Repo.HistoryIndexBound | null => {
-  const resume = resumeAt ? { resumeAt } : {};
+  const resume = resumeAt
+    ? { resumeAt }
+    : bound !== null && bound.effectiveTimestamp < 0
+      ? { resumeAfter: { key: bound.effectiveTimestamp, primaryKey: bound.transactionId } }
+      : {};
   if (direction === 'asc') {
     if (bound === null) return { upper: 0, upperOpen: true, ...resume };
     if (bound.effectiveTimestamp >= 0) return null;
@@ -445,7 +452,11 @@ const fallbackIndexBound = (
   bound: CompletedHistoryCursor | null,
   resumeAt?: Repo.HistoryIndexPosition
 ): Repo.HistoryIndexBound | undefined => {
-  const resume = resumeAt ? { resumeAt } : {};
+  const resume = resumeAt
+    ? { resumeAt }
+    : bound !== null
+      ? { resumeAfter: { key: bound.effectiveTimestamp, primaryKey: bound.transactionId } }
+      : {};
   if (bound === null) return resumeAt ? resume : undefined;
   if (direction === 'desc') return { upper: bound.effectiveTimestamp, upperOpen: false, ...resume };
   return { lower: bound.effectiveTimestamp, lowerOpen: false, ...resume };
@@ -458,9 +469,7 @@ const openHistorySources = async (
   state: HistoryStreamState
 ): Promise<HistorySource[]> => {
   const reverse = direction === 'desc';
-  const positiveBound = state.positiveExhausted
-    ? null
-    : positiveIndexBound(direction, bound, state.positiveResumeAt, state.positiveResumeAfter);
+  const positiveBound = state.positiveExhausted ? null : positiveIndexBound(direction, bound, state.positiveResumeAt);
   const negativeBound = state.negativeExhausted ? null : negativeIndexBound(direction, bound, state.negativeResumeAt);
   const fallbackBound = state.fallbackExhausted ? null : fallbackIndexBound(direction, bound, state.fallbackResumeAt);
   const positive =
@@ -503,27 +512,77 @@ const saveMergeStreamPositions = (sources: readonly HistorySource[], state: Hist
 
 const detectActiveHistoryStreams = async (read: BoundedHistoryRead, state: HistoryStreamState): Promise<void> => {
   if (!canPruneHistoryStreams(read.table)) return;
-  const negativeCount = await read.table.where('completedAt').below(0).limit(1).count();
-  if (negativeCount === 0) state.negativeExhausted = true;
   const statuses = read.includeFailed
-    ? [ITransactionStatus.Completed, ITransactionStatus.Failed, ITransactionStatus.Unconfirmed]
+    ? [ITransactionStatus.Failed, ITransactionStatus.Unconfirmed, ITransactionStatus.Completed]
     : [ITransactionStatus.Completed];
   let needsFallback = false;
-  for (const status of statuses) {
-    const total = await read.table.where('status').equals(status).count();
-    if (total === 0) continue;
-    const zeroCompleted = await read.table.where('[status+completedAt]').equals([status, 0]).limit(1).count();
-    if (zeroCompleted > 0) {
-      needsFallback = true;
-      break;
+  let needChunkedCompletedCheck = false;
+
+  await read.table.db.transaction('r', read.table, async () => {
+    const negativeCount = await countIndexEntriesUpTo(
+      read.table,
+      'completedAt',
+      { type: RANGE_BOUND, lower: undefined, upper: 0, lowerOpen: false, upperOpen: true },
+      1
+    );
+    if (negativeCount === 0) state.negativeExhausted = true;
+
+    for (const status of statuses) {
+      const statusRange = equalIndexSpec('status', status).range;
+      const boundedTotal = await countIndexEntriesUpTo(read.table, 'status', statusRange, DEFAULT_READ_CHUNK_SIZE);
+      if (boundedTotal === 0) continue;
+      const zeroCompleted = await countIndexEntriesUpTo(
+        read.table,
+        '[status+completedAt]',
+        equalIndexSpec('[status+completedAt]', [status, 0]).range,
+        1
+      );
+      if (zeroCompleted > 0) {
+        needsFallback = true;
+        break;
+      }
+      if (boundedTotal < DEFAULT_READ_CHUNK_SIZE) {
+        const numericRange: DBCoreKeyRange = {
+          type: RANGE_BOUND,
+          lower: [status, Number.NEGATIVE_INFINITY],
+          upper: [status, Number.POSITIVE_INFINITY],
+          lowerOpen: false,
+          upperOpen: false
+        };
+        const withNumericCompleted = await countIndexEntriesUpTo(
+          read.table,
+          '[status+completedAt]',
+          numericRange,
+          DEFAULT_READ_CHUNK_SIZE
+        );
+        if (boundedTotal > withNumericCompleted) {
+          needsFallback = true;
+          break;
+        }
+        continue;
+      }
+      if (status !== ITransactionStatus.Completed) {
+        needsFallback = true;
+        break;
+      }
+      needChunkedCompletedCheck = true;
     }
-    const withNumericCompleted = await read.table
-      .where('[status+completedAt]')
-      .between([status, Number.NEGATIVE_INFINITY], [status, Number.POSITIVE_INFINITY], true, true)
-      .count();
-    if (total > withNumericCompleted) {
+  });
+
+  if (!needsFallback && needChunkedCompletedCheck) {
+    const statusRange = equalIndexSpec('status', ITransactionStatus.Completed).range;
+    const numericRange: DBCoreKeyRange = {
+      type: RANGE_BOUND,
+      lower: [ITransactionStatus.Completed, Number.NEGATIVE_INFINITY],
+      upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+      lowerOpen: false,
+      upperOpen: false
+    };
+    const total = await countIndexEntriesUpTo(read.table, 'status', statusRange);
+    const withNumericCompleted = await countIndexEntriesUpTo(read.table, '[status+completedAt]', numericRange);
+    const totalAfter = await countIndexEntriesUpTo(read.table, 'status', statusRange);
+    if (totalAfter !== total || total > withNumericCompleted) {
       needsFallback = true;
-      break;
     }
   }
   if (!needsFallback) state.fallbackExhausted = true;
@@ -549,71 +608,8 @@ const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITr
     negativeExhausted: false,
     fallbackExhausted: false
   };
-  let streamsChecked = false;
 
   const runChunk = async (): Promise<{ done: boolean; hasMore: boolean }> => {
-    if (!streamsChecked) {
-      streamsChecked = true;
-      await detectActiveHistoryStreams(read, state);
-    }
-
-    // Fast single-stream path: no negative completions and no fallback rows exist, so we can batch
-    // directly from the `completedAt` cursor without 3-way merge overhead.
-    if (state.negativeExhausted && state.fallbackExhausted) {
-      if (state.positiveExhausted) return { done: true, hasMore: false };
-      const reverse = read.direction === 'desc';
-      const positiveBound = positiveIndexBound(read.direction, read.bound, undefined, state.positiveResumeAfter);
-      if (positiveBound === null) {
-        state.positiveExhausted = true;
-        return { done: true, hasMore: false };
-      }
-      let cursor = await Repo.openTransactionIndexCursor(read.table, 'completedAt', reverse, positiveBound);
-      if (cursor === null) {
-        state.positiveExhausted = true;
-        return { done: true, hasMore: false };
-      }
-      let batchReader = cursor.takeBatch;
-      if (batchReader !== undefined) {
-        let stepsLeft = chunkable ? HISTORY_CHUNK_STEPS : Number.MAX_SAFE_INTEGER;
-        while (stepsLeft > 0 && batchReader !== undefined) {
-          const needed = skipped + read.limit - rows.length + (read.probe ? 1 : 0);
-          const take = Math.min(stepsLeft, Math.max(1, needed));
-          const batch = await batchReader.call(cursor, take);
-          stepsLeft -= batch.length;
-          for (const row of batch) {
-            if (!isPositiveCompletion(row) || !onHistorySide(row, read.direction, read.bound)) continue;
-            if (!completedHistoryRowMatches(row, read.accountId, read.tokenId, read.includeFailed)) continue;
-            if (skipped > 0) {
-              skipped -= 1;
-              continue;
-            }
-            if (rows.length === read.limit) return { done: true, hasMore: true };
-            rows.push(row);
-            if (!read.probe && rows.length === read.limit) return { done: true, hasMore: false };
-          }
-          if (batch.length < take) {
-            state.positiveExhausted = true;
-            return { done: true, hasMore: false };
-          }
-          const last = batch[batch.length - 1];
-          if (last === undefined || last.completedAt === undefined) {
-            state.positiveExhausted = true;
-            return { done: true, hasMore: false };
-          }
-          state.positiveResumeAfter = { key: last.completedAt, primaryKey: last.id };
-          if (stepsLeft <= 0) return { done: false, hasMore: false };
-          stepsLeft -= 1;
-          cursor = await cursor.next();
-          if (cursor.done) {
-            state.positiveExhausted = true;
-            return { done: true, hasMore: false };
-          }
-          batchReader = cursor.takeBatch;
-        }
-        return { done: false, hasMore: false };
-      }
-    }
-
     const sources = await openHistorySources(read.table, read.direction, read.bound, state);
     let stepsLeft = chunkable ? HISTORY_CHUNK_STEPS : Number.MAX_SAFE_INTEGER;
     const canStep = () => !chunkable || stepsLeft > 0;
@@ -644,10 +640,14 @@ const readBoundedHistory = async (read: BoundedHistoryRead): Promise<{ rows: ITr
   };
 
   if (outerTx !== null || !chunkable) {
-    const result = await read.table.db.transaction('r', read.table, runChunk);
+    const result = await read.table.db.transaction('r', read.table, async () => {
+      await detectActiveHistoryStreams(read, state);
+      return runChunk();
+    });
     return { rows, hasMore: result.hasMore };
   }
 
+  await detectActiveHistoryStreams(read, state);
   for (;;) {
     const result = await read.table.db.transaction('r', read.table, runChunk);
     if (result.done) return { rows, hasMore: result.hasMore };
@@ -750,93 +750,56 @@ export const getNoteHoldingTransactions = async (address: string): Promise<ITran
   );
 
   const minCompletedAt = nowSec - COMPLETED_HOLD_GRACE_SEC;
-  let recentHeldRows: ITransaction[] = [];
-  if (!hasTransactionIndex('[status+completedAt]', Repo.transactions)) {
-    recentHeldRows = await readTransactionIndexChunks(
+  const recentCompletedSpec: TransactionIndexRangeSpec = {
+    indexName: '[status+completedAt]',
+    range: {
+      type: RANGE_BOUND,
+      lower: [ITransactionStatus.Completed, minCompletedAt],
+      upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
+      lowerOpen: true,
+      upperOpen: false
+    }
+  };
+  let recentSpecToScan: TransactionIndexRangeSpec | null = recentCompletedSpec;
+  if (hasTransactionIndex('[status+completedAt]', Repo.transactions)) {
+    const recentCompletedCount = await countIndexEntriesUpTo(
       Repo.transactions,
-      [
-        {
-          indexName: '[status+completedAt]',
-          range: {
-            type: RANGE_BOUND,
-            lower: [ITransactionStatus.Completed, minCompletedAt],
-            upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-            lowerOpen: true,
-            upperOpen: false
-          }
-        }
-      ],
-      matchesAccountAndHoldsNotes
+      recentCompletedSpec.indexName,
+      recentCompletedSpec.range
     );
-  } else {
-    const recentCompletedCount = await Repo.transactions
-      .where('[status+completedAt]')
-      .between(
-        [ITransactionStatus.Completed, minCompletedAt],
-        [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-        false,
-        true
-      )
-      .count();
-
-    if (recentCompletedCount > 0) {
-      const useHeldNoteIndex =
-        recentCompletedCount > DEFAULT_READ_CHUNK_SIZE && hasTransactionIndex('heldNoteIds', Repo.transactions);
-      let scanHeldIndex = false;
-      if (useHeldNoteIndex) {
-        const heldEntryCount = await Repo.transactions.where('heldNoteIds').aboveOrEqual('').count();
-        if (heldEntryCount === 0) {
-          recentHeldRows = [];
-        } else {
-          scanHeldIndex = heldEntryCount < recentCompletedCount;
-          recentHeldRows = await readTransactionIndexChunks(
-            Repo.transactions,
-            [
-              scanHeldIndex
-                ? {
-                    indexName: 'heldNoteIds',
-                    range: {
-                      type: RANGE_BOUND,
-                      lower: '',
-                      upper: Dexie.maxKey,
-                      lowerOpen: false,
-                      upperOpen: true
-                    }
-                  }
-                : {
-                    indexName: '[status+completedAt]',
-                    range: {
-                      type: RANGE_BOUND,
-                      lower: [ITransactionStatus.Completed, minCompletedAt],
-                      upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-                      lowerOpen: true,
-                      upperOpen: false
-                    }
-                  }
-            ],
-            matchesAccountAndHoldsNotes
-          );
+    if (recentCompletedCount === 0) {
+      recentSpecToScan = null;
+    } else if (
+      recentCompletedCount > DEFAULT_READ_CHUNK_SIZE &&
+      hasTransactionIndex('heldNoteIds', Repo.transactions)
+    ) {
+      const heldNoteIdsSpec: TransactionIndexRangeSpec = {
+        indexName: 'heldNoteIds',
+        range: {
+          type: RANGE_BOUND,
+          lower: '',
+          upper: Dexie.maxKey,
+          lowerOpen: false,
+          upperOpen: true
         }
-      } else {
-        recentHeldRows = await readTransactionIndexChunks(
-          Repo.transactions,
-          [
-            {
-              indexName: '[status+completedAt]',
-              range: {
-                type: RANGE_BOUND,
-                lower: [ITransactionStatus.Completed, minCompletedAt],
-                upper: [ITransactionStatus.Completed, Number.POSITIVE_INFINITY],
-                lowerOpen: true,
-                upperOpen: false
-              }
-            }
-          ],
-          matchesAccountAndHoldsNotes
-        );
+      };
+      const heldEntryCount = await countIndexEntriesUpTo(
+        Repo.transactions,
+        heldNoteIdsSpec.indexName,
+        heldNoteIdsSpec.range,
+        recentCompletedCount
+      );
+      if (heldEntryCount === 0) {
+        recentSpecToScan = null;
+      } else if (heldEntryCount < recentCompletedCount) {
+        recentSpecToScan = heldNoteIdsSpec;
       }
     }
   }
+  const recentHeldRows =
+    recentSpecToScan === null
+      ? []
+      : await readTransactionIndexChunks(Repo.transactions, [recentSpecToScan], matchesAccountAndHoldsNotes);
 
   const byId = new Map<string, ITransaction>();
   for (const tx of liveAndVerdictRows) byId.set(tx.id, tx);

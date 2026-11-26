@@ -108,6 +108,9 @@ function installCoreReadProbe(
   };
 
   core.openCursor = req => {
+    if (req.values === false) {
+      return origOpenCursor(req);
+    }
     const indexName = req.query.index.name ?? '';
     probe.cursorCalls += 1;
     probe.cursorIndexes.push(indexName);
@@ -868,6 +871,345 @@ describe('non-blocking transaction store reads (#2327)', () => {
         delete (Repo.transactions as unknown as Record<string, unknown>).filter;
       }
       whereSpy.mockRestore();
+    }
+  });
+
+  it('getCompletedTransactionsPage resumes without duplicates across merge-to-positive chunk transitions', async () => {
+    const name = `page-merge-to-pos-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = Repo.createSchemaFor(name);
+    try {
+      await isolated.open();
+      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+      const rows: ITransaction[] = Array.from({ length: 80 }, (_, i) =>
+        makeTx(`tx-${String(i).padStart(4, '0')}`, {
+          accountId: 'mtst1acct',
+          initiatedAt: 1_900_000_000 + i,
+          completedAt: 1_700_000_000 + i
+        })
+      );
+      rows.push(
+        makeTx('anchor-page1', {
+          accountId: 'mtst1acct',
+          initiatedAt: 1_700_000_085,
+          completedAt: 1_700_000_085
+        }),
+        makeTx('fallback-top', {
+          accountId: 'mtst1acct',
+          initiatedAt: 1_700_000_084,
+          completedAt: undefined
+        })
+      );
+      await table.bulkAdd(rows);
+
+      const firstPage = await getCompletedTransactionsPage(
+        { accountId: 'mtst1acct', limit: 1, includeFailed: true, fromEnd: true },
+        table
+      );
+      expect(firstPage.transactions.map(tx => tx.id)).toEqual(['anchor-page1']);
+
+      const page = await getCompletedTransactionsPage(
+        { accountId: 'mtst1acct', limit: 75, includeFailed: true, cursor: firstPage.nextCursor },
+        table
+      );
+      expect(page.transactions).toHaveLength(75);
+      expect(new Set(page.transactions.map(tx => tx.id)).size).toBe(75);
+      expect(page.transactions[0]?.id).toBe('fallback-top');
+      expect(page.transactions[1]?.id).toBe('tx-0079');
+      expect(page.transactions[74]?.id).toBe('tx-0006');
+    } finally {
+      isolated.close();
+      await Dexie.delete(name);
+    }
+  });
+
+  it('getCompletedTransactionsPage does not drop completedAt:undefined rows on concurrent completion TOCTOU', async () => {
+    for (const baseCount of [1, 80]) {
+      const name = `page-toctou-${baseCount}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const isolated = Repo.createSchemaFor(name);
+      try {
+        await isolated.open();
+        const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+        const rows: ITransaction[] = Array.from({ length: baseCount }, (_, i) =>
+          makeTx(`done-${String(i).padStart(4, '0')}`, {
+            accountId: 'mtst1acct',
+            initiatedAt: 1_700_000_000 + i,
+            completedAt: 1_700_000_000 + i
+          })
+        );
+        rows.push(
+          makeTx('fallback-missing', {
+            accountId: 'mtst1acct',
+            status: ITransactionStatus.Completed,
+            initiatedAt: 1_700_000_500,
+            completedAt: undefined
+          }),
+          makeTx('completing-row', {
+            accountId: 'mtst1acct',
+            status: ITransactionStatus.Unconfirmed,
+            initiatedAt: 1_700_000_050,
+            completedAt: undefined
+          })
+        );
+        await table.bulkAdd(rows);
+
+        const core = table.core;
+        const origCount = core.count.bind(core);
+        const origOpenCursor = core.openCursor.bind(core);
+        let sawNumericStart = false;
+        let pendingCompletion: Promise<number> | undefined;
+        let triggered = false;
+        const fireBetweenTransactions = () => {
+          if (triggered) return;
+          triggered = true;
+          pendingCompletion = Dexie.ignoreTransaction(() =>
+            table.update('completing-row', {
+              status: ITransactionStatus.Completed,
+              completedAt: 1_700_000_600
+            })
+          );
+        };
+        const origTx = isolated.transaction.bind(isolated);
+        const txSpy = jest.spyOn(isolated, 'transaction').mockImplementation(((...args: unknown[]) => {
+          const txPromise = (origTx as (...a: unknown[]) => Promise<unknown>)(...args);
+          return txPromise.then(async res => {
+            if (sawNumericStart && pendingCompletion) {
+              await pendingCompletion;
+            }
+            return res;
+          });
+        }) as typeof isolated.transaction);
+        core.count = req =>
+          origCount(req).then(count => {
+            if (req.query.index.name === 'status') {
+              sawNumericStart = true;
+              fireBetweenTransactions();
+            }
+            return count;
+          });
+        core.openCursor = req => {
+          if (req.values === false && req.query.index.name === 'status') {
+            sawNumericStart = true;
+            fireBetweenTransactions();
+          }
+          return origOpenCursor(req);
+        };
+
+        try {
+          const page = await getCompletedTransactionsPage(
+            { accountId: 'mtst1acct', limit: baseCount + 10, includeFailed: false, fromEnd: true },
+            table
+          );
+          expect(page.transactions.map(tx => tx.id)).toContain('fallback-missing');
+        } finally {
+          txSpy.mockRestore();
+          core.count = origCount;
+          core.openCursor = origOpenCursor;
+        }
+      } finally {
+        isolated.close();
+        await Dexie.delete(name);
+      }
+    }
+  });
+
+  it('getCompletedTransactionsPage seeks cross-page tied timestamps in O(log N) without rescanning earlier ties and without core.count', async () => {
+    const name = `page-cross-tie-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = Repo.createSchemaFor(name);
+    try {
+      await isolated.open();
+      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+      const tiedCompletedAt = 1_700_000_000;
+      await table.bulkAdd(
+        Array.from({ length: 200 }, (_, i) =>
+          makeTx(`tx-${String(i).padStart(4, '0')}`, {
+            accountId: 'mtst1acct',
+            initiatedAt: tiedCompletedAt - 10,
+            completedAt: tiedCompletedAt
+          })
+        )
+      );
+
+      let cursor: Awaited<ReturnType<typeof getCompletedTransactionsPage>>['nextCursor'] = null;
+      for (let p = 0; p < 15; p += 1) {
+        const res = await getCompletedTransactionsPage(
+          cursor === null
+            ? { accountId: 'mtst1acct', limit: 10, includeFailed: true, fromEnd: true }
+            : { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+          table
+        );
+        cursor = res.nextCursor;
+      }
+
+      const countSpy = jest.spyOn(table.core, 'count');
+      const probe = installCoreReadProbe(table);
+      try {
+        const page16 = await getCompletedTransactionsPage(
+          { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+          table
+        );
+        expect(page16.transactions[0]?.id).toBe('tx-0049');
+        expect(page16.transactions[9]?.id).toBe('tx-0040');
+        expect(countSpy).not.toHaveBeenCalled();
+        expect(probe.rowsRead).toBeLessThanOrEqual(25);
+      } finally {
+        probe.restore();
+        countSpy.mockRestore();
+      }
+    } finally {
+      isolated.close();
+      await Dexie.delete(name);
+    }
+  });
+
+  it('getNoteHoldingTransactions avoids core.count and caps heldNoteIds cardinality probe at recentCompletedCount', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const bulk: ITransaction[] = [
+      ...Array.from({ length: 120 }, (_, i) =>
+        makeTx(`recent-send-${i}`, {
+          initiatedAt: nowSec - 20,
+          completedAt: nowSec - 10
+        })
+      ),
+      ...Array.from({ length: 250 }, (_, i) =>
+        makeTx(`old-held-${i}`, {
+          type: 'execute',
+          status: ITransactionStatus.Completed,
+          initiatedAt: nowSec - 5_000 - i,
+          completedAt: nowSec - 4_000 - i,
+          heldNoteIds: [`n-a-${i}`, `n-b-${i}`]
+        })
+      )
+    ];
+    await Repo.transactions.bulkPut(bulk);
+
+    const countSpy = jest.spyOn(Repo.transactions.core, 'count');
+    let heldCursorSteps = 0;
+    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+    Repo.transactions.core.openCursor = req =>
+      origOpenCursor(req).then(cursor => {
+        if (cursor === null || req.values !== false || req.query.index.name !== 'heldNoteIds') return cursor;
+        heldCursorSteps += 1;
+        const origStart = cursor.start;
+        cursor.start = cb =>
+          origStart.call(cursor, () => {
+            if (!cursor.done) heldCursorSteps += 1;
+            cb();
+          });
+        return cursor;
+      });
+    try {
+      await getNoteHoldingTransactions('mtst1acct');
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(heldCursorSteps).toBeLessThanOrEqual(130);
+    } finally {
+      Repo.transactions.core.openCursor = origOpenCursor;
+      countSpy.mockRestore();
+    }
+  });
+
+  it('getCompletedTransactionsPage seeks tied negative and fallback timestamps in O(log N) across pages', async () => {
+    for (const mode of ['negative', 'fallback'] as const) {
+      const name = `page-tie-${mode}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const isolated = Repo.createSchemaFor(name);
+      try {
+        await isolated.open();
+        const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+        await table.bulkAdd(
+          Array.from({ length: 200 }, (_, i) =>
+            makeTx(`tx-${String(i).padStart(4, '0')}`, {
+              accountId: 'mtst1acct',
+              initiatedAt: mode === 'fallback' ? 1_700_000_000 : 100,
+              completedAt: mode === 'negative' ? -100 : undefined
+            })
+          )
+        );
+
+        let cursor: Awaited<ReturnType<typeof getCompletedTransactionsPage>>['nextCursor'] = null;
+        for (let p = 0; p < 15; p += 1) {
+          const res = await getCompletedTransactionsPage(
+            cursor === null
+              ? { accountId: 'mtst1acct', limit: 10, includeFailed: true, fromEnd: true }
+              : { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+            table
+          );
+          cursor = res.nextCursor;
+        }
+
+        const probe = installCoreReadProbe(table);
+        try {
+          const page16 = await getCompletedTransactionsPage(
+            { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+            table
+          );
+          expect(page16.transactions[0]?.id).toBe('tx-0049');
+          expect(page16.transactions[9]?.id).toBe('tx-0040');
+          expect(probe.rowsRead).toBeLessThanOrEqual(25);
+        } finally {
+          probe.restore();
+        }
+      } finally {
+        isolated.close();
+        await Dexie.delete(name);
+      }
+    }
+  });
+
+  it('detectActiveHistoryStreams probes Failed before Completed so a Failed fallback row short-circuits Completed probes, and honors outer transactions', async () => {
+    const name = `page-order-outer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = Repo.createSchemaFor(name);
+    try {
+      await isolated.open();
+      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+      await table.bulkAdd([
+        ...Array.from({ length: 70 }, (_, i) =>
+          makeTx(`done-${i}`, {
+            accountId: 'mtst1acct',
+            status: ITransactionStatus.Completed,
+            initiatedAt: 1_700_000_000 + i,
+            completedAt: 1_700_000_000 + i
+          })
+        ),
+        makeTx('fail-zero', {
+          accountId: 'mtst1acct',
+          status: ITransactionStatus.Failed,
+          initiatedAt: 1_700_000_500,
+          completedAt: 0
+        })
+      ]);
+
+      const probedStatuses: unknown[] = [];
+      const origQuery = table.core.query.bind(table.core);
+      table.core.query = req => {
+        if (req.values === false && req.query.index.name === 'status') {
+          probedStatuses.push(req.query.range.lower);
+        }
+        return origQuery(req);
+      };
+      try {
+        const page = await getCompletedTransactionsPage(
+          { accountId: 'mtst1acct', limit: 5, includeFailed: true, fromEnd: true },
+          table
+        );
+        expect(page.transactions[0]?.id).toBe('fail-zero');
+        expect(probedStatuses).toEqual([ITransactionStatus.Failed]);
+      } finally {
+        table.core.query = origQuery;
+      }
+
+      await table.delete('fail-zero');
+      const probe = installCoreReadProbe(table);
+      try {
+        const page = await isolated.transaction('r', table, () =>
+          getCompletedTransactionsPage({ accountId: 'mtst1acct', limit: 5, includeFailed: false, fromEnd: true }, table)
+        );
+        expect(page.transactions).toHaveLength(5);
+        expect(probe.cursorIndexes).not.toContain('initiatedAt');
+      } finally {
+        probe.restore();
+      }
+    } finally {
+      isolated.close();
+      await Dexie.delete(name);
     }
   });
 });

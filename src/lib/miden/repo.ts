@@ -602,8 +602,6 @@ export interface HistoryIndexCursor {
   readonly value: ITransaction;
   readonly done: boolean;
   next(): Promise<HistoryIndexCursor>;
-  /** Reads up to `maxItems` consecutive rows in one `cursor.start` call (present on real Dexie cursors). */
-  takeBatch?(maxItems: number): Promise<ITransaction[]>;
 }
 
 /** Inclusive bounds omit `lowerOpen` / `upperOpen`. An absent bound is the whole index. */
@@ -674,21 +672,6 @@ function wrapHistoryIndexCursor(cursor: DBCoreCursor): HistoryIndexCursor {
     },
     next() {
       return cursor.next().then(advanced => wrapHistoryIndexCursor(advanced));
-    },
-    takeBatch(maxItems: number) {
-      if (cursor.done || maxItems <= 0) return Promise.resolve([]);
-      const rows: ITransaction[] = [];
-      return cursor
-        .start(() => {
-          if (cursor.done) return;
-          rows.push(historyRowFromCursor(cursor));
-          if (rows.length >= maxItems) {
-            cursor.stop();
-            return;
-          }
-          cursor.continue();
-        })
-        .then(() => rows);
     }
   };
 }
