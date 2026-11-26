@@ -858,6 +858,40 @@ it('a route row appears only when two providers serve the pair', () => {
   expect(screen.getByText('commandBridgeEpochReceiveUnavailable')).toBeVisible();
 });
 
+function pickNetwork(side: 'source' | 'destination', network: string) {
+  const testId = `command-bridge-${side}-network`;
+  fireEvent.click(screen.getByTestId(testId));
+  fireEvent.click(within(screen.getByTestId(`${testId}-menu`)).getByTestId(`bridge-option-${network}`));
+}
+
+it('changing the To network of a send keeps the Miden From token and the typed amount', () => {
+  mockSnapshot = referenceSnapshot('mainnet');
+  render(<CommandBridge />, { wrapper });
+  fireEvent.click(screen.getByRole('radio', { name: 'commandBridgeOut' }));
+  // ETH, not Base's first token (USDCx): losing the Miden asset would show.
+  const route = deriveBridgeRoutes(mockSnapshot).find(
+    item => item.mode === 'send' && item.provider === 'agglayer' && item.source.symbol === 'ETH'
+  );
+  if (!route) throw new Error('Missing mainnet ETH send fixture');
+  selectCommandBridgeRoute(route);
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.5' } });
+  pickNetwork('destination', 'base');
+  expect(screen.getByTestId('command-bridge-destination-network')).toHaveTextContent('Base');
+  expect(screen.getByTestId('command-bridge-source-token')).toHaveTextContent('ETH');
+  expect(screen.getByRole('textbox', { name: 'amount' })).toHaveValue('1.5');
+});
+
+it('changing the From network of a receive clears the typed amount', () => {
+  mockSnapshot = referenceSnapshot('mainnet');
+  render(<CommandBridge />, { wrapper });
+  selectCommandBridgeRoute(receiveRoute('agglayer', 'ETH'));
+  fireEvent.change(screen.getByRole('textbox', { name: 'amount' }), { target: { value: '1.5' } });
+  expect(screen.getByRole('textbox', { name: 'amount' })).toHaveValue('1.5');
+  pickNetwork('source', 'base');
+  expect(screen.getByTestId('command-bridge-source-network')).toHaveTextContent('Base');
+  expect(screen.getByRole('textbox', { name: 'amount' })).toHaveValue('');
+});
+
 it('same-symbol tokens carry a detail line', () => {
   render(<CommandBridge />, { wrapper });
   const agglayer = receiveRoute('agglayer', 'USDC');

@@ -87,6 +87,7 @@ export function BridgePicker({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={`${menuLabel}: ${current.label}`}
         data-testid={testId}
         onClick={() => {
           hapticLight();
@@ -116,6 +117,8 @@ export function BridgePicker({
           <h2 className="px-2 pt-1 text-label text-muted">{menuLabel}</h2>
           {searchable && (
             <div
+              // The popover scrolls: the padding, cancelled by margin, keeps rows from showing around the field.
+              className="sticky top-0 z-10 -mx-2 -my-2 bg-page px-2 py-2"
               onKeyDown={event => {
                 // Left, Right, Home and End stay with the caret.
                 const target = event.key === 'ArrowDown' ? rows()[0] : event.key === 'ArrowUp' ? rows().at(-1) : null;
@@ -157,14 +160,16 @@ export function BridgePicker({
                 avatar={option.icon('md')}
                 tabIndex={option.id === focusId ? 0 : -1}
                 onClick={() => select(option.id)}
-                className="rounded-xl"
+                // A focused row must not scroll to rest under the pinned search.
+                className={cn('rounded-xl', searchable && 'scroll-mt-16')}
                 data-testid={`bridge-option-${option.id}`}
               />
             ))}
           </div>
-          {shown.length === 0 && (
-            <p role="status" className="px-2 py-3 text-body-sm text-muted">
-              {t('commandBridgeNoTokens')}
+          {searchable && (
+            // Always mounted: a live region added together with its text is not reliably announced.
+            <p role="status" className={shown.length === 0 ? 'px-2 py-3 text-body-sm text-muted' : 'sr-only'}>
+              {shown.length === 0 ? t('commandBridgeNoTokens') : null}
             </p>
           )}
         </div>

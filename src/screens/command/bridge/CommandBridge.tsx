@@ -322,7 +322,11 @@ export function CommandBridge(): React.ReactElement {
                   className="sm:grid-cols-3 lg:col-span-2"
                 />
               ) : (
-                <p data-testid="command-bridge-via" className="text-caption text-muted lg:col-span-2">
+                <p
+                  data-testid="command-bridge-via"
+                  data-provider={route.provider}
+                  className="text-caption text-muted lg:col-span-2"
+                >
                   {t('commandBridgeVia', { provider: t(`commandBridgeProvider_${route.provider}`) })}
                 </p>
               ))}

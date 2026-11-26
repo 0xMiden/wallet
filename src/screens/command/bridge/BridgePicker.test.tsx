@@ -68,6 +68,7 @@ it('arrow keys move focus without selecting and Enter-click selects once, closin
   const onChange = jest.fn();
   render(<Harness onChange={onChange} />);
   expect(pill()).toHaveAttribute('aria-haspopup', 'dialog');
+  expect(pill()).toHaveAccessibleName('Pick: USDC');
   expect(pill()).toHaveAttribute('aria-expanded', 'false');
   pill().focus();
   fireEvent.keyDown(pill(), { key: 'ArrowDown' });
@@ -103,6 +104,7 @@ it('arrow keys move focus without selecting and Enter-click selects once, closin
   await waitFor(() => expect(menu()).toBeNull());
   await waitFor(() => expect(pill()).toHaveFocus());
   expect(pill()).toHaveTextContent('ETH');
+  expect(pill()).toHaveAccessibleName('Pick: ETH');
   expect(pill()).toHaveAttribute('aria-expanded', 'false');
 
   fireEvent.click(pill());
@@ -125,10 +127,15 @@ it('search filters by symbol and address, reports no match, and is cleared when 
   expect(shownRows().map(item => item.dataset.testid)).toEqual(['bridge-option-usdc-b']);
   fireEvent.change(search(), { target: { value: 'agglayer' } });
   expect(shownRows().map(item => item.dataset.testid)).toEqual(['bridge-option-usdc-b']);
-  expect(screen.queryByRole('status')).toBeNull();
+  // Mounted while empty, so a screen reader announces the later text; out of flow, so it leaves no gap.
+  const status = screen.getByRole('status');
+  expect(status).toBeEmptyDOMElement();
+  expect(status).toHaveClass('sr-only');
   fireEvent.change(search(), { target: { value: 'zzz' } });
   expect(shownRows()).toHaveLength(0);
-  expect(screen.getByRole('status')).toHaveTextContent('commandBridgeNoTokens');
+  expect(screen.getByRole('status')).toBe(status);
+  expect(status).toHaveTextContent('commandBridgeNoTokens');
+  expect(status).not.toHaveClass('sr-only');
 
   fireEvent.keyDown(search(), { key: 'Escape' });
   await waitFor(() => expect(menu()).toBeNull());
@@ -136,6 +143,22 @@ it('search filters by symbol and address, reports no match, and is cleared when 
   await waitFor(() => expect(search()).toHaveFocus());
   expect(search()).toHaveValue('');
   expect(shownRows()).toHaveLength(3);
+});
+
+it('the search field stays pinned and opaque over a scrolling list', () => {
+  render(<Harness searchable onChange={jest.fn()} />);
+  fireEvent.click(pill());
+  // jsdom has no layout: the classes are the contract.
+  const header = screen.getByTestId('picker-search').parentElement!.parentElement!;
+  expect(header).toHaveClass('sticky', 'top-0', 'z-10', 'bg-page', '-mx-2', 'px-2', '-my-2', 'py-2');
+  // A focused row must not scroll to rest underneath it.
+  expect(row('usdc-a')).toHaveClass('scroll-mt-16');
+});
+
+it('a menu without search has no status region', () => {
+  render(<Harness onChange={jest.fn()} />);
+  fireEvent.click(pill());
+  expect(screen.queryByRole('status')).toBeNull();
 });
 
 it('ArrowDown from the search field reaches the first row', async () => {

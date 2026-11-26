@@ -265,6 +265,15 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   expect(
     Math.abs((await portfolioHeading.evaluate(headingY)) - (await allocationHeading.evaluate(headingY)))
   ).toBeLessThanOrEqual(1);
+  const chevronGapError = await command
+    .getByTestId('command-ai-morph-toggle')
+    .locator('svg')
+    .evaluate(el => {
+      const button = el.closest('button')!.getBoundingClientRect();
+      const chevron = el.getBoundingClientRect();
+      return Math.abs(chevron.left - button.left - (button.right - chevron.right));
+    });
+  expect(chevronGapError).toBeLessThanOrEqual(1);
   await captureCommand(command, info, 'command-dashboard-1440x1000');
   const assetSearch = await command.getByRole('textbox', { name: 'Search assets...' }).boundingBox();
   const assetList = await command.getByRole('main').locator('[aria-label="Assets"]').boundingBox();
@@ -414,10 +423,25 @@ test('compact launcher opens the real Command workspace and preserves a minimize
         });
         expect(gapError).toBeLessThanOrEqual(1);
       }
-      await captureCommand(command, info, `command-bridge-form-${variant}`);
+      // Tall enough that the workbench does not scroll, so the capture holds the whole form.
+      await command.setViewportSize({ width: viewport.width, height: 1700 });
+      for (const part of [
+        connectButton,
+        bridge.getByRole('group', { name: 'From', exact: true }),
+        bridge.getByRole('group', { name: 'To', exact: true }),
+        bridge.getByRole('textbox', { name: 'External account', exact: true })
+      ]) {
+        await expect(part).toBeInViewport({ ratio: 1 });
+      }
+      await captureCommand(command, info, `command-bridge-form-${theme}-${viewport.width}x1700`);
+      await command.setViewportSize(viewport);
 
       await connectButton.focus();
       await command.keyboard.press('Tab');
+      // The From network pill precedes the source token once it has a choice to offer.
+      if (await bridge.locator('button[data-testid="command-bridge-source-network"]').count()) {
+        await command.keyboard.press('Tab');
+      }
       await expect(sourceToken).toBeFocused();
       await expect(sourceToken).toHaveCSS('outline-style', 'solid');
       await expect(sourceToken).toHaveCSS('outline-width', '2px');
