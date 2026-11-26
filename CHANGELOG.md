@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
 - [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
 - [FIX][ci] Align the cached solver registry test with the token list readiness field.
 
