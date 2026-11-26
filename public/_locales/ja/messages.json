@@ -824,6 +824,38 @@
       }
     }
   },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ を請求する",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ の請求",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "残高の更新",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceStale": {
+    "message": "最終確認残高。更新できませんでした。",
+    "englishSource": "Last confirmed balance. Could not refresh."
+  },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
     "englishSource": "ID: $id$",

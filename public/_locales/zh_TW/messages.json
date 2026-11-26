@@ -824,6 +824,38 @@
       }
     }
   },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ 以領取",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ 領取",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "更新餘額",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceStale": {
+    "message": "最後確認的餘額。無法刷新。",
+    "englishSource": "Last confirmed balance. Could not refresh."
+  },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
     "englishSource": "ID: $id$",

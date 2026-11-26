@@ -824,6 +824,38 @@
       }
     }
   },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ для отримання",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ вилучення",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Оновлення балансу",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceStale": {
+    "message": "Останній підтверджений баланс. Не вдалося оновити.",
+    "englishSource": "Last confirmed balance. Could not refresh."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

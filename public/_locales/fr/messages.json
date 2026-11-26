@@ -824,6 +824,38 @@
       }
     }
   },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ à réclamer",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ réclamation",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Mise à jour du solde",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceStale": {
+    "message": "Dernier solde confirmé. Impossible d’actualiser.",
+    "englishSource": "Last confirmed balance. Could not refresh."
+  },
   "historyDetailsIdLabel": {
     "message": "ID : $id$",
     "englishSource": "ID: $id$",

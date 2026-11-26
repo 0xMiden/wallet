@@ -824,6 +824,38 @@
       }
     }
   },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ to claim",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ claiming",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Updating balance",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceStale": {
+    "message": "Last confirmed balance. Could not refresh.",
+    "englishSource": "Last confirmed balance. Could not refresh."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
