@@ -271,6 +271,7 @@ jest.mock('app/templates/history/History', () => ({
     tokenId?: string;
     fullHistory?: boolean;
     dateStyle?: string;
+    numItems?: number;
     pendingItems?: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
@@ -282,6 +283,7 @@ jest.mock('app/templates/history/History', () => ({
       data-token-id={props.tokenId}
       data-full-history={String(props.fullHistory)}
       data-date-style={props.dateStyle ?? ''}
+      data-num-items={props.numItems}
       data-pending-ids={props.pendingItems?.map(item => item.note.id).join(',') ?? ''}
       data-drawn-pending-ids={props.drawnPendingItems?.map(item => item.note.id).join(',') ?? ''}
       data-external-loading={String(props.externalLoading)}
@@ -600,6 +602,14 @@ describe('TokenDetail', () => {
     it('draws no state line when the balance is settled', () => {
       renderPage();
       expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
+    });
+
+    it('lists the latest five inline and links to the full activity', () => {
+      renderPage();
+
+      expect(screen.getByTestId('history')).toHaveAttribute('data-num-items', '5');
+      fireEvent.click(within(screen.getByTestId('token-detail-activity')).getByRole('button', { name: 'seeAll' }));
+      expect(mockNavigate).toHaveBeenCalledWith('/history');
     });
 
     it('keeps every mixed-faucet note represented in History but draws only this token cards', () => {

@@ -1,23 +1,43 @@
-import { useTranslation } from 'react-i18next';
+import HistoryView from 'app/templates/history/HistoryView';
+import { HistoryEntryType, type IHistoryEntry } from 'app/templates/history/IHistoryEntry';
+import type { PendingActivityItem } from 'app/templates/history/PendingActivityCard';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { ActivityRow } from 'components/ui/ActivityRow';
-import { Card } from 'components/ui/Card';
+// The real list over synthetic rows: `History` itself reads the wallet database. Seven settled rows,
+// so the page's row cap has something to cut.
+export const FIXTURE_NOW = Math.floor(new Date('2026-10-05T12:00:00Z').getTime() / 1000);
+const entries: IHistoryEntry[] = Array.from({ length: 7 }, (_, index) => ({
+  key: `fixture-${index}`,
+  address: 'synthetic-account',
+  timestamp: FIXTURE_NOW - 600 - index * 60,
+  message: 'Received',
+  type: HistoryEntryType.CompletedTransaction,
+  txType: 'consume',
+  amount: `+${index + 1}.00`,
+  token: 'IETH'
+}));
+const loadNothing = async () => undefined;
 
-export default function History() {
-  const { t } = useTranslation();
+type Props = {
+  tokenId?: string;
+  numItems?: number;
+  dateStyle?: 'header' | 'caption';
+  drawnPendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+};
 
+export default function History({ tokenId, numItems, dateStyle, drawnPendingItems, renderPendingItem }: Props) {
   return (
-    <Card asChild surface="outline" padding="row" className="relative">
-      <ActivityRow
-        testId="token-history-fixture-row"
-        icon={<Icon name={IconName.Receive} size="sm" className="text-pure-white" />}
-        iconBg="bg-tx-received"
-        title={t('received')}
-        subtitle={t('testnet')}
-        amount={{ value: '+0.25', symbol: 'IETH', direction: 'positive' }}
-        status="received"
-      />
-    </Card>
+    <HistoryView
+      entries={entries.slice(0, numItems)}
+      maxRows={numItems}
+      pendingItems={drawnPendingItems}
+      renderPendingItem={renderPendingItem}
+      initialLoading={false}
+      hasMore={false}
+      loadMore={loadNothing}
+      tokenId={tokenId}
+      dateStyle={dateStyle}
+      fullHistory
+    />
   );
 }

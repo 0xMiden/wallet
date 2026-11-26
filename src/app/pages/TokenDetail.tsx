@@ -29,6 +29,7 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
+import { TextAction } from 'components/ui/TextAction';
 import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
@@ -57,6 +58,9 @@ import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 import { truncateHash } from 'utils/string';
 
 import { EditTokenDetailsDrawer, TokenDetailsValues } from './EditTokenDetailsDrawer';
+
+/** How many of the token's latest rows the page lists before "See all". */
+const RECENT_ACTIVITY_COUNT = 5;
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -339,13 +343,23 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <SectionDivider />
 
           <section data-testid="token-detail-activity">
-            <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
+            <SectionHeader
+              size="2xl"
+              tone="muted"
+              className="px-0 pb-3"
+              action={
+                <TextAction onClick={() => navigate('/history')} data-testid="token-detail-see-all">
+                  {t('seeAll')}
+                </TextAction>
+              }
+            >
               {t('recentActivity')}
             </SectionHeader>
             <History
               address={account.publicKey}
               tokenId={tokenId}
               fullHistory={true}
+              numItems={RECENT_ACTIVITY_COUNT}
               // The section's heading names the list; each day is a quiet caption under it.
               dateStyle="caption"
               scrollParentRef={scrollParentRef}

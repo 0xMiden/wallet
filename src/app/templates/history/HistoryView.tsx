@@ -65,6 +65,8 @@ type HistoryViewProps = {
   dateStyle?: 'header' | 'caption';
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  /** The most rows the timeline draws, counted after the claim cards are merged in. */
+  maxRows?: number;
   /** A read the list needs failed: with no rows to show, say so instead of "no activity". */
   loadError?: boolean;
   /** Re-runs whichever read is running; backs the load-error card's Retry. */
@@ -525,6 +527,7 @@ const HistoryView = memo<HistoryViewProps>(
     dateStyle = 'header',
     pendingItems,
     renderPendingItem,
+    maxRows,
     loadError,
     onRetry,
     className
@@ -547,12 +550,14 @@ const HistoryView = memo<HistoryViewProps>(
         txType: 'consume',
         pendingActivity: item
       }));
-      return [...entries, ...pending].sort(
-        (a, b) =>
-          (Number.isFinite(b.timestamp) ? b.timestamp : -Infinity) -
-          (Number.isFinite(a.timestamp) ? a.timestamp : -Infinity)
-      );
-    }, [entries, pendingItems]);
+      return [...entries, ...pending]
+        .sort(
+          (a, b) =>
+            (Number.isFinite(b.timestamp) ? b.timestamp : -Infinity) -
+            (Number.isFinite(a.timestamp) ? a.timestamp : -Infinity)
+        )
+        .slice(0, maxRows);
+    }, [entries, pendingItems, maxRows]);
     const noEntries = timeline.length === 0;
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
