@@ -455,9 +455,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
 
   const { redactedText, snapshot, helpContext } = parseCompileBody(await readJsonBody(request));
   const model = env.COMMAND_AI_MODEL?.trim() || DEFAULT_MODEL;
-  const reasonAboutHelp = helpContext !== undefined && model === DEFAULT_MODEL;
-  const reasoningEffort =
-    env.COMMAND_AI_REASONING_EFFORT?.trim() || (reasonAboutHelp ? 'medium' : DEFAULT_REASONING_EFFORT);
+  const reasoningEffort = env.COMMAND_AI_REASONING_EFFORT?.trim() || DEFAULT_REASONING_EFFORT;
   const userPayload = snapshot
     ? JSON.stringify({ snapshot, utterance: redactedText })
     : helpContext
@@ -483,7 +481,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
         temperature: 0.1,
         reasoning_effort: reasoningEffort,
         include_reasoning: false,
-        max_completion_tokens: reasonAboutHelp ? 1024 : 512,
+        max_completion_tokens: 512,
         stream: false,
         response_format: {
           type: 'json_schema',
