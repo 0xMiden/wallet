@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
+
 ## 1.18.2 (TBD)
 
 - [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
