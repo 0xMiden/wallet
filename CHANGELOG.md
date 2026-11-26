@@ -2,6 +2,8 @@
 
 ## 1.18.2 (TBD)
 
+- [FIX][ci] Require private MidenFi signer setup to pass in both dApp E2E account modes.
+
 - [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
 
 - [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.
