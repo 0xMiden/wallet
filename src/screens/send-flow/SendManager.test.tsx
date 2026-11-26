@@ -1500,7 +1500,9 @@ describe('recipient address entry', () => {
     const view = renderFlow();
     type('not-an-address');
     view.unmount();
-    expect(() => stopTyping()).not.toThrow();
+    isValidMidenAddressMock.mockClear();
+    stopTyping();
+    expect(isValidMidenAddressMock).not.toHaveBeenCalled();
   });
 
   it('rejects the current Miden account as a typed recipient', () => {
@@ -2987,10 +2989,36 @@ describe('Miden Name recipient', () => {
     renderFlow();
 
     typeRecipient('me.miden');
-    await runLookup();
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
 
-    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    navigateToMock.mockClear();
+    fireEvent.click(screen.getByTestId('sr-confirm'));
+    expect(navigateToMock).not.toHaveBeenCalledWith(SendFlowStep.SelectAmount);
+  });
+
+  it('blocks the review handoff for a name that resolves to the current account', async () => {
+    resolveMidenNameMock.mockResolvedValue('me-pk');
+    const view = renderFlow();
+
+    typeRecipient('me.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    view.rerender(<SendFlow isLoading={false} />);
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    navigateMock.mockClear();
+
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('clears the debounce timer on unmount', async () => {

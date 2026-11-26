@@ -146,6 +146,21 @@ interface MidenNameResolution {
 const IDLE_NAME_RESOLUTION: MidenNameResolution = { input: '', status: 'idle' };
 const getNameRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), getEffectiveRpcUrl()]);
 
+function isSelfNameResolution(
+  name: MidenNameResolution,
+  recipientAddress: string | undefined,
+  publicKey: string,
+  registryScope = getNameRegistryScope()
+): boolean {
+  return (
+    name.status === 'resolved' &&
+    name.input === recipientAddress?.trim() &&
+    name.registryScope === registryScope &&
+    name.address !== undefined &&
+    sameWalletAccountId(name.address, publicKey)
+  );
+}
+
 /** Context that the recipient schema gets from the form. */
 interface RecipientValidationContext {
   /** The trimmed input of a Miden Name that resolved to an address. */
@@ -493,6 +508,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // The address that the send goes to: the resolved address for a Miden Name,
   // else the input.
   const effectiveRecipientAddress = resolvedMidenName?.address ?? recipientAddress;
+  const resolvedNameIsSelf = isSelfNameResolution(nameResolution, recipientAddress, publicKey, registryScope);
   // The bridge networks and the NEAR Intents chains. One array per config snapshot, so effects can depend on it.
   const offeredNetworks = sendNetworks(isUsdcxWithdrawalNetwork());
   // The selected destination, only when it is offered and matches the address chain.
@@ -521,8 +537,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     isBridge && networkKind !== 'evm' && !offeredNetworks.some(n => n.kind === networkKind);
   const recipientError =
     errors.recipientAddress?.message?.toString() ??
-    (recipientNetworkUnsupported ? 'recipientNetworkUnsupported' : undefined);
+    (resolvedNameIsSelf ? 'cannotSendToSelf' : recipientNetworkUnsupported ? 'recipientNetworkUnsupported' : undefined);
   const isValidRecipient =
+    !resolvedNameIsSelf &&
     !errors.recipientAddress &&
     !recipientNetworkUnsupported &&
     validations.recipientAddress.isValidSync(recipientAddress, { context: recipientValidationContext });
@@ -1058,6 +1075,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // the name (`name`). The raw name is never the `to` value, because review
   // signs `to`. An unresolved name cannot go to review.
   const goToReview = useCallback(() => {
+    if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) return;
     if (reviewHandoffRef.current) return;
     const admission = commandDrafts?.readSendAdmission();
     if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
@@ -1150,6 +1168,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     amount,
     recipientAddress,
     resolvedMidenName,
+    publicKey,
     token,
     isBridge,
     bridgeNetwork,
@@ -1599,7 +1618,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onSelectNetwork,
     onScan: isScanAvailable() ? onScan : undefined,
     onPaste: isMobile() ? onPaste : undefined,
-    onConfirm: () => goToStep(SendFlowStep.SelectAmount)
+    onConfirm: () => {
+      if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) return;
+      goToStep(SendFlowStep.SelectAmount);
+    }
   };
   const amountProps: SendAmountProps = {
     token: spendableToken,
