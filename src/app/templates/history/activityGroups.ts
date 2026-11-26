@@ -185,7 +185,7 @@ export function isPendingActivityEntry(entry: IHistoryEntry): boolean {
 }
 
 /** A timestamp a `Date` can be built from; `-Infinity` for anything else, so it never wins a max. */
-function usableTimestamp(timestamp = -Infinity): number {
+export function usableTimestamp(timestamp = -Infinity): number {
   return Number.isFinite(timestamp) ? timestamp : -Infinity;
 }
 

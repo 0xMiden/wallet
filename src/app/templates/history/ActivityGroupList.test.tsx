@@ -391,6 +391,45 @@ describe('ActivityGroupList', () => {
     expect(within(row).getByText(/Alice/)).toBeTruthy();
   });
 
+  it('labels an untimed-only dApp group with its claim sender contact', () => {
+    const aliceClaim = {
+      note: {
+        id: 'untimed-claim',
+        faucetId: 'token-faucet',
+        senderAddress: 'mtst1xyz',
+        amount: '1',
+        isBeingClaimed: true,
+        type: 'unknown' as const,
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      },
+      status: 'claiming' as const,
+      txId: 'consume',
+      initiatingDappOrigin: 'https://dapp.test:8443'
+    };
+    const bobClaim = {
+      ...aliceClaim,
+      note: { ...aliceClaim.note, id: 'bob-claim', senderAddress: 'mtst1other' },
+      txId: 'bob-consume'
+    };
+    const timedAlice = { ...aliceClaim, note: { ...aliceClaim.note, receivedAt: 1_000 } };
+    const nameOf = activityCounterpartyNames([
+      { address: 'mtst1xyz', name: 'Alice' },
+      { address: 'mtst1other', name: 'Bob' }
+    ]);
+    const props = { entries: [], nameOf, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const { rerender } = render(<ActivityGroupList {...props} claims={[aliceClaim]} />);
+
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('2 hours');
+
+    rerender(<ActivityGroupList {...props} claims={[aliceClaim, bobClaim]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('Bob');
+
+    rerender(<ActivityGroupList {...props} claims={[bobClaim, timedAlice]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice · 2 hours');
+  });
+
   it('names a known counterparty and ellipsises an unknown address', () => {
     renderList(
       [

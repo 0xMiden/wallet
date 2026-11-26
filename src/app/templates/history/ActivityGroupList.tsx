@@ -22,7 +22,8 @@ import {
   ActivityGroup,
   activityDappCounterpartyName,
   activityGroupPath,
-  groupActivityEntries
+  groupActivityEntries,
+  usableTimestamp
 } from './activityGroups';
 import { isActivityGroupUnread } from './activityUnread';
 import { historyEntryActionTitle } from './guardianHistoryLabels';
@@ -51,7 +52,7 @@ export function activityGroupTitle(group: ActivityGroup, t: Translate): string {
 export function activityGroupSubtitle(group: ActivityGroup, t: Translate, nameOf?: ActivityCounterpartyName): string {
   const event = latestEvent(group, t);
   const latestClaim =
-    group.kind === 'dapp' && group.claims.find(item => item.note.receivedAt === group.latestTimestamp);
+    group.kind === 'dapp' && group.claims.find(item => usableTimestamp(item.note.receivedAt) === group.latestTimestamp);
   const contact = group.latest
     ? activityDappCounterpartyName(group.latest, nameOf)
     : latestClaim &&
