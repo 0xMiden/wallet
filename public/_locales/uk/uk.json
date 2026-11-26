@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ вилучення",
   "tokenDetailBalanceUpdating": "Оновлення балансу",
   "tokenDetailBalanceStale": "Останній підтверджений баланс. Не вдалося оновити.",
+  "tokenDetailBalanceUnavailable": "Не вдалося виконати балансування навантаження.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "Не вдалося завантажити транзакцію",

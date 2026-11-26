@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ einlösen",
   "tokenDetailBalanceUpdating": "Aktualisierung des Kontostands",
   "tokenDetailBalanceStale": "Zuletzt bestätigter Kontostand. Konnte nicht aktualisiert werden.",
+  "tokenDetailBalanceUnavailable": "Der Lastausgleich konnte nicht durchgeführt werden.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "Transaktion konnte nicht geladen werden",

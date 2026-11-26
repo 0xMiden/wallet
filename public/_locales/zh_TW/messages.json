@@ -856,6 +856,10 @@
     "message": "最後確認的餘額。無法刷新。",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "無法進行負載平衡。",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
     "englishSource": "ID: $id$",

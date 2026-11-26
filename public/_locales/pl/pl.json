@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ – odebranie",
   "tokenDetailBalanceUpdating": "Aktualizacja salda",
   "tokenDetailBalanceStale": "Ostatnie potwierdzone saldo. Nie udało się odświeżyć.",
+  "tokenDetailBalanceUnavailable": "Nie udało się zrównoważyć obciążenia.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "Nie udało się załadować transakcji",

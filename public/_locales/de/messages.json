@@ -856,6 +856,10 @@
     "message": "Zuletzt bestätigter Kontostand. Konnte nicht aktualisiert werden.",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Der Lastausgleich konnte nicht durchgeführt werden.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

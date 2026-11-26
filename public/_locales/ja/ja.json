@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ の請求",
   "tokenDetailBalanceUpdating": "残高の更新",
   "tokenDetailBalanceStale": "最終確認残高。更新できませんでした。",
+  "tokenDetailBalanceUnavailable": "負荷分散できませんでした。",
   "historyDetailsIdLabel": "ID：$id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "トランザクションの読み込みに失敗しました",

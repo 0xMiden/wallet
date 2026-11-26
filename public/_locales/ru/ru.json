@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ Получение $symbol$",
   "tokenDetailBalanceUpdating": "Обновление баланса",
   "tokenDetailBalanceStale": "Последний подтвержденный баланс. Не удалось обновить.",
+  "tokenDetailBalanceUnavailable": "Не удалось выполнить балансировку нагрузки.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "Не удалось загрузить транзакцию",

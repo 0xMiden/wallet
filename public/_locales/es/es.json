@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ Reclamación de $symbol$",
   "tokenDetailBalanceUpdating": "Actualización del saldo",
   "tokenDetailBalanceStale": "Último saldo confirmado. No se ha podido actualizar.",
+  "tokenDetailBalanceUnavailable": "No se ha podido realizar el equilibrio de carga.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "No se ha podido cargar la transacción",

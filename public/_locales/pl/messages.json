@@ -856,6 +856,10 @@
     "message": "Ostatnie potwierdzone saldo. Nie udało się odświeżyć.",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Nie udało się zrównoważyć obciążenia.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

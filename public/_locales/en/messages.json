@@ -856,6 +856,10 @@
     "message": "Last confirmed balance. Could not refresh.",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Could not load balance.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

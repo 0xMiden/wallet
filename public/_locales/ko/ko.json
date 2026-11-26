@@ -159,6 +159,7 @@
   "tokenDetailClaiming": "+$amount$ $symbol$ 청구",
   "tokenDetailBalanceUpdating": "잔액 업데이트",
   "tokenDetailBalanceStale": "마지막으로 확인된 잔액입니다. 새로 고침을 할 수 없습니다.",
+  "tokenDetailBalanceUnavailable": "부하 분산을 수행할 수 없습니다.",
   "historyDetailsIdLabel": "ID: $id$",
   "historyDetailsAmountFilledValue": "$filled$ / $total$$symbol$",
   "historyDetailsLoadError": "트랜잭션을 불러오지 못했습니다.",

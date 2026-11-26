@@ -856,6 +856,10 @@
     "message": "Dernier solde confirmé. Impossible d’actualiser.",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Impossible d’équilibrer la charge.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID : $id$",
     "englishSource": "ID: $id$",

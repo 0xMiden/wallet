@@ -856,6 +856,10 @@
     "message": "Son onaylanmış bakiye. Yenilenemedi.",
     "englishSource": "Last confirmed balance. Could not refresh."
   },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Yük dengeleme yapılamadı.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
