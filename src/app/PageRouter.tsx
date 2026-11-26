@@ -23,6 +23,7 @@ import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { backgroundLockPending } from 'lib/lock-up/background-lock';
 import { useMidenContext } from 'lib/miden/front';
+import { isMidenNameSupported } from 'lib/miden/name/config';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
@@ -44,6 +45,8 @@ import EarnWithdrawAmount from 'screens/earn-flow/EarnWithdrawAmount';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import MidenNameClaim from 'screens/miden-name/MidenNameClaim';
+import MidenNameStatus from 'screens/miden-name/MidenNameStatus';
 import { NearIntentsDepositPage } from 'screens/near-intents-flow/NearIntentsDepositPage';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -569,6 +572,32 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // The retired Pending notes page: an old link or a restored URL still lands where it went.
   ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
+  // Miden Name: the status page first, so that `/miden-name` does not take its path.
+  // The claim form navigates here with Replace, so Back from the status page skips the form.
+  [
+    '/miden-name/status/:txId',
+    onlyReady(({ txId }) =>
+      isMidenNameSupported() ? (
+        <FullScreenPage key={`miden-name-status-${txId}`}>
+          <MidenNameStatus txId={txId!} />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/" />
+      )
+    )
+  ],
+  [
+    '/miden-name',
+    onlyReady(() =>
+      isMidenNameSupported() ? (
+        <FullScreenPage entrance="slide">
+          <MidenNameClaim />
+        </FullScreenPage>
+      ) : (
+        <Woozie.Redirect to="/" />
+      )
+    )
+  ],
   ['*', () => <Woozie.Redirect to="/" />]
 ]);
 

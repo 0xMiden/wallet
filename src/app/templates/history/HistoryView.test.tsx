@@ -14,6 +14,10 @@ import type { PendingActivityItem } from './PendingActivityCard';
 import { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
+jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
+  useFilteredContacts: () => ({ allContacts: [{ address: 'mtst1alice', name: 'Alice' }] })
+}));
+
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
 // A spy, so a case can read the arguments a title was built from.
@@ -42,6 +46,7 @@ jest.mock('app/icons/v2', () => ({
     Earn: 'Earn',
     More: 'More',
     ArrowUpDown: 'ArrowUpDown',
+    User: 'User',
     Key: 'Key'
   }
 }));
@@ -473,6 +478,20 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
     expect(row).toHaveAttribute('data-status', 'failed');
+  });
+
+  it.each([
+    ['alice.miden', 'alice.miden'],
+    [undefined, 'Alice']
+  ])('prefers the send name %s, then the saved contact name', (recipientName, expected) => {
+    render(
+      <HistoryView
+        {...baseProps}
+        fullHistory
+        entries={[makeEntry({ secondaryAddress: 'mtst1alice', recipientName, message: 'Named send' })]}
+      />
+    );
+    expect(rowByTitle('Named send')).toHaveAttribute('data-subtitle', `to: ${expected}`);
   });
 
   it('greys an expired bridge row: nothing failed', () => {
@@ -1485,7 +1504,12 @@ describe('HistoryView claims in flight', () => {
       <HistoryView
         {...baseProps}
         entries={[
-          makeEntry({ key: 'initiated', secondaryAddress, initiatingDappOrigin: origin }),
+          makeEntry({
+            key: 'initiated',
+            secondaryAddress,
+            initiatingDappOrigin: origin,
+            recipientName: 'alice.miden'
+          }),
           makeEntry({ key: 'grant', secondaryAddress, dappOrigins: [origin] })
         ]}
         counterpartyNameOf={address => (address === secondaryAddress ? 'Alice' : undefined)}
@@ -2006,6 +2030,68 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+describe('HistoryView Miden Name rows', () => {
+  it('titles a completed registration "Registered {name}" with the brand glyph and a debit', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Name requested',
+      transactionIcon: 'SEND',
+      amount: '20',
+      token: 'MIDEN',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyRegisteredName');
+    expect(mockT).toHaveBeenCalledWith('historyRegisteredName', { name: 'alice.miden' });
+    expect(row).toHaveAttribute('data-iconbg', 'bg-accent-primary');
+    expect(iconNameIn(row)).toBe('User');
+    expect(row).toHaveAttribute('data-amount-value', '-20');
+    expect(row).toHaveAttribute('data-amount-symbol', 'MIDEN');
+  });
+
+  it('keeps the progress message while the registration is still processing', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Registering name',
+      transactionIcon: 'SEND',
+      type: HistoryEntryType.ProcessingTransaction,
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('Registering name')).toHaveAttribute('data-status', 'pending');
+  });
+
+  // A name claim moves no fungible asset: the row must not invent "+0",
+  // "NaN" or "undefined" for the missing amount.
+  it('titles a name claim "Received {name}" and renders no amount', () => {
+    const entry = makeEntry({
+      txType: 'consume',
+      message: 'Name received',
+      transactionIcon: 'RECEIVE',
+      secondaryAddress: 'mtst1registry_addr1234',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    const row = rowByTitle('historyReceivedName');
+    expect(mockT).toHaveBeenCalledWith('historyReceivedName', { name: 'alice.miden' });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', '');
+    expect(row.outerHTML).not.toMatch(/NaN|undefined|\+0/);
+  });
+
+  it('shows the failure title, not the name, for a failed registration', () => {
+    const entry = makeEntry({
+      txType: 'register-name',
+      message: 'Transaction failed',
+      transactionIcon: 'FAILED',
+      midenNameLabel: 'alice'
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(rowByTitle('transactionFailedNotificationTitle')).toHaveAttribute('data-status', 'failed');
+  });
 });
 
 // A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab

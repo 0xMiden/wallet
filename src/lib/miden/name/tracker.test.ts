@@ -1003,6 +1003,36 @@ describe('C-2 regression guards', () => {
     expect((await inputsOf(row.id)).phase).toBe('claiming');
   });
 
+  it('recovers a failed registration from its completed claim without starting another claim', async () => {
+    const row = registerRow('alice', 'failed', ITransactionStatus.Completed, {
+      failure: 'claim-failed',
+      lastError: 'interrupted',
+      deliveryNoteId: '0xdelivery',
+      claimTxId: 'c-done',
+      claimAttempts: 3
+    });
+    const link = { label: 'Alice.miden', registerTxId: row.id };
+    await add(
+      row,
+      consumeRow('c-done', '0xdelivery', ITransactionStatus.Completed, {
+        midenNameClaim: link,
+        midenNameClaims: { '0xdelivery': link }
+      })
+    );
+
+    await pass();
+
+    const inputs = await inputsOf(row.id);
+    expect(inputs).toMatchObject({ phase: 'owned', claimAttempts: 3, claimTxId: 'c-done' });
+    expect(inputs).not.toHaveProperty('failure');
+    expect(inputs).not.toHaveProperty('lastError');
+    expect(mockChainTip).not.toHaveBeenCalled();
+    expect(mockFindDelivery).not.toHaveBeenCalled();
+    expect(mockFetchState).not.toHaveBeenCalled();
+    expect(mockInitiateFromId).not.toHaveBeenCalled();
+    expect(startProcessing).not.toHaveBeenCalled();
+  });
+
   it('caps repeated claim failures and settles to failed / claim-failed', async () => {
     const row = registerRow('alice', 'claiming', ITransactionStatus.Completed, {
       deliveryNoteId: '0xdelivery',

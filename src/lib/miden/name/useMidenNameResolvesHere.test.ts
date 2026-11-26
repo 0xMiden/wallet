@@ -4,9 +4,11 @@ import { useMidenNameResolvesHere } from './useMidenNameResolvesHere';
 
 let mockSupported = true;
 let mockNetwork = 'testnet';
+let mockRpcUrl = 'https://rpc-a.example';
 const endpointListeners = new Set<() => void>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => mockNetwork,
+  getEffectiveRpcUrl: () => mockRpcUrl,
   subscribeEffectiveEndpoints: (listener: () => void) => {
     endpointListeners.add(listener);
     return () => {
@@ -43,6 +45,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockSupported = true;
   mockNetwork = 'testnet';
+  mockRpcUrl = 'https://rpc-a.example';
 });
 
 describe('useMidenNameResolvesHere', () => {
@@ -130,7 +133,7 @@ describe('useMidenNameResolvesHere', () => {
     unmount();
   });
 
-  it('returns false in the same render and reads again when the network changes while support stays true', async () => {
+  it.each(['network', 'RPC'])('hides old results and reads again on a %s change', async scope => {
     mockFetchDomainRecordAccount.mockResolvedValueOnce(ACCOUNT_A);
     const frames: boolean[] = [];
     const { result, unmount } = renderHook(() => {
@@ -143,7 +146,8 @@ describe('useMidenNameResolvesHere', () => {
     });
     expect(result.current).toBe(true);
 
-    mockNetwork = 'mainnet';
+    if (scope === 'network') mockNetwork = 'mainnet';
+    else mockRpcUrl = 'https://rpc-b.example';
     mockFetchDomainRecordAccount.mockResolvedValueOnce(null);
     frames.length = 0;
     act(() => {

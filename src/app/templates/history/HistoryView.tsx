@@ -17,6 +17,7 @@ import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { isUnconfirmedRotation } from 'lib/miden/guardian/rotation-verdict';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -28,7 +29,7 @@ import { type ActivityCounterpartyName, activityDappCounterpartyName } from './a
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
 import { historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryItem from './HistoryItem';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { isGuardianOp } from './TransactionIcon';
 import {
@@ -234,6 +235,11 @@ function buildRowProps(
   } else if (isGuardianOp(entry.txType)) {
     iconNode = <Icon name={IconName.Key} size="sm" fill="currentColor" className="text-pure-white" />;
     iconBg = 'bg-[#777487]';
+  } else if (entry.txType === 'register-name') {
+    // Same glyph and colour as `TransactionIcon`: the row pays for a name.
+    iconNode = <Icon name={IconName.User} size="sm" className="[&_path]:fill-pure-white" />;
+    iconBg = 'bg-accent-primary';
+    amountDirection = 'negative';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Receive} size="sm" className="text-pure-white" />;
     iconBg = 'bg-tx-received';
@@ -269,6 +275,10 @@ function buildRowProps(
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
+  const nameTitle =
+    !isFailed && !isUnconfirmed && entry.type === HistoryEntryType.CompletedTransaction
+      ? midenNameRowTitle(entry, t)
+      : undefined;
 
   const title = isUnconfirmed
     ? t('notConfirmed')
@@ -276,11 +286,13 @@ function buildRowProps(
       ? t('cancelled')
       : faucet
         ? t('faucetRequestTitle')
-        : isSwap && entry.token && entry.requestedToken
-          ? entry.swapSettlement === 'reclaimed' || entry.swapSettlement === 'reclaiming'
-            ? `${entry.token} → ${entry.requestedToken}`
-            : `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-          : historyEntryActionTitle(entry, t);
+        : nameTitle
+          ? nameTitle
+          : isSwap && entry.token && entry.requestedToken
+            ? entry.swapSettlement === 'reclaimed' || entry.swapSettlement === 'reclaiming'
+              ? `${entry.token} → ${entry.requestedToken}`
+              : `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+            : historyEntryActionTitle(entry, t);
   const placedAt = new Date(entry.timestamp * 1000);
   const swapPlacement = isSwap
     ? t('swapPlacedAt', { time: Number.isFinite(placedAt.getTime()) ? format(placedAt, 'HH:mm') : t('unknown') })
@@ -302,7 +314,7 @@ function buildRowProps(
             .filter(Boolean)
             .join(' · ')
         : entry.secondaryAddress
-          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${counterparty ?? shortAddr(entry.secondaryAddress)}`
+          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${counterparty ?? (entry.recipientName || shortAddr(entry.secondaryAddress))}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -418,6 +430,8 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
+  } else if (entry.midenNameStatus) {
+    status = entry.midenNameStatus;
   } else if (
     entry.txType === 'switch-guardian' &&
     entry.guardianSwitchVerdict &&
@@ -533,6 +547,7 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
+    const { allContacts } = useFilteredContacts();
     // Same transition as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useSettleLayoutTransition();
@@ -699,7 +714,16 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(bridgeConfig, entry, t, tokenId, counterpartyNameOf);
+                const contact = allContacts.find(
+                  contact => contact.address.toLowerCase() === entry.secondaryAddress?.toLowerCase()
+                );
+                const props = buildRowProps(
+                  bridgeConfig,
+                  { ...entry, recipientName: entry.recipientName || contact?.name },
+                  t,
+                  tokenId,
+                  counterpartyNameOf
+                );
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

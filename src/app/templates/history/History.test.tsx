@@ -1558,6 +1558,30 @@ describe('History', () => {
     expect(entryKeys().length).toBe(9);
   });
 
+  it('finds a send by its saved recipient name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'SAVED-NAME',
+              type: 'send',
+              status: STATUS.Completed,
+              completedAt: 1000,
+              displayMessage: 'Sent',
+              displayIcon: 'SEND',
+              secondaryAccountId: '0xbbb',
+              recipientName: 'Alice.miden'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory({ searchQuery: 'ALICE.MIDEN' });
+
+    expect(entryKeys()).toEqual(['completed-SAVED-NAME']);
+  });
+
   it('finds a swap by the asset it asks for, which only its requestedToken names', async () => {
     const { rerender } = await renderHistory();
     await act(async () => {
@@ -3656,6 +3680,76 @@ describe('History earn entries', () => {
   });
 });
 
+describe('History Miden Name entries', () => {
+  it('reconciles the successful name receipt into the registration entry', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              faucetId: 'fa1',
+              amount: 20n,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { label: 'alice', phase: 'owned', registrationNoteId: '0xnote', claimTxId: 'NC' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            },
+            // The name claim: no fungible asset, so no faucet and no amount.
+            {
+              id: 'NC',
+              type: 'consume',
+              status: 2,
+              completedAt: 6000,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'RN' } },
+              displayMessage: 'Name received',
+              displayIcon: 'RECEIVE'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+
+    const registration = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-RN');
+    expect(registration.midenNameLabel).toBe('alice');
+    expect(registration.amount).toBe('fmt(20,6)');
+    expect(registration.token).toBe('TKF');
+
+    const claim = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-NC');
+    expect(claim).toBeUndefined();
+    expect(registration.midenNameReceiptTxId).toBe('NC');
+    expect(registration.midenNameStatus).toBe('confirmed');
+  });
+
+  it('finds a registration by its full name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              extraInputs: { label: 'alice', phase: 'submitted' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory({ searchQuery: 'alice.miden' });
+
+    expect(mockHistoryViewProps.entries.map((e: any) => e.key)).toEqual(['completed-RN']);
+  });
+});
+
 it('suppresses a consume row represented by its claiming note, but retains a batch with other notes', async () => {
   mockGetCompletedTransactions.mockResolvedValue([]);
   mockGetUncompletedTransactions.mockResolvedValue([
@@ -4132,6 +4226,11 @@ describe('History on the real SWR cache', () => {
         extraInputs: { evmRecipient: '0xrecipient', marketUid: 'market', sourceFaucetId: 'fa1', epochStatus: 'pending' }
       },
       {
+        id: 'STATUS-MIDEN-NAME',
+        type: 'register-name',
+        extraInputs: { label: 'alice', phase: 'claiming', claimTxId: 'OLD-CLAIM' }
+      },
+      {
         id: 'STATUS-EARN-WITHDRAW',
         type: 'earn-withdraw',
         extraInputs: {
@@ -4185,6 +4284,7 @@ describe('History on the real SWR cache', () => {
       expect(entryFor('STATUS-BRIDGE-SEND')?.bridgeClaimStatus).toBe('pending');
       expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('delivering');
       expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('pending');
+      expect(entryFor('STATUS-MIDEN-NAME')?.midenNameStatus).toBe('pending');
 
       const refreshedRows = oldRows.map(tx => {
         const extraInputs = { ...(tx.extraInputs as Record<string, unknown>) };
@@ -4192,6 +4292,10 @@ describe('History on the real SWR cache', () => {
         if (tx.id === 'STATUS-BRIDGE-RECEIVE') extraInputs.phase = 'received';
         if (tx.id === 'STATUS-EARN-DEPOSIT') extraInputs.epochStatus = 'confirmed';
         if (tx.id === 'STATUS-EARN-WITHDRAW') extraInputs.phase = 'received';
+        if (tx.id === 'STATUS-MIDEN-NAME') {
+          extraInputs.phase = 'owned';
+          extraInputs.claimTxId = 'LANDED-CLAIM';
+        }
         return { ...tx, extraInputs } as ITransaction;
       });
       await Repo.transactions.bulkPut(refreshedRows);
@@ -4202,8 +4306,60 @@ describe('History on the real SWR cache', () => {
       expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('received');
       expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('confirmed');
       expect(entryFor('STATUS-EARN-WITHDRAW')?.earnWithdrawPhase).toBe('received');
+      await waitFor(() => expect(entryFor('STATUS-MIDEN-NAME')?.midenNameStatus).toBe('confirmed'));
+      expect(entryFor('STATUS-MIDEN-NAME')?.midenNameReceiptTxId).toBe('LANDED-CLAIM');
     } finally {
       await Repo.transactions.clear();
+    }
+  }, 15_000);
+
+  it('refreshes an older registration when there are no older bridge or Earn rows', async () => {
+    const registration: ITransaction = {
+      id: 'NAME-ONLY-OLDER',
+      accountId: '0xme',
+      type: 'register-name',
+      status: ITransactionStatus.Completed,
+      completedAt: 4000,
+      initiatedAt: 4000,
+      displayIcon: 'RECEIVE',
+      extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+    };
+    const head: ITransaction = {
+      id: 'NAME-ONLY-HEAD',
+      accountId: '0xme',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const cursor = { effectiveTimestamp: 5000, transactionId: head.id, status: head.status, initiatedAt: 5000 };
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursor }
+        : { transactions: [registration], rawCount: 1, hasMore: false }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await Repo.transactions.put(registration);
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const nameStatus = () =>
+        visibleView().entries.find((entry: IHistoryEntry) => entry.txId === registration.id)?.midenNameStatus;
+      await waitFor(() => expect(nameStatus()).toBe('pending'));
+
+      await Repo.transactions.put({
+        ...registration,
+        extraInputs: { ...registration.extraInputs, phase: 'owned', phaseUpdatedAt: 2 }
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(nameStatus()).toBe('confirmed'));
+    } finally {
+      await Repo.transactions.delete(registration.id);
     }
   }, 15_000);
 

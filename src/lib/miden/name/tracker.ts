@@ -26,8 +26,6 @@
 
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
-  IConsumeMidenNameExtraInputs,
-  IMidenNameClaimLink,
   IRegisterNameExtraInputs,
   isLiveTransaction,
   ITransaction,
@@ -50,7 +48,13 @@ import {
   findRegistryDeliveryNoteIds,
   getChainTip
 } from './reads';
-import { isLiveRegistrationRow, phaseOf, registerNameInputsOf } from './registrations';
+import {
+  bindMidenNameClaimRegistration,
+  claimForNote,
+  isLiveRegistrationRow,
+  phaseOf,
+  registerNameInputsOf
+} from './registrations';
 import { fetchDomainRecordAccount } from './resolver';
 
 const LOG_PREFIX = '[miden-name]';
@@ -89,17 +93,28 @@ function needsTracking(row: ITransaction, network: string): boolean {
   return inputs !== undefined && isLiveRegistrationRow(row, network) && isNonTerminal(inputs);
 }
 
-/**
- * Do one tracker pass over the non-terminal registrations of all accounts on
- * the effective network. Does nothing when the network has no deployment.
- */
+function completedClaimRecoveryCandidate(row: ITransaction, network: string): string | undefined {
+  const inputs = registerNameInputsOf(row);
+  if (
+    isLiveRegistrationRow(row, network) &&
+    row.status === ITransactionStatus.Completed &&
+    inputs?.phase === 'failed' &&
+    inputs.failure === 'claim-failed' &&
+    inputs.claimTxId
+  ) {
+    return inputs.claimTxId;
+  }
+  return undefined;
+}
+
+/** Reconcile active registrations and recover their exact completed claims on the effective network. */
 export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps): Promise<void> {
   if (!isMidenNameSupported()) return;
   const network = getEffectiveNetworkName();
   const rows = await Repo.transactions
     .where('type')
     .equals('register-name')
-    .filter(row => needsTracking(row, network))
+    .filter(row => needsTracking(row, network) || completedClaimRecoveryCandidate(row, network) !== undefined)
     .toArray();
   if (rows.length === 0) return;
 
@@ -120,7 +135,16 @@ export async function reconcileMidenNameRegistrations(deps: MidenNameTrackerDeps
 
   for (const row of rows) {
     try {
-      await reconcileRow(row, context);
+      if (needsTracking(row, network)) {
+        await reconcileRow(row, context);
+      } else {
+        const claimId = completedClaimRecoveryCandidate(row, network);
+        if (!claimId) continue;
+        const claim = await Repo.transactions.where({ id: claimId }).first();
+        if (claim?.type === 'consume' && !claim.restoredFromBackup && claim.status === ITransactionStatus.Completed) {
+          await bindMidenNameClaimRegistration(row.id, claim.id, 'completed');
+        }
+      }
     } catch (error) {
       console.warn(`${LOG_PREFIX} tracker step failed`, { txId: row.id, error });
     }
@@ -299,18 +323,6 @@ async function consumeRowsForNote(accountId: string, noteId: string): Promise<IT
   return [...rows.values()].filter(
     row => row.type === 'consume' && row.restoredFromBackup !== true && compareAccountIds(row.accountId, accountId)
   );
-}
-
-function claimForNote(row: ITransaction, noteId: string): IMidenNameClaimLink | undefined {
-  const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = row.extraInputs;
-  const normalized = normalizeNoteId(noteId);
-  const byNote = inputs?.midenNameClaims?.[normalized];
-  if (byNote) return byNote;
-  if ((row.noteIds?.length ?? 0) <= 1) return inputs?.midenNameClaim;
-  if (inputs?.midenNameClaim && row.noteId !== undefined && normalizeNoteId(row.noteId) === normalized) {
-    return inputs.midenNameClaim;
-  }
-  return undefined;
 }
 
 /** The id of the register row that a tagged consume row belongs to for `noteId`. */
