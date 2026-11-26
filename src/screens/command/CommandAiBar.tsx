@@ -625,7 +625,7 @@ export function CommandAiBar({
           )}
         </div>
       </form>
-      <span role="status" className="sr-only">
+      <span aria-live="polite" aria-atomic="true" className="sr-only">
         {busy ? t('commandAiWorking') : ''}
       </span>
 

@@ -1,5 +1,4 @@
 import { validateMnemonic } from '@miden/hd-key';
-
 import { PRIVACY_POLICY_URL, SUPPORT_URL } from 'app/constants';
 
 import type { CommandHelpTopic } from './schema';
