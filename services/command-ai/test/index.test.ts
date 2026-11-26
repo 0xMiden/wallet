@@ -141,6 +141,31 @@ describe('command-ai standalone Worker', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('accepts a successful first-turn null help request without a draft', async () => {
+    const output = {
+      result: { op: 'explain', topic: 'Miden', answer: 'Miden is a network for digital assets.' }
+    };
+    const fetchMock = groqOkFetch(output);
+    const service = createService({ fetchImpl: fetchMock });
+    const { env } = makeEnv();
+    const response = await send(service, env, '/v1/compile', {
+      method: 'POST',
+      body: { redactedText: 'How does Miden work?', helpContext: null }
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ output });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body));
+    expect(body.messages[1].content).toBe('How does Miden work?');
+    const withoutPrompt = JSON.stringify({ ...body, messages: [body.messages[1]] });
+    expect(withoutPrompt).not.toContain('snapshot');
+    expect(withoutPrompt).not.toContain('missingSlot');
+    expect(withoutPrompt).not.toContain('previousHelpTopic');
+    expect(body.messages[0].content).toContain('two of three validators');
+    expect(JSON.stringify(body.response_format)).toContain('"explain"');
+  });
+
   it('answers /healthz with revision and no-store caching, and rejects non-GET methods', async () => {
     const service = createService();
     const { env } = makeEnv({ revision: 'rev-123' });
