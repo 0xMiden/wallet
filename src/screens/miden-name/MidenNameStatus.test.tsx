@@ -66,6 +66,12 @@ jest.mock('lib/miden/transaction/initiate', () => ({
   tagConsumeAsMidenNameClaim: (...args: unknown[]) => mockTagConsume(...args)
 }));
 
+const mockBind = jest.fn();
+jest.mock('lib/miden/name/registrations', () => ({
+  ...jest.requireActual('lib/miden/name/registrations'),
+  bindMidenNameClaimRegistration: (...args: unknown[]) => mockBind(...args)
+}));
+
 const mockRequestSWProcessing = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   requestSWTransactionProcessing: () => mockRequestSWProcessing(),
@@ -134,6 +140,7 @@ describe('MidenNameStatus', () => {
     mockLoaded = true;
     mockInitiateConsume.mockResolvedValue('claim-2');
     mockTagConsume.mockResolvedValue(undefined);
+    mockBind.mockResolvedValue(true);
   });
 
   it('redirects home for an unknown id', () => {
@@ -195,7 +202,7 @@ describe('MidenNameStatus', () => {
     expect(screen.queryByTestId('miden-name-publish')).not.toBeInTheDocument();
   });
 
-  it('Retry claim queues a manual consume, tags it as the claim and starts processing', async () => {
+  it('Retry claim queues a linked manual consume and starts processing', async () => {
     mockRows.set(
       'reg-1',
       registerRow({ phase: 'issued', deliveryNoteId: '0xdelivery', claimTxId: 'claim-1', lastError: 'boom' })
@@ -209,12 +216,40 @@ describe('MidenNameStatus', () => {
       fireEvent.click(screen.getByTestId('miden-name-retry-claim'));
     });
 
-    expect(mockInitiateConsume).toHaveBeenCalledWith('mtst1account', '0xdelivery', false, true);
-    expect(mockTagConsume).toHaveBeenCalledWith('claim-2', 'alice', 'reg-1');
-    expect(mockTagConsume.mock.invocationCallOrder[0]).toBeGreaterThan(
-      mockInitiateConsume.mock.invocationCallOrder[0] ?? 0
-    );
+    expect(mockInitiateConsume).toHaveBeenCalledWith('mtst1account', '0xdelivery', false, true, undefined, undefined, {
+      label: 'alice',
+      registerTxId: 'reg-1'
+    });
+    expect(mockTagConsume).not.toHaveBeenCalled();
+    expect(mockBind).not.toHaveBeenCalled();
     expect(mockRequestSWProcessing).toHaveBeenCalled();
+  });
+
+  it('binds a terminal failed claim to the approved retry before starting processing', async () => {
+    mockRows.set('reg-1', registerRow({ phase: 'failed', failure: 'claim-failed', deliveryNoteId: '0xdelivery' }));
+    mockBind.mockResolvedValue(true);
+    render(<MidenNameStatus txId="reg-1" />);
+
+    await act(async () => fireEvent.click(screen.getByTestId('miden-name-retry-claim')));
+
+    expect(mockInitiateConsume).toHaveBeenCalledWith('mtst1account', '0xdelivery', false, true, undefined, undefined, {
+      label: 'alice',
+      registerTxId: 'reg-1'
+    });
+    expect(mockBind).toHaveBeenCalledWith('reg-1', 'claim-2', 'manual');
+    expect(mockRequestSWProcessing).toHaveBeenCalled();
+  });
+
+  it('does not start processing if the exact failed-claim binding is refused', async () => {
+    mockRows.set('reg-1', registerRow({ phase: 'failed', failure: 'claim-failed', deliveryNoteId: '0xdelivery' }));
+    mockBind.mockResolvedValue(false);
+    render(<MidenNameStatus txId="reg-1" />);
+
+    await act(async () => fireEvent.click(screen.getByTestId('miden-name-retry-claim')));
+
+    expect(mockBind).toHaveBeenCalledWith('reg-1', 'claim-2', 'manual');
+    expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+    expect(screen.getByTestId('miden-name-retry-claim')).toBeInTheDocument();
   });
 
   it('follows the retried claim row once it is queued', async () => {
@@ -239,6 +274,7 @@ describe('MidenNameStatus', () => {
     });
     expect(screen.getByRole('alert')).toHaveTextContent('not found');
     expect(mockTagConsume).not.toHaveBeenCalled();
+    expect(mockBind).not.toHaveBeenCalled();
     error.mockRestore();
   });
 

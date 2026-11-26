@@ -97,6 +97,7 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+import { bindMidenNameClaimRegistration } from '../name/registrations';
 import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
@@ -363,7 +364,9 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // consume row, so a failure here must not fail the consume.
   for (const claim of midenNameClaims) {
     try {
-      await patchRegisterNameExtraInputs(claim.registerTxId, { phase: 'owned' });
+      if (!(await patchRegisterNameExtraInputs(claim.registerTxId, { phase: 'owned' }))) {
+        await bindMidenNameClaimRegistration(claim.registerTxId, id, 'completed');
+      }
     } catch (err) {
       console.warn('[miden-name] owned patch failed (non-fatal)', err);
     }

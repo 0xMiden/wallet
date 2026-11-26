@@ -15,8 +15,8 @@ import { useAllAccounts } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { MIDEN_NAME_PAYMENT_METADATA } from 'lib/miden/name/config';
 import { formatMidenName } from 'lib/miden/name/encoding';
-import { phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
-import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
+import { bindMidenNameClaimRegistration, phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
+import { initiateConsumeTransactionFromId } from 'lib/miden/transaction/initiate';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { formatAmount } from 'lib/shared/format';
 import { cn } from 'lib/ui/util';
@@ -124,10 +124,18 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
         row.accountId,
         deliveryNoteId,
         isDelegateProofEnabled(),
-        true
+        true,
+        undefined,
+        undefined,
+        { label: inputs.label, registerTxId: row.id }
       );
-      // Without the tag the tracker does not see this consume as the claim of the registration.
-      await tagConsumeAsMidenNameClaim(claimTxId, inputs.label, row.id);
+      if (
+        phase === 'failed' &&
+        inputs.failure === 'claim-failed' &&
+        !(await bindMidenNameClaimRegistration(row.id, claimTxId, 'manual'))
+      ) {
+        return;
+      }
       setRetryTxId(claimTxId);
       startMidenNameProcessing(signTransaction);
     } catch (error) {
