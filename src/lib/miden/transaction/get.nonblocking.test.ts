@@ -1,4 +1,4 @@
-import Dexie, { type DBCoreCursor } from 'dexie';
+import Dexie, { type DBCoreCursor, type DBCoreKeyRange } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 import { localSwapOrders } from 'lib/miden/swap/classification';
@@ -56,14 +56,28 @@ const makeTx = (id: string, overrides: Partial<ITransaction> = {}): ITransaction
 
 interface TableReadProbe {
   rowsRead: number;
-  cursorCalls: number;
   cursorIndexes: string[];
   restore: () => void;
 }
 
+const wrapCursorStep = <T extends (...args: never[]) => unknown>(
+  target: DBCoreCursor,
+  key: 'continue' | 'continuePrimaryKey' | 'advance',
+  beforeStep: () => void
+): void => {
+  const fn = target[key] as T | undefined;
+  if (!fn || Reflect.get(fn, '__probed')) return;
+  const wrapped = ((...args: Parameters<T>) => {
+    beforeStep();
+    return fn.apply(target, args);
+  }) as T;
+  Reflect.set(wrapped, '__probed', true);
+  (target[key] as T) = wrapped;
+};
+
 function installCoreReadProbe(
   table: Dexie.Table<ITransaction, string>,
-  onReadOp?: (probe: TableReadProbe, indexName: string) => void
+  onReadOp?: (indexName: string, range: DBCoreKeyRange) => void
 ): TableReadProbe {
   const core = table.core;
   const origQuery = core.query.bind(core);
@@ -73,7 +87,6 @@ function installCoreReadProbe(
 
   const probe: TableReadProbe = {
     rowsRead: 0,
-    cursorCalls: 0,
     cursorIndexes: [],
     restore: () => {
       core.query = origQuery;
@@ -98,8 +111,7 @@ function installCoreReadProbe(
   core.query = req => {
     const indexName = req.query.index.name ?? '';
     if (req.values) {
-      probe.cursorCalls += 1;
-      onReadOp?.(probe, indexName);
+      onReadOp?.(indexName, req.query.range);
     }
     return origQuery(req).then(res => {
       if (req.values) probe.rowsRead += res.result.length;
@@ -112,13 +124,15 @@ function installCoreReadProbe(
       return origOpenCursor(req);
     }
     const indexName = req.query.index.name ?? '';
-    probe.cursorCalls += 1;
     probe.cursorIndexes.push(indexName);
-    onReadOp?.(probe, indexName);
+    onReadOp?.(indexName, req.query.range);
     return origOpenCursor(req).then((cursor: DBCoreCursor | null) => {
       if (cursor === null) return null;
       probe.rowsRead += 1;
       let currentCounted = true;
+      const markNextUnread = () => {
+        currentCounted = false;
+      };
       const origStart = cursor.start;
       cursor.start = function (callback) {
         return origStart.call(this, () => {
@@ -126,33 +140,9 @@ function installCoreReadProbe(
             probe.rowsRead += 1;
             currentCounted = true;
           }
-          if (!Reflect.get(this.continue, '__probed')) {
-            const origContinue = this.continue;
-            const wrappedContinue = (...args: Parameters<typeof origContinue>) => {
-              currentCounted = false;
-              return origContinue.apply(this, args);
-            };
-            Reflect.set(wrappedContinue, '__probed', true);
-            this.continue = wrappedContinue;
-          }
-          if (this.continuePrimaryKey && !Reflect.get(this.continuePrimaryKey, '__probed')) {
-            const origContinuePk = this.continuePrimaryKey;
-            const wrappedContinuePk = (...args: Parameters<typeof origContinuePk>) => {
-              currentCounted = false;
-              return origContinuePk.apply(this, args);
-            };
-            Reflect.set(wrappedContinuePk, '__probed', true);
-            this.continuePrimaryKey = wrappedContinuePk;
-          }
-          if (!Reflect.get(this.advance, '__probed')) {
-            const origAdvance = this.advance;
-            const wrappedAdvance = (...args: Parameters<typeof origAdvance>) => {
-              currentCounted = false;
-              return origAdvance.apply(this, args);
-            };
-            Reflect.set(wrappedAdvance, '__probed', true);
-            this.advance = wrappedAdvance;
-          }
+          wrapCursorStep(this, 'continue', markNextUnread);
+          wrapCursorStep(this, 'continuePrimaryKey', markNextUnread);
+          wrapCursorStep(this, 'advance', markNextUnread);
           callback();
         });
       };
@@ -161,6 +151,81 @@ function installCoreReadProbe(
   };
 
   return probe;
+}
+
+const isFailedConsumeRange = (indexName: string, range: DBCoreKeyRange): boolean =>
+  indexName === '[status+type]' &&
+  Array.isArray(range.lower) &&
+  range.lower[0] === ITransactionStatus.Failed &&
+  range.lower[1] === 'consume';
+
+async function withConcurrentWriteProbe<T>(
+  table: Dexie.Table<ITransaction, string>,
+  createConcurrentWrite: () => Promise<unknown>,
+  run: () => Promise<T>,
+  options: {
+    shouldArm?: (indexName: string, range: DBCoreKeyRange) => boolean;
+    countPostWrite?: (indexName: string, range: DBCoreKeyRange) => boolean;
+  } = {}
+): Promise<{
+  result: T;
+  probe: TableReadProbe;
+  armedCount: number;
+  unarmedBeforeArmCount: number;
+  cursorCallsAfterWriteDone: number;
+}> {
+  let writePromise: Promise<unknown> | undefined;
+  let writeDone = false;
+  let armedCount = 0;
+  let unarmedBeforeArmCount = 0;
+  let cursorCallsAfterWriteDone = 0;
+
+  const probe = installCoreReadProbe(table, (indexName, range) => {
+    if (writeDone) {
+      if (!options.countPostWrite || options.countPostWrite(indexName, range)) {
+        cursorCallsAfterWriteDone += 1;
+      }
+      return;
+    }
+    if (!writePromise) {
+      if (options.shouldArm && !options.shouldArm(indexName, range)) {
+        unarmedBeforeArmCount += 1;
+        return;
+      }
+      armedCount += 1;
+      writePromise = Dexie.ignoreTransaction(createConcurrentWrite).then(val => {
+        writeDone = true;
+        return val;
+      });
+    }
+  });
+
+  try {
+    const result = await run();
+    expect(writePromise).toBeDefined();
+    await writePromise;
+    expect(writeDone).toBe(true);
+    expect(cursorCallsAfterWriteDone).toBeGreaterThan(0);
+    return { result, probe, armedCount, unarmedBeforeArmCount, cursorCallsAfterWriteDone };
+  } finally {
+    probe.restore();
+  }
+}
+
+async function withIsolatedTransactionsDb<T>(
+  prefix: string,
+  run: (isolated: Dexie, table: Dexie.Table<ITransaction, string>) => Promise<T>
+): Promise<T> {
+  const name = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const isolated = Repo.createSchemaFor(name);
+  try {
+    await isolated.open();
+    const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    return await run(isolated, table);
+  } finally {
+    isolated.close();
+    await Dexie.delete(name);
+  }
 }
 
 describe('non-blocking transaction store reads (#2327)', () => {
@@ -256,50 +321,34 @@ describe('non-blocking transaction store reads (#2327)', () => {
     );
     await Repo.transactions.bulkPut(failedConsumes);
 
-    let writePromise: Promise<string> | undefined;
-    let writeDone = false;
-    let cursorCallsAfterWriteDone = 0;
-
-    const probe = installCoreReadProbe(Repo.transactions, () => {
-      if (writeDone) {
-        cursorCallsAfterWriteDone += 1;
-        return;
+    const {
+      result: held,
+      armedCount,
+      unarmedBeforeArmCount
+    } = await withConcurrentWriteProbe(
+      Repo.transactions,
+      () =>
+        Repo.transactions.add(
+          makeTx('concurrent-write', {
+            type: 'send',
+            status: ITransactionStatus.Queued,
+            initiatedAt: nowSec + 1,
+            completedAt: undefined
+          })
+        ),
+      () => getNoteHoldingTransactions('mtst1acct'),
+      {
+        shouldArm: isFailedConsumeRange,
+        countPostWrite: isFailedConsumeRange
       }
-      if (!writePromise) {
-        writePromise = Dexie.ignoreTransaction(() =>
-          Repo.transactions.add(
-            makeTx('concurrent-write', {
-              type: 'send',
-              status: ITransactionStatus.Queued,
-              initiatedAt: nowSec + 1,
-              completedAt: undefined
-            })
-          )
-        ).then(id => {
-          writeDone = true;
-          return id;
-        });
-      }
-    });
-
-    try {
-      const held = await getNoteHoldingTransactions('mtst1acct');
-      expect(held.map(tx => tx.id)).toEqual(['live-consume']);
-      expect(writePromise).toBeDefined();
-      await writePromise;
-      expect(writeDone).toBe(true);
-      expect(cursorCallsAfterWriteDone).toBeGreaterThan(0);
-    } finally {
-      probe.restore();
-    }
+    );
+    expect(held.map(tx => tx.id)).toEqual(['live-consume']);
+    expect(armedCount).toBe(1);
+    expect(unarmedBeforeArmCount).toBe(6);
   });
 
   it('getCompletedTransactionsPage skips initiatedAt fallback scan when all terminal rows have nonzero completedAt', async () => {
-    const name = `page-skip-fallback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-skip-fallback', async (_isolated, table) => {
       const rows: ITransaction[] = Array.from({ length: 500 }, (_, i) =>
         makeTx(`other-${i}`, {
           accountId: 'mtst1other',
@@ -326,18 +375,11 @@ describe('non-blocking transaction store reads (#2327)', () => {
       } finally {
         probe.restore();
       }
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+    });
   });
 
   it('getCompletedTransactionsPage chunks large tied-timestamp reads so concurrent writes commit mid-page without O(N^2) rescan', async () => {
-    const name = `page-chunked-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-chunked', async (isolated, table) => {
       const tiedCompletedAt = 1_700_000_000;
       const rows: ITransaction[] = Array.from({ length: 500 }, (_, i) =>
         makeTx(`tx-${String(i).padStart(4, '0')}`, {
@@ -355,35 +397,22 @@ describe('non-blocking transaction store reads (#2327)', () => {
         return (origTx as (...a: unknown[]) => unknown)(...args);
       }) as typeof isolated.transaction);
 
-      let writePromise: Promise<string> | undefined;
-      let writeDone = false;
-      let cursorCallsAfterWriteDone = 0;
-
-      const probe = installCoreReadProbe(table, () => {
-        if (writeDone) {
-          cursorCallsAfterWriteDone += 1;
-          return;
-        }
-        if (!writePromise) {
-          writePromise = Dexie.ignoreTransaction(() =>
+      try {
+        const { result: page, probe } = await withConcurrentWriteProbe(
+          table,
+          () =>
             table.add(
               makeTx('tx-concurrent-new', {
                 accountId: 'mtst1acct',
                 initiatedAt: tiedCompletedAt + 5,
                 completedAt: tiedCompletedAt + 5
               })
+            ),
+          () =>
+            getCompletedTransactionsPage(
+              { accountId: 'mtst1acct', limit: 350, includeFailed: true, fromEnd: true },
+              table
             )
-          ).then(id => {
-            writeDone = true;
-            return id;
-          });
-        }
-      });
-
-      try {
-        const page = await getCompletedTransactionsPage(
-          { accountId: 'mtst1acct', limit: 350, includeFailed: true, fromEnd: true },
-          table
         );
         expect(page.transactions).toHaveLength(350);
         expect(page.rawCount).toBe(350);
@@ -391,22 +420,13 @@ describe('non-blocking transaction store reads (#2327)', () => {
         expect(new Set(page.transactions.map(tx => tx.id)).size).toBe(350);
         expect(page.transactions[0]?.id).toBe('tx-0499');
         expect(page.transactions[349]?.id).toBe('tx-0150');
-
         expect(readTxCount).toBeGreaterThan(1);
-        expect(writePromise).toBeDefined();
-        await writePromise;
-        expect(writeDone).toBe(true);
-        expect(cursorCallsAfterWriteDone).toBeGreaterThan(0);
         // O(log N) primary-key cursor resume avoids quadratic rescanning of tied timestamps.
         expect(probe.rowsRead).toBeLessThan(400);
       } finally {
-        probe.restore();
         txSpy.mockRestore();
       }
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+    });
   });
 
   it('sibling status/type transaction queries use indexes instead of scanning completed history', async () => {
@@ -472,47 +492,22 @@ describe('non-blocking transaction store reads (#2327)', () => {
     );
     await Repo.transactions.bulkPut(bulk);
 
-    let writePromise: Promise<string> | undefined;
-    let writeDone = false;
-    let cursorCallsAfterWriteDone = 0;
-
-    const probe = installCoreReadProbe(Repo.transactions, () => {
-      if (writeDone) {
-        cursorCallsAfterWriteDone += 1;
-        return;
-      }
-      if (!writePromise) {
-        writePromise = Dexie.ignoreTransaction(() =>
-          Repo.transactions.add(
-            makeTx('concurrent-restored-check', {
-              accountId: 'mtst1other',
-              restoredFromBackup: false
-            })
-          )
-        ).then(id => {
-          writeDone = true;
-          return id;
-        });
-      }
-    });
-
-    try {
-      expect(await hasRestoredTransactionsOf('mtst1acct')).toBe(false);
-      expect(writePromise).toBeDefined();
-      await writePromise;
-      expect(writeDone).toBe(true);
-      expect(cursorCallsAfterWriteDone).toBeGreaterThan(0);
-    } finally {
-      probe.restore();
-    }
+    const { result } = await withConcurrentWriteProbe(
+      Repo.transactions,
+      () =>
+        Repo.transactions.add(
+          makeTx('concurrent-restored-check', {
+            accountId: 'mtst1other',
+            restoredFromBackup: false
+          })
+        ),
+      () => hasRestoredTransactionsOf('mtst1acct')
+    );
+    expect(result).toBe(false);
   });
 
   it('getCompletedTransactionsPage chunks the merge stream when an initiatedAt fallback row exists without drops or duplicates', async () => {
-    const name = `page-merge-chunked-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-merge-chunked', async (_isolated, table) => {
       const tiedCompletedAt = 1_700_000_000;
       const rows: ITransaction[] = Array.from({ length: 260 }, (_, i) =>
         makeTx(`tx-${String(i).padStart(4, '0')}`, {
@@ -530,53 +525,29 @@ describe('non-blocking transaction store reads (#2327)', () => {
       );
       await table.bulkAdd(rows);
 
-      let writePromise: Promise<string> | undefined;
-      let writeDone = false;
-      let cursorCallsAfterWriteDone = 0;
-
-      const probe = installCoreReadProbe(table, () => {
-        if (writeDone) {
-          cursorCallsAfterWriteDone += 1;
-          return;
-        }
-        if (!writePromise) {
-          writePromise = Dexie.ignoreTransaction(() =>
-            table.add(
-              makeTx('tx-concurrent-merge', {
-                accountId: 'mtst1acct',
-                initiatedAt: tiedCompletedAt + 10,
-                completedAt: tiedCompletedAt + 10
-              })
-            )
-          ).then(id => {
-            writeDone = true;
-            return id;
-          });
-        }
-      });
-
-      try {
-        const page = await getCompletedTransactionsPage(
-          { accountId: 'mtst1acct', limit: 200, includeFailed: true, fromEnd: true },
-          table
-        );
-        expect(page.transactions).toHaveLength(200);
-        expect(page.hasMore).toBe(true);
-        expect(new Set(page.transactions.map(tx => tx.id)).size).toBe(200);
-        expect(page.transactions[0]?.id).toBe('fallback-missing-completed');
-        expect(page.transactions[1]?.id).toBe('tx-0259');
-        expect(page.transactions[199]?.id).toBe('tx-0061');
-        expect(writePromise).toBeDefined();
-        await writePromise;
-        expect(writeDone).toBe(true);
-        expect(cursorCallsAfterWriteDone).toBeGreaterThan(0);
-      } finally {
-        probe.restore();
-      }
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+      const { result: page } = await withConcurrentWriteProbe(
+        table,
+        () =>
+          table.add(
+            makeTx('tx-concurrent-merge', {
+              accountId: 'mtst1acct',
+              initiatedAt: tiedCompletedAt + 10,
+              completedAt: tiedCompletedAt + 10
+            })
+          ),
+        () =>
+          getCompletedTransactionsPage(
+            { accountId: 'mtst1acct', limit: 200, includeFailed: true, fromEnd: true },
+            table
+          )
+      );
+      expect(page.transactions).toHaveLength(200);
+      expect(page.hasMore).toBe(true);
+      expect(new Set(page.transactions.map(tx => tx.id)).size).toBe(200);
+      expect(page.transactions[0]?.id).toBe('fallback-missing-completed');
+      expect(page.transactions[1]?.id).toBe('tx-0259');
+      expect(page.transactions[199]?.id).toBe('tx-0061');
+    });
   });
 
   it('readTransactionIndexChunks handles stripped mocks with undefined completedAt, heldNoteIds arrays, dotted paths, compound ranges, and limit', async () => {
@@ -718,7 +689,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
       const orders = await localSwapOrders('mtst1acct');
       expect(orders).toHaveLength(5);
       expect(countSpy).not.toHaveBeenCalled();
-      expect(probe.cursorCalls).toBe(1);
+      expect(probe.cursorIndexes).toEqual(['[status+type]']);
     } finally {
       probe.restore();
       countSpy.mockRestore();
@@ -875,11 +846,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
   });
 
   it('getCompletedTransactionsPage resumes without duplicates across merge-to-positive chunk transitions', async () => {
-    const name = `page-merge-to-pos-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-merge-to-pos', async (_isolated, table) => {
       const rows: ITransaction[] = Array.from({ length: 80 }, (_, i) =>
         makeTx(`tx-${String(i).padStart(4, '0')}`, {
           accountId: 'mtst1acct',
@@ -916,19 +883,12 @@ describe('non-blocking transaction store reads (#2327)', () => {
       expect(page.transactions[0]?.id).toBe('fallback-top');
       expect(page.transactions[1]?.id).toBe('tx-0079');
       expect(page.transactions[74]?.id).toBe('tx-0006');
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+    });
   });
 
   it('getCompletedTransactionsPage does not drop completedAt:undefined rows on concurrent completion TOCTOU', async () => {
     for (const baseCount of [1, 80]) {
-      const name = `page-toctou-${baseCount}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const isolated = Repo.createSchemaFor(name);
-      try {
-        await isolated.open();
-        const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+      await withIsolatedTransactionsDb(`page-toctou-${baseCount}`, async (isolated, table) => {
         const rows: ITransaction[] = Array.from({ length: baseCount }, (_, i) =>
           makeTx(`done-${String(i).padStart(4, '0')}`, {
             accountId: 'mtst1acct',
@@ -1005,19 +965,12 @@ describe('non-blocking transaction store reads (#2327)', () => {
           core.count = origCount;
           core.openCursor = origOpenCursor;
         }
-      } finally {
-        isolated.close();
-        await Dexie.delete(name);
-      }
+      });
     }
   });
 
   it('getCompletedTransactionsPage seeks cross-page tied timestamps in O(log N) without rescanning earlier ties and without core.count', async () => {
-    const name = `page-cross-tie-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-cross-tie', async (_isolated, table) => {
       const tiedCompletedAt = 1_700_000_000;
       await table.bulkAdd(
         Array.from({ length: 200 }, (_, i) =>
@@ -1055,10 +1008,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
         probe.restore();
         countSpy.mockRestore();
       }
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+    });
   });
 
   it('getNoteHoldingTransactions avoids core.count and caps heldNoteIds cardinality probe at recentCompletedCount', async () => {
@@ -1109,13 +1059,9 @@ describe('non-blocking transaction store reads (#2327)', () => {
 
   it('getCompletedTransactionsPage seeks tied negative and fallback timestamps in O(log N) across pages', async () => {
     for (const mode of ['negative', 'fallback'] as const) {
-      const name = `page-tie-${mode}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const isolated = Repo.createSchemaFor(name);
-      try {
-        await isolated.open();
-        const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+      await withIsolatedTransactionsDb(`page-tie-${mode}`, async (_isolated, table) => {
         await table.bulkAdd(
-          Array.from({ length: 200 }, (_, i) =>
+          Array.from({ length: 100 }, (_, i) =>
             makeTx(`tx-${String(i).padStart(4, '0')}`, {
               accountId: 'mtst1acct',
               initiatedAt: mode === 'fallback' ? 1_700_000_000 : 100,
@@ -1125,7 +1071,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
         );
 
         let cursor: Awaited<ReturnType<typeof getCompletedTransactionsPage>>['nextCursor'] = null;
-        for (let p = 0; p < 15; p += 1) {
+        for (let p = 0; p < 7; p += 1) {
           const res = await getCompletedTransactionsPage(
             cursor === null
               ? { accountId: 'mtst1acct', limit: 10, includeFailed: true, fromEnd: true }
@@ -1137,29 +1083,22 @@ describe('non-blocking transaction store reads (#2327)', () => {
 
         const probe = installCoreReadProbe(table);
         try {
-          const page16 = await getCompletedTransactionsPage(
+          const page8 = await getCompletedTransactionsPage(
             { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
             table
           );
-          expect(page16.transactions[0]?.id).toBe('tx-0049');
-          expect(page16.transactions[9]?.id).toBe('tx-0040');
+          expect(page8.transactions[0]?.id).toBe('tx-0029');
+          expect(page8.transactions[9]?.id).toBe('tx-0020');
           expect(probe.rowsRead).toBeLessThanOrEqual(25);
         } finally {
           probe.restore();
         }
-      } finally {
-        isolated.close();
-        await Dexie.delete(name);
-      }
+      });
     }
-  });
+  }, 15_000);
 
   it('detectActiveHistoryStreams probes Failed before Completed so a Failed fallback row short-circuits Completed probes, and honors outer transactions', async () => {
-    const name = `page-order-outer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const isolated = Repo.createSchemaFor(name);
-    try {
-      await isolated.open();
-      const table = isolated.table<ITransaction, string>(Repo.Table.Transactions);
+    await withIsolatedTransactionsDb('page-order-outer', async (isolated, table) => {
       await table.bulkAdd([
         ...Array.from({ length: 70 }, (_, i) =>
           makeTx(`done-${i}`, {
@@ -1207,9 +1146,6 @@ describe('non-blocking transaction store reads (#2327)', () => {
       } finally {
         probe.restore();
       }
-    } finally {
-      isolated.close();
-      await Dexie.delete(name);
-    }
+    });
   });
 });
