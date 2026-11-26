@@ -106,10 +106,13 @@ const auditedUnspentNearNonce = new Map([
   ['45072272341', 87],
   ['45092013711', 87],
   // Stopped in preflight before any quote; 90 is the nonce its funded predecessor left, balances equal the checkpoint.
-  ['45334301017', 90]
+  ['45334301017', 90],
+  // Its forward launch hung in the second wallet's fixture before any quote; 100 is the Arbitrum nonce read on 11-26
+  // after the Ethereum Epoch loop, and balances equal the checkpoint.
+  ['45828549283', 100]
 ]);
 
-const unquotedUnspentNearRuns = new Set(['45334301017']);
+const unquotedUnspentNearRuns = new Set(['45334301017', '45828549283']);
 
 const STAGE_FILE = 'test-results/mainnet-near-forward-stage.json';
 
