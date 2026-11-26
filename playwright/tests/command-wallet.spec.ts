@@ -184,6 +184,9 @@ test('Bread answers questions without moving the composer while the model replie
     await input.press('Enter');
     await expect(answer).toContainText('Private notes keep their contents off the public chain.');
     await expect(answer).toBeInViewport();
+    const closeIcon = answer.getByRole('button', { name: 'Close' }).locator('svg');
+    await expect(closeIcon).toHaveAttribute('fill', 'currentColor');
+    await expect(closeIcon.locator('path')).not.toHaveCSS('fill', 'none');
     await captureCommand(command, info, 'command-ai-privacy-answer-390x844');
 
     await input.fill('How can I check?');

@@ -152,7 +152,7 @@ function AnswerCardShell({
               aria-label={t('close')}
               className="grid size-8 shrink-0 place-items-center rounded-full border border-hairline bg-page/70 text-muted transition-colors hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
             >
-              <Icon name={IconName.Close} size="xs" aria-hidden="true" />
+              <Icon name={IconName.Close} size="xs" fill="currentColor" aria-hidden="true" />
             </button>
           </div>
         </div>
