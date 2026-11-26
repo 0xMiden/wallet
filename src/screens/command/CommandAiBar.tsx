@@ -400,10 +400,7 @@ export function CommandAiBar({
         }
         if (helpOnly) throw new CommandAiClientError('invalid_response', 'The service did not return an explanation');
 
-        if (
-          previousClarifying &&
-          (output.op === 'patch_slots' || output.op === 'set_intent' || output.op === 'set_plan')
-        ) {
+        if (previousClarifying) {
           output = await compileCommandPrompt({
             redactedText: redaction.redactedText,
             snapshot: createClarificationSnapshot(
