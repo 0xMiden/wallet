@@ -1147,6 +1147,136 @@ describe('useLocalClaimableNotes (real SWR integration)', () => {
     ).toHaveLength(1);
   });
 
+  it('publishes ready native notes without awaiting deferred v2 metadata storage reads or repeating storage queries', async () => {
+    let schemaReadCount = 0;
+    let resolveSchemaRead: ((val: unknown) => void) | null = null;
+    _g.__cnSwrTest.consumableNotes = [
+      makeNote('native-ready-1', _g.__cnSwrTest.nativeAssetId, '1000000'),
+      makeNote('unknown-token-1', 'unknown-faucet-deferred', '5000000')
+    ];
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
+        schemaReadCount++;
+        return new Promise(resolve => {
+          resolveSchemaRead = resolve;
+        });
+      }
+      if (key === TOKENS_BASE_METADATA_STORAGE_KEY) {
+        return Promise.resolve({
+          'unknown-faucet-deferred': { symbol: 'USDC', name: 'USD Coin', decimals: 6 }
+        });
+      }
+      return Promise.resolve(_g.__cnSwrTest.kv[key] ?? null);
+    };
+
+    try {
+      const { result } = renderHook(() => useClaimableNotes('pk-native-not-blocked'), {
+        wrapper: createWrapper()
+      });
+
+      await act(async () => {
+        await flushMicrotasks(16);
+      });
+
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-ready-1']);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.isFallback).toBe(false);
+      expect(result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(schemaReadCount).toBe(1);
+
+      await act(async () => {
+        requestNotesRefresh();
+        jest.advanceTimersByTime(6_000);
+        await flushMicrotasks(16);
+      });
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-ready-1']);
+      expect(result.current.isFallback).toBe(false);
+      expect(result.current.data?.[0]?.fromCache).toBeUndefined();
+      expect(schemaReadCount).toBe(1);
+
+      await act(async () => {
+        resolveSchemaRead?.(TOKENS_METADATA_SCHEMA_VERSION);
+        await flushMicrotasks(32);
+      });
+      expect(schemaReadCount).toBe(1);
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-ready-1', 'unknown-token-1']);
+      expect(result.current.data?.find(n => n.id === 'unknown-token-1')?.metadata).toEqual({
+        symbol: 'USDC',
+        name: 'USD Coin',
+        decimals: 6
+      });
+      expect(result.current.isFallback).toBe(false);
+      expect(result.current.data?.every(n => !n.fromCache)).toBe(true);
+      expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+    } finally {
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+    }
+  });
+
+  it('does not leak or spuriously refresh when deferred v2 metadata resolves after account switch', async () => {
+    let schemaReadCount = 0;
+    let resolveSchemaRead: ((val: unknown) => void) | null = null;
+    const notesCallsByAccount: string[] = [];
+    _g.__cnSwrTest.proxyGetConsumableNotes = jest.fn(async (address: string) => {
+      notesCallsByAccount.push(address);
+      if (address === 'pk-switch-a') {
+        return [
+          makeNote('native-a', _g.__cnSwrTest.nativeAssetId, '1000000'),
+          makeNote('unknown-a', 'faucet-switch-a', '5000000')
+        ];
+      }
+      return [makeNote('native-b', _g.__cnSwrTest.nativeAssetId, '2000000')];
+    });
+    _g.__cnSwrTest.fetchFromStorageOverride = (key: string) => {
+      if (key === TOKENS_METADATA_SCHEMA_STORAGE_KEY) {
+        schemaReadCount++;
+        return new Promise(resolve => {
+          resolveSchemaRead = resolve;
+        });
+      }
+      if (key === TOKENS_BASE_METADATA_STORAGE_KEY) {
+        return Promise.resolve({
+          'faucet-switch-a': { symbol: 'SW', name: 'Switch', decimals: 6 }
+        });
+      }
+      return Promise.resolve(_g.__cnSwrTest.kv[key] ?? null);
+    };
+
+    try {
+      const wrapper = createWrapper();
+      const { result, rerender } = renderHook(({ addr }) => useClaimableNotes(addr), {
+        initialProps: { addr: 'pk-switch-a' },
+        wrapper
+      });
+
+      await act(async () => {
+        await flushMicrotasks(16);
+      });
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-a']);
+      expect(result.current.isLoading).toBe(false);
+      expect(schemaReadCount).toBe(1);
+
+      rerender({ addr: 'pk-switch-b' });
+      await act(async () => {
+        await flushMicrotasks(16);
+      });
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-b']);
+      expect(result.current.isLoading).toBe(false);
+      const callsBeforeResolve = [...notesCallsByAccount];
+
+      await act(async () => {
+        resolveSchemaRead?.(TOKENS_METADATA_SCHEMA_VERSION);
+        await flushMicrotasks(32);
+      });
+
+      expect(result.current.data?.map(n => n.id)).toEqual(['native-b']);
+      expect(notesCallsByAccount).toEqual(callsBeforeResolve);
+      expect(schemaReadCount).toBe(1);
+    } finally {
+      _g.__cnSwrTest.fetchFromStorageOverride = null;
+    }
+  });
+
   it('refreshes immediately when idle metadata prefetch persists new token metadata', async () => {
     _g.__cnSwrTest.consumableNotes = [makeNote('usdc-note-2', 'fresh-usdc', '2500000')];
 
