@@ -29,7 +29,7 @@ interface MidenNameReceiveRowProps {
 export const MidenNameReceiveRow: FC<MidenNameReceiveRowProps> = ({ address }) => {
   const supported = isMidenNameSupported();
   const { t } = useTranslation();
-  const { rows } = useMidenNameRegistrations(supported ? address : undefined);
+  const { rows, loaded } = useMidenNameRegistrations(supported ? address : undefined);
 
   if (!supported) return null;
 
@@ -70,5 +70,5 @@ export const MidenNameReceiveRow: FC<MidenNameReceiveRowProps> = ({ address }) =
   }
 
   // No name yet: the same dashed slot as the top of Settings, so the offer looks the same everywhere.
-  return <MidenNameClaimSlot data-testid="receive-miden-name" />;
+  return loaded ? <MidenNameClaimSlot data-testid="receive-miden-name" /> : null;
 };

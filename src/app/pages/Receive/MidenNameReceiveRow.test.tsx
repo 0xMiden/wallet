@@ -32,12 +32,13 @@ jest.mock('lib/miden/name/config', () => ({
 }));
 
 let mockRows: ITransaction[] = [];
+let mockLoaded = true;
 const mockUseRegistrations = jest.fn();
 jest.mock('lib/miden/name/registrations', () => ({
   ...jest.requireActual('lib/miden/name/registrations'),
   useMidenNameRegistrations: (accountId: string | undefined) => {
     mockUseRegistrations(accountId);
-    return { rows: mockRows, loaded: true };
+    return { rows: mockRows, loaded: mockLoaded };
   }
 }));
 
@@ -66,6 +67,7 @@ describe('MidenNameReceiveRow', () => {
     jest.clearAllMocks();
     mockSupported = true;
     mockRows = [];
+    mockLoaded = true;
   });
 
   it('renders nothing and reads no rows when the network has no deployment', () => {
@@ -73,6 +75,16 @@ describe('MidenNameReceiveRow', () => {
     const { container } = render(<MidenNameReceiveRow address="mtst1account" />);
     expect(container).toBeEmptyDOMElement();
     expect(mockUseRegistrations).toHaveBeenCalledWith(undefined);
+  });
+
+  it('waits for registrations before offering to claim a name', () => {
+    mockLoaded = false;
+    const { rerender } = render(<MidenNameReceiveRow address="mtst1account" />);
+    expect(screen.queryByTestId('receive-miden-name')).not.toBeInTheDocument();
+
+    mockLoaded = true;
+    rerender(<MidenNameReceiveRow address="mtst1account" />);
+    expect(screen.getByTestId('receive-miden-name')).toHaveTextContent('midenNameClaimSlotPlaceholder');
   });
 
   it('offers to claim a name when the account has none', () => {
