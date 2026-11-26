@@ -36,6 +36,7 @@ function loadTsModule(relPath, moduleMocks = {}) {
 
 const TRANSIENT_ATTEMPTS = 3;
 const TRANSIENT_BACKOFF_MS = 200;
+const TRANSIENT_RETRY_BUDGET_MS = 120000;
 const NETWORK_FAILURE_MARKERS = ['timed out', 'fetch failed', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'socket hang up'];
 
 // Worker 502 is compilationFailed, which also covers a malformed model reply, so it stays final.
@@ -51,13 +52,26 @@ export function isTransientEvalError(error) {
   return NETWORK_FAILURE_MARKERS.some(marker => message.includes(marker));
 }
 
-export async function retryTransient(run) {
+function freshRetryBudget() {
+  return { remainingMs: TRANSIENT_RETRY_BUDGET_MS };
+}
+
+function retryAfterSecondsOf(error) {
+  const seconds = error instanceof Error ? error.retryAfterSeconds : undefined;
+  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
+export async function retryTransient(run, budget = freshRetryBudget()) {
   for (let attempt = 1; attempt <= TRANSIENT_ATTEMPTS; attempt++) {
     try {
       return await run();
     } catch (error) {
       if (attempt === TRANSIENT_ATTEMPTS || !isTransientEvalError(error)) throw error;
-      await new Promise(resolve => setTimeout(resolve, TRANSIENT_BACKOFF_MS * attempt));
+      const headerSeconds = retryAfterSecondsOf(error);
+      const delayMs = headerSeconds === undefined ? TRANSIENT_BACKOFF_MS * attempt : headerSeconds * 1000;
+      if (delayMs > budget.remainingMs) throw error;
+      budget.remainingMs -= delayMs;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
 }
@@ -88,6 +102,7 @@ export async function runEval({
   const errors = [];
   const latencies = [];
   let maxPromptTokens = 0;
+  const retryBudget = freshRetryBudget();
   const proxyMod =
     offlineOnly || questions ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
   const worker =
@@ -104,6 +119,8 @@ export async function runEval({
             return response;
           }
         });
+
+  const retryCompile = compile => retryTransient(compile, worker ? retryBudget : undefined);
 
   for (const testCase of cases) {
     const redaction = redactorMod.redactPrompt(testCase.prompt, DEFAULT_CONTEXT);
@@ -150,7 +167,7 @@ export async function runEval({
     if (worker || proxyMod) {
       const t0 = Date.now();
       try {
-        const res = await retryTransient(() =>
+        const res = await retryCompile(() =>
           worker
             ? worker
                 .fetch(
@@ -170,8 +187,16 @@ export async function runEval({
                   }
                 )
                 .then(async response => {
-                  if (!response.ok) throw new Error(`Worker returned ${response.status}`);
-                  return response.json();
+                  if (response.ok) return response.json();
+                  const error = new Error(`Worker returned ${response.status}`);
+                  if (response.status === 429) {
+                    const header = response.headers.get('Retry-After');
+                    if (typeof header === 'string' && /^\d+$/.test(header)) {
+                      const seconds = Number(header);
+                      if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
+                    }
+                  }
+                  throw error;
                 })
             : proxyMod.compileWithGroq({
                 redactedText: redaction.redactedText,
