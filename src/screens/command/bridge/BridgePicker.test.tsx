@@ -96,8 +96,9 @@ it('arrow keys move focus without selecting and Enter-click selects once, closin
   expect(onChange).not.toHaveBeenCalled();
   expect(row('usdc-b')).toHaveAttribute('aria-checked', 'true');
 
-  // A native button turns Enter into a click.
-  fireEvent.keyDown(row('eth'), { key: 'Enter' });
+  // A native button turns Enter into a click, which jsdom does not do: nothing may cancel that keydown.
+  expect(row('eth').tagName).toBe('BUTTON');
+  expect(fireEvent.keyDown(row('eth'), { key: 'Enter' })).toBe(true);
   fireEvent.click(row('eth'));
   expect(onChange).toHaveBeenCalledTimes(1);
   expect(onChange).toHaveBeenCalledWith('eth');
