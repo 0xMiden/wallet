@@ -165,22 +165,41 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
   return nearForwardStopped(jobs, auditedPreAck);
 }
 
-// The 11-24 nightly stopped in preflight before any quote, so no independent audit run exists; the checkpoint digest
-// (empty authority, zero fees, createdAt equal to updatedAt) and the failed pre-release gate stand in for it.
+// Each nightly below stopped in preflight before any quote or send, so no independent audit run exists; the checkpoint
+// digest (empty authority, zero fees, createdAt equal to updatedAt) and the failed pre-release gate stand in for it.
+// `after` is the end of the checkpoint's ten-minute live window.
+const NEAR_PREFLIGHT_STOPS = [
+  {
+    id: 45334301017,
+    digest: '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366',
+    headSha: '4bc52ddc8c24cda196f627d46aa608004939620f',
+    event: 'schedule',
+    after: '2026-11-24T05:58:23.073Z'
+  },
+  {
+    id: 45828549283,
+    digest: '5a43f5726982251d4b1af16d3e0798ca5e01308200f89c184f3ce4d44db0d0bc',
+    headSha: '10c538abe3a97b93ee8342c5e0f248e8508db5c1',
+    event: 'workflow_dispatch',
+    after: '2026-11-26T13:46:28.657Z'
+  }
+];
+
 export function knownUnspentNearPreflight(checkpointDigest, run, jobs, now = Date.now()) {
+  const stop = NEAR_PREFLIGHT_STOPS.find(entry => entry.id === run?.id);
   return (
-    checkpointDigest === '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366' &&
-    run?.id === 45334301017 &&
+    Boolean(stop) &&
+    checkpointDigest === stop.digest &&
     run.repository?.id === 853430876 &&
     run.workflow_id === 391951744 &&
-    run.head_sha === '4bc52ddc8c24cda196f627d46aa608004939620f' &&
+    run.head_sha === stop.headSha &&
     run.head_branch === 'main' &&
-    run.event === 'schedule' &&
+    run.event === stop.event &&
     run.run_attempt === 1 &&
     run.status === 'completed' &&
     run.conclusion === 'failure' &&
     Number.isSafeInteger(now) &&
-    now > Date.parse('2026-11-24T05:58:23.073Z') &&
+    now > Date.parse(stop.after) &&
     Array.isArray(jobs?.jobs) &&
     nearForwardStopped(jobs, true)
   );
@@ -259,31 +278,52 @@ export function swapStepAttempted(jobs, leg, provider = 'swap') {
   ]);
 }
 
+// Each entry pins one immutable run whose failed legacy step provably spent nothing, with the retained report that shows it.
+// shortcut: requires retained artifact metadata; archive the verified receipt before its retention expires.
+const READ_ONLY_LEGACY_FAILURES = [
+  {
+    // Stops at the reviewed source's first indexer read, before its AggLayer deposit call.
+    runId: 43562192705,
+    source: '46d7fcf8ac612ca48997753574b53b308e365070',
+    step: 'Run the mainnet AggLayer loop',
+    artifact: 'mainnet-agglayer-43562192705',
+    artifactId: 14100963457,
+    digest: 'sha256:dbf7bc5943653fc30cb53f633fc9db1e059f6ab06b17f850e9cfe5135cbcaedb'
+  },
+  {
+    // Failed while setting up the second wallet fixture, before the test body: no wallet recorded a settled prove.
+    runId: 45762536645,
+    source: '1838f5af5b61314c7d54389f27eb11755a49f594',
+    step: 'Run native mainnet round trip',
+    artifact: 'wallet-e2e-v1-45762536645-1-mainnet',
+    artifactId: 15090921188,
+    digest: 'sha256:35eedd0ea6211a2032d96d4c567bd9bab4d3ed2733a91563562fbeaf1ee608aa'
+  }
+];
+
 async function reconciledReadOnlyLegacyFailure(run, step, getArtifacts) {
-  // This immutable report stops at the reviewed source's first indexer read, before its AggLayer deposit call.
-  // shortcut: requires retained artifact metadata; archive the verified receipt before its retention expires.
-  const source = '46d7fcf8ac612ca48997753574b53b308e365070';
+  const pin = READ_ONLY_LEGACY_FAILURES.find(entry => entry.runId === run.id);
   if (
-    run.id !== 43562192705 ||
-    run.head_sha !== source ||
+    !pin ||
+    run.head_sha !== pin.source ||
     run.head_branch !== 'main' ||
     run.event !== 'schedule' ||
-    step.name !== 'Run the mainnet AggLayer loop' ||
+    step.name !== pin.step ||
     step.status !== 'completed' ||
     step.conclusion !== 'failure'
   )
     return false;
   const result = await getArtifacts(run.id);
   if (!Array.isArray(result?.artifacts)) throw new Error('Invalid legacy reconciliation artifact response');
-  const reports = result.artifacts.filter(item => item.name === 'mainnet-agglayer-43562192705');
+  const reports = result.artifacts.filter(item => item.name === pin.artifact);
   if (reports.length !== 1) return false;
   const [report] = reports;
   return (
-    report.id === 14100963457 &&
+    report.id === pin.artifactId &&
     report.expired === false &&
-    report.digest === 'sha256:dbf7bc5943653fc30cb53f633fc9db1e059f6ab06b17f850e9cfe5135cbcaedb' &&
+    report.digest === pin.digest &&
     report.workflow_run?.id === run.id &&
-    report.workflow_run.head_sha === source &&
+    report.workflow_run.head_sha === pin.source &&
     report.workflow_run.head_branch === 'main' &&
     report.workflow_run.repository_id === 853430876 &&
     report.workflow_run.head_repository_id === 853430876
@@ -489,7 +529,7 @@ async function main() {
           45072272341: '45075171185',
           45092013711: '45095113595'
         }[id];
-        if (id === '45334301017')
+        if (id === '45334301017' || id === '45828549283')
           verified = knownUnspentNearPreflight(createHash('sha256').update(checkpoint).digest('hex'), run, jobs);
         else if (auditRunId) {
           const audit = await github(`actions/runs/${auditRunId}`);

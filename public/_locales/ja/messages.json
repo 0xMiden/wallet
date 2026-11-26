@@ -7236,6 +7236,10 @@
     "message": "オンボーディングで「保護者なし」オプションを許可する",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "全画面表示ボタン",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "引用符で囲まれていないトークンの価値を$1とみなす（テストネットワークのみ）",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -10384,6 +10388,91 @@
   "commandAiAssistantName": {
     "message": "Bread Assistant",
     "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Breadに関する質問",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "続きを読む",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Midenはどのように機能するのですか？",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "プライバシーはどの程度確保されていますか？",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "何が非公開情報かを確認するにはどうすればよいですか？",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "ブリッジングとは何ですか？",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "notesとは何ですか？",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "なぜ送金を受け入れなければならないのですか？",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "なぜ送金がまだ保留中なのですか？",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "送金を拒否した場合はどうなりますか？",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "なぜ手数料の支払いにUSDCXが必要なのですか？",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "デバイスを紛失した場合はどうなりますか？",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "メインネットとテストネットの違いは何ですか？",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistantには何が表示されますか？",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "安全を確保するにはどうすればよいですか？",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Breadでは何ができるのですか？",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Breadは、一部の詳細情報を削除した上で、あなたの質問をAIサービスに送信します。チャットにはパスワードやリカバリーフレーズを含めないでください。",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "パスワード、秘密鍵、リカバリーフレーズはチャットで共有しないでください。",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "メッセージを$limit$文字以下に短縮してください。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridgeのプライバシーポリシー",
+    "englishSource": "Bridge privacy policy"
   },
   "commandAiPlanTitle": {
     "message": "行動計画",

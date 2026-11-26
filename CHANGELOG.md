@@ -1,8 +1,28 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
+- [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
+- [FIX][all] Show failed Activity claims and when they can be retried.
+- [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
+- [FIX][ci] Align the cached solver registry test with the token list readiness field.
+
 ## 1.18.2 (TBD)
 
 - [FEATURE][all] When you share usage data, also report which screen you are on and how long it is visible (overview, send, receive, funding, swap, earn, explore, activity, me), with how you got there and whether it ran in the popup, side panel, full page or app, never a page address, account, contact, amount or anything typed, and describe it in the consent text and privacy policy (#1969, first slice).
+- [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
+- [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
+- [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
+- [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
+
+- [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
+
+- [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.
+- [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
 - [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.
 - [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
 - [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.

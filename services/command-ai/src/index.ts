@@ -1,6 +1,12 @@
+import helpFacts from '../../../src/lib/command-ai/help-facts.json';
+import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
+
+import { hasUnsafeSharingAdvice } from './help-safety.mjs';
+
+export { COMMAND_AI_MAX_TEXT_CHARS };
+
 export const COMMAND_AI_MAX_BODY_BYTES = 16 * 1024;
 export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 8 * 1024;
-export const COMMAND_AI_MAX_TEXT_CHARS = 2_000;
 const COMMAND_AI_TIMEOUT_MS = 15_000;
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
@@ -19,7 +25,7 @@ const NO_STORE_HEADERS: Record<string, string> = {
   'Cache-Control': 'private, no-store',
   'X-Content-Type-Options': 'nosniff'
 };
-const ALLOWED_BODY_KEYS = new Set(['redactedText', 'snapshot']);
+const ALLOWED_BODY_KEYS = new Set(['redactedText', 'snapshot', 'helpContext']);
 
 export interface RateLimitBinding {
   limit(options: { key: string }): Promise<{ success: boolean }>;
@@ -229,6 +235,39 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+const HELP_TOPICS = Object.keys(helpFacts.topics);
+const HELP_SCHEMA = {
+  ...COMMAND_AI_JSON_SCHEMA,
+  properties: {
+    result: {
+      anyOf: [
+        ...COMMAND_AI_JSON_SCHEMA.properties.result.anyOf,
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['op', 'topic', 'answer'],
+          properties: {
+            op: { type: 'string', enum: ['explain'] },
+            topic: { type: 'string', enum: HELP_TOPICS },
+            answer: { type: 'string' }
+          }
+        }
+      ]
+    }
+  }
+};
+const HELP_PROMPT = `${SYSTEM_PROMPT}
+
+${helpFacts.instructions}
+
+${Object.entries(helpFacts.topics)
+  .map(([topic, fact]) => `${topic}: ${fact}`)
+  .join('\n')}
+
+Choose Verify for how to check or be sure a payment is private, even after Privacy. Explain Public/Private and explorer limits.
+State the validator caveat as written. Infer no other access, public recipient, or unlinkability.
+Assistant: a redacted question goes to an AI service; help sends no wallet history.`;
+
 class HttpError extends Error {
   readonly status: number;
   readonly code: string;
@@ -364,11 +403,12 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 function parseCompileBody(body: Record<string, unknown>): {
   redactedText: string;
   snapshot: Record<string, unknown> | undefined;
+  helpContext: string | null | undefined;
 } {
   for (const key of Object.keys(body)) {
     if (!ALLOWED_BODY_KEYS.has(key)) throw new HttpError(400, 'bad_request', `Unexpected field: ${key}.`);
   }
-  const { redactedText, snapshot } = body;
+  const { redactedText, snapshot, helpContext } = body;
   if (
     typeof redactedText !== 'string' ||
     redactedText.trim().length === 0 ||
@@ -376,13 +416,20 @@ function parseCompileBody(body: Record<string, unknown>): {
   ) {
     throw new HttpError(400, 'bad_request', 'Invalid redactedText.');
   }
-  if (snapshot === undefined) {
-    return { redactedText, snapshot: undefined };
+  if (
+    helpContext !== undefined &&
+    (snapshot !== undefined ||
+      (helpContext !== null && (typeof helpContext !== 'string' || !HELP_TOPICS.includes(helpContext))))
+  ) {
+    throw new HttpError(400, 'bad_request', 'Invalid help context.');
   }
-  if (!isRecord(snapshot) || JSON.stringify(snapshot).length > COMMAND_AI_MAX_SNAPSHOT_BYTES) {
+  if (
+    snapshot !== undefined &&
+    (!isRecord(snapshot) || JSON.stringify(snapshot).length > COMMAND_AI_MAX_SNAPSHOT_BYTES)
+  ) {
     throw new HttpError(400, 'bad_request', 'Invalid snapshot.');
   }
-  return { redactedText, snapshot };
+  return { redactedText, snapshot, helpContext };
 }
 
 function compilationFailed(): HttpError {
@@ -406,10 +453,14 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
     throw new HttpError(503, 'service_unavailable', 'The service is not configured.');
   }
 
-  const { redactedText, snapshot } = parseCompileBody(await readJsonBody(request));
+  const { redactedText, snapshot, helpContext } = parseCompileBody(await readJsonBody(request));
   const model = env.COMMAND_AI_MODEL?.trim() || DEFAULT_MODEL;
   const reasoningEffort = env.COMMAND_AI_REASONING_EFFORT?.trim() || DEFAULT_REASONING_EFFORT;
-  const userPayload = snapshot ? JSON.stringify({ snapshot, utterance: redactedText }) : redactedText;
+  const userPayload = snapshot
+    ? JSON.stringify({ snapshot, utterance: redactedText })
+    : helpContext
+      ? JSON.stringify({ utterance: redactedText, previousHelpTopic: helpContext })
+      : redactedText;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), COMMAND_AI_TIMEOUT_MS);
@@ -424,7 +475,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : HELP_PROMPT },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
@@ -437,7 +488,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
           json_schema: {
             name: 'bread_command_intent',
             strict: true,
-            schema: COMMAND_AI_JSON_SCHEMA
+            schema: helpContext === undefined ? COMMAND_AI_JSON_SCHEMA : HELP_SCHEMA
           }
         }
       }),
@@ -463,7 +514,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
     }
 
     const output: unknown = JSON.parse(content);
-    if (!isRecord(output)) {
+    if (!isRecord(output) || (helpContext !== undefined && hasUnsafeSharingAdvice(output))) {
       throw compilationFailed();
     }
 

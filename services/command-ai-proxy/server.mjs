@@ -2,6 +2,9 @@ import http from 'node:http';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+import helpFacts from '../../src/lib/command-ai/help-facts.json' with { type: 'json' };
+import { hasUnsafeSharingAdvice } from '../command-ai/src/help-safety.mjs';
+
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b';
 const REASONING_EFFORT = process.env.COMMAND_AI_REASONING_EFFORT || 'low';
@@ -232,6 +235,35 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+const helpTopics = Object.keys(helpFacts.topics);
+const helpSchema = {
+  ...COMMAND_AI_JSON_SCHEMA,
+  properties: {
+    result: {
+      anyOf: [
+        ...COMMAND_AI_JSON_SCHEMA.properties.result.anyOf,
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['op', 'topic', 'answer'],
+          properties: {
+            op: { type: 'string', enum: ['explain'] },
+            topic: { type: 'string', enum: helpTopics },
+            answer: { type: 'string' }
+          }
+        }
+      ]
+    }
+  }
+};
+const helpPrompt = `${SYSTEM_PROMPT}
+
+${helpFacts.instructions}
+
+${Object.entries(helpFacts.topics)
+  .map(([topic, fact]) => `${topic}: ${fact}`)
+  .join('\n')}`;
+
 let spentMonthKey = currentMonthKey();
 let spentNanoUsd = 0n;
 const recentTimestamps = [];
@@ -267,12 +299,14 @@ function allowRateLimit() {
   return true;
 }
 
-export async function compileWithGroq({ redactedText, snapshot, apiKey, model = DEFAULT_MODEL }) {
+export async function compileWithGroq({ redactedText, snapshot, helpContext, apiKey, model = DEFAULT_MODEL }) {
   if (!apiKey) throw Object.assign(new Error('Missing GROQ_API_KEY'), { statusCode: 503 });
 
   const userPayload = snapshot
     ? JSON.stringify({ snapshot, utterance: redactedText })
-    : redactedText;
+    : helpContext
+      ? JSON.stringify({ utterance: redactedText, previousHelpTopic: helpContext })
+      : redactedText;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -287,7 +321,7 @@ export async function compileWithGroq({ redactedText, snapshot, apiKey, model = 
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : helpPrompt },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
@@ -300,7 +334,7 @@ export async function compileWithGroq({ redactedText, snapshot, apiKey, model = 
           json_schema: {
             name: 'bread_command_intent',
             strict: true,
-            schema: COMMAND_AI_JSON_SCHEMA
+            schema: helpContext === undefined ? COMMAND_AI_JSON_SCHEMA : helpSchema
           }
         }
       }),
@@ -327,8 +361,12 @@ export async function compileWithGroq({ redactedText, snapshot, apiKey, model = 
       throw Object.assign(new Error('Invalid model payload'), { statusCode: 502 });
     }
 
+    const output = JSON.parse(content);
+    if (helpContext !== undefined && hasUnsafeSharingAdvice(output)) {
+      throw Object.assign(new Error('Invalid model payload'), { statusCode: 502 });
+    }
     return {
-      output: JSON.parse(content),
+      output,
       model,
       usage: usage ? { prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens } : undefined
     };
@@ -415,12 +453,21 @@ function startServer() {
       res.end(JSON.stringify({ error: 'Invalid snapshot' }));
       return;
     }
+    if (
+      body.helpContext !== undefined &&
+      (body.snapshot !== undefined || (body.helpContext !== null && !helpTopics.includes(body.helpContext)))
+    ) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid help context' }));
+      return;
+    }
 
     const t0 = Date.now();
     try {
       const result = await compileWithGroq({
         redactedText: body.redactedText,
         snapshot: body.snapshot,
+        helpContext: body.helpContext,
         apiKey
       });
       // Aggregate counter log only — never log prompt text, output, or client IP.

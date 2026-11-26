@@ -7237,6 +7237,10 @@
     "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Tam ekran göster düğmesi",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Tırnak işareti kullanılmayan tokenlerin değerini 1 $ olarak belirleyin (sadece test ağları için)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -10386,6 +10390,91 @@
   "commandAiAssistantName": {
     "message": "Bread Assistant",
     "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Bread ile ilgili sorular",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "Daha fazla bilgi",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Miden nasıl çalışır?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Ne kadar gizlidir?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Nelerin gizli olduğunu nasıl kontrol edebilirim?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "\"Bridging\" nedir?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "notes nedir?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Neden transferleri kabul etmek zorundayım?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Bir transfer neden hâlâ beklemede?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "Bir transferi reddedersem ne olur?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Ücretler için neden USDCX'e ihtiyacım var?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "Cihazımı kaybedersem ne olur?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "Mainnet ile testnet arasındaki fark nedir?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistant neyi görür?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Nasıl güvende kalabilirim?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Bread'de neler yapabilirim?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread, bazı ayrıntıları kaldırdıktan sonra sorunuzu yapay zeka hizmetine iletir. Şifrelerinizi ve kurtarma ifadelerinizi sohbetten uzak tutun.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Şifreleri, özel anahtarları ve kurtarma ifadelerini sohbetlerde paylaşmayın.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Mesajınızı $limit$ karakter veya daha azına kısaltın.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridge gizlilik politikası",
+    "englishSource": "Bridge privacy policy"
   },
   "commandAiPlanTitle": {
     "message": "Eylem planı",
