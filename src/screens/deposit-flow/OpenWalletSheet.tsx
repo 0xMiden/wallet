@@ -85,8 +85,9 @@ export const OpenWalletSheet: React.FC<OpenWalletSheetProps> = ({ open, onOpenCh
         })}
       </div>
       <p className={s.NOTE}>{t('depositFlowOpenInNote')}</p>
+      {/* A wallet that did not open is a hint, not an error, as on the NEAR Intents deposit page (a warning there). */}
       {failed && (
-        <DepositNotice kind="inline" role="alert" data-testid="deposit-open-wallet-failed">
+        <DepositNotice kind="inline" role="status" data-testid="deposit-open-wallet-failed">
           {t('depositWalletOpenFailed')}
         </DepositNotice>
       )}

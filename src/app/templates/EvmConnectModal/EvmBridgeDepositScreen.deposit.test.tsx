@@ -2,10 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Dexie from 'dexie';
-import { decodeFunctionData, getAddress } from 'viem';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
-import { AGGLAYER_BRIDGE_ABI } from 'lib/agglayer';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
 import { readCompactLockState } from 'lib/epoch/bridge-in-lock-scan';
 import { cancelLockWithdrawal } from 'lib/epoch/bridge-in-recovery';
@@ -18,10 +16,8 @@ import {
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { BatchCall } from 'lib/evm-relay/batch';
-import { RelayApiError, RelayRevertedError, RelayUnknownOutcomeError } from 'lib/evm-relay/errors';
 import type { RelaySource } from 'lib/evm-relay/source';
 import type { RelaySubmitOptions } from 'lib/evm-relay/submit';
-import type { RelayJobRef } from 'lib/evm-relay/types';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -30,7 +26,6 @@ import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/avail
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerDepositToken, EpochDepositToken } from 'lib/remote-config/values';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
-import { ERC20_APPROVE_ABI } from 'lib/usdcx/constant';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -4776,240 +4771,5 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
       'failed',
       expect.objectContaining({ failure: expect.objectContaining({ step: 'precheck_route' }) })
     );
-  });
-});
-
-describe('EvmBridgeDepositScreen from a relay source', () => {
-  const RELAY = '0x00000000000000000000000000000000000000e5';
-  const RELAY_SOURCE: RelaySource = { accountPublicKey: 'mtst1account', address: RELAY };
-  const USDC = '0x00000000000000000000000000000000000000c0';
-  const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
-  const MINED = `0x${'12'.repeat(32)}`;
-  const JOB: RelayJobRef = { chainId: 11155111, id: `0x${'ab'.repeat(32)}`, deadline: 1_900_000_000 };
-  /** The typed 10.6512 at the 18 decimals the suite gives the configured USDC. */
-  const USDC_DEPOSIT = 10_651_200_000_000_000_000n;
-  /** The typed 1.5 ETH. */
-  const ETH_DEPOSIT = 1_500_000_000_000_000_000n;
-
-  /** The relay as the submitter runs it: the balance check, the job write, then the POST. */
-  const relayAnswers = (outcome: () => Promise<string>, events: string[] = []) =>
-    mockRelaySendCalls.mockImplementation(async (_calls, hooks) => {
-      await hooks.beforeSign?.();
-      await hooks.onJob?.(JOB);
-      events.push('post');
-      return outcome();
-    });
-  const renderRelayScreen = () => render(depositScreen(undefined, RELAY, RELAY_SOURCE));
-  const confirm = async () => {
-    fireEvent.click(screen.getByTestId('confirm-deposit'));
-    await settle();
-  };
-  const sentCalls = (): BatchCall[] => mockRelaySendCalls.mock.calls[0]?.[0] ?? [];
-  const failedWrites = () =>
-    jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockAvailability = {};
-    mockAgglayerChainId = 11155111;
-    mockSnapshot = READY_SNAPSHOT;
-    mockRelayChains.clear();
-    mockRelayChains.add(11155111);
-    // Neither an external wallet nor its provider: the relay sends for the relay address.
-    mockNativeReown = true;
-    mockWebProviderConnected = false;
-    answerBalance(FUNDED);
-    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
-    jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
-    jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
-    relayAnswers(async () => MINED);
-  });
-
-  afterEach(() => {
-    Object.assign(epochState, idleEpoch);
-    mockNativeReown = false;
-    mockWebProviderConnected = true;
-  });
-
-  it('sends the approval and the deposit as one relay batch, with no wallet and no chain step', async () => {
-    renderRelayScreen();
-    await reachSlowUsdcReview();
-    await confirm();
-
-    expect(mockBuildRelayProvider).toHaveBeenCalledWith(RELAY_SOURCE, 11155111, expect.any(Object));
-    expect(mockRelaySendCalls).toHaveBeenCalledTimes(1);
-    const [approve, deposit] = sentCalls();
-    expect(sentCalls()).toHaveLength(2);
-    expect(approve).toMatchObject({ to: USDC, value: 0n });
-    expect(decodeFunctionData({ abi: ERC20_APPROVE_ABI, data: approve?.data ?? '0x' }).args).toEqual([
-      L1_BRIDGE,
-      USDC_DEPOSIT
-    ]);
-    expect(deposit).toMatchObject({ to: L1_BRIDGE, value: 0n });
-    expect(decodeFunctionData({ abi: AGGLAYER_BRIDGE_ABI, data: deposit?.data ?? '0x' })).toMatchObject({
-      functionName: 'bridgeAsset',
-      args: [77, '0x00000000000000000000000000000000000000A1', USDC_DEPOSIT, getAddress(USDC), true, '0x']
-    });
-    expect(readEvmErc20Allowance).toHaveBeenCalledWith(USDC, RELAY, L1_BRIDGE, 11155111);
-    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
-    expect(mockMutateAsync).not.toHaveBeenCalled();
-    expect(mockSwitchChainAsync).not.toHaveBeenCalled();
-    expect(prepareNativeSessionChain).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { evmTxHash: MINED });
-    expect(waitForEvmReceipt).toHaveBeenCalledWith(MINED, expect.objectContaining({ id: 11155111 }));
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'delivering', { evmTxHash: MINED });
-    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'agglayer', sourceAddress: RELAY })
-    );
-  });
-
-  it('sends only the deposit when the allowance covers it', async () => {
-    jest.mocked(readEvmErc20Allowance).mockResolvedValue(USDC_DEPOSIT);
-    renderRelayScreen();
-    await reachSlowUsdcReview();
-    await confirm();
-
-    expect(sentCalls()).toHaveLength(1);
-    expect(sentCalls()[0]).toMatchObject({ to: L1_BRIDGE, value: 0n });
-  });
-
-  it('sends native ETH as the value of the one deposit call, with no allowance read', async () => {
-    renderRelayScreen();
-    await reachReview();
-    await confirm();
-
-    expect(readEvmErc20Allowance).not.toHaveBeenCalled();
-    expect(sentCalls()).toHaveLength(1);
-    const [deposit] = sentCalls();
-    expect(deposit).toMatchObject({ to: L1_BRIDGE, value: ETH_DEPOSIT });
-    expect(decodeFunctionData({ abi: AGGLAYER_BRIDGE_ABI, data: deposit?.data ?? '0x' }).args).toEqual([
-      77,
-      '0x00000000000000000000000000000000000000A1',
-      ETH_DEPOSIT,
-      '0x0000000000000000000000000000000000000000',
-      true,
-      '0x'
-    ]);
-  });
-
-  it('stores the relay job on the row before the POST', async () => {
-    const events: string[] = [];
-    jest.mocked(updateBridgedReceivePhase).mockImplementation(async (_id, _phase, extra) => {
-      if (extra?.relayJob) events.push('job');
-    });
-    relayAnswers(async () => MINED, events);
-    renderRelayScreen();
-    await reachReview();
-    await confirm();
-
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { relayJob: JOB });
-    expect(events).toEqual(['job', 'post']);
-  });
-
-  it('keeps the row open, and signs nothing again, when the relay outcome is not known', async () => {
-    relayAnswers(async () => {
-      throw new RelayUnknownOutcomeError(JOB);
-    });
-    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    renderRelayScreen();
-    await reachReview();
-    await confirm();
-
-    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
-    expect(mockRelaySendCalls).toHaveBeenCalledTimes(1);
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'submitting', { relayJob: JOB });
-    expect(failedWrites()).toEqual([]);
-    expect(waitForEvmReceipt).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['a reverted batch', () => new RelayRevertedError(JOB.id, `0x${'34'.repeat(32)}`), 'depositFlowRelayReverted'],
-    [
-      'a relay refusal',
-      () => new RelayApiError('simulation_failed', 409, 'simulation failed'),
-      'depositFlowRelayRefused'
-    ]
-  ])('fails the row with its own message after %s', async (_case, error, message) => {
-    relayAnswers(async () => {
-      throw error();
-    });
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    renderRelayScreen();
-    await reachReview();
-    await confirm();
-
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
-      'bridge-tx',
-      'failed',
-      failedAt('wallet_deposit', message, 'raw_bridge_deposit_failed', 'relay')
-    );
-    expect(waitForEvmReceipt).not.toHaveBeenCalled();
-  });
-
-  it('checks the balance again before the relay signs', async () => {
-    mockRelaySendCalls.mockImplementation(async (_calls, hooks) => {
-      answerBalance(0n);
-      await hooks.beforeSign?.();
-      return MINED;
-    });
-    jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    renderRelayScreen();
-    await reachReview();
-    await confirm();
-
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith(
-      'bridge-tx',
-      'failed',
-      expect.objectContaining({
-        errorId: 'bridgeDepositBalanceTooLow',
-        failure: expect.objectContaining({ step: 'precheck_balance', balanceCheck: 'too_low' })
-      })
-    );
-    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'submitting', { evmTxHash: MINED });
-  });
-
-  it('runs the Fast deposit from the relay address, with no session preparation', async () => {
-    quoteFast();
-    renderRelayScreen();
-    await reachFastReview();
-    await confirm();
-
-    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
-      expect.objectContaining({ evmSourceAddress: RELAY, sourceChainId: 11155111 }),
-      RELAY
-    );
-    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'epoch', sourceAddress: RELAY })
-    );
-    await waitFor(() => expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx'));
-    expect(prepareNativeSessionChain).not.toHaveBeenCalled();
-    expect(mockRelaySendCalls).not.toHaveBeenCalled();
-  });
-
-  it('offers no wallet switch for a relay source', async () => {
-    renderRelayScreen();
-    fireEvent.click(screen.getByTestId('switch-wallet'));
-    await settle();
-
-    expect(screen.queryByTestId('connect-another')).not.toBeInTheDocument();
-  });
-
-  it('offers no Circle USDC to a relay source', async () => {
-    renderRelayScreen();
-    await settle();
-
-    expect(mockLastCircleBalance).toBeUndefined();
-  });
-
-  // The Epoch USDC is offered only on the source chain. This suite's AggLayer route ignores the chain, so ETH stays.
-  it.each([
-    ['serves', true, 'Test Epoch USDC'],
-    ['does not serve', false, 'ETH']
-  ])('offers the Epoch token of a chain that the relay %s', async (_case, served, token) => {
-    if (!served) mockRelayChains.clear();
-    renderRelayScreen();
-    await settle();
-
-    expect(screen.getByTestId('form-token')).toHaveTextContent(new RegExp(`^${token}$`));
   });
 });

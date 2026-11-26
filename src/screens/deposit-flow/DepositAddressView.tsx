@@ -11,6 +11,8 @@ import { AnimatedCopyIcon } from 'components/ui/AnimatedCopyIcon';
 import { CopyButton } from 'components/ui/CopyButton';
 import { CopyLabel } from 'components/ui/CopyLabel';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { cn } from 'lib/ui/util';
 
@@ -41,13 +43,14 @@ const ADDRESS_LINE_CHARS = 22;
  * Where the deposit stands:
  * - `waiting`: nothing has arrived yet.
  * - `partial`: less than the reviewed amount arrived. The screen offers to deposit what arrived.
- * - `failed`: the deposit cannot be used. `reason` replaces the default text.
+ * - `failed`: the deposit cannot be used, or the bridge did not start. `title` and `reason` replace the default texts.
+ *   `errorId` reports the failure (default `raw_bridge_deposit_failed`).
  * - `starting`: the funds are at the address and the bridge is starting. The actions are disabled.
  */
 export type DepositAddressStatus =
   | { kind: 'waiting' }
   | { kind: 'partial'; received: DepositAmountValue }
-  | { kind: 'failed'; reason?: string }
+  | { kind: 'failed'; title?: string; reason?: string; errorId?: UserErrorId }
   | { kind: 'starting' };
 
 export interface DepositAddressViewProps {
@@ -344,13 +347,14 @@ const StatusNotice: React.FC<{
   className?: string;
 }> = ({ status, amount, sourceToken, onDepositReceived, className }) => {
   const { t } = useTranslation();
+  useUserVisibleError(status.kind === 'failed' ? (status.errorId ?? 'raw_bridge_deposit_failed') : null, 'notice');
   switch (status.kind) {
     case 'failed':
       return (
         <DepositNotice
           kind="negative"
           role="alert"
-          title={t('depositFlowFailedTitle')}
+          title={status.title ?? t('depositFlowFailedTitle')}
           className={className}
           data-testid="deposit-address-failed"
         >

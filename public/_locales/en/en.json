@@ -2365,5 +2365,21 @@
   "depositFlowTokenArrivesAs": "Arrives as $token$",
   "depositFlowTokenOpensPortal": "Opens bridge.miden.xyz",
   "depositFlowTokenNoRoute": "No live route",
-  "depositFlowTokenPortalTag": "Portal"
+  "depositFlowTokenPortalTag": "Portal",
+  "depositFlowTokenOnNetworkArrivesAs": "On $network$, arrives as $token$",
+  "depositFlowTokenNoMatch": "No token or network matches \"$query$\".",
+  "depositFlowConnectWalletInstead": "Connect a wallet instead",
+  "depositFlowRouteAgglayer": "Agglayer",
+  "depositFlowRouteEpoch": "Epoch",
+  "depositFlowArrivesAgglayer": "About 30 minutes",
+  "depositFlowArrivesEpoch": "About 2 minutes",
+  "depositFlowStartFailedTitle": "The bridge did not start",
+  "depositFlowStartFailedBody": "Your funds are still at your deposit address. Go back and try again.",
+  "depositFlowStepDetected": "Deposit detected",
+  "depositFlowBridgingToMiden": "Bridging to Miden",
+  "depositFlowStepArrived": "Arrived in Bread",
+  "depositFlowProcessingNote": "You can close this. We'll notify you when it's done.",
+  "depositFlowProcessingSlowNote": "This route takes about 30 minutes. You can close this. We'll notify you when it's done.",
+  "depositFlowArrivedTitle": "Deposit arrived",
+  "depositFlowDepositAgain": "Deposit again"
 }

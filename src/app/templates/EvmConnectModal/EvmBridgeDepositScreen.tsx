@@ -10,6 +10,7 @@ import {
   encodeFunctionData,
   EIP1193Provider,
   formatUnits,
+  getAddress,
   Hash,
   isAddress,
   isHex,
@@ -25,9 +26,11 @@ import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
+import { Spinner } from 'components/ui/Spinner';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL, midenAddrToEvmAddr } from 'lib/agglayer';
 import { type Erc20Holding, readErc20Holdings } from 'lib/agglayer/token-holdings';
 import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import { evmPaymentLinks } from 'lib/evm/payment-links';
 import type { BatchCall } from 'lib/evm-relay/batch';
 import {
   RelayApiError,
@@ -41,15 +44,26 @@ import {
   RelayUnavailableError,
   RelayUnknownOutcomeError
 } from 'lib/evm-relay/errors';
+import {
+  createPendingRelayDepositId,
+  type PendingRelayDeposit,
+  readPendingRelayDeposits,
+  removePendingRelayDeposit,
+  savePendingRelayDeposit
+} from 'lib/evm-relay/pending-deposit';
 import { buildRelayProvider, type RelaySource, relayServesChain } from 'lib/evm-relay/source';
+import { depositArrivalOf, useDepositArrival } from 'lib/evm-relay/use-deposit-arrival';
+import { useRelayAccount } from 'lib/evm-relay/use-relay-account';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
-import { IBridgeProvider } from 'lib/miden/db/types';
+import type { IBridgeProvider } from 'lib/miden/db/types';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { openWalletPayment } from 'lib/mobile/wallet-payments';
+import { isExtension } from 'lib/platform';
 import { quotedPrice } from 'lib/prices/binance';
 import { evmQuote } from 'lib/prices/evm';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
@@ -77,6 +91,7 @@ import {
   walletRaised
 } from 'lib/telemetry/bridge-receive-failure';
 import type { BridgeBalanceBranch, BridgeBalanceStage, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import {
   CIRCLE_USDC_DECIMALS,
@@ -116,6 +131,15 @@ import {
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
+import { type DepositAddressStatus, DepositAddressView } from 'screens/deposit-flow/DepositAddressView';
+import { DepositAmountView } from 'screens/deposit-flow/DepositAmountView';
+import { DepositQrSheet } from 'screens/deposit-flow/DepositQrSheet';
+import { DepositReviewView } from 'screens/deposit-flow/DepositReviewView';
+import { type DepositRouteOption, DepositRouteSheet } from 'screens/deposit-flow/DepositRouteSheet';
+import { DepositTokenSheet } from 'screens/deposit-flow/DepositTokenSheet';
+import { OpenWalletSheet } from 'screens/deposit-flow/OpenWalletSheet';
+import { DepositNotice } from 'screens/deposit-flow/parts';
+import type { DepositAmountValue, DepositFee, DepositLayout } from 'screens/deposit-flow/types';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
 import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
@@ -131,6 +155,14 @@ import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
 import { type DepositEpochRow, type DepositErc20Row, EvmBridgeTokenDrawer } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
+import {
+  claimPendingRelayDeposit,
+  decodeRelayDepositForm,
+  encodeRelayDepositForm,
+  type RelayRoute
+} from './relay-deposit-record';
+import { relayTokenChoiceId, relayTokenChoices } from './relay-token-choices';
+import { RelayDepositProgress, useOpenRelayJob } from './RelayDepositProgress';
 import { useDepositToken } from './useDepositToken';
 
 /** Native-ETH source token symbol/decimals (the non-USDC deposit option). */
@@ -229,8 +261,68 @@ interface EvmBridgeDepositScreenProps {
    */
   onConnectAnother: () => void;
   onClose: () => void;
+  /** Leaves the flow for Home (the close of the address and processing steps). Defaults to `onClose`. */
+  onExit?: () => void;
+  /**
+   * A relay source only: the pending deposit to open the screen on (`?pending=<id>`), on its address step with its form
+   * state. An id that the account does not have opens the amount step.
+   */
+  pendingDepositId?: string;
   /** Supplied by the hosting page to report the outcome of a deposit attempt. */
   reportDeposit?: ReportDeposit;
+}
+
+/**
+ * The steps of the deposit-address flow of a relay source. `restoring` reads the pending deposit of `?pending=<id>`;
+ * `processing` follows the tracked row to its success or failure.
+ */
+type RelayStep = 'restoring' | 'amount' | 'review' | 'address' | 'processing';
+
+/**
+ * Where the start of the bridge for a pending deposit is. `quoting`: an Epoch deposit asked for a new quote when the
+ * funds arrived. `starting`: the deposit is claimed and the row is being created.
+ */
+type RelayStartPhase = 'idle' | 'quoting' | 'starting';
+
+/** What a confirm did: a row exists, nothing started (the deposit was not ready), or the row creation failed. */
+type ConfirmResult = { kind: 'started'; txId: string } | { kind: 'refused' } | { kind: 'failed'; error: DepositError };
+
+/** A fee that the receipt cannot show yet (no amount typed): the mock-up's rate slot, which a quote fills. */
+const NO_FEE_YET = '–';
+
+/** The relay routes by cost, the mock-up's order (`routeRowsV`): Agglayer takes no bridge fee, so it receives most. */
+const RELAY_ROUTES_BY_COST: readonly RelayRoute[] = ['agglayer', 'epoch'];
+/** The relay routes by speed, the mock-up's rank: Epoch (about 2 minutes), then Agglayer (about 30). */
+const RELAY_ROUTES_BY_SPEED: readonly RelayRoute[] = ['epoch', 'agglayer'];
+/** The amount a review shows while its quote refreshes. */
+const ZERO_AMOUNT: DepositAmountValue = { amount: '0' };
+
+function lowerHexAddress(address: `0x${string}`): `0x${string}` {
+  return `0x${address.slice(2).toLowerCase()}`;
+}
+
+/** What a pending deposit delivers, as it was reviewed. */
+function pendingDepositReceived(deposit: PendingRelayDeposit): DepositAmountValue {
+  return { amount: deposit.outputAmount ?? deposit.amount };
+}
+
+/**
+ * The bridge fee of a pending deposit. Agglayer takes none. On Epoch it is what is sent less what arrives, both in the
+ * source token (the Epoch tokens arrive as the same asset).
+ */
+function pendingDepositFee(deposit: PendingRelayDeposit): DepositFee {
+  switch (deposit.route) {
+    case 'agglayer':
+      return { kind: 'none' };
+    case 'epoch': {
+      const sent = BigInt(deposit.amountBaseUnits);
+      const received =
+        deposit.outputAmount === undefined ? null : toBaseUnits(deposit.outputAmount, deposit.token.decimals);
+      return received !== null && sent > received
+        ? { kind: 'amount', value: { amount: sent - received, decimals: deposit.token.decimals } }
+        : { kind: 'none' };
+    }
+  }
 }
 
 interface RpcResponse {
@@ -723,6 +815,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   midenAccount,
   onConnectAnother,
   onClose,
+  onExit = onClose,
+  pendingDepositId,
   reportDeposit
 }) => {
   const { t } = useTranslation();
@@ -751,6 +845,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const confirming = useRef(false);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
+  // A relay source runs the deposit-address flow in the place of the Navigator steps.
+  const relay = relaySource !== undefined;
+  const [relayStep, setRelayStep] = useState<RelayStep>(pendingDepositId === undefined ? 'amount' : 'restoring');
 
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<DepositError | null>(null);
@@ -980,7 +1077,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
   // The config moves the token or route below only on the opening amount step and never under a confirm, so a publish
   // cannot flip a deposit on its way to, or on, Review.
-  const onAmountStep = activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
+  const onAmountStep = relay ? relayStep === 'amount' : activeRoute?.name === ReceiveStep.ShowBridgePageTakeAmount;
   // What the picked chain offers, in the order a token it does not offer falls back to: Circle USDC, then native ETH,
   // then each Epoch token. An Epoch token that names the same contract as Circle's USDC or AggLayer's native ETH is
   // that row, with Fast as its other route. A registered ERC-20 is offered wherever ETH is, and is never a fallback.
@@ -1021,7 +1118,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [onAmountStep, token, route, sharedFastToken]);
   // The status page is the one step that leads to no route card these grey out.
-  const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
+  const routesAhead = relay ? relayStep !== 'processing' : activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const configuredFastAvailability = useFeatureAvailability('fastBridgeIn', {
     hold: routesAhead,
     chainId: sourceChainId
@@ -1116,20 +1213,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     fastKey !== null && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
     500
   );
-
-  useMobileBackHandler(() => {
-    if (usdcxSubmissionPending) return true;
-    if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
-      onClose();
-      return true;
-    }
-    if (cardStack.length > 1) {
-      goBack();
-      return true;
-    }
-    onClose();
-    return true;
-  }, [activeRoute?.name, cardStack.length, goBack, onClose, usdcxSubmissionPending]);
 
   useEffect(() => {
     resetEpoch();
@@ -2146,7 +2229,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   const capHoldNotice = capHoldError?.text;
   const capHoldErrorId = capHoldError?.id;
-  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
+  // A relay source deposits funds that arrive after the review, so its amount is not held to a balance here: the start
+  // waits for the funds at the address, and each handler reads the balance again before it signs.
+  const setupReady = typedUnits !== null && (relay || (heldUnits !== null && !amountExceedsBalance)) && !capHold;
 
   // Fast (Epoch) bridges the picked Epoch token. The quote must be for the amount on screen: it lags the input by the
   // debounce, and an amount that rounds to zero faucet units is never quoted. Its deposit, not the typed amount, is
@@ -2161,8 +2246,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     !!midenUsdc &&
     epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals) &&
     quotedTokenIn !== null &&
-    usdcBalance.value !== null &&
-    quotedTokenIn <= usdcBalance.value;
+    (relay || (usdcBalance.value !== null && quotedTokenIn <= usdcBalance.value));
   // Picking Slow can move the USDC to the AggLayer chain's, so the amount is held to that balance here as well.
   const slowReady =
     route === 'agglayer' &&
@@ -2375,8 +2459,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     route === 'epoch' ? epochStatus === 'pending' || epochStatus === 'done' : slowStatus === 'submitted';
   // Allow a retry tap after a failed Fast attempt (wrong chain / reject / intent
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
+  // A relay row whose job can still execute is in progress, whatever the store says: nothing may sign a second deposit.
+  const relayJobOpen = useOpenRelayJob(relay ? bridgeTxId : null);
   const fastRetryable =
-    route === 'epoch' && fastKey !== null && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
+    route === 'epoch' && fastKey !== null && epochFlow === 'evm-to-miden' && epochStatus === 'failed' && !relayJobOpen;
   const reviewCanConfirm = (canConfirmRoute || (fastRetryable && !capHold)) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
@@ -2404,18 +2490,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     navigateTo(ReceiveStep.ShowBridgePageReview);
   }, [canConfirmRoute, navigateTo]);
 
-  const handleConfirm = useCallback(async () => {
+  const handleConfirm = useCallback(async (): Promise<ConfirmResult> => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
-    if (confirming.current) return;
+    if (confirming.current || relayJobOpen) return { kind: 'refused' };
     // Fast (Epoch): after a failed attempt the store is 'failed' and
     // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
     // dead-ending until the amount changes. Once re-quoted, the next tap submits.
     if (route === 'epoch' && epochStatus === 'failed') {
       hapticMedium();
-      void requote();
-      return;
+      requote();
+      return { kind: 'refused' };
     }
-    if (!canConfirmRoute || creatingBridgeRow) return;
+    if (!canConfirmRoute || creatingBridgeRow) return { kind: 'refused' };
     confirming.current = true;
     setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
@@ -2495,13 +2581,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         drive
       );
       setBridgeTxId(txId);
-      navigateTo(ReceiveStep.ShowBridgePageStatus);
+      // A relay source follows the row on its own processing step.
+      if (relaySource === undefined) navigateTo(ReceiveStep.ShowBridgePageStatus);
+      return { kind: 'started', txId };
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
-      setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
+      const failure: DepositError = { text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' };
+      setSlowError(failure);
       confirming.current = false;
       setUsdcxSubmissionPending(false);
       setConfirmSettled(count => count + 1);
+      return { kind: 'failed', error: failure };
     } finally {
       setCreatingBridgeRow(false);
     }
@@ -2524,6 +2614,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     midenUsdc,
     navigateTo,
     outputAmount,
+    relayJobOpen,
+    relaySource,
     reportDeposit,
     requote,
     route,
@@ -2754,18 +2846,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     ]
   );
 
-  const renderStep = useCallback(
-    (step: Route) => {
-      const content = renderDepositStep(step);
-      const checksWithdrawal =
-        step.name === ReceiveStep.ShowBridgePageRoute || step.name === ReceiveStep.ShowBridgePageReview;
-      if (
-        !checksWithdrawal ||
-        route !== 'epoch' ||
-        fastAvailability.state !== 'available' ||
-        !evmUsdc ||
-        !allocatorUrl
-      ) {
+  // A route or review step of an Epoch deposit waits behind the forced-withdrawal check of the sponsor's lock.
+  const gateEpochWithdrawal = useCallback(
+    (content: React.ReactNode) => {
+      if (route !== 'epoch' || fastAvailability.state !== 'available' || !evmUsdc || !allocatorUrl) {
         return content;
       }
       const alternative = (() => {
@@ -2798,7 +2882,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmUsdc,
       fastAvailability.state,
       handleRouteChange,
-      renderDepositStep,
       requote,
       route,
       slowAvailability.state,
@@ -2808,6 +2891,687 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       usdcxAvailable
     ]
   );
+
+  const renderStep = useCallback(
+    (step: Route) => {
+      const content = renderDepositStep(step);
+      const checksWithdrawal =
+        step.name === ReceiveStep.ShowBridgePageRoute || step.name === ReceiveStep.ShowBridgePageReview;
+      return checksWithdrawal ? gateEpochWithdrawal(content) : content;
+    },
+    [gateEpochWithdrawal, renderDepositStep]
+  );
+
+  // The deposit-address flow of a relay source (mock-up bread-deposit-R.html, its default state "Relay built"): amount,
+  // review, the address that waits for the funds, then the bridge from that address with no further tap.
+  const layout: DepositLayout = isExtension() ? 'extension' : 'mobile';
+  const relayRoute: RelayRoute = route === 'epoch' ? 'epoch' : 'agglayer';
+  const sourceDecimals = setupToken.decimals;
+  const [pendingDeposit, setPendingDeposit] = useState<PendingRelayDeposit | null>(null);
+  const [relayStartError, setRelayStartError] = useState<DepositError | null>(null);
+  const [startPhase, setStartPhase] = useState<RelayStartPhase>('idle');
+  // An Epoch deposit whose new quote at arrival asks for more than the record: what the address must hold now.
+  const [requiredUnits, setRequiredUnits] = useState<bigint | null>(null);
+  const [routeSheetOpen, setRouteSheetOpen] = useState(false);
+  const [qrSheetOpen, setQrSheetOpen] = useState(false);
+  const [walletSheetOpen, setWalletSheetOpen] = useState(false);
+  const [slideResetKey, setSlideResetKey] = useState(0);
+  // The pending deposits whose start this mounted screen runs. The claim in storage guards every other page and mount.
+  const startedIds = useRef(new Set<string>());
+  // The Epoch quote in the store when the start asked for a new one: only a newer quote can start the deposit.
+  const quoteAtRequest = useRef<typeof epochQuote>(null);
+  // The pending deposit whose start asked for that quote.
+  const quoteRequestedFor = useRef<string | null>(null);
+
+  // `?pending=<id>`: open on the address step of that deposit with its form state. An unknown id opens the amount step.
+  const selectTokenRef = useRef(selectToken);
+  selectTokenRef.current = selectToken;
+  const relayAccountKey = relaySource?.accountPublicKey;
+  const relayAddress = relaySource?.address;
+  useEffect(() => {
+    if (relayAccountKey === undefined || relayAddress === undefined || pendingDepositId === undefined) return undefined;
+    let cancelled = false;
+    setRelayStep('restoring');
+    readPendingRelayDeposits(relayAccountKey)
+      .then(deposits => {
+        if (cancelled) return;
+        const deposit = deposits.find(entry => entry.id === pendingDepositId);
+        const form = deposit?.address === relayAddress ? decodeRelayDepositForm(deposit.form) : null;
+        if (deposit === undefined || form === null) {
+          setRelayStep('amount');
+          return;
+        }
+        setPickedChainId(form.chainId);
+        selectTokenRef.current(form.token);
+        setRoute(form.route);
+        setAmount(form.amount);
+        setRelayStartError(null);
+        setRequiredUnits(null);
+        setStartPhase('idle');
+        setPendingDeposit(deposit);
+        setRelayStep('address');
+      })
+      .catch(err => {
+        console.warn('[EvmBridgeDepositScreen] the pending deposit read failed', err);
+        if (!cancelled) setRelayStep('amount');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingDepositId, relayAccountKey, relayAddress]);
+
+  // The balance at the address, read while the address step is on screen.
+  const arrival = useDepositArrival(relayStep === 'address' ? pendingDeposit : null);
+  // The relay's gas mode before the address step, for the chosen chain.
+  const relayAccount = useRelayAccount({
+    chainId: relay && (relayStep === 'amount' || relayStep === 'review') && sourceChainId > 0 ? sourceChainId : null,
+    address: relaySource?.address
+  });
+  const relayMode = arrival.mode ?? relayAccount.account?.mode ?? null;
+  // A relay that takes its gas out of the deposit cannot run this flow yet: the connect-wallet path takes it.
+  useEffect(() => {
+    if (relay && relayMode === 'deduct') onConnectAnother();
+  }, [relay, relayMode, onConnectAnother]);
+
+  // What the address must hold: the reviewed amount, or more when a new Epoch quote asks for more.
+  const recordUnits = pendingDeposit === null ? null : BigInt(pendingDeposit.amountBaseUnits);
+  const neededUnits =
+    recordUnits !== null && requiredUnits !== null && requiredUnits > recordUnits ? requiredUnits : recordUnits;
+  const relayArrival = neededUnits === null ? arrival : depositArrivalOf(arrival.balance, neededUnits);
+
+  const routeAvailable = (candidate: RelayRoute): boolean => {
+    switch (candidate) {
+      case 'agglayer':
+        return slowAvailability.state === 'available';
+      case 'epoch':
+        return fastAvailability.state === 'available';
+    }
+  };
+  const availableRelayRoutes = RELAY_ROUTES_BY_COST.filter(routeAvailable);
+  const fastestRelayRoute = RELAY_ROUTES_BY_SPEED.find(candidate => availableRelayRoutes.includes(candidate));
+  const routeNameOf = (value: RelayRoute): string => {
+    switch (value) {
+      case 'agglayer':
+        return t('depositFlowRouteAgglayer');
+      case 'epoch':
+        return t('depositFlowRouteEpoch');
+    }
+  };
+  const arrivesInOf = (value: RelayRoute): string => {
+    switch (value) {
+      case 'agglayer':
+        return t('depositFlowArrivesAgglayer');
+      case 'epoch':
+        return t('depositFlowArrivesEpoch');
+    }
+  };
+
+  // What the user sends: the typed amount on Agglayer (1:1), the quoted deposit on Epoch (its quote asks for the typed
+  // amount out, so its fee comes on top).
+  const relaySendUnits = ((): bigint | null => {
+    switch (relayRoute) {
+      case 'epoch':
+        return fastReady ? quotedTokenIn : null;
+      case 'agglayer':
+        return typedUnits;
+    }
+  })();
+  const relaySent: DepositAmountValue | undefined =
+    relaySendUnits === null ? undefined : { amount: relaySendUnits, decimals: sourceDecimals };
+  // What arrives: the typed amount on both routes.
+  const relayReceived: DepositAmountValue | undefined =
+    typedUnits === null ? undefined : { amount: formatUnits(typedUnits, sourceDecimals) };
+  const relayFee = ((): DepositFee => {
+    switch (relayRoute) {
+      case 'agglayer':
+        return { kind: 'none' };
+      case 'epoch':
+        if (relaySendUnits !== null && typedUnits !== null) {
+          return relaySendUnits > typedUnits
+            ? { kind: 'amount', value: { amount: relaySendUnits - typedUnits, decimals: sourceDecimals } }
+            : { kind: 'none' };
+        }
+        return { kind: 'rate', text: typedUnits === null ? NO_FEE_YET : t('loading') };
+    }
+  })();
+  const relayFeeShare =
+    relayFee.kind === 'amount' &&
+    relaySendUnits !== null &&
+    relaySendUnits > 0n &&
+    typeof relayFee.value.amount === 'bigint'
+      ? Number(relayFee.value.amount) / Number(relaySendUnits)
+      : undefined;
+  const relayUsd =
+    typedUnits === null || depositPrice.priceUsd === undefined
+      ? undefined
+      : Number(formatUnits(typedUnits, sourceDecimals)) * depositPrice.priceUsd;
+  // An Epoch amount takes no more fraction digits than the Miden token it arrives as.
+  const relayInputDecimals =
+    relayRoute === 'epoch' && midenUsdc ? Math.min(sourceDecimals, midenUsdc.decimals) : sourceDecimals;
+  const relaySourceToken = { symbol: tokenLabel, logoFaucetId: outputFaucetId };
+  const relayReceivedToken = { symbol: arrivingName, logoFaucetId: outputFaucetId };
+  const relayNetwork = { id: bridgeNetwork?.id ?? '', name: networkName };
+  // A quote that failed on the amount step is said under the receipt.
+  const relayQuoteError = relayRoute === 'epoch' && epochFlow === 'evm-to-miden' ? epochError : null;
+  useUserVisibleError(
+    relay && relayStep === 'amount' && relayQuoteError ? 'raw_bridge_deposit_failed' : null,
+    'notice'
+  );
+
+  const relayRouteOptions: DepositRouteOption[] = availableRelayRoutes.map((candidate, index) => ({
+    id: candidate,
+    name: routeNameOf(candidate),
+    arrivesIn: arrivesInOf(candidate),
+    received: relayReceived,
+    // Agglayer takes no fee. The Epoch fee is known only from the quote of the chosen Epoch route.
+    fee: candidate === 'agglayer' ? { kind: 'none' } : relayRoute === 'epoch' ? relayFee : undefined,
+    best: index === 0,
+    fastest: candidate === fastestRelayRoute,
+    selected: candidate === relayRoute
+  }));
+
+  const relayChoices = useMemo(
+    () => (relay ? relayTokenChoices(bridgeConfig, sourceNetworks) : []),
+    [relay, bridgeConfig, sourceNetworks]
+  );
+  const relaySheetNetworks = sourceNetworks
+    .filter(network => relayChoices.some(choice => choice.chainId === network.chainId))
+    .map(network => ({ id: network.id, name: network.name }));
+  const handleRelayTokenPick = useCallback(
+    (id: string) => {
+      const choice = relayChoices.find(candidate => candidate.option.id === id);
+      if (choice === undefined || confirming.current) return;
+      setPickedChainId(choice.chainId);
+      handleTokenSelect(choice.token);
+    },
+    [handleTokenSelect, relayChoices]
+  );
+
+  const handleRelayReview = useCallback(() => {
+    if (!canConfirmRoute) return;
+    hapticMedium();
+    setSlideResetKey(count => count + 1);
+    setRelayStep('review');
+  }, [canConfirmRoute]);
+
+  // The slide on Review: the pending deposit is saved, then the address shows.
+  const handleRelaySlide = useCallback(async () => {
+    const resetSlide = () => setSlideResetKey(count => count + 1);
+    if (relaySource === undefined || relaySendUnits === null || typedUnits === null || !canConfirmRoute) {
+      resetSlide();
+      return;
+    }
+    if (sourceTokenAddress === undefined || !isAddress(sourceTokenAddress)) {
+      resetSlide();
+      return;
+    }
+    const output = relayRoute === 'epoch' ? outputAmount : formatUnits(typedUnits, sourceDecimals);
+    const deposit: PendingRelayDeposit = {
+      id: createPendingRelayDepositId(),
+      accountPublicKey: relaySource.accountPublicKey,
+      address: relaySource.address,
+      chainId: sourceChainId,
+      route: relayRoute,
+      token: { address: lowerHexAddress(sourceTokenAddress), symbol: tokenLabel, decimals: sourceDecimals },
+      amount: formatUnits(relaySendUnits, sourceDecimals),
+      amountBaseUnits: relaySendUnits.toString(),
+      ...(output === undefined ? {} : { outputAmount: output }),
+      outputSymbol: arrivingName,
+      createdAt: Date.now(),
+      form: encodeRelayDepositForm({
+        token,
+        chainId: sourceChainId,
+        route: relayRoute,
+        amount: formatUnits(typedUnits, sourceDecimals)
+      })
+    };
+    try {
+      await savePendingRelayDeposit(deposit);
+    } catch (err) {
+      console.error('[EvmBridgeDepositScreen] the pending deposit save failed', err);
+      resetSlide();
+      return;
+    }
+    setRelayStartError(null);
+    setRequiredUnits(null);
+    setStartPhase('idle');
+    setPendingDeposit(deposit);
+    setRelayStep('address');
+  }, [
+    arrivingName,
+    canConfirmRoute,
+    outputAmount,
+    relayRoute,
+    relaySendUnits,
+    relaySource,
+    sourceChainId,
+    sourceDecimals,
+    sourceTokenAddress,
+    token,
+    tokenLabel,
+    typedUnits
+  ]);
+
+  // Back on the address step: Review again, and the pending deposit is removed (the mock-up's `back`). Not while the
+  // bridge starts.
+  const leaveAddressStep = useCallback(() => {
+    if (startPhase === 'starting') return;
+    if (pendingDeposit !== null) {
+      removePendingRelayDeposit(pendingDeposit.accountPublicKey, pendingDeposit.id).catch(err =>
+        console.error('[EvmBridgeDepositScreen] the pending deposit removal failed', err)
+      );
+    }
+    setPendingDeposit(null);
+    setRelayStartError(null);
+    setRequiredUnits(null);
+    quoteRequestedFor.current = null;
+    setStartPhase('idle');
+    setSlideResetKey(count => count + 1);
+    setRelayStep('review');
+  }, [pendingDeposit, startPhase]);
+
+  // "Deposit X instead": Review again with what arrived. On Epoch the received amount is scaled by the share that
+  // arrived, so the next quote asks for about that deposit.
+  const handleDepositReceived = useCallback(() => {
+    if (relayArrival.state !== 'partial' || neededUnits === null || neededUnits <= 0n) return;
+    const arrived = relayArrival.balance;
+    const next = ((): string | null => {
+      switch (relayRoute) {
+        case 'agglayer':
+          return formatUnits(arrived, sourceDecimals);
+        case 'epoch': {
+          const minOut = midenUsdc ? evmToMidenMinTokenOut(amount, midenUsdc.decimals) : undefined;
+          if (minOut === undefined || !midenUsdc) return null;
+          return formatUnits((BigInt(minOut) * arrived) / neededUnits, midenUsdc.decimals);
+        }
+      }
+    })();
+    leaveAddressStep();
+    if (next !== null) setAmount(next);
+  }, [amount, leaveAddressStep, midenUsdc, neededUnits, relayArrival, relayRoute, sourceDecimals]);
+
+  // The start of the bridge for a pending deposit. The record is claimed first, so only one page or mount runs it; no
+  // row: the record goes back, the failure shows, and the deposit can start again.
+  const startRelayDeposit = useCallback(
+    async (deposit: PendingRelayDeposit) => {
+      let claimed: PendingRelayDeposit | null;
+      try {
+        claimed = await claimPendingRelayDeposit(deposit.accountPublicKey, deposit.id);
+      } catch (err) {
+        console.error('[EvmBridgeDepositScreen] the pending deposit claim failed', err);
+        startedIds.current.delete(deposit.id);
+        setStartPhase('idle');
+        setRelayStartError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
+        return;
+      }
+      // Another page or mount started this deposit, or the user removed it: nothing starts here.
+      if (claimed === null) {
+        onExit();
+        return;
+      }
+      const result = await handleConfirm();
+      if (result.kind === 'started') {
+        setRelayStep('processing');
+        return;
+      }
+      await savePendingRelayDeposit(claimed).catch(err =>
+        console.error('[EvmBridgeDepositScreen] the pending deposit could not be saved again', err)
+      );
+      startedIds.current.delete(deposit.id);
+      quoteRequestedFor.current = null;
+      setStartPhase('idle');
+      setRelayStartError(
+        result.kind === 'failed'
+          ? result.error
+          : { text: t('depositFlowStartFailedBody'), id: 'raw_bridge_deposit_submit_failed' }
+      );
+    },
+    [handleConfirm, onExit, t]
+  );
+
+  // Starts the bridge once when the funds are at the address. An Epoch deposit asks for a new quote first and starts
+  // only on a quote newer than that request, for an amount the address holds.
+  useEffect(() => {
+    if (relaySource === undefined || relayStep !== 'address' || pendingDeposit === null) return;
+    if (relayStartError !== null || startedIds.current.has(pendingDeposit.id) || relayMode === 'deduct') return;
+    if (relayArrival.state !== 'arrived') return;
+    if (relayRoute === 'epoch') {
+      switch (startPhase) {
+        case 'idle':
+          // A restored amount settles before its quote, or the quote asks for no amount.
+          if (debouncedAmount !== amount.trim()) return;
+          // The store can render again inside `requote`, before the phase changes: the ref blocks a second request.
+          if (quoteRequestedFor.current === pendingDeposit.id) return;
+          quoteRequestedFor.current = pendingDeposit.id;
+          quoteAtRequest.current = useEpochStore.getState().quote;
+          setStartPhase('quoting');
+          if (requote() === undefined) {
+            quoteRequestedFor.current = null;
+            setStartPhase('idle');
+            setRelayStartError({ text: t('depositFlowStartFailedBody'), id: 'raw_bridge_deposit_failed' });
+          }
+          return;
+        case 'quoting':
+          if (epochStatus === 'failed') {
+            quoteRequestedFor.current = null;
+            setStartPhase('idle');
+            setRelayStartError({
+              text: epochError ?? t('depositFlowStartFailedBody'),
+              id: 'raw_bridge_deposit_failed'
+            });
+            return;
+          }
+          if (!fastReady || quotedTokenIn === null || epochQuote === quoteAtRequest.current) return;
+          if (arrival.balance === null || quotedTokenIn > arrival.balance) {
+            // The new quote asks for more than arrived: the address waits for the rest.
+            quoteRequestedFor.current = null;
+            setRequiredUnits(quotedTokenIn);
+            setStartPhase('idle');
+            return;
+          }
+          break;
+        case 'starting':
+          return;
+      }
+    } else if (startPhase !== 'idle') {
+      return;
+    }
+    if (!canConfirmRoute) return;
+    startedIds.current.add(pendingDeposit.id);
+    setStartPhase('starting');
+    startRelayDeposit(pendingDeposit);
+  }, [
+    amount,
+    arrival.balance,
+    canConfirmRoute,
+    debouncedAmount,
+    epochError,
+    epochQuote,
+    epochStatus,
+    fastReady,
+    pendingDeposit,
+    quotedTokenIn,
+    relayArrival.state,
+    relayMode,
+    relayRoute,
+    relaySource,
+    relayStartError,
+    relayStep,
+    requote,
+    startPhase,
+    startRelayDeposit,
+    t
+  ]);
+
+  const relayAddressStatus = ((): DepositAddressStatus => {
+    const failed = (reason: string, errorId: UserErrorId): DepositAddressStatus => ({
+      kind: 'failed',
+      title: t('depositFlowStartFailedTitle'),
+      reason,
+      errorId
+    });
+    if (relayStartError !== null) return failed(relayStartError.text, relayStartError.id);
+    if (startPhase === 'starting') return { kind: 'starting' };
+    switch (relayArrival.state) {
+      case 'partial':
+        return {
+          kind: 'partial',
+          received: { amount: relayArrival.balance, decimals: pendingDeposit?.token.decimals ?? sourceDecimals }
+        };
+      case 'arrived':
+        // The cap can hold a deposit whose funds arrived (the wallet's holdings moved since the review).
+        return capHoldError === undefined ? { kind: 'starting' } : failed(capHoldError.text, capHoldError.id);
+      case 'waiting':
+      default:
+        return { kind: 'waiting' };
+    }
+  })();
+
+  // A new deposit on the amount step, from the success screen.
+  const handleDepositAgain = useCallback(() => {
+    confirming.current = false;
+    setBridgeTxId(null);
+    setPendingDeposit(null);
+    setRelayStartError(null);
+    setRequiredUnits(null);
+    setStartPhase('idle');
+    setSlowStatus('idle');
+    setSlowError(null);
+    resetEpoch();
+    setAmount('');
+    setSlideResetKey(count => count + 1);
+    setConfirmSettled(count => count + 1);
+    setRelayStep('amount');
+  }, [resetEpoch]);
+
+  // Back, from the header arrow or the hardware back: the step before, as the mock-up's `back` does.
+  const handleRelayBack = useCallback(() => {
+    switch (relayStep) {
+      case 'restoring':
+      case 'amount':
+        onClose();
+        return;
+      case 'review':
+        setRelayStep('amount');
+        return;
+      case 'address':
+        leaveAddressStep();
+        return;
+      case 'processing':
+        onExit();
+        return;
+    }
+  }, [leaveAddressStep, onClose, onExit, relayStep]);
+
+  useMobileBackHandler(() => {
+    if (relay) {
+      handleRelayBack();
+      return true;
+    }
+    if (usdcxSubmissionPending) return true;
+    if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
+      onClose();
+      return true;
+    }
+    if (cardStack.length > 1) {
+      goBack();
+      return true;
+    }
+    onClose();
+    return true;
+  }, [activeRoute?.name, cardStack.length, goBack, handleRelayBack, onClose, relay, usdcxSubmissionPending]);
+
+  const walletLinks = useMemo(
+    () =>
+      pendingDeposit === null || neededUnits === null
+        ? []
+        : evmPaymentLinks({
+            chainId: pendingDeposit.chainId,
+            token: pendingDeposit.token.address,
+            to: pendingDeposit.address,
+            amountBaseUnits: neededUnits,
+            decimals: pendingDeposit.token.decimals
+          }),
+    [neededUnits, pendingDeposit]
+  );
+
+  const relayHeader = ((): React.ReactNode => {
+    switch (relayStep) {
+      case 'restoring':
+      case 'amount':
+        return <PageHeader title={t('depositFlowTitle')} onBack={handleRelayBack} />;
+      case 'review':
+        return <PageHeader title={t('depositFlowReviewTitle')} onClose={handleRelayBack} />;
+      case 'address':
+        return (
+          <PageHeader
+            title={
+              layout === 'extension'
+                ? t('depositFlowDepositTokenTitle', { token: pendingDeposit?.token.symbol ?? tokenLabel })
+                : t('depositFlowDetailsTitle')
+            }
+            onBack={startPhase === 'starting' ? undefined : handleRelayBack}
+            onClose={onExit}
+          />
+        );
+      case 'processing':
+        // The processing view draws its own header; the success view has none.
+        return null;
+    }
+  })();
+
+  const relayBody = ((): React.ReactNode => {
+    switch (relayStep) {
+      case 'restoring':
+        return (
+          <div className="flex justify-center pt-5" data-testid="deposit-restoring">
+            <Spinner />
+          </div>
+        );
+      case 'amount':
+        return (
+          <DepositAmountView
+            layout={layout}
+            amount={amount}
+            onAmountChange={handleAmountChange}
+            decimals={relayInputDecimals}
+            amountUsd={relayUsd}
+            sourceToken={relaySourceToken}
+            receivedToken={relayReceivedToken}
+            network={relayNetwork}
+            onSelectToken={handleOpenTokenDrawer}
+            bridgeFee={relayFee}
+            bridgeFeeDeducted={relayRoute !== 'epoch'}
+            routeName={routeNameOf(relayRoute)}
+            routeCount={availableRelayRoutes.length}
+            onChangeRoute={() => setRouteSheetOpen(true)}
+            arrivesIn={arrivesInOf(relayRoute)}
+            received={relayReceived}
+            receivedUsd={relayUsd}
+            depositCapUsd={capVerdict.state === 'exceeded' ? capVerdict.capUsd : undefined}
+            depositCapUnpriced={capVerdict.state === 'unpriced' ? capHoldError?.text : undefined}
+            notice={
+              relayQuoteError ? (
+                <DepositNotice kind="negative" role="alert" data-testid="deposit-quote-failed">
+                  {relayQuoteError}
+                </DepositNotice>
+              ) : undefined
+            }
+            isValidAmount={canConfirmRoute}
+            onReview={handleRelayReview}
+          />
+        );
+      case 'review':
+        return gateEpochWithdrawal(
+          <DepositReviewView
+            layout={layout}
+            received={relayReceived ?? ZERO_AMOUNT}
+            receivedUsd={relayUsd}
+            receivedToken={relayReceivedToken}
+            amount={relaySent ?? ZERO_AMOUNT}
+            sourceToken={relaySourceToken}
+            network={relayNetwork}
+            bridgeFee={relayFee}
+            routeName={routeNameOf(relayRoute)}
+            arrivesIn={arrivesInOf(relayRoute)}
+            feeShare={relayFeeShare}
+            onConfirm={handleRelaySlide}
+            confirmDisabled={relaySendUnits === null || !canConfirmRoute}
+            confirmResetKey={slideResetKey}
+          />
+        );
+      case 'address':
+        return pendingDeposit === null || neededUnits === null ? null : (
+          <DepositAddressView
+            layout={layout}
+            address={getAddress(pendingDeposit.address)}
+            qrValue={getAddress(pendingDeposit.address)}
+            amount={{ amount: neededUnits, decimals: pendingDeposit.token.decimals }}
+            sourceToken={{ symbol: pendingDeposit.token.symbol, logoFaucetId: outputFaucetId }}
+            network={relayNetwork}
+            received={pendingDepositReceived(pendingDeposit)}
+            receivedToken={{ symbol: pendingDeposit.outputSymbol ?? arrivingName, logoFaucetId: outputFaucetId }}
+            bridgeFee={pendingDepositFee(pendingDeposit)}
+            routeName={routeNameOf(pendingDeposit.route)}
+            arrivesIn={arrivesInOf(pendingDeposit.route)}
+            status={relayAddressStatus}
+            onShowQr={() => setQrSheetOpen(true)}
+            onOpenWallet={walletLinks.length > 0 ? () => setWalletSheetOpen(true) : undefined}
+            onDepositReceived={handleDepositReceived}
+          />
+        );
+      case 'processing':
+        return bridgeTxId === null || pendingDeposit === null ? null : (
+          <RelayDepositProgress
+            txId={bridgeTxId}
+            sent={{
+              value: { amount: neededUnits ?? 0n, decimals: pendingDeposit.token.decimals },
+              symbol: pendingDeposit.token.symbol,
+              rounding: 'exact'
+            }}
+            received={{
+              value: pendingDeposit.outputAmount === undefined ? undefined : { amount: pendingDeposit.outputAmount },
+              symbol: pendingDeposit.outputSymbol ?? arrivingName,
+              rounding: 'down'
+            }}
+            networkName={relayNetwork.name}
+            routeName={routeNameOf(pendingDeposit.route)}
+            bridgeFee={pendingDepositFee(pendingDeposit)}
+            feeSymbol={pendingDeposit.token.symbol}
+            slow={pendingDeposit.route === 'agglayer'}
+            onDone={onExit}
+            onDepositAgain={handleDepositAgain}
+          />
+        );
+    }
+  })();
+
+  if (relay) {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-ink">
+        <NetworkModeBanner />
+        {relayHeader && <div className="shrink-0 px-4">{relayHeader}</div>}
+        <NetworkNamedByShell>
+          <div
+            className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden"
+            data-testid="deposit-relay-flow"
+          >
+            {relayBody}
+          </div>
+        </NetworkNamedByShell>
+        <DepositTokenSheet
+          open={tokenDrawerOpen}
+          onOpenChange={setTokenDrawerOpen}
+          networks={relaySheetNetworks}
+          networkId={relayNetwork.id}
+          tokens={relayChoices.map(choice => choice.option)}
+          selectedId={relayTokenChoiceId(sourceChainId, token)}
+          onSelect={handleRelayTokenPick}
+          onConnectWallet={handleConnectAnother}
+        />
+        <DepositRouteSheet
+          open={routeSheetOpen}
+          onOpenChange={setRouteSheetOpen}
+          routes={relayRouteOptions}
+          receivedSymbol={arrivingName}
+          feeSymbol={tokenLabel}
+          onSelect={id => {
+            setRouteSheetOpen(false);
+            handleRouteChange(id === 'epoch' ? 'epoch' : 'agglayer');
+          }}
+        />
+        {pendingDeposit !== null && (
+          <DepositQrSheet open={qrSheetOpen} onOpenChange={setQrSheetOpen} value={getAddress(pendingDeposit.address)} />
+        )}
+        <OpenWalletSheet
+          open={walletSheetOpen}
+          onOpenChange={setWalletSheetOpen}
+          links={walletLinks}
+          onOpenWallet={link => openWalletPayment(link)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-ink">

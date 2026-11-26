@@ -104,21 +104,35 @@ jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
   EvmBridgeDepositScreen: ({
     evmAddress,
     relaySource,
+    pendingDepositId,
     onClose,
+    onExit,
     onConnectAnother
   }: {
     evmAddress: string;
     relaySource?: { address: string };
+    pendingDepositId?: string;
     onClose: () => void;
+    onExit?: () => void;
     onConnectAnother: () => void;
   }) => (
-    <div data-testid="bridge-deposit-screen" data-source={evmAddress} data-relay={relaySource?.address ?? 'none'}>
+    <div
+      data-testid="bridge-deposit-screen"
+      data-source={evmAddress}
+      data-relay={relaySource?.address ?? 'none'}
+      data-pending={pendingDepositId ?? 'none'}
+    >
       <button type="button" onClick={onConnectAnother}>
         switch
       </button>
       <button type="button" onClick={onClose}>
         back
       </button>
+      {onExit && (
+        <button type="button" onClick={onExit}>
+          exit
+        </button>
+      )}
     </div>
   )
 }));
@@ -366,6 +380,29 @@ describe('BridgeDeposit from the relay address', () => {
     expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
       hold: false
     });
+  });
+
+  it('opens the relay flow on the pending deposit that the query names', () => {
+    navigate('/bridge/deposit?pending=pending-7', HistoryAction.Replace);
+    render(
+      <WoozieProvider>
+        <BridgeDeposit />
+      </WoozieProvider>
+    );
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-pending', 'pending-7');
+  });
+
+  it('names no pending deposit without the query, and leaves for Home from the close', () => {
+    render(
+      <WoozieProvider>
+        <BridgeDeposit />
+      </WoozieProvider>
+    );
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-pending', 'none');
+    fireEvent.click(screen.getByRole('button', { name: 'exit' }));
+    expect(createLocationState()).toMatchObject({ pathname: '/' });
   });
 
   it('prefers the relay address over a connected wallet', () => {

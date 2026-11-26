@@ -4,8 +4,11 @@ import { Clipboard } from '@capacitor/clipboard';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { addressLines, amountFontClass, DepositAddressView, type DepositAddressViewProps } from './DepositAddressView';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -146,6 +149,34 @@ describe('DepositAddressView on mobile', () => {
     expect(screen.queryByTestId('deposit-address-waiting')).not.toBeInTheDocument();
     rerender(<DepositAddressView {...props({ status: { kind: 'failed', reason: 'Wrong token' } })} />);
     expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('Wrong token');
+  });
+
+  it('reports a failure with its id, the default id when it names none', () => {
+    jest.useFakeTimers();
+    const { rerender } = render(<DepositAddressView {...props({ status: { kind: 'failed' } })} />);
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('raw_bridge_deposit_failed', 'notice');
+
+    rerender(
+      <DepositAddressView
+        {...props({
+          status: {
+            kind: 'failed',
+            title: 'Did not start',
+            reason: 'db closed',
+            errorId: 'raw_bridge_deposit_submit_failed'
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId('deposit-address-failed')).toHaveTextContent('Did not start');
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('raw_bridge_deposit_submit_failed', 'notice');
+    jest.useRealTimers();
   });
 
   it('disables every action while the bridge starts and says so in the strip', () => {

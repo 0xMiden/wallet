@@ -10,6 +10,8 @@ import { TokenLogo } from 'components/TokenLogo';
 import { Button } from 'components/ui/Button';
 import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
+import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { cn } from 'lib/ui/util';
 
 import { DepositAmount, depositAmountText, DepositFeeValue, DepositNotice, useUsdEstimateText } from './parts';
@@ -24,6 +26,13 @@ import type {
 
 /** A total longer than this many characters drops from 26px to 20px, as the mock-up's `quote()` does. */
 const LONG_TOTAL_CHARS = 8;
+
+/** The id that reports the cap notice on screen, or null when no cap notice shows. */
+function capErrorIdOf(capUsd: number | undefined, unpriced: string | undefined): UserErrorId | null {
+  if (capUsd !== undefined) return 'bridgeDepositBalanceCapExceeded';
+  if (unpriced !== undefined) return 'bridgeDepositBalanceCapUnpriced';
+  return null;
+}
 
 export interface DepositAmountViewProps {
   /** `extension` takes the popup's tighter sizes (`.phone.ext`). Defaults to `mobile`. */
@@ -43,6 +52,11 @@ export interface DepositAmountViewProps {
   /** Opens the caller's token-and-network sheet. */
   onSelectToken: () => void;
   bridgeFee: DepositFee;
+  /**
+   * True (the default) when the route takes its fee out of the amount: the fee reads "− 0.21 USDC". False when the
+   * fee comes on top of the amount (a quote for an exact received amount): the fee has no minus sign.
+   */
+  bridgeFeeDeducted?: boolean;
   /** The chosen route's name (Agglayer, Epoch). */
   routeName: string;
   /** How many routes can take this pair: "Change" shows only when there is more than one. */
@@ -57,6 +71,11 @@ export interface DepositAmountViewProps {
   receivedUsd?: number;
   /** The deposit would take the wallet over its cap: the cap notice shows with the cap in USD. */
   depositCapUsd?: number;
+  /**
+   * The cap cannot be checked because the token has no price: this text shows in a negative notice. Ignored while
+   * `depositCapUsd` is set.
+   */
+  depositCapUnpriced?: string;
   /** Another notice under the cap notice, such as a test-funds warning. */
   notice?: React.ReactNode;
   /** The amount can be reviewed. "Review" stays disabled while false. */
@@ -80,6 +99,7 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
   network,
   onSelectToken,
   bridgeFee,
+  bridgeFeeDeducted = true,
   routeName,
   routeCount,
   onChangeRoute,
@@ -87,11 +107,14 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
   received,
   receivedUsd,
   depositCapUsd,
+  depositCapUnpriced,
   notice,
   isValidAmount,
   onReview
 }) => {
   const { t } = useTranslation();
+  // The cap notices are the deposit screen's cap errors: they have the same ids there.
+  useUserVisibleError(capErrorIdOf(depositCapUsd, depositCapUnpriced), 'notice');
   const ext = layout === 'extension';
   const amountUsdText = useUsdEstimateText(amountUsd);
   const receivedUsdText = useUsdEstimateText(received ? receivedUsd : undefined);
@@ -164,7 +187,7 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
           <div className={row} data-testid="deposit-receipt-fee">
             <span className={s.ROW_LABEL}>{t('depositFlowBridgeFee')}</span>
             <b className={s.RC3_VALUE}>
-              <DepositFeeValue fee={bridgeFee} symbol={sourceToken.symbol} minusSign />
+              <DepositFeeValue fee={bridgeFee} symbol={sourceToken.symbol} minusSign={bridgeFeeDeducted} />
             </b>
           </div>
           <div className={cn(row, s.RULE_TOP)} data-testid="deposit-receipt-route">
@@ -225,6 +248,11 @@ export const DepositAmountView: React.FC<DepositAmountViewProps> = ({
               data-testid="deposit-cap-notice"
             >
               {t('depositFlowOverCapBody', { cap: formatUsdDisplay(depositCapUsd, { minimumFractionDigits: 0 }) })}
+            </DepositNotice>
+          )}
+          {depositCapUsd === undefined && depositCapUnpriced !== undefined && (
+            <DepositNotice kind="negative" role="alert" data-testid="deposit-cap-unpriced">
+              {depositCapUnpriced}
             </DepositNotice>
           )}
           {notice}

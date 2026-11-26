@@ -3,8 +3,11 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { DepositAmountView, type DepositAmountViewProps } from './DepositAmountView';
+
+jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -146,5 +149,27 @@ describe('DepositAmountView', () => {
     render(<DepositAmountView {...props({ layout: 'extension' })} />);
     expect(screen.getByTestId('deposit-amount-input')).toHaveClass('text-[48px]');
     expect(screen.getByTestId('deposit-receipt')).toHaveClass('mt-3.5');
+  });
+
+  it('drops the minus sign of a fee that comes on top of the amount', () => {
+    const fee = { kind: 'amount', value: { amount: '0.21' } } satisfies DepositAmountViewProps['bridgeFee'];
+    const { rerender } = render(<DepositAmountView {...props({ bridgeFee: fee })} />);
+    expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent('− 0.21 USDC');
+    rerender(<DepositAmountView {...props({ bridgeFee: fee, bridgeFeeDeducted: false })} />);
+    expect(screen.getByTestId('deposit-receipt-fee')).toHaveTextContent(/^depositFlowBridgeFee0\.21 USDC$/);
+  });
+
+  it('reports the cap notices with the cap error ids', () => {
+    jest.useFakeTimers();
+    const { rerender } = render(<DepositAmountView {...props({ depositCapUsd: 1232 })} />);
+    jest.advanceTimersByTime(1000);
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('bridgeDepositBalanceCapExceeded', 'notice');
+
+    rerender(<DepositAmountView {...props({ depositCapUnpriced: 'No price for USDC' })} />);
+    expect(screen.queryByTestId('deposit-cap-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('deposit-cap-unpriced')).toHaveTextContent('No price for USDC');
+    jest.advanceTimersByTime(1000);
+    expect(reportUserVisibleError).toHaveBeenLastCalledWith('bridgeDepositBalanceCapUnpriced', 'notice');
+    jest.useRealTimers();
   });
 });

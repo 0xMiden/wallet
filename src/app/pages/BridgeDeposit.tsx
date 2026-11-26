@@ -24,6 +24,7 @@ import { useWalletStore } from 'lib/store';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate, useLocation } from 'lib/woozie';
+import { PENDING_DEPOSIT_PARAM } from 'screens/deposit-flow/pending-deposit-route';
 
 /** The path of the deposit with an external wallet as its source, even for an account that has a relay address. */
 export const BRIDGE_DEPOSIT_WALLET_PATH = '/bridge/deposit?source=wallet';
@@ -86,6 +87,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose, source })
   // `relaySourceOf` reads the config snapshot as it is, so a new snapshot reads the relay source again.
   const bridgeConfig = useBridgeConfigSnapshot();
   const requestedSource = source ?? sourceFromSearch(search);
+  // `?pending=<id>`: the relay flow opens on that pending deposit (the Home row, the arrival notice).
+  const pendingDepositId = new URLSearchParams(search).get(PENDING_DEPOSIT_PARAM) ?? undefined;
   // The relay address of the current account is the source, with no connect step, unless the wallet path is asked for.
   const relaySource = useMemo(
     () => (requestedSource === 'wallet' ? null : relaySourceOf(currentMidenAccount)),
@@ -175,6 +178,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose, source })
         midenAccount={currentMidenAccount}
         onConnectAnother={handleConnectWalletInstead}
         onClose={handleClose}
+        onExit={handleExit}
+        pendingDepositId={pendingDepositId}
         reportDeposit={reportDeposit}
       />
     );

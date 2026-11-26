@@ -4,19 +4,27 @@
  * values. Sizes that the wallet has no type style for are written here once, so each value has one
  * place. The comment on each constant names the mock-up class.
  */
+import type { DepositLayout } from './types';
 
 /** `body`: Nunito 16/22, `ink`. Every deposit view starts from this base. */
 export const BASE = 'face-heading font-heading text-[16px] leading-[22px] text-ink';
 
 /** The space from the `PageHeader` rule to the content: the mock-up's top padding less the 8px under the rule. */
-export const TOP_AFTER_HEADER = {
+export const TOP_AFTER_HEADER: {
+  amount: Record<DepositLayout, string>;
+  body: Record<DepositLayout, string>;
+  addressMobile: string;
+  processing: string;
+} = {
   /** `.b3` padding-top 26px. */
   amount: { mobile: 'pt-[18px]', extension: 'pt-[18px]' },
   /** `.body` padding-top 16px, 12px in the extension. */
   body: { mobile: 'pt-2', extension: 'pt-1' },
   /** `.h8` padding-top 18px. */
-  addressMobile: 'pt-2.5'
-} as const;
+  addressMobile: 'pt-2.5',
+  /** `viewProcessing`'s `.body` padding-top 32px. */
+  processing: 'pt-6'
+};
 
 /** `.body`: a column with 12px between items, 16px under the last one. */
 export const BODY_STACK = 'flex flex-col gap-3 pb-4';
@@ -244,3 +252,66 @@ export const TG =
   'h-6 whitespace-nowrap rounded-xl bg-page px-2.5 text-[12px] leading-6 font-bold text-ink shadow-[inset_0_0_0_1px_var(--ds-hairline)]';
 /** `.opt5 .tg.k`. */
 export const TG_K = 'bg-ink text-page shadow-none';
+
+// Token sheet
+
+/** `.search`: a 44px `fill` pill, 16px inside, a 20px `muted` glyph 10px from the field. */
+export const SEARCH =
+  'flex h-11 shrink-0 items-center gap-2.5 rounded-[22px] bg-fill px-4 font-semibold text-muted focus-within:shadow-[0_0_0_2px_var(--ds-ink)]';
+/** `.search input`: 16/22 semibold `ink`, no frame. */
+export const SEARCH_INPUT =
+  'min-w-0 flex-1 border-0 bg-transparent p-0 text-[16px] leading-[22px] font-semibold text-ink outline-none placeholder:text-muted';
+/** `.nets`: the network chips in one row that scrolls sideways, edge to edge over the sheet's 16px gutter. */
+export const NETS = 'no-scrollbar -mx-4 flex shrink-0 gap-1.5 overflow-x-auto px-4';
+/** `.chip`: 32px, `fill`, 14px bold, a 1px edge that shows only when pressed. */
+export const CHIP =
+  'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-2xl border border-transparent bg-fill px-3 text-[14px] font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary';
+/** `.phone .chip[aria-pressed="true"]`: an `ink` edge. */
+export const CHIP_PRESSED = 'border-ink';
+/** `p.sec`: 13/18 bold `muted`, 12px above (none for the first) and 2px under. */
+export const SEC = 'pt-3 pb-0.5 text-[13px] leading-[18px] font-bold text-muted first:pt-0';
+/** `.asset`: logo, name and subtitle, mark; 10px above and under. */
+export const ASSET =
+  'grid w-full grid-cols-[36px_1fr_auto] items-center gap-2 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary';
+/** `.asset b`. */
+export const ASSET_NAME = 'block leading-5 font-bold text-ink';
+/** `.asset small`. */
+export const ASSET_SMALL = 'text-[13px] leading-[19px] font-semibold text-muted';
+/** The "Connect a wallet instead" text action under the list. */
+export const TEXT_ACTION =
+  'self-center py-2 text-[14px] leading-5 font-bold text-accent-tint-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary';
+
+// Processing and success
+
+/** `.body` of `viewProcessing` and `viewSuccess`: 16px between items. */
+export const STATUS_STACK = 'flex flex-col gap-4 pb-4';
+/** `viewSuccess`'s `.body` padding-top 40px (no header above it). */
+export const SUCCESS_TOP = 'pt-10';
+/** `.spin`: a 64px ring, 7px `fill-pressed` with a send-colour top, one turn a second. */
+export const SPIN =
+  'size-16 shrink-0 self-center rounded-full border-[7px] border-fill-pressed border-t-accent-send motion-safe:animate-spin';
+/** `.phone .t24`: 22/28 extrabold, centred. */
+export const T24 = 'text-center text-[22px] leading-7 font-extrabold text-ink';
+/** `.phone .badge`: `fill`, 24px corners, 14px inside, 17/28 bold, items 10px apart. */
+export const BADGE =
+  'flex flex-wrap items-center justify-center gap-2.5 rounded-3xl bg-fill p-3.5 text-[17px] leading-7 font-bold text-ink';
+/** `.badge span:first-child`: what was sent reads `muted`. */
+export const BADGE_FROM = 'text-muted';
+/** `.badge i`: a 24px `card-slate` disc with a white arrow. */
+export const BADGE_ARROW =
+  'grid size-6 place-items-center rounded-full bg-card-slate text-[14px] leading-none font-extrabold not-italic text-pure-white';
+/** `.ps`: one step row, 14px 16px inside, the mark 12px from the text. */
+export const PS = 'flex items-center gap-3 px-4 py-3.5 font-bold text-ink';
+/** `.ps.wait`. */
+export const PS_WAIT = 'text-muted';
+/** `.ps i`: a 22px ring, 3px `fill-pressed`. */
+export const PS_MARK = 'grid size-[22px] shrink-0 place-items-center rounded-full border-[3px] border-fill-pressed';
+/** `.ps.done i`: the send colour, filled, with a 14px check. */
+export const PS_MARK_DONE = 'border-0 bg-accent-send text-accent-send-on';
+/** `.ps.now i`: the send colour ring, open at the top, one turn a second. */
+export const PS_MARK_NOW = 'border-accent-send border-t-transparent motion-safe:animate-spin';
+/** `.okc`: an 88px send-colour disc. */
+export const OKC =
+  'grid size-[88px] shrink-0 place-items-center self-center rounded-full bg-accent-send text-accent-send-on';
+/** `.okc svg`: 44px. */
+export const ICON_44 = 'size-11 shrink-0';
