@@ -24,10 +24,12 @@ const compileSvgJsx: Plugin = {
 const fixtureModules = [
   'app/hooks/useMidenFaucetId',
   'app/templates/EvmConnectModal/UsdcxExecuteAction',
+  'lib/miden-chain/constants',
   'lib/miden-chain/effective-endpoints',
   'lib/miden-chain/native-asset',
   'lib/miden/front',
   'lib/miden/metadata',
+  'lib/miden/metadata/utils',
   'lib/mobile/external-browser',
   'lib/mobile/haptics',
   'lib/mobile/useHideNavbarWhileOpen',
@@ -44,6 +46,13 @@ export default defineConfig({
   root: import.meta.dirname,
   publicDir: resolve(root, 'public'),
   plugins: [
+    {
+      name: 'bridge-status-config-fixture',
+      enforce: 'pre',
+      resolveId(source, importer) {
+        if (source === './runtime' && importer === resolve(root, 'src/lib/remote-config/values.ts')) return fixture;
+      }
+    },
     tailwind(),
     react(),
     ...extension.plugins!.filter(plugin => plugin && 'name' in plugin && plugin.name === 'svg-to-react'),

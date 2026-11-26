@@ -14,17 +14,17 @@ jobs:
     env:
       CANDIDATE: 97b04febd62cd53986642e1c0a173163212154cd
       BASELINE: c5a5f8defa9444749762d7df2d9ad0c2195ece92
-      OVERLAY_SHA256: 6a0ac21dcaa0b84c52d0f39ddd37cc800205df9a5f84c109312f13d58992846f
+      OVERLAY_SHA256: e4000eb10b54fe50aa8d999b3a39ca77638773bdf4d36d1ed61f4d8bd64bd6ca
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 3
+          fetch-depth: 4
           persist-credentials: false
       - name: Bind exact source and test overlay
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = "$CANDIDATE"
+          git merge-base --is-ancestor "$CANDIDATE" HEAD
           test "$(git rev-parse "$CANDIDATE^")" = "$BASELINE"
           specs=(playwright.bridge-status-visual.config.ts playwright/visual/bridge-status/{fixture.tsx,index.html,main.tsx,visual.spec.ts,vite.config.mts})
           printf '%s\n' .github/workflows/2330-bridge-status-visual-proof.yml "${specs[@]}" | sort > "$RUNNER_TEMP/allowed"

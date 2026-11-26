@@ -6,7 +6,13 @@ for (const phase of ['ready', 'received'] as const) {
   test(`shows the ${phase} USDCx status in Activity and the receipt`, async ({ page }, info) => {
     const resources: string[] = [];
     const errors: string[] = [];
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => {
+      errors.push(error.message);
+      console.error(error.message);
+    });
+    page.on('console', message => {
+      if (message.type() === 'error') console.error(message.text());
+    });
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
       if (url.origin === 'http://127.0.0.1:5193') return route.continue();

@@ -2,6 +2,15 @@ import type { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
+export { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from '../../../src/lib/miden-chain/networks-config';
+function unavailable() {
+  throw new Error('Live wallet operations are unavailable in the bridge fixture');
+}
+
+export const getNetworkId = unavailable;
+export const getRpcEndpoint = unavailable;
+export const initBridgeConfig = unavailable;
+
 export { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from '../../../src/lib/miden/metadata/defaults';
 
 export const phase = new URLSearchParams(window.location.search).has('received') ? 'received' : 'ready';
@@ -29,7 +38,7 @@ const row: ITransaction = {
   }
 };
 
-const store = {
+const store: { assetsMetadata: Record<string, { name: string; symbol: string; decimals: number }> } = {
   assetsMetadata: {
     [faucetId]: { name: 'USDCx', symbol: 'USDCx', decimals: 6 }
   }
@@ -42,7 +51,8 @@ export default function useMidenFaucetId() {
 }
 
 export const getTokensBaseMetadata = async (token: string) => store.assetsMetadata[token];
-export { getTokenMetadata } from '../../../src/lib/miden/metadata/utils';
+export const getTokenMetadata = getTokensBaseMetadata;
+export const getSdkSyncedNativeAssetIdSync = () => null;
 export const getNativeAssetId = async () => {
   throw new Error('RPC is unavailable in the bridge fixture');
 };
