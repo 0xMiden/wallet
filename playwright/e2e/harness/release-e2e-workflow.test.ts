@@ -99,6 +99,10 @@ describe('Release E2E', () => {
       /^ {6}long_holds:\n(?: {8}.*\n)*? {8}default: false\n(?: {8}.*\n)*? {8}type: boolean$/m
     );
     expect(multiDevice).toContain("E2E_MULTI_DEVICE_LONG_HOLDS: ${{ inputs.long_holds && 'true' || 'false' }}");
+    // A release run (long_holds=true) must not cancel a hand run (long_holds=false) on the same ref and suite.
+    expect(multiDevice).toContain(
+      'group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}-${{ inputs.long_holds }}'
+    );
   });
 
   it('starts automatically for a full release only, and says a release candidate is tested by hand', () => {
