@@ -1790,6 +1790,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "수락됨",
   "activityAcceptingTransfer": "수락 중…",
+  "activityClaimQueued": "청구 대기 중",
+  "activityClaimQueuedRetry": "청구 대기 중입니다. 지갑이 자동으로 재시도합니다.",
   "transfersSection": "이체",
   "activityUnread": "읽지 않음",
   "revealRecoveryPhrase": "복구 문구 공개",

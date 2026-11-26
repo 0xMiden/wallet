@@ -1790,6 +1790,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "受取済み",
   "activityAcceptingTransfer": "受け取り中…",
+  "activityClaimQueued": "クレイムがキューに入れられました",
+  "activityClaimQueuedRetry": "リクエストがキューに入れられました。ウォレットは自動的に再試行します。",
   "transfersSection": "送金",
   "activityUnread": "未読",
   "revealRecoveryPhrase": "リカバリーフレーズを表示",

@@ -8155,6 +8155,14 @@
     "message": "Akceptowanie…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Roszczenie w kolejce",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Żądanie w kolejce. Portfel automatycznie ponowi próbę.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Transfery",
     "englishSource": "Transfers"

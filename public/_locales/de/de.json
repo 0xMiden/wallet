@@ -1781,6 +1781,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Akzeptiert",
   "activityAcceptingTransfer": "Wird akzeptiert…",
+  "activityClaimQueued": "Anspruch in der Warteschlange",
+  "activityClaimQueuedRetry": "Anforderung in der Warteschlange. Die Wallet wird es automatisch erneut versuchen.",
   "transfersSection": "Überweisungen",
   "activityUnread": "Ungelesen",
   "revealRecoveryPhrase": "Wiederherstellungsphrase anzeigen",

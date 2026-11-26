@@ -1786,6 +1786,8 @@
   "activityGroupPartialCount": "$count$+",
   "accepted": "Принято",
   "activityAcceptingTransfer": "Принятие…",
+  "activityClaimQueued": "Заявка в очереди",
+  "activityClaimQueuedRetry": "Заявка поставлена в очередь. Кошелек повторит попытку автоматически.",
   "transfersSection": "Переводы",
   "activityUnread": "Непрочитанное",
   "revealRecoveryPhrase": "Раскрыть фразу восстановления",

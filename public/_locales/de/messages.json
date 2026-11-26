@@ -8162,6 +8162,14 @@
     "message": "Wird akzeptiert…",
     "englishSource": "Accepting…"
   },
+  "activityClaimQueued": {
+    "message": "Anspruch in der Warteschlange",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Anforderung in der Warteschlange. Die Wallet wird es automatisch erneut versuchen.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
+  },
   "transfersSection": {
     "message": "Überweisungen",
     "englishSource": "Transfers"
