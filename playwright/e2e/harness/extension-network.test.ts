@@ -143,7 +143,13 @@ describe('the wallet-api define baked into the build', () => {
 
   it('fails a build without the define, naming the rebuild', () => {
     expect(() => assertExtensionWalletApiMatches(extension(['']), 'http://127.0.0.1:8787')).toThrow(
-      /"\(empty\)".*yarn test:e2e:multi-device:build/
+      /"\(empty\)".*MIDEN_WALLET_API_URL=http:\/\/127\.0\.0\.1:8787 yarn test:e2e:blockchain:build/
+    );
+  });
+
+  it('names a rebuild that keeps a custom expected URL', () => {
+    expect(() => assertExtensionWalletApiMatches(extension(['http://127.0.0.1:8787']), 'http://localhost:9000')).toThrow(
+      /MIDEN_WALLET_API_URL=http:\/\/localhost:9000 yarn test:e2e:blockchain:build/
     );
   });
 

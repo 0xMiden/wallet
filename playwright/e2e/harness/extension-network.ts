@@ -214,7 +214,8 @@ export function assertExtensionWalletApiMatches(extensionPath: string, expectedB
   const memoKey = `${extensionPath} ${expected}`;
   if (verifiedWalletApi.has(memoKey)) return;
 
-  const rebuild = `MIDEN_WALLET_API_URL=${expected} yarn test:e2e:multi-device:build`;
+  // The multi-device script bakes its default URL after cross-env, so a custom URL needs the script it wraps.
+  const rebuild = `E2E_NETWORK=testnet MIDEN_WALLET_API_URL=${expected} yarn test:e2e:blockchain:build`;
   const readings = readBakedWalletApiUrls(extensionPath);
   if (readings.length === 0) {
     throw new Error(
