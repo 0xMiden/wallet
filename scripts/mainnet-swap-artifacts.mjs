@@ -165,22 +165,41 @@ export function knownUnspentNearPreAuthorization(checkpointDigest, run, jobs, au
   return nearForwardStopped(jobs, auditedPreAck);
 }
 
-// The 11-24 nightly stopped in preflight before any quote, so no independent audit run exists; the checkpoint digest
-// (empty authority, zero fees, createdAt equal to updatedAt) and the failed pre-release gate stand in for it.
+// Each nightly below stopped in preflight before any quote or send, so no independent audit run exists; the checkpoint
+// digest (empty authority, zero fees, createdAt equal to updatedAt) and the failed pre-release gate stand in for it.
+// `after` is the end of the checkpoint's ten-minute live window.
+const NEAR_PREFLIGHT_STOPS = [
+  {
+    id: 45334301017,
+    digest: '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366',
+    headSha: '4bc52ddc8c24cda196f627d46aa608004939620f',
+    event: 'schedule',
+    after: '2026-11-24T05:58:23.073Z'
+  },
+  {
+    id: 45828549283,
+    digest: '5a43f5726982251d4b1af16d3e0798ca5e01308200f89c184f3ce4d44db0d0bc',
+    headSha: '10c538abe3a97b93ee8342c5e0f248e8508db5c1',
+    event: 'workflow_dispatch',
+    after: '2026-11-26T13:46:28.657Z'
+  }
+];
+
 export function knownUnspentNearPreflight(checkpointDigest, run, jobs, now = Date.now()) {
+  const stop = NEAR_PREFLIGHT_STOPS.find(entry => entry.id === run?.id);
   return (
-    checkpointDigest === '5f3a245b1e0113208f176a007636e329f923e173bdfdfffe8b955ac2a8534366' &&
-    run?.id === 45334301017 &&
+    Boolean(stop) &&
+    checkpointDigest === stop.digest &&
     run.repository?.id === 853430876 &&
     run.workflow_id === 391951744 &&
-    run.head_sha === '4bc52ddc8c24cda196f627d46aa608004939620f' &&
+    run.head_sha === stop.headSha &&
     run.head_branch === 'main' &&
-    run.event === 'schedule' &&
+    run.event === stop.event &&
     run.run_attempt === 1 &&
     run.status === 'completed' &&
     run.conclusion === 'failure' &&
     Number.isSafeInteger(now) &&
-    now > Date.parse('2026-11-24T05:58:23.073Z') &&
+    now > Date.parse(stop.after) &&
     Array.isArray(jobs?.jobs) &&
     nearForwardStopped(jobs, true)
   );
@@ -510,7 +529,7 @@ async function main() {
           45072272341: '45075171185',
           45092013711: '45095113595'
         }[id];
-        if (id === '45334301017')
+        if (id === '45334301017' || id === '45828549283')
           verified = knownUnspentNearPreflight(createHash('sha256').update(checkpoint).digest('hex'), run, jobs);
         else if (auditRunId) {
           const audit = await github(`actions/runs/${auditRunId}`);
