@@ -190,7 +190,8 @@ test.describe('Multi-device claims: auto-consume on two devices', () => {
         );
         expect(
           completed.filter(
-            row => row.noteIds.length === 0 || !row.noteIds.every(noteId => grantNotes.some(n => namesNote([noteId], n)))
+            row =>
+              row.noteIds.length === 0 || !row.noteIds.every(noteId => grantNotes.some(n => namesNote([noteId], n)))
           ),
           'after the baseline, the only completed claims are claims of the granted notes'
         ).toEqual([]);
