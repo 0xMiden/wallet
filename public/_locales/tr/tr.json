@@ -885,7 +885,7 @@
   "reset": "Cüzdanı Sıfırla",
   "forgotPassword": "Şifrenizi mi unuttunuz?",
   "forgotPasswordDescription": "Şifrenizi unuttuysanız, oturumunuzu kapatıp hesabınızı yeniden içe aktarmanız gerekir. Ardından yeni bir şifre oluşturabilirsiniz.",
-  "forgotPasswordSecondDescription": "12 kelimelik kurtarma ifadenizi bilmiyorsanız veya şifrelenmiş bir yedekleme dosyanız yoksa oturumu kapatmayın.",
+  "forgotPasswordSecondDescription": "Bir değiştirme işlemini onaylayana kadar mevcut cüzdanınız bu cihazda kalır. Devam etmeden önce 12 kelimelik kurtarma ifadenizi, Guardian anahtarınızı veya şifrelenmiş yedekleme dosyanızı hazır bulundurun.",
   "biometricUnlockRequired": "Biyometrik Kilit Açma Gerekli",
   "biometricUnlockRequiredDescription": "Bu cüzdan yalnızca biyometrik kimlik doğrulama kullanır. Kilidi açmak için Face ID, Touch ID veya cihazınızın şifresini kullanın. Başka bir cihazdan cüzdanınıza erişmek için 12 kelimelik kurtarma ifadenizi kullanın.",
   "resetWallet": "Cüzdanı Sıfırla",
@@ -2379,5 +2379,12 @@
   "midenNameReceiptRegistry": "Kayıt Defteri",
   "midenNameReceiptNoteId": "Kayıt note",
   "midenNameReceiptPhase": "Aşama",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Mevcut cüzdanınız değiştirilsin mi?",
+  "replaceWalletCreateSubtitle": "Bu işlem mevcut cüzdanınızı bu cihazdan kalıcı olarak siler ve az önce belirlediğiniz parola ile yeni bir cüzdan oluşturur.",
+  "replaceWalletRestoreSubtitle": "Bu işlem mevcut cüzdanınızı bu cihazdan kalıcı olarak siler ve az önce belirlediğiniz parola ile kurtarılan cüzdanı geri yükler.",
+  "replaceWalletEraseWarning": "Hala ihtiyacınız varsa mevcut kurtarma ifadenizin veya yedeğinizin elinizde olduğundan emin olun. Bu işlem geri alınamaz.",
+  "eraseAndRestoreWallet": "Sil ve cüzdanı geri yükle",
+  "eraseAndCreateWallet": "Sil ve cüzdan oluştur",
+  "backToUnlock": "Girişe geri dön"
 }

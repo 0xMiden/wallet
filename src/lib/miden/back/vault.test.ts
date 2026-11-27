@@ -29,7 +29,7 @@ import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-autho
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.setTimeout(30_000);
 
@@ -86,17 +86,43 @@ const mockCreateGuardianMidenWallet = jest.fn(
     registration: { stateBase64: 'state' }
   })
 );
-const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
+const defaultPreparedSeedEntries = [
   {
     accountId: 'guardian-acc-imported',
     hdIndex: 0,
     coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
     coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
   }
-]);
-const mockRecoverGuardianAccountByHotKey = jest.fn(async (_hotSecretKeyHex: string, _endpoint: string) => [
-  { accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }
-]);
+];
+const mockPrepareGuardianRecoveryBySeedDispose = jest.fn();
+const makePreparedSeedRecovery = (entries: typeof defaultPreparedSeedEntries, endpoint: string) => ({
+  guardianEndpoint: endpoint,
+  accountIds: entries.map(r => r.accountId),
+  entries,
+  dispose: mockPrepareGuardianRecoveryBySeedDispose
+});
+const mockPrepareGuardianRecoveryBySeed = jest.fn(async (_deriveColdSeed: any, endpoint: string) =>
+  makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint)
+);
+const mockAdoptPreparedGuardianSeedRecovery = jest.fn(async (prepared: any) => prepared.entries);
+const defaultPreparedHotKeyEntries = [{ accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }];
+const mockPrepareGuardianRecoveryByHotKeyDispose = jest.fn();
+const makePreparedHotKeyRecovery = (entries: typeof defaultPreparedHotKeyEntries, endpoint: string) => ({
+  guardianEndpoint: endpoint,
+  accountIds: entries.map(r => r.accountId),
+  entries,
+  dispose: mockPrepareGuardianRecoveryByHotKeyDispose
+});
+const mockPrepareGuardianRecoveryByHotKey = jest.fn(async (_hotSecretKeyHex: string, endpoint: string) =>
+  makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint)
+);
+const mockAdoptPreparedGuardianHotKeyRecovery = jest.fn(async (prepared: any) => prepared.entries);
+const mockCheckNodeReachable = jest.fn(async () => {});
+const mockPrepareWalletSeedRecovery = jest.fn(async (walletType: WalletType) => ({
+  walletType,
+  accountId: walletType === WalletType.OnChain ? 'acc-pub-key-imported' : 'acc-pub-key-1',
+  foundOnChain: walletType === WalletType.OnChain
+}));
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -126,9 +152,14 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
-  recoverGuardianAccountsBySeed: (...args: unknown[]) => mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
-  recoverGuardianAccountByHotKey: (...args: unknown[]) =>
-    mockRecoverGuardianAccountByHotKey(...(args as [string, string])),
+  prepareGuardianRecoveryBySeed: (...args: unknown[]) => mockPrepareGuardianRecoveryBySeed(...(args as [any, string])),
+  adoptPreparedGuardianSeedRecovery: (...args: unknown[]) => mockAdoptPreparedGuardianSeedRecovery(...(args as [any])),
+  prepareGuardianRecoveryByHotKey: (...args: unknown[]) =>
+    mockPrepareGuardianRecoveryByHotKey(...(args as [string, string])),
+  adoptPreparedGuardianHotKeyRecovery: (...args: unknown[]) =>
+    mockAdoptPreparedGuardianHotKeyRecovery(...(args as [any])),
+  checkNodeReachable: () => mockCheckNodeReachable(),
+  prepareWalletSeedRecovery: (...args: unknown[]) => mockPrepareWalletSeedRecovery(...(args as [WalletType])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
@@ -273,7 +304,12 @@ const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
   importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
   createGuardianMidenWallet: mockCreateGuardianMidenWallet,
-  recoverGuardianAccountsBySeed: mockRecoverGuardianAccountsBySeed,
+  prepareGuardianRecoveryBySeed: mockPrepareGuardianRecoveryBySeed,
+  adoptPreparedGuardianSeedRecovery: mockAdoptPreparedGuardianSeedRecovery,
+  prepareGuardianRecoveryByHotKey: mockPrepareGuardianRecoveryByHotKey,
+  adoptPreparedGuardianHotKeyRecovery: mockAdoptPreparedGuardianHotKeyRecovery,
+  checkNodeReachable: mockCheckNodeReachable,
+  prepareWalletSeedRecovery: mockPrepareWalletSeedRecovery,
   getAccounts: mockGetAccounts,
   getAccount: mockGetAccount,
   syncState: mockSyncState,
@@ -510,15 +546,26 @@ beforeEach(() => {
     rateLimitBudgetLeftMs: 90_000
   }));
   mockRegisterGuardianAccount.mockReset().mockResolvedValue(undefined);
-  mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValue([
-    {
-      accountId: 'guardian-acc-imported',
-      hdIndex: 0,
-      coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
-      coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
-    }
-  ]);
-  mockRecoverGuardianAccountByHotKey.mockResolvedValue([{ accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }]);
+  mockPrepareGuardianRecoveryBySeedDispose.mockReset();
+  mockPrepareGuardianRecoveryBySeed
+    .mockReset()
+    .mockImplementation(async (_deriveColdSeed: any, endpoint: string) =>
+      makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint)
+    );
+  mockAdoptPreparedGuardianSeedRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.entries);
+  mockPrepareGuardianRecoveryByHotKeyDispose.mockReset();
+  mockPrepareGuardianRecoveryByHotKey
+    .mockReset()
+    .mockImplementation(async (_hotSecretKeyHex: string, endpoint: string) =>
+      makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint)
+    );
+  mockAdoptPreparedGuardianHotKeyRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.entries);
+  mockCheckNodeReachable.mockReset().mockResolvedValue(undefined);
+  mockPrepareWalletSeedRecovery.mockReset().mockImplementation(async (walletType: WalletType) => ({
+    walletType,
+    accountId: walletType === WalletType.OnChain ? 'acc-pub-key-imported' : 'acc-pub-key-1',
+    foundOnChain: walletType === WalletType.OnChain
+  }));
   mockDeserializeHotSecretKey.mockImplementation(() => fakeHotSecretKey() as any);
   // mockReset, not just a fresh value: a queued mockResolvedValueOnce from one
   // test must not survive into the next.
@@ -2562,35 +2609,33 @@ describe('Vault.spawn', () => {
   });
 
   it('probes only the v1 ECDSA derivation during spawn, then creates from that seed', async () => {
-    // One node miss; beforeEach never resets this mock, so a persistent
-    // rejection would leak into later tests.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fallback-pk',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
-    const probeCalls: unknown[][] = mockMidenClient.importPublicMidenWalletFromSeed.mock.calls;
-    expect(probeCalls.map(call => call[1])).toEqual(['ecdsa']);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    const probeCalls: unknown[][] = mockPrepareWalletSeedRecovery.mock.calls;
+    expect(probeCalls.map(call => call[2])).toEqual(['ecdsa']);
     const seedHex = (value: unknown) =>
       value instanceof Uint8Array ? Buffer.from(value).toString('hex') : 'not-bytes';
     // The v1 on-chain ECDSA golden vector at index 0 (derive-seed.test.ts).
-    expect(seedHex(probeCalls[0]![0])).toBe('694ff992013be7c9f1c8ac4ed266f549df45acc0d9c0abe803a6ef0f22f78464');
+    expect(seedHex(probeCalls[0]![1])).toBe('694ff992013be7c9f1c8ac4ed266f549df45acc0d9c0abe803a6ef0f22f78464');
     const createCalls: unknown[][] = mockMidenClient.createMidenWallet.mock.calls;
-    expect(seedHex(createCalls[0]![1])).toBe(seedHex(probeCalls[0]![0]));
+    expect(seedHex(createCalls[0]![1])).toBe(seedHex(probeCalls[0]![1]));
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.keyDerivation).toBe('v1');
   });
 
   it('ABORTS the restore instead of creating a fresh wallet when the node is unreachable', async () => {
-    // The fund-loss-shaped bug: a probe miss and an unreachable node are different
-    // answers. If the RPC is down mid-restore, every scheme "misses", spawn falls
-    // through, and a user who typed a CORRECT seed gets a brand-new EMPTY wallet —
-    // their real account simply doesn't appear. This is the exact error text a real
-    // CI run produced when Miden testnet DNS failed.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(
-      new Error(
-        'client error: RPC error: grpc request failed for submit_proven_transaction: ' +
-          'Miden node is unavailable; check that the node is running and reachable'
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+      new PublicError(
+        'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+          'Please check your connection and try restoring again. Details: Miden node is unavailable'
       )
     );
 
@@ -2599,74 +2644,87 @@ describe('Vault.spawn', () => {
     );
     // The whole point: NO wallet was created behind the user's back.
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
   });
 
   it('still creates a fresh wallet when the probes definitively miss (seed is genuinely new)', async () => {
-    // The legitimate fall-through must survive: "no account on chain" is a real
-    // answer and a first-time seed must still produce a wallet.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fresh-pk',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
   });
 
-  it('treats the node reporting the account missing as a miss, not an outage (#1127)', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+  it('creates a fresh wallet when prepareWalletSeedRecovery reports foundOnChain: false (#1127)', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fresh-pk-1127',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk-1127');
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk-1127');
-    // The miss is logged with the node text that decided it.
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('account on chain'),
-      expect.objectContaining({ message: NODE_016_ACCOUNT_MISS })
-    );
-    warn.mockRestore();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
   });
 
-  it('names the node failure when the import probe cannot reach the node', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
+  it('names the node failure when prepareWalletSeedRecovery cannot reach the node', async () => {
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+      new PublicError(
+        'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+          `Please check your connection and try restoring again. Details: ${NODE_UNAVAILABLE}`
+      )
+    );
     const error = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true).catch((e: unknown) => e);
     expect((error as Error).message).toBe(
       'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
         `Please check your connection and try restoring again. Details: ${NODE_UNAVAILABLE}`
     );
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('aborts the restore instead of creating a wallet when the probe fails for a reason other than a miss', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(UNCLASSIFIED_PROBE_FAILURE));
+  it('aborts the restore instead of creating a wallet when prepareWalletSeedRecovery fails for a reason other than a miss', async () => {
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(new PublicError('restoreAccountLookupFailed'));
     const error = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true).catch((e: unknown) => e);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect((error as Error).message).toBe('restoreAccountLookupFailed');
-    expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
-  it('stamps v1 when the probe finds an account', async () => {
+  it('stamps v1 when prepareWalletSeedRecovery finds an account on chain', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'v1-pk-abc',
+      foundOnChain: true
+    });
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('v1-pk-abc');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('v1-pk-abc');
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.authScheme).toBe('ecdsa');
     expect(accounts[0]!.keyDerivation).toBe('v1');
   });
 
-  it('skips importPublicMidenWalletFromSeed when the client network is "mock"', async () => {
-    // The spawn branch that guards on `network !== 'mock'` is only reachable
-    // when `ownMnemonic` is true AND the client reports its network. Our
-    // mock getMidenClient returns a plain object whose `network` field is
-    // 'devnet' (it was hardcoded at mock time; the mutable `mockMidenClient`
-    // handle doesn't reach through to the factory-level stub). Verify that
-    // the default devnet path flows through importPublicMidenWalletFromSeed.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('imported-pk');
+  it('skips prepareWalletSeedRecovery and importPublicMidenWalletFromSeed when the client network is "mock"', async () => {
+    mockGetMidenClient.mockResolvedValueOnce({
+      ...mockMidenClient,
+      network: 'mock'
+    } as never);
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('mock-created-pk');
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).not.toHaveBeenCalled();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockMidenClient.createMidenWallet).toHaveBeenCalledTimes(1);
   });
 
   it('wraps WASM errors in a PublicError with "Failed to create wallet"', async () => {
@@ -3809,7 +3867,7 @@ describe('Vault hardware branches', () => {
     expect(vault).toBeInstanceOf(Vault);
   });
 
-  it('setupHardwareProtector on desktop with hardware available generates key and encrypts', async () => {
+  it('prepareHardwareProtector on desktop with hardware available generates key and encrypts', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
@@ -3820,7 +3878,7 @@ describe('Vault hardware branches', () => {
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
   });
 
-  it('setupHardwareProtector on desktop skips key generation if key already exists', async () => {
+  it('prepareHardwareProtector on desktop skips key generation if key already exists', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
@@ -3845,12 +3903,58 @@ describe('Vault hardware branches', () => {
     expect(mockDesktopSecureStorage.deleteHardwareKey).not.toHaveBeenCalled();
   });
 
-  it('setupHardwareProtector on desktop catches errors and returns false', async () => {
+  it('prepareHardwareProtector on desktop catches errors and returns null', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
     mockDesktopSecureStorage.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-fail'));
     await expect(Vault.spawn(WalletType.OnChain, undefined as any)).rejects.toThrow(PublicError);
+  });
+
+  it('Vault.spawnFromMidenClient preserves existing wallet when password is missing and hardware is unavailable', async () => {
+    await seedVault('old-pw');
+    const snapshot = { ...memoryStore };
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    clearStorage.mockClear();
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+
+    await expect(
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
+    ).rejects.toThrow('Password is required for password-based vault protection');
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(memoryStore).toEqual(snapshot);
+    expect(await Vault.isExist()).toBe(true);
+  });
+
+  it('Vault.spawnFromMidenClient preserves existing wallet when hardware protector preparation fails', async () => {
+    await seedVault('old-pw');
+    const snapshot = { ...memoryStore };
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    clearStorage.mockClear();
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-fail'));
+
+    await expect(
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
+    ).rejects.toThrow('Hardware security setup failed. Please try again.');
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(memoryStore).toEqual(snapshot);
+    expect(await Vault.isExist()).toBe(true);
   });
 
   it('getMainDerivationPath throws for invalid wallet type', async () => {
@@ -3862,14 +3966,14 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
-  it('Vault.spawn propagates recoverGuardianAccountsBySeed failures (no silent fallback)', async () => {
+  it('Vault.spawn propagates prepareGuardianRecoveryBySeed failures (no silent fallback)', async () => {
     // The Guardian recovery path must NOT fall back to createGuardianMidenWallet —
     // otherwise a silently-recreated account would leave the user with an empty
     // balance under their seed. The branch rethrows, wrapped as a PublicError by
     // withError.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
     // …and the lookup's OWN reason must survive. `withError('Failed to create
     // wallet', …)` replaces any non-PublicError with that generic string; on the
@@ -3888,15 +3992,15 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn scans once, under the v1 cold-key derivation, and surfaces a not-found as a PublicError', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-none', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
     await expect(spawning).rejects.toThrow('No Guardian accounts found at this guardian endpoint for this seed');
     await expect(spawning).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledTimes(1);
     // The v1 Guardian ECDSA golden vector at index 0 (derive-seed.test.ts).
-    const [deriveColdSeed] = mockMidenClient.recoverGuardianAccountsBySeed.mock.calls[0]!;
+    const [deriveColdSeed] = mockPrepareGuardianRecoveryBySeed.mock.calls[0]!;
     expect(Buffer.from(deriveColdSeed(0)).toString('hex')).toBe(
       'a8ecedd7d91f0355bfa4f914044e00b1395c77db738e91ba7b6d897322ec383c'
     );
@@ -3907,7 +4011,7 @@ describe('Vault hardware branches', () => {
     // itself, not as a not-found.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-network', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
@@ -3922,7 +4026,7 @@ describe('Vault hardware branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     const original = new PublicError('Could not reach the Miden network');
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(original);
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(original);
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-public', VALID_MNEMONIC, true)).rejects.toBe(original);
   });
@@ -3933,11 +4037,60 @@ describe('Vault hardware branches', () => {
     // alternative is the generic 'Failed to create wallet' after a wipe.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-string', VALID_MNEMONIC, true)).rejects.toThrow(
       'guardian endpoint returned 503'
     );
+  });
+
+  it('Vault.spawn preserves WasmClientPoisonedError and skips dispose() when Guardian seed prepare/adopt is evicted', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const preparePoison = new WasmClientPoisonedError('watchdog', new Error('operation abandoned'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(preparePoison);
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, 'pw-guardian-prepare-poison', VALID_MNEMONIC, true)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+
+    const adoptPoison = new WasmClientPoisonedError('watchdog', new Error('operation abandoned'));
+    mockAdoptPreparedGuardianSeedRecovery.mockRejectedValueOnce(adoptPoison);
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, 'pw-guardian-adopt-poison', VALID_MNEMONIC, true)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn retires WASM traps from Guardian seed prepare/adopt once and skips dispose()', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const prepareTrap = new WebAssembly.RuntimeError('unreachable');
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(prepareTrap);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-prepare-trap', VALID_MNEMONIC, true)).rejects.toThrow(
+        'Failed to create wallet'
+      );
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(prepareTrap);
+      expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+
+      mockRetireUnheldTrap.mockClear();
+      const adoptTrap = new WebAssembly.RuntimeError('unreachable');
+      mockAdoptPreparedGuardianSeedRecovery.mockRejectedValueOnce(adoptTrap);
+
+      await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-adopt-trap', VALID_MNEMONIC, true)).rejects.toThrow(
+        'Failed to create wallet'
+      );
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(adoptTrap);
+      expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('promotes a liveClient() rejection during the recovery scan to a PublicError with its own message', async () => {
@@ -3978,7 +4131,7 @@ describe('Vault hardware branches', () => {
     );
   });
 
-  it('Vault.spawn threads the probed guardianEndpoint into recoverGuardianAccountsBySeed (recovery path)', async () => {
+  it('Vault.spawn threads the probed guardianEndpoint into prepareGuardianRecoveryBySeed (recovery path)', async () => {
     // The probed endpoint reaches the recovery lookup explicitly.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
@@ -3989,7 +4142,7 @@ describe('Vault hardware branches', () => {
       true,
       'https://probed-guardian.example'
     );
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledWith(
       expect.any(Function),
       'https://probed-guardian.example'
     );
@@ -4032,10 +4185,15 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn keeps one record, the lowest HD index, for an account recovered at two indices', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValueOnce([
-      { accountId: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0', coldSecretKeyHex: 'cold-sk-0' },
-      { accountId: 'guardian-acc-twice', hdIndex: 1, coldPublicKey: 'cold-pub-1', coldSecretKeyHex: 'cold-sk-1' }
-    ]);
+    mockPrepareGuardianRecoveryBySeed.mockResolvedValueOnce(
+      makePreparedSeedRecovery(
+        [
+          { accountId: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0', coldSecretKeyHex: 'cold-sk-0' },
+          { accountId: 'guardian-acc-twice', hdIndex: 1, coldPublicKey: 'cold-pub-1', coldSecretKeyHex: 'cold-sk-1' }
+        ],
+        getEffectiveDefaultGuardianEndpoint()
+      )
+    );
 
     const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-twice', VALID_MNEMONIC, true);
 
@@ -4049,7 +4207,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     await Vault.spawn(WalletType.Guardian, 'pw-guardian-recover-default', VALID_MNEMONIC, true);
 
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledWith(
       expect.any(Function),
       getEffectiveDefaultGuardianEndpoint()
     );
@@ -4471,31 +4629,23 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('Vault.spawn (restore probes): eviction during the probe stops the fresh-create fallback', async () => {
-    // The probe loses the mutex mid-lookup and then reports a definitive miss,
-    // so the restore falls through. Pre-guard, that would mint a fresh EMPTY
-    // wallet off an abandoned restore - it's the guard
-    // `'in Vault.spawn before the pre-create sync'`, after the import, that
-    // catches the revoked hold and stops it.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+  it('Vault.spawn (restore probes): eviction during the pre-create sync after miss stops createMidenWallet', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'acc-miss',
+      foundOnChain: false
+    });
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
       revokeWasmHold();
-      throw new Error(NODE_016_ACCOUNT_MISS);
     });
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
-    expect(mockMidenClient.syncState).not.toHaveBeenCalled();
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
   it('Vault.spawn (restore probes): a probe that REJECTS with poison is not read as a scheme miss', async () => {
-    // The per-iteration guard above only asks whether THIS realm's hold is still
-    // ours. It says nothing about a probe that rejected because the client itself
-    // was replaced under it — and swallowed as a miss, that runs the loop out of
-    // schemes and falls through to mint a fresh EMPTY wallet off a restore whose
-    // outcome nobody knows, hiding the user's real account. Same guard
-    // `createHDAccount` already carries.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+    mockPrepareWalletSeedRecovery.mockImplementationOnce(async () => {
       // Name-tagged rather than a real instance, which is the shape the offscreen
       // proxy reconstructs across the realm boundary.
       throw Object.assign(new Error('probe abandoned'), { name: 'WasmClientPoisonedError' });
@@ -4504,8 +4654,8 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
-    // Stopped at the FIRST scheme, and no empty wallet was minted.
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
@@ -5526,7 +5676,7 @@ describe('Vault.spawnFromHotKey', () => {
 
     // The canonical serialized hex (from the deserialized key, not the raw
     // paste) is what reaches the guardian lookup.
-    expect(mockRecoverGuardianAccountByHotKey).toHaveBeenCalledWith('01beef', ENDPOINT);
+    expect(mockPrepareGuardianRecoveryByHotKey).toHaveBeenCalledWith('01beef', ENDPOINT);
 
     const accounts = await vault.fetchAccounts();
     expect(accounts).toHaveLength(1);
@@ -5587,7 +5737,7 @@ describe('Vault.spawnFromHotKey', () => {
 
     await expect(Vault.spawnFromHotKey('pw', 'zz', ENDPOINT)).rejects.toThrow(PublicError);
 
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     // The existing wallet's storage was not cleared by the failed validation.
     await expect(getPlain('sentinel')).resolves.toBe('still-here');
   });
@@ -5601,7 +5751,7 @@ describe('Vault.spawnFromHotKey', () => {
     try {
       await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
       expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
-      expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+      expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
     }
@@ -5619,7 +5769,7 @@ describe('Vault.spawnFromHotKey', () => {
     await savePlain('sentinel', 'preserved');
     await expect(Vault.spawnFromHotKey('pw', payload, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockDeserializeHotSecretKey).not.toHaveBeenCalled();
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     await expect(getPlain('sentinel')).resolves.toBe('preserved');
   });
 
@@ -5633,7 +5783,7 @@ describe('Vault.spawnFromHotKey', () => {
     });
 
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('importHotKeyWrongScheme');
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
   });
 
   it('rejects a trap in the scheme probe without freeing the pasted key', async () => {
@@ -5660,7 +5810,7 @@ describe('Vault.spawnFromHotKey', () => {
       expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
       expect(publicKeyFree).not.toHaveBeenCalled();
       expect(secretKeyFree).not.toHaveBeenCalled();
-      expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+      expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
       mockDeserializeHotSecretKey.mockReset().mockImplementation(() => fakeHotSecretKey() as any);
@@ -5668,7 +5818,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('surfaces the guardian lookup reason as a PublicError (no account for this key)', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
 
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
       'No Guardian account was found for this key'
@@ -5676,7 +5826,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('keeps the not-found code on the rethrown PublicError', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
       new NoGuardianAccountsFoundError('No Guardian account was found for this key at this Guardian.')
     );
 
@@ -5687,7 +5837,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('gives a timeout no not-found code', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
       new Error('RPC "recoverGuardianByKey" timed out after 30000ms')
     );
 
@@ -5699,7 +5849,7 @@ describe('Vault.spawnFromHotKey', () => {
 
   it('retires a trap from the guardian lookup once and fails the import with it, not with its message', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(trap);
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(trap);
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
@@ -5712,18 +5862,44 @@ describe('Vault.spawnFromHotKey', () => {
     }
   });
 
-  it('requires a password when hardware protection is unavailable', async () => {
-    await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+  it('preserves WasmClientPoisonedError and skips dispose() on hot-key prepare/adopt eviction, and skips dispose() on adopt trap', async () => {
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
+      new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+    );
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(
+      new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+    );
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+
+    const adoptTrap = new WebAssembly.RuntimeError('unreachable');
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(adoptTrap);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(adoptTrap);
+      expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
-  it('leaves no protector behind when the guardian lookup rejects after the wipe (#946)', async () => {
+  it('requires a password when hardware protection is unavailable', async () => {
+    await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
+  });
+
+  it('leaves no protector or realm insert-key sink behind when post-commit adoption rejects (#946)', async () => {
     memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
     (globalThis as any).__vaultTestRealmInsertKey = null;
     (globalThis as any).__vaultTestRealmUninstalled = null;
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(new Error('post-commit adopt failed'));
 
-    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('guardian unreachable');
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('post-commit adopt failed');
 
     expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
     expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
@@ -5731,7 +5907,7 @@ describe('Vault.spawnFromHotKey', () => {
     expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
   });
 
-  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+  it('finishes its undo before the caller sees a post-commit rejection, so a queued retry cannot race it (#946)', async () => {
     const { clearStorage } = jest.requireMock('lib/miden/reset');
     const defaultClear = clearStorage.getMockImplementation();
     let entered!: () => void;
@@ -5742,14 +5918,13 @@ describe('Vault.spawnFromHotKey', () => {
     const release$ = new Promise<void>(resolve => {
       release = resolve;
     });
-    // The first call is the opening wipe, left to run for real; the second is the undo,
-    // held open until the assertions below have seen it, so an awaited undo and a
-    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    // The first call is the commit wipe, left to run for real; the second is the undo after
+    // a post-commit adoption failure, held open until the assertions below have seen it.
     clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
       entered();
       await release$;
     });
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(new Error('post-commit adoption failed'));
 
     let settled = false;
     const spawning = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
@@ -5770,13 +5945,13 @@ describe('Vault.spawnFromHotKey', () => {
     expect(settled).toBe(false);
 
     release();
-    await expect(spawning).rejects.toThrow('guardian unreachable');
+    await expect(spawning).rejects.toThrow('post-commit adoption failed');
   });
 
   it('falls back to the network default endpoint when none is passed', async () => {
     await Vault.spawnFromHotKey('pw', PAIR);
 
-    const [, endpoint] = mockRecoverGuardianAccountByHotKey.mock.calls[0]!;
+    const [, endpoint] = mockPrepareGuardianRecoveryByHotKey.mock.calls[0]!;
     expect(typeof endpoint).toBe('string');
     expect(endpoint.length).toBeGreaterThan(0);
   });
@@ -6097,5 +6272,314 @@ describe('Vault.importHotKeyPair', () => {
       errorSpy.mockRestore();
       mockDeserializeHotSecretKey.mockReset().mockImplementation(() => fakeHotSecretKey() as any);
     }
+  });
+});
+
+describe('Vault non-destructive pre-commit validation (#2360)', () => {
+  const OLD_PW = 'old-wallet-pw';
+  const NEW_PW = 'new-wallet-pw';
+  const PAIR = `${'beef'.repeat(16)}:${'cd'.repeat(32)}`;
+  const ENDPOINT = 'https://guardian.example.com';
+
+  async function seedExistingWallet() {
+    await seedVault(OLD_PW, {
+      accounts: [{ publicKey: 'old-acc-pk', name: 'Old Account', isPublic: true, type: WalletType.OnChain }]
+    });
+    memoryStore[PENDING_ADMISSION_STORAGE_KEY] = ['old-acc-pk'];
+    memoryStore['backup_state_v1'] = 'existing-backup-state';
+    memoryStore['stale_setting'] = 'preserved-setting';
+    return { ...memoryStore };
+  }
+
+  function clearStorageSpy() {
+    const { clearStorage } = jest.requireMock('lib/miden/reset') as { clearStorage: jest.Mock };
+    clearStorage.mockClear();
+    return clearStorage;
+  }
+
+  async function expectExistingWalletIntact(snapshot: Record<string, unknown>, spy: jest.Mock) {
+    expect(spy).not.toHaveBeenCalled();
+    expect(memoryStore).toEqual(snapshot);
+    await expect(Vault.setup(OLD_PW)).resolves.toBeInstanceOf(Vault);
+    await expect(Vault.getCurrentAccountPublicKey()).resolves.toBe('old-acc-pk');
+    expect(memoryStore[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['old-acc-pk']);
+  }
+
+  it('Vault.spawn (Guardian seed recovery) preserves the existing wallet when Guardian lookup fails with a network error', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    await expect(Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT)).rejects.toThrow(
+      'Failed to fetch'
+    );
+
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn (Guardian seed recovery) preserves the existing wallet on NoGuardianAccountsFoundError', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
+
+    await expect(Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT)).rejects.toMatchObject({
+      code: GUARDIAN_ACCOUNT_NOT_FOUND
+    });
+
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn (Guardian seed recovery) aborts before wipe when checkAccountsAdmitted rejects on invite-only mainnet, and disposes prepared handles', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const onBeforeCommit = jest.fn(async () => undefined);
+    const checkAccountsAdmitted = jest.fn(async () => {
+      throw new PublicError('Account is not admitted to mainnet');
+    });
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT, {
+        onBeforeCommit,
+        checkAccountsAdmitted
+      })
+    ).rejects.toThrow('Account is not admitted to mainnet');
+
+    expect(checkAccountsAdmitted).toHaveBeenCalledWith(['guardian-acc-imported']);
+    expect(onBeforeCommit).not.toHaveBeenCalled();
+    expect(mockAdoptPreparedGuardianSeedRecovery).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryBySeedDispose).toHaveBeenCalledTimes(1);
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn preserves the existing wallet when password is empty and hardware security is unavailable', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+
+    await expect(Vault.spawn(WalletType.Guardian, '', VALID_MNEMONIC, true, ENDPOINT)).rejects.toThrow(
+      'Password is required for password-based vault protection'
+    );
+
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn (fresh Guardian create) preserves the existing wallet when fetchGuardianCreateKey rejects', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const onBeforeCommit = jest.fn(async () => undefined);
+    mockFetchGuardianCreateKey.mockRejectedValueOnce(new Error('Guardian rate limited'));
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, false, ENDPOINT, { onBeforeCommit })
+    ).rejects.toThrow();
+
+    expect(onBeforeCommit).not.toHaveBeenCalled();
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it.each([WalletType.OnChain, WalletType.OffChain])(
+    'Vault.spawn (%s seed restore) runs pre-commit prepareWalletSeedRecovery and preserves the existing wallet on network outage',
+    async walletType => {
+      const snapshot = await seedExistingWallet();
+      const clearSpy = clearStorageSpy();
+      const onBeforeCommit = jest.fn(async () => undefined);
+      mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+        new PublicError(
+          'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+            'Please check your connection and try restoring again. Details: Failed to fetch'
+        )
+      );
+
+      await expect(
+        Vault.spawn(walletType, NEW_PW, VALID_MNEMONIC, true, undefined, { onBeforeCommit })
+      ).rejects.toThrow(/Could not reach the Miden network/i);
+
+      expect(onBeforeCommit).not.toHaveBeenCalled();
+      expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+      expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+      await expectExistingWalletIntact(snapshot, clearSpy);
+    }
+  );
+
+  it.each([WalletType.OnChain, WalletType.OffChain])(
+    'Vault.spawn (%s seed restore) aborts before wipe when checkAccountsAdmitted rejects on invite-only mainnet',
+    async walletType => {
+      const snapshot = await seedExistingWallet();
+      const clearSpy = clearStorageSpy();
+      const onBeforeCommit = jest.fn(async () => undefined);
+      const expectedAccountId = `${walletType === WalletType.OnChain ? 'mtst1onchain' : 'mtst1offchain'}`;
+      mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+        walletType,
+        accountId: expectedAccountId,
+        foundOnChain: walletType === WalletType.OnChain
+      });
+      const checkAccountsAdmitted = jest.fn(async () => {
+        throw new PublicError('Account is not admitted to mainnet');
+      });
+
+      await expect(
+        Vault.spawn(walletType, NEW_PW, VALID_MNEMONIC, true, undefined, {
+          onBeforeCommit,
+          checkAccountsAdmitted
+        })
+      ).rejects.toThrow('Account is not admitted to mainnet');
+
+      expect(checkAccountsAdmitted).toHaveBeenCalledWith([expectedAccountId]);
+      expect(onBeforeCommit).not.toHaveBeenCalled();
+      expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+      expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+      await expectExistingWalletIntact(snapshot, clearSpy);
+    }
+  );
+
+  it('Vault.spawn (OnChain seed restore) preserves existing wallet when prepareWalletSeedRecovery fails with restoreAccountLookupFailed', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const onBeforeCommit = jest.fn(async () => undefined);
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(new PublicError('restoreAccountLookupFailed'));
+
+    await expect(
+      Vault.spawn(WalletType.OnChain, NEW_PW, VALID_MNEMONIC, true, undefined, { onBeforeCommit })
+    ).rejects.toThrow('restoreAccountLookupFailed');
+
+    expect(onBeforeCommit).not.toHaveBeenCalled();
+    expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn (OnChain seed restore) retires unheld WASM traps from prepareWalletSeedRecovery without wiping', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    mockRetireUnheldTrap.mockClear();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(trap);
+
+    await expect(Vault.spawn(WalletType.OnChain, NEW_PW, VALID_MNEMONIC, true)).rejects.toThrow(
+      'Failed to create wallet'
+    );
+
+    expect(mockRetireUnheldTrap).toHaveBeenCalledWith(trap);
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn runs onBeforeCommit before clearStorage and adopts prepared Guardian seed recovery after commit', async () => {
+    await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const order: string[] = [];
+    mockPrepareGuardianRecoveryBySeed.mockImplementationOnce(async (_deriveColdSeed, endpoint) => {
+      order.push('prepare');
+      return makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint);
+    });
+    const checkAccountsAdmitted = jest.fn(async () => {
+      order.push('admitted');
+    });
+    const onBeforeCommit = jest.fn(async () => {
+      order.push('beforeCommit');
+    });
+    const defaultClear = clearSpy.getMockImplementation()!;
+    clearSpy.mockImplementationOnce(async (...args: unknown[]) => {
+      order.push('clearStorage');
+      return defaultClear(...args);
+    });
+    mockAdoptPreparedGuardianSeedRecovery.mockImplementationOnce(async (prepared: any) => {
+      order.push('adopt');
+      return prepared.entries;
+    });
+
+    const vault = await Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT, {
+      onBeforeCommit,
+      checkAccountsAdmitted
+    });
+
+    expect(order).toEqual(['prepare', 'admitted', 'beforeCommit', 'clearStorage', 'adopt']);
+    expect(await vault.fetchAccounts()).toHaveLength(1);
+    expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawnFromHotKey preserves the existing wallet across invalid key, non-ECDSA, Guardian lookup error, rotated-out error, and unadmitted mainnet check', async () => {
+    // 1. Invalid pair
+    let snapshot = await seedExistingWallet();
+    let clearSpy = clearStorageSpy();
+    await expect(Vault.spawnFromHotKey(NEW_PW, 'bad-pair', ENDPOINT)).rejects.toThrow(PublicError);
+    await expectExistingWalletIntact(snapshot, clearSpy);
+
+    // 2. Non-ECDSA blob
+    snapshot = await seedExistingWallet();
+    clearSpy = clearStorageSpy();
+    mockDeserializeHotSecretKey.mockImplementationOnce(() => {
+      const key = fakeHotSecretKey();
+      key.getEcdsaK256KeccakSecretKeyAsFelts = jest.fn(() => {
+        throw new Error('wrong scheme');
+      });
+      return key as any;
+    });
+    await expect(Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT)).rejects.toThrow('importHotKeyWrongScheme');
+    await expectExistingWalletIntact(snapshot, clearSpy);
+
+    // 3. Guardian lookup failure
+    snapshot = await seedExistingWallet();
+    clearSpy = clearStorageSpy();
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
+    await expect(Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT)).rejects.toMatchObject({
+      code: GUARDIAN_ACCOUNT_NOT_FOUND
+    });
+    await expectExistingWalletIntact(snapshot, clearSpy);
+
+    // 4. Rotated out
+    snapshot = await seedExistingWallet();
+    clearSpy = clearStorageSpy();
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(new Error('importHotKeyNotActive'));
+    await expect(Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT)).rejects.toThrow('importHotKeyNotActive');
+    await expectExistingWalletIntact(snapshot, clearSpy);
+
+    // 5. Unadmitted mainnet account via checkAccountsAdmitted
+    snapshot = await seedExistingWallet();
+    clearSpy = clearStorageSpy();
+    const onBeforeCommit = jest.fn(async () => undefined);
+    const checkAccountsAdmitted = jest.fn(async () => {
+      throw new PublicError('Not admitted');
+    });
+    await expect(
+      Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT, { onBeforeCommit, checkAccountsAdmitted })
+    ).rejects.toThrow('Not admitted');
+    expect(checkAccountsAdmitted).toHaveBeenCalledWith(['guardian-acc-hot']);
+    expect(onBeforeCommit).not.toHaveBeenCalled();
+    expect(mockAdoptPreparedGuardianHotKeyRecovery).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKeyDispose).toHaveBeenCalledTimes(1);
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawnFromHotKey runs onBeforeCommit before clearStorage and adopts after commit', async () => {
+    await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const order: string[] = [];
+    mockPrepareGuardianRecoveryByHotKey.mockImplementationOnce(async (_hex, endpoint) => {
+      order.push('prepare');
+      return makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint);
+    });
+    const checkAccountsAdmitted = jest.fn(async () => {
+      order.push('admitted');
+    });
+    const onBeforeCommit = jest.fn(async () => {
+      order.push('beforeCommit');
+    });
+    const defaultClear = clearSpy.getMockImplementation()!;
+    clearSpy.mockImplementationOnce(async (...args: unknown[]) => {
+      order.push('clearStorage');
+      return defaultClear(...args);
+    });
+    mockAdoptPreparedGuardianHotKeyRecovery.mockImplementationOnce(async (prepared: any) => {
+      order.push('adopt');
+      return prepared.entries;
+    });
+
+    const vault = await Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT, {
+      onBeforeCommit,
+      checkAccountsAdmitted
+    });
+
+    expect(order).toEqual(['prepare', 'admitted', 'beforeCommit', 'clearStorage', 'adopt']);
+    expect(await vault.fetchAccounts()).toHaveLength(1);
   });
 });

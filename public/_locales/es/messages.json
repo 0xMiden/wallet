@@ -4082,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "No cierres sesión a menos que conozcas tu frase de recuperación de 12 palabras o tengas un archivo de copia de seguridad cifrado.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Tu cartera actual permanece en este dispositivo hasta que confirmes un reemplazo. Ten lista tu frase de recuperación de 12 palabras, clave de Guardian o archivo de copia de seguridad cifrado antes de continuar.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Desbloqueo biométrico obligatorio",
@@ -10976,5 +10976,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "¿Reemplazar tu cartera existente?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Esto borrará de forma permanente tu cartera actual de este dispositivo y creará una nueva con la contraseña que acabas de configurar.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Esto borrará de forma permanente tu cartera actual de este dispositivo y restaurará la cartera recuperada con la contraseña que acabas de configurar.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Asegúrate de tener tu frase de recuperación o copia de seguridad actual si aún la necesitas. Esta acción no se puede deshacer.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Borrar y restaurar cartera",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Borrar y crear cartera",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Volver al inicio de sesión",
+    "englishSource": "Back to sign in"
   }
 }

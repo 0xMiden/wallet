@@ -884,7 +884,7 @@
   "reset": "Wallet zurücksetzen",
   "forgotPassword": "Passwort vergessen?",
   "forgotPasswordDescription": "Wenn Sie Ihr Passwort vergessen haben, müssen Sie sich abmelden und Ihr Konto erneut importieren. Danach können Sie ein neues Passwort festlegen.",
-  "forgotPasswordSecondDescription": "Melden Sie sich nicht ab, es sei denn, Sie kennen Ihre 12-Wort-Wiederherstellungsphrase oder verfügen über eine verschlüsselte Sicherungsdatei.",
+  "forgotPasswordSecondDescription": "Ihre aktuelle Wallet bleibt auf diesem Gerät gespeichert, bis Sie einen Ersatz bestätigen. Halten Sie Ihre 12-Wort-Wiederherstellungsphrase, Ihren Guardian-Schlüssel oder Ihre verschlüsselte Sicherungsdatei bereit, bevor Sie fortfahren.",
   "biometricUnlockRequired": "Biometrische Entsperrung erforderlich",
   "biometricUnlockRequiredDescription": "Diese Wallet verwendet ausschließlich biometrische Authentifizierung. Verwende Face ID, Touch ID oder den Passcode deines Geräts zum Entsperren. Um auf einem anderen Gerät auf deine Wallet zuzugreifen, verwende deine 12-Wort-Wiederherstellungsphrase.",
   "resetWallet": "Wallet zurücksetzen",
@@ -2371,5 +2371,12 @@
   "midenNameReceiptRegistry": "Register",
   "midenNameReceiptNoteId": "Registrierungs-note",
   "midenNameReceiptPhase": "Phase",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Vorhandene Wallet ersetzen?",
+  "replaceWalletCreateSubtitle": "Dadurch wird Ihre aktuelle Wallet dauerhaft von diesem Gerät gelöscht und eine neue Wallet mit dem gerade festgelegten Passwort erstellt.",
+  "replaceWalletRestoreSubtitle": "Dadurch wird Ihre aktuelle Wallet dauerhaft von diesem Gerät gelöscht und die wiederhergestellte Wallet mit dem gerade festgelegten Passwort wiederhergestellt.",
+  "replaceWalletEraseWarning": "Vergewissern Sie sich, dass Sie Ihre aktuelle Wiederherstellungsphrase oder Sicherungsdatei haben, falls Sie sie noch benötigen. Dies kann nicht rückgängig gemacht werden.",
+  "eraseAndRestoreWallet": "Löschen und Wallet wiederherstellen",
+  "eraseAndCreateWallet": "Löschen und Wallet erstellen",
+  "backToUnlock": "Zurück zur Anmeldung"
 }

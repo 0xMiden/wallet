@@ -4082,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Не выходите из системы, если не знаете свою 12-словную фразу восстановления или не имеете зашифрованного файла резервной копии.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Ваш текущий кошелек остается на этом устройстве, пока вы не подтвердите замену. Перед продолжением подготовьте 12-словную фразу восстановления, ключ Guardian или зашифрованный файл резервной копии.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Требуется биометрическая разблокировка",
@@ -10972,5 +10972,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Заменить существующий кошелек?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Текущий кошелек будет безвозвратно удален с этого устройства, а вместо него будет создан новый с только что заданным паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Текущий кошелек будет безвозвратно удален с этого устройства, а восстановленный кошелек будет открыт с только что заданным паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Убедитесь, что у вас сохранена текущая фраза восстановления или резервная копия, если они вам еще понадобятся. Это действие нельзя отменить.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Удалить и восстановить кошелек",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Удалить и создать кошелек",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Вернуться ко входу",
+    "englishSource": "Back to sign in"
   }
 }

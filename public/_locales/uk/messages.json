@@ -4082,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Не виходите з облікового запису, якщо не знаєте своєї 12-слівної фрази відновлення або не маєте зашифрованого файлу резервної копії.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Ваш поточний гаманець залишається на цьому пристрої, доки ви не підтвердите заміну. Перед продовженням підготуйте 12-слівну фразу відновлення, ключ Guardian або зашифрований файл резервної копії.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Потрібне біометричне розблокування",
@@ -10970,5 +10970,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Замінити наявний гаманець?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Це назавжди видалить ваш поточний гаманець із цього пристрою та створить новий із щойно встановленим паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Це назавжди видалить ваш поточний гаманець із цього пристрою та відновить відновлений гаманець із щойно встановленим паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Переконайтеся, що у вас є поточна фраза відновлення або резервна копія, якщо вони вам ще потрібні. Цю дію не можна скасувати.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Видалити та відновити гаманець",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Видалити та створити гаманець",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Повернутися до входу",
+    "englishSource": "Back to sign in"
   }
 }

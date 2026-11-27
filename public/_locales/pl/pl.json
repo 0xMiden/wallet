@@ -885,7 +885,7 @@
   "reset": "Zresetuj portfel",
   "forgotPassword": "Nie pamiętasz hasła?",
   "forgotPasswordDescription": "Jeśli zapomniałeś hasła, musisz się wylogować i ponownie zaimportować swoje konto. Następnie będziesz mógł ustawić nowe hasło.",
-  "forgotPasswordSecondDescription": "Nie wylogowuj się, chyba że znasz swoją 12-wyrazową frazę odzyskiwania lub posiadasz zaszyfrowany plik kopii zapasowej.",
+  "forgotPasswordSecondDescription": "Twój obecny portfel pozostanie na tym urządzeniu, dopóki nie potwierdzisz zastąpienia. Przed kontynuowaniem przygotuj swoją 12-wyrazową frazę odzyskiwania, klucz Guardian lub zaszyfrowany plik kopii zapasowej.",
   "biometricUnlockRequired": "Wymagane odblokowanie biometryczne",
   "biometricUnlockRequiredDescription": "Ten portfel wykorzystuje wyłącznie uwierzytelnianie biometryczne. Aby odblokować portfel, użyj funkcji Face ID, Touch ID lub kodu dostępu do urządzenia. Aby uzyskać dostęp do portfela na innym urządzeniu, użyj 12-wyrazowej frazy odzyskiwania.",
   "resetWallet": "Zresetuj portfel",
@@ -2377,5 +2377,12 @@
   "midenNameReceiptRegistry": "Rejestr",
   "midenNameReceiptNoteId": "Rejestracja note",
   "midenNameReceiptPhase": "Faza",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Zastąpić istniejący portfel?",
+  "replaceWalletCreateSubtitle": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i utworzenie nowego z hasłem, które właśnie ustawiłeś.",
+  "replaceWalletRestoreSubtitle": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i przywrócenie odzyskanego portfela z hasłem, które właśnie ustawiłeś.",
+  "replaceWalletEraseWarning": "Upewnij się, że masz swoją obecną frazę odzyskiwania lub kopię zapasową, jeśli nadal ich potrzebujesz. Tej operacji nie można cofnąć.",
+  "eraseAndRestoreWallet": "Usuń i przywróć portfel",
+  "eraseAndCreateWallet": "Usuń i utwórz portfel",
+  "backToUnlock": "Wróć do logowania"
 }

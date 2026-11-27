@@ -4082,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Ne vous déconnectez pas à moins de connaître votre phrase de récupération de 12 mots ou de disposer d’un fichier de sauvegarde chiffré.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Votre portefeuille actuel reste sur cet appareil jusqu’à ce que vous confirmiez un remplacement. Ayez votre phrase de récupération de 12 mots, votre clé Guardian ou votre fichier de sauvegarde chiffré à portée de main avant de continuer.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Déverrouillage biométrique requis",
@@ -10972,5 +10972,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Remplacer votre portefeuille existant ?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Cela effacera définitivement votre portefeuille actuel de cet appareil et en créera un nouveau avec le mot de passe que vous venez de définir.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Cela effacera définitivement votre portefeuille actuel de cet appareil et restaurera le portefeuille récupéré avec le mot de passe que vous venez de définir.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Assurez-vous d’avoir votre phrase de récupération ou votre sauvegarde actuelle si vous en avez encore besoin. Cette action est irréversible.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Effacer et restaurer le portefeuille",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Effacer et créer un portefeuille",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Retour à la connexion",
+    "englishSource": "Back to sign in"
   }
 }

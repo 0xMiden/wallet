@@ -885,7 +885,7 @@
   "reset": "重置钱包",
   "forgotPassword": "忘记密码了吗？",
   "forgotPasswordDescription": "如果您忘记了密码，请先退出登录，然后重新导入您的账户。之后，您就可以设置新密码了。",
-  "forgotPasswordSecondDescription": "除非您知道自己的 12 个单词恢复短语或拥有加密的备份文件，否则请勿退出登录。",
+  "forgotPasswordSecondDescription": "在您确认替换之前，当前钱包将保留在此设备上。继续之前，请准备好您的 12 个单词恢复短语、Guardian 密钥或加密备份文件。",
   "biometricUnlockRequired": "需要生物识别解锁",
   "biometricUnlockRequiredDescription": "此钱包仅支持生物识别认证。请使用 Face ID、Touch ID 或设备密码解锁。若要在其他设备上访问您的钱包，请使用 12 个单词的恢复短语。",
   "resetWallet": "重置钱包",
@@ -2381,5 +2381,12 @@
   "midenNameReceiptRegistry": "注册表",
   "midenNameReceiptNoteId": "注册 note",
   "midenNameReceiptPhase": "阶段",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "替换您的现有钱包？",
+  "replaceWalletCreateSubtitle": "这将从此设备上永久擦除您当前的钱包，并使用您刚才设置的密码创建一个新钱包。",
+  "replaceWalletRestoreSubtitle": "这将从此设备上永久擦除您当前的钱包，并使用您刚才设置的密码恢复已找回的钱包。",
+  "replaceWalletEraseWarning": "如果您仍需要当前钱包，请确保已保存当前的恢复短语或备份。此操作无法撤销。",
+  "eraseAndRestoreWallet": "擦除并恢复钱包",
+  "eraseAndCreateWallet": "擦除并创建钱包",
+  "backToUnlock": "返回登录"
 }

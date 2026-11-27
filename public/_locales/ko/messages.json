@@ -4082,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12단어 복구 문구를 알고 있거나 암호화된 백업 파일이 없는 한, 절대로 로그아웃하지 마십시오.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "교체를 확인하기 전까지 현재 지갑은 이 기기에 유지됩니다. 계속하기 전에 12단어 복구 문구, Guardian 키 또는 암호화된 백업 파일을 준비하십시오.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "생체 인증을 통한 잠금 해제가 필요합니다",
@@ -10968,5 +10968,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "기존 지갑을 교체하시겠습니까?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "이 작업을 수행하면 현재 지갑이 이 기기에서 영구적으로 삭제되고 방금 설정한 비밀번호로 새 지갑이 생성됩니다.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "이 작업을 수행하면 현재 지갑이 이 기기에서 영구적으로 삭제되고 방금 설정한 비밀번호로 복구된 지갑이 복원됩니다.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "현재 지갑이 계속 필요한 경우 현재 복구 문구나 백업이 있는지 확인하십시오. 이 작업은 취소할 수 없습니다.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "삭제하고 지갑 복원",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "삭제하고 지갑 생성",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "로그인으로 돌아가기",
+    "englishSource": "Back to sign in"
   }
 }

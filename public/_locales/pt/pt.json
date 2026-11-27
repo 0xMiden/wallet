@@ -885,7 +885,7 @@
   "reset": "Redefinir carteira",
   "forgotPassword": "Esqueceu a senha?",
   "forgotPasswordDescription": "Se você esqueceu sua senha, é preciso sair da conta e importar-a novamente. Depois disso, você poderá criar uma nova senha.",
-  "forgotPasswordSecondDescription": "Não saia da conta a menos que conheça sua frase de recuperação de 12 palavras ou tenha um arquivo de backup criptografado.",
+  "forgotPasswordSecondDescription": "Sua carteira atual permanece neste dispositivo até que você confirme uma substituição. Tenha sua frase de recuperação de 12 palavras, chave Guardian ou arquivo de backup criptografado em mãos antes de continuar.",
   "biometricUnlockRequired": "É necessário desbloqueio biométrico",
   "biometricUnlockRequiredDescription": "Esta carteira usa apenas autenticação biométrica. Use o Face ID, o Touch ID ou a senha do seu dispositivo para desbloquear. Para acessar sua carteira em outro dispositivo, use sua frase de recuperação de 12 palavras.",
   "resetWallet": "Redefinir carteira",
@@ -2373,5 +2373,12 @@
   "midenNameReceiptRegistry": "Registro",
   "midenNameReceiptNoteId": "note de cadastro",
   "midenNameReceiptPhase": "Fase",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Substituir sua carteira existente?",
+  "replaceWalletCreateSubtitle": "Isso apagará permanentemente sua carteira atual deste dispositivo e criará uma nova com a senha que você acabou de definir.",
+  "replaceWalletRestoreSubtitle": "Isso apagará permanentemente sua carteira atual deste dispositivo e restaurará a carteira recuperada com a senha que você acabou de definir.",
+  "replaceWalletEraseWarning": "Certifique-se de ter sua frase de recuperação ou backup atual caso ainda precise dele. Isso não pode ser desfeito.",
+  "eraseAndRestoreWallet": "Apagar e restaurar carteira",
+  "eraseAndCreateWallet": "Apagar e criar carteira",
+  "backToUnlock": "Voltar para entrar"
 }
