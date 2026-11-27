@@ -43,8 +43,9 @@ const requireQuantity = (amount: bigint): void => {
 /** Micro-dollars for `amount` at `at` (milliseconds), rounded half up; `undefined` when it cannot be priced. */
 const valueMicro = (amount: bigint, { quote, decimals }: Pricing, at: number): bigint | undefined => {
   if (decimals === undefined || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) return undefined;
-  // A basket's net asset value is for display; `usdQuoteStatus` already refuses nominal and stale quotes.
-  if (!quote || quote.kind === 'basket' || usdQuoteStatus(quote, at) !== 'ready') return undefined;
+  // A basket's net asset value is for display; `usdQuoteStatus` refuses nominal and stale quotes, but not a NaN time.
+  if (!Number.isFinite(at) || !quote || quote.kind === 'basket' || usdQuoteStatus(quote, at) !== 'ready')
+    return undefined;
   const priceMicro = toPriceMicro(quote.price);
   if (priceMicro === undefined) return undefined;
   const scale = 10n ** BigInt(decimals);

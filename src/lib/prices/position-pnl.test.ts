@@ -75,6 +75,9 @@ describe('since-arrival position profit and loss', () => {
     expect(at(NOW - 600_001)).toBeUndefined();
     expect(at(NOW + 1)).toBeUndefined();
     expect(at(undefined)).toBeUndefined();
+    expect(recordArrival(EMPTY_POSITION, { amount: UNIT, quote: quote(2), decimals: 6, eventAt: NaN }).costMicro).toBe(
+      undefined
+    );
     expect(
       recordArrival(EMPTY_POSITION, { amount: UNIT, quote: fixedQuote('USDCX'), decimals: 6, eventAt: NOW }).costMicro
     ).toBe(USD);
