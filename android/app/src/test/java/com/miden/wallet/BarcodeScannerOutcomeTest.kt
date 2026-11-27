@@ -102,6 +102,14 @@ class BarcodeScannerOutcomeTest {
     }
 
     @Test
+    fun missingIntentRejectsAsGenericScannerError() {
+        val call = deliver(ActivityResult(Activity.RESULT_CANCELED, null))
+
+        assertEquals(listOf("Scanner returned no result"), call.rejections)
+        assertTrue(call.resolutions.isEmpty())
+    }
+
+    @Test
     fun finishingMultiScanPreservesTheCollectedCodesAndEmptyResult() {
         for (codes in listOf(arrayOf("synthetic-first", "synthetic-second"), emptyArray<String>())) {
             val scanner = scanner()
