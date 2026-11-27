@@ -446,6 +446,8 @@ export const HOT_KEY_CODES = [
   'USER_CANCELLED'
 ];
 
+export const HOT_KEY_UNWRAP_FAILURES = ['parameters_refused', 'decrypt_rejected', 'mixed', 'unknown'] as const;
+
 const listedCode = (code: unknown, allowed: readonly string[]): string =>
   typeof code === 'string' ? diagnostic(code, allowed, 'other') : 'none';
 
@@ -455,7 +457,12 @@ function rejectionIdentity(error: unknown, outer: string | undefined): string | 
   for (const link of errorChain(error)) {
     try {
       if (isHotKeyFailure(link)) {
-        return `${coined('hot_key')}; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
+        const code = listedCode(safeOwnDiagnosticData(link, 'code'), HOT_KEY_CODES);
+        const refusal = `${coined('hot_key')}; hot key code ${code}`;
+        if (code !== 'UNWRAP_FAILED') return refusal;
+        const value = safeOwnDiagnosticData(safeOwnDiagnosticData(link, 'data'), 'unwrapFailure');
+        const unwrapFailure = HOT_KEY_UNWRAP_FAILURES.find(category => category === value);
+        return unwrapFailure === undefined ? refusal : `${refusal}; unwrap failure ${unwrapFailure}`;
       }
       if (link.name === 'GuardianHttpError') {
         const status: unknown = Reflect.get(link, 'status');
@@ -931,6 +938,7 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   'unavailable',
   'other',
   ...HOT_KEY_CODES,
+  ...HOT_KEY_UNWRAP_FAILURES,
   ...GUARDIAN_ERROR_CODES,
   ...TELEMETRY_ERROR_KINDS,
   ...FAILURE_OUTCOMES,

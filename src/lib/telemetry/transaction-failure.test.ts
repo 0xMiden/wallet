@@ -39,6 +39,7 @@ import {
   FAILURE_POINTS,
   FAILURE_REASONS,
   HOT_KEY_CODES,
+  HOT_KEY_UNWRAP_FAILURES,
   NEVER_COMMITTED_RULES,
   PREFLIGHT_SYNC_REPORTS,
   QUEUE_AGE_BUCKETS,
@@ -124,9 +125,11 @@ const guardianRefusal = (status: number, statusText: string, code: string | null
 
 const hotKeyRejection = async (message: string, code?: string, data?: unknown): Promise<unknown> => {
   jest.mocked(isIOS).mockReturnValueOnce(true);
-  jest.mocked(HotKey.signWithHotKey).mockRejectedValueOnce(
-    Object.assign(new Error(message), code === undefined ? {} : { code }, data === undefined ? {} : { data })
-  );
+  jest
+    .mocked(HotKey.signWithHotKey)
+    .mockRejectedValueOnce(
+      Object.assign(new Error(message), code === undefined ? {} : { code }, data === undefined ? {} : { data })
+    );
   return signHotDigest('tag:wrapped', '0x01').catch((error: unknown) => error);
 };
 
@@ -212,6 +215,7 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     SUBMIT_RECORDS,
     ['none', 'unrecorded', 'unavailable', 'other'],
     HOT_KEY_CODES,
+    HOT_KEY_UNWRAP_FAILURES,
     GUARDIAN_ERROR_CODES,
     TELEMETRY_ERROR_KINDS,
     FAILURE_OUTCOMES,
@@ -2209,6 +2213,7 @@ const GUARDIAN = 'A guardian refusal';
 const GUARDIAN_CODES = 'It also carries';
 const DEVICE_KEY = 'A device key refusal';
 const DEVICE_KEY_CODES = 'when it is one of';
+const DEVICE_KEY_UNWRAP = 'When Android supplies an unwrap failure category';
 const UNKNOWN_OUTCOME = 'A submit with no definite answer';
 const SUBMIT_LEG = '; and how long the submit took';
 const REFUSED = 'A submit the network refused';
@@ -2254,7 +2259,12 @@ const POLICY_ROWS: readonly PolicyRow[] = [
     () => [...GUARDIAN_ERROR_CODES, 'other', 'none'],
     () => policyText(GUARDIAN, GUARDIAN_CODES)
   ],
-  ['device key code', () => [...HOT_KEY_CODES, 'other', 'none'], () => policyText(DEVICE_KEY, DEVICE_KEY_CODES)],
+  [
+    'device key code',
+    () => [...HOT_KEY_CODES, 'other', 'none'],
+    () => policyText(DEVICE_KEY, DEVICE_KEY_CODES, DEVICE_KEY_UNWRAP)
+  ],
+  ['device key unwrap failure', () => HOT_KEY_UNWRAP_FAILURES, () => policyText(DEVICE_KEY, DEVICE_KEY_UNWRAP)],
   [
     'unknown-outcome RPC endpoint',
     () => SUBMIT_ENDPOINTS,
