@@ -14,6 +14,7 @@ import {
 import { parseArcAmount } from 'lib/bridge/providers/xreserve/deposit-terms';
 import type { OwnedUsdcxDeposit } from 'lib/bridge/providers/xreserve/ownership';
 import type { updateBridgedReceivePhase } from 'lib/miden/activity';
+import type { IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 
 import { CctpBurnQuote, fetchCctpBurnQuote, validateCctpBurnQuote } from './cctp';
@@ -253,11 +254,30 @@ export function buildDepositForBurnWithHookAndFeesArgs(
   ];
 }
 
-/** Signs and broadcasts the source-chain transactions. The screen supplies the native or wagmi flavour. */
+/** What the row records with the burn hash: the recipient that the burn signed (lower case) and its CCTP leg. */
+export interface UsdcxBurnFacts {
+  usdcxRemoteRecipient: string;
+  /** The burn's leg: its source domain, a forwarded burn, and the quoted fee it pays on top of the amount. */
+  cctp: Required<Pick<IUsdcxCctpLeg, 'sourceDomain' | 'forwarded' | 'forwardFee'>>;
+}
+
+/** Signs and broadcasts the source-chain transactions. The screen supplies the native, wagmi or relay flavour. */
 export interface UsdcxExecutorSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
   /** The forwarded burn, through the fee entry point. */
   depositForBurnWithHookAndFees(args: DepositForBurnWithHookAndFeesArgs): Promise<Hash>;
+  /**
+   * Optional. Sends the approval and the forwarded burn as one atomic unit: both execute, or neither, so no receipt
+   * wait comes between them and the burn signs the first quote. When it is set, the deposit uses it and never
+   * `approve` or `depositForBurnWithHookAndFees`. `approval` is null when the allowance covers the burn. `facts` is
+   * what the row records with the burn hash: the signer gets it before it sends, so it can record a reference to the
+   * send with these facts first.
+   */
+  approveAndBurn?(
+    approval: { spender: Address; value: bigint } | null,
+    args: DepositForBurnWithHookAndFeesArgs,
+    facts: UsdcxBurnFacts
+  ): Promise<Hash>;
 }
 
 export interface UsdcxExecutorDepositDeps {
@@ -293,7 +313,8 @@ export interface UsdcxExecutorDepositDeps {
  * quote; the approval covers twice the quoted fee, and a fee beyond that fails the deposit the same way. The
  * approval wait can outlast the balance read too, so the balance is read again once the approval confirms, before the
  * second quote, and a balance short of the second fee fails the deposit after the paid approval with
- * `UsdcxExecutorBalanceTooLowError`, before the burn prompt.
+ * `UsdcxExecutorBalanceTooLowError`, before the burn prompt. A batch signer sends the approval (for the amount plus the
+ * first quote's fee, when the allowance is short) and the burn as one atomic unit, so no second quote is necessary.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -352,7 +373,10 @@ export async function runUsdcxExecutorDeposit(
   };
   let quote = await quoteOrFail();
   ensureBalanceCovers(quote, balance);
-  if (feeAllowance < intent.value + quote.feeTotalAmount) {
+  const needsApproval = feeAllowance < intent.value + quote.feeTotalAmount;
+  // A batch signer sends the approval and the burn as one atomic unit, so the first quote is still fresh when the burn
+  // signs: the approval covers exactly the amount and that fee.
+  if (needsApproval && signer.approveAndBurn === undefined) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await assertCurrent();
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
@@ -369,14 +393,20 @@ export async function runUsdcxExecutorDeposit(
   await assertCurrent();
   if (deadline !== undefined && performance.now() >= deadline)
     throw new UsdcxForwardQuoteUnavailableError('the reviewed quote expires before the burn can be signed');
-  const burnHash = await signer.depositForBurnWithHookAndFees(burnArgs);
-  if (original && ownership)
-    await ownership.recordUsdcxDepositHash(original, burnHash, quote.feeTotalAmount.toString());
-  await updatePhase(trackingTxId, 'submitting', {
-    evmTxHash: burnHash,
+  const forwardFee = quote.feeTotalAmount.toString();
+  const facts: UsdcxBurnFacts = {
     usdcxRemoteRecipient: remoteRecipient.toLowerCase(),
-    cctp: { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
-  });
+    cctp: { sourceDomain: source.domain, forwarded: true, forwardFee }
+  };
+  const approval = needsApproval
+    ? { spender: source.tokenMessengerWithFees, value: intent.value + quote.feeTotalAmount }
+    : null;
+  const burnHash =
+    signer.approveAndBurn !== undefined
+      ? await signer.approveAndBurn(approval, burnArgs, facts)
+      : await signer.depositForBurnWithHookAndFees(burnArgs);
+  if (original && ownership) await ownership.recordUsdcxDepositHash(original, burnHash, forwardFee);
+  await updatePhase(trackingTxId, 'submitting', { evmTxHash: burnHash, ...facts });
   await waitForReceipt(burnHash);
   await updatePhase(trackingTxId, 'delivering', { evmTxHash: burnHash });
   return burnHash;

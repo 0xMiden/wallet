@@ -40,6 +40,12 @@ jest.mock('lib/miden/sdk/miden-client', () => ({ withWasmClientLock: async (fn: 
 jest.mock('lib/miden/activity/notes', () => ({ queueNoteImport: jest.fn() }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('lib/store', () => ({ getIntercom: jest.fn() }));
+// No row of this suite comes from a relay address: every execute goes through the connected wallet.
+jest.mock('lib/evm-relay/source', () => ({
+  findRelaySource: () => null,
+  relayServesChain: () => false,
+  buildRelayProvider: jest.fn()
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getActiveOverride: () => null,

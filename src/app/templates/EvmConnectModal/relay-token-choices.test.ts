@@ -128,6 +128,36 @@ describe('relayTokenChoices', () => {
     expect(choices[4]?.routes).toEqual(['epoch']);
   });
 
+  it('offers Circle USDC first where the Circle route takes deposits, as the row of the Epoch token at its contract', () => {
+    mockCircleChains = [1, 8453];
+    const choices = relayTokenChoices(SNAPSHOT, NETWORKS, 'usdcx-faucet');
+
+    expect(choices.map(choice => choice.option.id)).toEqual([
+      '1:CIRCLE_USDC',
+      '1:ETH',
+      `1:ERC20_${LINK}`,
+      '8453:CIRCLE_USDC',
+      '8453:EPOCH_ETH',
+      '8453:EPOCH_USDC'
+    ]);
+    expect(choices[0]).toEqual({
+      chainId: AGGLAYER_CHAIN,
+      token: 'CIRCLE_USDC',
+      address: '0x00000000000000000000000000000000000000c0',
+      // The Epoch USDC is at Circle's contract: Circle USDC takes Circle and Epoch.
+      routes: ['usdcx', 'epoch'],
+      option: {
+        id: '1:CIRCLE_USDC',
+        symbol: 'USDC',
+        receivedSymbol: 'USDCx',
+        logoFaucetId: 'usdcx-faucet',
+        network: { id: 'ethereum', name: 'Ethereum' }
+      }
+    });
+    // On Base no Epoch token is at Circle's contract: Circle alone.
+    expect(choices[3]?.routes).toEqual(['usdcx']);
+  });
+
   it('names a token on a chain by its key', () => {
     expect(relayTokenChoiceId(1, 'ETH')).toBe('1:ETH');
   });

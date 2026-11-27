@@ -192,6 +192,70 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
   return { deps, calls };
 }
 
+/** `makeDeps` with a batch signer: the approval and the burn go out as one atomic unit. */
+function makeBatchDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
+  const made = makeDeps(overrides);
+  const approveAndBurn = jest.fn(async () => {
+    made.calls.push('approveAndBurn');
+    return BURN_HASH;
+  });
+  made.deps.signer = { ...made.deps.signer, approveAndBurn };
+  return { ...made, approveAndBurn };
+}
+
+describe('runUsdcxExecutorDeposit with a batch signer', () => {
+  it('sends the approval of the amount plus the first fee and the burn as one unit, with no approval receipt', async () => {
+    const { deps, calls, approveAndBurn } = makeBatchDeps();
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', MIXED_CASE_RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'readAllowance',
+      'readBalance',
+      'quote',
+      'approveAndBurn',
+      'phase:submitting',
+      'receipt:burn',
+      'phase:delivering'
+    ]);
+    const intent = buildExecutorBurnIntent('1.5', SOURCE, MIXED_CASE_RECIPIENT, DEPOSITOR);
+    const facts = {
+      usdcxRemoteRecipient: RECIPIENT,
+      cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' }
+    };
+    expect(approveAndBurn).toHaveBeenCalledWith(
+      { spender: SOURCE.tokenMessengerWithFees, value: 1_500_000n + QUOTE.feeTotalAmount },
+      buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, QUOTE, DEPOSITOR),
+      facts
+    );
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: BURN_HASH, ...facts });
+  });
+
+  it('gives no approval when the allowance covers the amount and the fee', async () => {
+    const { deps, approveAndBurn } = makeBatchDeps({
+      readAllowance: jest.fn(async () => 1_500_000n + QUOTE.feeTotalAmount)
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(approveAndBurn).toHaveBeenCalledWith(null, expect.anything(), expect.anything());
+  });
+
+  it('refuses before the send when the balance does not cover the amount and the fee', async () => {
+    const { deps, approveAndBurn } = makeBatchDeps({ readBalance: jest.fn(async () => 1_500_000n) });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toBeInstanceOf(
+      UsdcxExecutorBalanceTooLowError
+    );
+
+    expect(approveAndBurn).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+});
+
 describe('usdcxExecutorFeeShortfall', () => {
   const VALUE = 1_500_000n;
   const FEE = QUOTE.feeTotalAmount;

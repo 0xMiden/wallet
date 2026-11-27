@@ -25,10 +25,32 @@ export type DepositToRemoteArgs = readonly [
   hookData: Hex
 ];
 
-/** Signs and broadcasts the two source-chain transactions. The screen supplies the native or wagmi flavour. */
+/** An approval of `value` USDC base units to `spender`. */
+export interface UsdcxApproval {
+  spender: Address;
+  value: bigint;
+}
+
+/** What the row records with the deposit hash: the recipient that the deposit signed, in lower case. */
+export interface UsdcxDepositFacts {
+  usdcxRemoteRecipient: string;
+}
+
+/** Signs and broadcasts the source-chain transactions. The screen supplies the native, wagmi or relay flavour. */
 export interface UsdcxSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
   depositToRemote(args: DepositToRemoteArgs): Promise<Hash>;
+  /**
+   * Optional. Sends the approval and the deposit as one atomic unit: both execute, or neither, so no receipt wait
+   * comes between them. When it is set, the deposit uses it and never `approve` or `depositToRemote`. `approval` is
+   * null when the allowance covers the deposit. `facts` is what the row records with the deposit hash: the signer gets
+   * it before it sends, so it can record a reference to the send with these facts first.
+   */
+  approveAndDepositToRemote?(
+    approval: UsdcxApproval | null,
+    args: DepositToRemoteArgs,
+    facts: UsdcxDepositFacts
+  ): Promise<Hash>;
 }
 
 export interface UsdcxDepositDeps {
@@ -68,7 +90,8 @@ export function buildDepositToRemoteArgs(
  * before any wallet prompt), read the allowance xReserve has, approve xReserve
  * for the amount and wait for that receipt only when the allowance is less than
  * the amount, call `depositToRemote`, record the hash and the signed recipient on the row, wait for the
- * deposit receipt, then move the row to `delivering`. Circle signs the
+ * deposit receipt, then move the row to `delivering`. A batch signer sends the approval (when it is necessary) and
+ * the deposit as one atomic unit, with no approval receipt wait. Circle signs the
  * attestation and the relayer mints on Miden after that; nothing here waits
  * for them.
  *
@@ -107,19 +130,26 @@ export async function runUsdcxDeposit(
   // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
   // and `approve` would replace a larger allowance with this amount.
   const { xReserve } = source;
-  if ((await readAllowance(xReserve)) < value) {
-    await assertCurrent();
-    const approvalHash = await signer.approve(xReserve, value);
-    await waitForReceipt(approvalHash);
-  }
+  const needsApproval = (await readAllowance(xReserve)) < value;
+  const facts: UsdcxDepositFacts = { usdcxRemoteRecipient: remoteRecipient.toLowerCase() };
 
-  await assertCurrent();
-  const depositHash = await signer.depositToRemote(args);
+  let depositHash: Hash;
+  if (signer.approveAndDepositToRemote !== undefined) {
+    // One atomic unit: the deposit cannot run without its approval, so no approval receipt is awaited.
+    await assertCurrent();
+    const approval = needsApproval ? { spender: xReserve, value } : null;
+    depositHash = await signer.approveAndDepositToRemote(approval, args, facts);
+  } else {
+    if (needsApproval) {
+      await assertCurrent();
+      const approvalHash = await signer.approve(xReserve, value);
+      await waitForReceipt(approvalHash);
+    }
+    await assertCurrent();
+    depositHash = await signer.depositToRemote(args);
+  }
   if (original && ownership) await ownership.recordUsdcxDepositHash(original, depositHash);
-  await updatePhase(trackingTxId, 'submitting', {
-    evmTxHash: depositHash,
-    usdcxRemoteRecipient: remoteRecipient.toLowerCase()
-  });
+  await updatePhase(trackingTxId, 'submitting', { evmTxHash: depositHash, ...facts });
   await waitForReceipt(depositHash);
   await updatePhase(trackingTxId, 'delivering', { evmTxHash: depositHash });
   return depositHash;

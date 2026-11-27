@@ -54,6 +54,7 @@ jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { currentAccount: { publicKey: string } }) => unknown) =>
     select({ currentAccount: { publicKey: 'miden-account' } })
 }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'usdcx' }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
 

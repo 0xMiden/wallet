@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-import { Hash, isHex } from 'viem';
+import { encodeFunctionData, Hash, isHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { captureBridgeWalletScope } from 'lib/bridge/operation';
@@ -9,6 +9,7 @@ import {
   recordCctpExecutionHash,
   reserveCctpExecution
 } from 'lib/bridge/providers/xreserve/manual-execute';
+import { buildRelayProvider, findRelaySource, type RelaySource, relayServesChain } from 'lib/evm-relay/source';
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -22,6 +23,13 @@ import { nativeSigningErrorId } from 'lib/walletconnect/signing-error';
 
 /** The Arc leg of an executor-route deposit: `GenericExecutor.execute` with the attested CCTP message. */
 export type CctpExecute = (txId: string, sourceChainId: number, leg: IUsdcxCctpLeg) => Promise<Hash>;
+
+/** The relay source of a deposit from a relay address of this wallet, when the relay serves `chainId`. Else null. */
+function relayExecutorOf(sourceAddress: string | undefined, chainId: number): RelaySource | null {
+  if (sourceAddress === undefined) return null;
+  const relay = findRelaySource(sourceAddress);
+  return relay !== null && relayServesChain(chainId) ? relay : null;
+}
 
 /**
  * Execute an attested CCTP message on Circle's executor on Arc from the connected EVM wallet, then record
@@ -53,27 +61,45 @@ export function useCctpExecute(): CctpExecute {
       }
       let hash: Hash;
       let attemptId: string | undefined;
+      // A deposit from the relay address executes through the relay, when the relay serves the target chain: the
+      // execute is open to every caller, and the relay pays its gas. Else the connected wallet executes, as before.
+      const relay = relayExecutorOf(inputs?.sourceAddress, target.chain.id);
       try {
-        if (nativeReownAvailable) {
-          // A session that did not approve the target chain fails here, before the wallet prompt.
-          await prepareNativeSessionChain(target.chain.id);
+        if (relay !== null) {
+          if (owned) attemptId = await reserveCctpExecution(owned);
+          hash = await buildRelayProvider(relay, target.chain.id).sendCalls([
+            {
+              to: target.executor,
+              value: 0n,
+              data: encodeFunctionData({
+                abi: GENERIC_EXECUTOR_ABI,
+                functionName: 'execute',
+                args: [message, attestation]
+              })
+            }
+          ]);
         } else {
-          await switchChainAsync({ chainId: target.chain.id });
+          if (nativeReownAvailable) {
+            // A session that did not approve the target chain fails here, before the wallet prompt.
+            await prepareNativeSessionChain(target.chain.id);
+          } else {
+            await switchChainAsync({ chainId: target.chain.id });
+          }
+          hash = await sendEvmContractTransaction({
+            nativeReownAvailable,
+            writeContract: writeContract.mutateAsync,
+            chainId: target.chain.id,
+            address: target.executor,
+            abi: GENERIC_EXECUTOR_ABI,
+            functionName: 'execute',
+            args: [message, attestation],
+            beforeSend: owned
+              ? async () => {
+                  attemptId = await reserveCctpExecution(owned);
+                }
+              : undefined
+          });
         }
-        hash = await sendEvmContractTransaction({
-          nativeReownAvailable,
-          writeContract: writeContract.mutateAsync,
-          chainId: target.chain.id,
-          address: target.executor,
-          abi: GENERIC_EXECUTOR_ABI,
-          functionName: 'execute',
-          args: [message, attestation],
-          beforeSend: owned
-            ? async () => {
-                attemptId = await reserveCctpExecution(owned);
-              }
-            : undefined
-        });
         if (owned) {
           if (!attemptId) throw new Error('Circle execute attempt unavailable');
           await recordCctpExecutionHash(owned, attemptId, hash);
