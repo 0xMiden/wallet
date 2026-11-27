@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
+- [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
