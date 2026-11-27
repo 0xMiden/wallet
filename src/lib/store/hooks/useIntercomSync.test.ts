@@ -21,6 +21,10 @@ jest.mock('lib/store/utils/updateBalancesFromSyncData', () => ({
   updateBalancesFromSyncData: jest.fn().mockResolvedValue(undefined)
 }));
 
+jest.mock('lib/prices/display-cache', () => ({
+  primeCachedDisplayQuotes: jest.fn().mockResolvedValue(undefined)
+}));
+
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
   getEffectiveRpcUrl: () => 'https://node.example'
@@ -34,6 +38,7 @@ jest.mock('lib/platform', () => ({
 
 import { act, renderHook } from '@testing-library/react';
 
+import { primeCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { updateBalancesFromSyncData } from 'lib/store/utils/updateBalancesFromSyncData';
 
@@ -201,6 +206,44 @@ describe('useIntercomSync balance poll on a page an extension reload or update o
 
     await act(async () => finish());
     expect(syncFromBackend).toHaveBeenCalledWith(state);
+  });
+
+  it('fills the display cache when the prime outlasts the one second rehydrate', async () => {
+    const syncFromBackend = jest.fn();
+    _g.__intSyncTest.walletState = { currentAccount: null, balances: {}, syncFromBackend, setSyncStatus: jest.fn() };
+    const state = { ...readyResponse.state, status: WalletStatus.Ready, currentAccount: { publicKey: 'A' } };
+    intercom.request.mockResolvedValue({ ...readyResponse, state });
+    const balanceSnapshot = {
+      network: 'testnet',
+      effectiveNetwork: 'testnet',
+      rpcUrl: 'https://node.example',
+      accountNonce: '1'
+    };
+    get.mockImplementation((_key, cb) =>
+      cb({ miden_sync_data: { accountPublicKey: 'A', vaultAssets: [], balanceSnapshot } })
+    );
+    // The prime reads storage after the race has given up; whether it may still write is all this records.
+    const landed: boolean[] = [];
+    const slowPrime = (isCurrent: () => boolean) =>
+      new Promise<void>(resolve =>
+        setTimeout(() => {
+          landed.push(isCurrent());
+          resolve();
+        }, 1_500)
+      );
+    jest.mocked(primeCachedDisplayQuotes).mockImplementationOnce(slowPrime);
+
+    renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(1_500));
+    expect(syncFromBackend).toHaveBeenCalledWith(state);
+    expect(landed).toEqual([true]);
+
+    jest.mocked(primeCachedDisplayQuotes).mockImplementationOnce(slowPrime);
+    const second = renderHook(() => useIntercomSync());
+    await act(async () => jest.advanceTimersByTimeAsync(500));
+    second.unmount();
+    await act(async () => jest.advanceTimersByTimeAsync(1_000));
+    expect(landed).toEqual([true, false]);
   });
 
   it('does not wait for a different network’s cached vault', async () => {
