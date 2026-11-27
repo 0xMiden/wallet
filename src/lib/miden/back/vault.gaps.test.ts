@@ -15,7 +15,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, savePlain } from './safe-storage';
+import { encryptAndSaveMany, getPlain, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 // Nearly every test here seeds a real vault, which runs the production PBKDF2
@@ -734,6 +734,68 @@ describe('Vault hardware-backed unlock + reveal', () => {
     // Now setup() with no password drops into the `if (vault) return vault` arm.
     const unlocked = await Vault.setup();
     expect(unlocked).toBeInstanceOf(Vault);
+  });
+
+  describe('replacing the hardware wrapper', () => {
+    // The platform decrypts the old wrapper and hands back a replacement, as iOS does for its earlier key.
+    const decryptAndReplace =
+      (beforeReplace: () => Promise<void> = async () => {}) =>
+      async (encrypted: string, onRewrapped?: (rewrapped: string) => Promise<void>) => {
+        await beforeReplace();
+        await onRewrapped?.(`new-${encrypted}`);
+        return encrypted.replace(/^(new-)*enc\(/, '').slice(0, -1);
+      };
+
+    const spawnHardwareWallet = async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+      return (await getPlain<string>(keys.vaultKeyHardware))!;
+    };
+
+    it('stores the replacement after unlocking with the old wrapper', async () => {
+      const previous = await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(decryptAndReplace());
+
+      expect(await Vault.tryHardwareUnlock()).toBeInstanceOf(Vault);
+      expect(await getPlain(keys.vaultKeyHardware)).toBe(`new-${previous}`);
+    });
+
+    it('keeps a protector that changed while the prompt was open', async () => {
+      await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(() => savePlain(keys.vaultKeyHardware, 'another-wallet'))
+      );
+
+      await Vault.tryHardwareUnlock();
+      expect(await getPlain(keys.vaultKeyHardware)).toBe('another-wallet');
+    });
+
+    it('does not restore a protector that was removed while the prompt was open', async () => {
+      await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(async () => {
+          delete memoryStore[keys.vaultKeyHardware];
+        })
+      );
+
+      await Vault.tryHardwareUnlock();
+      expect(await getPlain(keys.vaultKeyHardware)).toBeUndefined();
+    });
+
+    it('still unlocks and keeps the old wrapper when the replacement cannot be written', async () => {
+      const previous = await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(async () => {
+          mockStorageSet.mockRejectedValueOnce(new Error('disk full'));
+        })
+      );
+      mockStorageSet.mockClear();
+
+      expect(await Vault.tryHardwareUnlock()).toBeInstanceOf(Vault);
+      expect(mockStorageSet).toHaveBeenCalled();
+      expect(await getPlain(keys.vaultKeyHardware)).toBe(previous);
+    });
   });
 
   it('verifyProtector uses hardware without replacing the installed vault', async () => {

@@ -579,6 +579,26 @@ describe('hardware security service', () => {
       expect(local.decryptWithHardwareKey).toHaveBeenCalledWith({ encrypted: 'CIPHER' });
     });
 
+    it('hands a replacement wrapper to the caller before returning the plaintext', async () => {
+      const local = makePlugin({
+        decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN', rewrapped: 'up1:ID:NEW' })
+      });
+      const { mod } = load({ platform: IOS, local });
+      const onRewrapped = jest.fn().mockResolvedValue(undefined);
+
+      expect(await mod.decryptWithHardwareKey('CIPHER', onRewrapped)).toBe('PLAIN');
+      expect(onRewrapped).toHaveBeenCalledWith('up1:ID:NEW');
+    });
+
+    it('does not call back when there is no replacement', async () => {
+      const local = makePlugin({ decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN' }) });
+      const { mod } = load({ platform: IOS, local });
+      const onRewrapped = jest.fn();
+
+      await mod.decryptWithHardwareKey('CIPHER', onRewrapped);
+      expect(onRewrapped).not.toHaveBeenCalled();
+    });
+
     it('throws when hardware security is unavailable', async () => {
       const { mod } = load({ platform: NOT_MOBILE });
       await expect(mod.decryptWithHardwareKey('CIPHER')).rejects.toThrow('Hardware security not available');
