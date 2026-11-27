@@ -203,29 +203,45 @@ describe('useIsNewRecipient', () => {
     await waitFor(() => expect(bridgedResult.current).toBe(false));
   });
 
-  it('chunks large real-Dexie send scans (>64 rows) so concurrent writes commit mid-scan', async () => {
+  it('chunks large real-Dexie send scans (>64 rows) via useIsNewRecipient so concurrent writes commit mid-scan', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.unmock('lib/miden/repo');
       jest.unmock('lib/miden/sdk/helpers');
       const DexieMod = (await import('dexie')).default;
+      const {
+        renderHook: renderIsolatedHook,
+        waitFor: waitIsolatedFor,
+        cleanup
+      } = await import('@testing-library/react/pure');
       const Repo = await import('lib/miden/repo');
-      const { readTransactionIndexChunks, typeIndexSpecs } = await import('lib/miden/db/index-query');
+      const { useIsNewRecipient: realUseIsNewRecipient } = await import('./useIsNewRecipient');
       await Repo.transactions.clear();
-      await Repo.transactions.bulkAdd(
-        Array.from({ length: 130 }, (_, i) =>
+      await Repo.transactions.bulkAdd([
+        ...Array.from({ length: 130 }, (_, i) =>
           sendRow({
             id: `send-${i}`,
             type: i % 2 === 0 ? 'send' : 'bridged-send',
+            secondaryAccountId: i === 128 ? 'mtst1knownrecipient' : 'mtst1otherrecipient',
             initiatedAt: 1_700_000_000 + i,
             completedAt: 1_700_000_000 + i
           })
-        )
-      );
+        ),
+        sendRow({
+          id: 'consume-ignored',
+          type: 'consume',
+          secondaryAccountId: 'mtst1knownrecipient',
+          initiatedAt: 1_700_000_500,
+          completedAt: 1_700_000_500
+        })
+      ]);
+      const filterSpy = jest.spyOn(Repo.transactions, 'filter');
       let writePromise: Promise<string> | undefined;
       let writeDone = false;
       let cursorOpensAfterWrite = 0;
+      const openedIndexes: string[] = [];
       const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
       Repo.transactions.core.openCursor = req => {
+        openedIndexes.push(req.query.index.name ?? '');
         if (writeDone) {
           cursorOpensAfterWrite += 1;
         } else if (!writePromise) {
@@ -241,16 +257,21 @@ describe('useIsNewRecipient', () => {
         return origOpenCursor(req);
       };
       try {
-        const rows = await readTransactionIndexChunks(
-          Repo.transactions,
-          typeIndexSpecs(['send', 'bridged-send']),
-          row => !row.restoredFromBackup && row.status !== ITransactionStatus.Failed
-        );
-        expect(rows).toHaveLength(130);
+        const { result } = renderIsolatedHook(({ to }) => realUseIsNewRecipient(ACCOUNT, to), {
+          initialProps: { to: 'mtst1knownrecipient' }
+        });
+        await waitIsolatedFor(() => expect(result.current).toBe(false));
+        expect(filterSpy).not.toHaveBeenCalled();
+        expect(openedIndexes).toContain('type');
         await writePromise;
         expect(writeDone).toBe(true);
         expect(cursorOpensAfterWrite).toBeGreaterThan(0);
+
+        const { result: fresh } = renderIsolatedHook(() => realUseIsNewRecipient(ACCOUNT, 'mtst1unseenrecipient'));
+        await waitIsolatedFor(() => expect(fresh.current).toBe(true));
       } finally {
+        cleanup();
+        filterSpy.mockRestore();
         Repo.transactions.core.openCursor = origOpenCursor;
         await Repo.transactions.clear();
       }

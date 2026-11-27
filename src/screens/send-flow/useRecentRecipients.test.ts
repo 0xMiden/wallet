@@ -1,6 +1,9 @@
-import { NEAR_INTENTS_NO_EVM_CHAIN_ID, type ITransaction } from 'lib/miden/db/types';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
-import { recipientOf, selectRecentRecipients } from './useRecentRecipients';
+import { NEAR_INTENTS_NO_EVM_CHAIN_ID, type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+
+import { recipientOf, selectRecentRecipients, useRecentRecipients } from './useRecentRecipients';
 
 // The NEAR Intents config offers Solana; the other lookups stay real.
 jest.mock('./bridge-networks', () => ({
@@ -344,5 +347,106 @@ describe('selectRecentRecipients', () => {
         }
       ]);
     });
+  });
+});
+
+describe('useRecentRecipients liveQuery integration', () => {
+  beforeEach(async () => {
+    await Repo.transactions.clear();
+  });
+
+  it('uses Repo.transactions.where(type) against real IndexedDB, excludes restored/non-send rows, and updates reactively', async () => {
+    const firstAddr = 'mtst1ap2autzy2mgkuqt6hx3qscrkd5hsxefv';
+    const secondAddr = 'mtst1apgenuine00000000000000000000000';
+    await Repo.transactions.bulkAdd([
+      {
+        ...sendRow({ id: 'live-send-1', secondaryAccountId: firstAddr, completedAt: 100 }),
+        status: ITransactionStatus.Completed,
+        displayIcon: 'SEND'
+      } as ITransaction,
+      {
+        ...bridgedRow({ id: 'live-bridge-1', completedAt: 200 }, '0x2222222222222222222222222222222222222222'),
+        status: ITransactionStatus.Completed,
+        displayIcon: 'SEND'
+      } as unknown as ITransaction,
+      {
+        ...sendRow({
+          id: 'live-restored',
+          secondaryAccountId: 'mtst1apattacker0000000000000000000000',
+          completedAt: 9_999,
+          restoredFromBackup: true
+        }),
+        status: ITransactionStatus.Completed,
+        displayIcon: 'SEND'
+      } as ITransaction,
+      {
+        ...sendRow({ id: 'live-consume', type: 'consume', secondaryAccountId: 'mtst1apignored', completedAt: 500 }),
+        status: ITransactionStatus.Completed,
+        displayIcon: 'RECEIVE'
+      } as ITransaction
+    ]);
+
+    const whereSpy = jest.spyOn(Repo.transactions, 'where');
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+    try {
+      const { result, unmount } = renderHook(() => useRecentRecipients(ACCOUNT));
+      await waitFor(() =>
+        expect(result.current.map(r => r.address)).toEqual(['0x2222222222222222222222222222222222222222', firstAddr])
+      );
+      expect(whereSpy).toHaveBeenCalledWith('type');
+      expect(filterSpy).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await Repo.transactions.add({
+          ...sendRow({ id: 'live-send-2', secondaryAccountId: secondAddr, completedAt: 300 }),
+          status: ITransactionStatus.Completed,
+          displayIcon: 'SEND'
+        } as ITransaction);
+      });
+      await waitFor(() =>
+        expect(result.current.map(r => r.address)).toEqual([
+          secondAddr,
+          '0x2222222222222222222222222222222222222222',
+          firstAddr
+        ])
+      );
+      unmount();
+    } finally {
+      whereSpy.mockRestore();
+      filterSpy.mockRestore();
+    }
+  });
+
+  it('falls back to Repo.transactions.filter when schema lacks the type index', async () => {
+    const fallbackRows: ITransaction[] = [
+      {
+        ...sendRow({
+          id: 'fallback-send',
+          secondaryAccountId: 'mtst1apfallback000000000000000000000',
+          completedAt: 100
+        }),
+        status: ITransactionStatus.Completed,
+        displayIcon: 'SEND'
+      } as ITransaction
+    ];
+    const origSchema = Repo.transactions.schema;
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter').mockImplementation(((
+      predicate: (row: ITransaction) => boolean
+    ) => ({
+      toArray: async () => fallbackRows.filter(predicate)
+    })) as unknown as typeof Repo.transactions.filter);
+    Object.defineProperty(Repo.transactions, 'schema', {
+      configurable: true,
+      value: { ...origSchema, idxByName: {} }
+    });
+    try {
+      const { result, unmount } = renderHook(() => useRecentRecipients(ACCOUNT));
+      await waitFor(() => expect(result.current.map(r => r.address)).toEqual(['mtst1apfallback000000000000000000000']));
+      expect(filterSpy).toHaveBeenCalled();
+      unmount();
+    } finally {
+      filterSpy.mockRestore();
+      Object.defineProperty(Repo.transactions, 'schema', { configurable: true, value: origSchema });
+    }
   });
 });

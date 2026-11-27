@@ -144,6 +144,16 @@ describe('useEpochReturnState page visibility', () => {
       await actualRepo.transactions.clear();
       await actualRepo.transactions.bulkAdd([
         {
+          id: 'claim-scalar',
+          type: 'consume',
+          accountId: 'acct-1',
+          status: ITransactionStatus.Completed,
+          initiatedAt: 99,
+          completedAt: 99,
+          displayIcon: 'RECEIVE',
+          noteId: 'note-1'
+        },
+        {
           id: 'claim-both',
           type: 'consume',
           accountId: 'acct-1',
@@ -153,6 +163,17 @@ describe('useEpochReturnState page visibility', () => {
           displayIcon: 'RECEIVE',
           noteId: 'note-1',
           noteIds: ['note-1']
+        },
+        {
+          id: 'claim-batch',
+          type: 'consume',
+          accountId: 'acct-1',
+          status: ITransactionStatus.Completed,
+          initiatedAt: 102,
+          completedAt: 102,
+          displayIcon: 'RECEIVE',
+          noteId: 'note-0',
+          noteIds: ['note-0', 'note-1']
         },
         {
           id: 'unrelated-send',
@@ -169,7 +190,7 @@ describe('useEpochReturnState page visibility', () => {
       renderHook(() => useEpochReturnState(bridgeEntry(), 'acct-1', false));
       expect(capturedLiveQuery).toBeDefined();
       const rows = (await capturedLiveQuery!()) as Array<{ id: string }>;
-      expect(rows.map(r => r.id)).toEqual(['claim-both']);
+      expect(rows.map(r => r.id).sort()).toEqual(['claim-batch', 'claim-both', 'claim-scalar']);
       expect(whereSpy.mock.calls.map(([arg]) => arg)).toEqual(['noteId', 'noteIds']);
       whereSpy.mockRestore();
       await actualRepo.transactions.clear();
@@ -186,5 +207,47 @@ describe('useEpochReturnState page visibility', () => {
     } finally {
       mockRepoTransactions = prevTransactions;
     }
+  });
+
+  it('reactively updates returned EpochReturnState via real subscribeToLiveQuery when a batch claim lands', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.unmock('lib/miden/repo');
+      jest.unmock('lib/dexie-live-query');
+      const {
+        act: isolatedAct,
+        renderHook: renderIsolatedHook,
+        waitFor,
+        cleanup
+      } = await import('@testing-library/react/pure');
+      const returnState = await import('lib/epoch/return-state');
+      jest.mocked(returnState.readEpochNoteState).mockResolvedValue('spent');
+      const Repo = await import('lib/miden/repo');
+      const { useEpochReturnState: realUseEpochReturnState } = await import('./useEpochReturnState');
+      await Repo.transactions.clear();
+      try {
+        const { result, unmount } = renderIsolatedHook(() => realUseEpochReturnState(bridgeEntry(), 'acct-1', false));
+        await waitFor(() => expect(result.current.status).toBe('unconfirmed'));
+
+        await isolatedAct(async () => {
+          await Repo.transactions.add({
+            id: 'live-batch-claim',
+            type: 'consume',
+            accountId: 'acct-1',
+            status: ITransactionStatus.Completed,
+            initiatedAt: 105,
+            completedAt: 105,
+            displayIcon: 'RECEIVE',
+            noteId: 'note-0',
+            noteIds: ['note-0', 'note-1']
+          });
+        });
+
+        await waitFor(() => expect(result.current.status).toBe('fundsReturned'));
+        unmount();
+      } finally {
+        cleanup();
+        await Repo.transactions.clear();
+      }
+    });
   });
 });
