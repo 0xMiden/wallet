@@ -5,10 +5,12 @@ import {
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { _resetDisplayFeedForTest, writeDisplayFeed } from 'lib/prices/display-feed';
+import { usdMarketPending } from 'lib/prices/feed';
 import { isCoveredSymbol } from 'lib/prices/usd';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { parseSwapPairs, type SwapPairs } from 'lib/remote-config/swap-pairs';
-import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+import { peekTokenBaskets, peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
@@ -30,6 +32,7 @@ import {
   getSwapTokenBySymbol,
   normalizedFaucetId,
   priceSymbolFor,
+  quoteMayArrive,
   strictPriceSymbolFor,
   tokenQuote,
   _allowlistedPriceSymbolsForTest,
@@ -38,8 +41,10 @@ import {
 } from './tokens';
 
 // The bridged price entries: the testnet config's by default (the manual mock's answer), and others a test sets.
-jest.mock('lib/token-list/runtime', () => ({ peekTokenPriceAssets: jest.fn() }));
+jest.mock('lib/token-list/runtime', () => ({ peekTokenPriceAssets: jest.fn(), peekTokenBaskets: jest.fn() }));
 jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
+// Whether every market source has ruled a symbol out; the price feed's own suite covers the sources.
+jest.mock('lib/prices/feed', () => ({ usdMarketPending: jest.fn(() => true) }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: jest.fn(),
@@ -680,5 +685,59 @@ describe('verified list price mapping', () => {
     );
     expect(priceSymbolFor(TEST_TOKEN_IETH.faucetId, 'IETH')).toBe('IETH');
     expect(priceSymbolFor('mtst1listed', 'BTC')).toBe('IBTC');
+  });
+});
+
+describe('quoteMayArrive', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(
+      new Map([
+        [TEST_TOKEN_IETH.faucetId, 'ETH'],
+        [TEST_TOKEN_IUSDT.faucetId, 'USDCX']
+      ])
+    );
+  });
+
+  it('never waits for a token without a price asset once the lists that could map it have loaded', () => {
+    expect(priceSymbolFor('mtst1unlisted', 'MICO')).toBeUndefined();
+    expect(quoteMayArrive('mtst1unlisted', 'MICO')).toBe(false);
+  });
+
+  it.each([
+    ['the verified list has not loaded', () => jest.mocked(peekTokenPriceAssets).mockReturnValue(undefined)],
+    ['the bridge config is still loading', () => mockSnapshot.mockReturnValue(UNLOADED)]
+  ])('waits for a token without a price asset while %s', (_case, unload) => {
+    unload();
+    expect(quoteMayArrive('mtst1unlisted', 'MICO')).toBe(true);
+  });
+
+  it('never waits for a fixed rate, and waits for a market the feed has not ruled out', () => {
+    expect(quoteMayArrive(TEST_TOKEN_IUSDT.faucetId, 'USDCX')).toBe(false);
+    expect(quoteMayArrive(TEST_TOKEN_IETH.faucetId, 'ETH')).toBe(true);
+  });
+
+  it('stops waiting for a market once every source ruled it out, here or in the last feed run', async () => {
+    jest.mocked(usdMarketPending).mockReturnValueOnce(false);
+    expect(quoteMayArrive(TEST_TOKEN_IETH.faucetId, 'ETH')).toBe(false);
+    _resetDisplayFeedForTest();
+    await writeDisplayFeed('testnet', {}, ['ETH']);
+    try {
+      expect(quoteMayArrive(TEST_TOKEN_IETH.faucetId, 'ETH')).toBe(false);
+    } finally {
+      _resetDisplayFeedForTest();
+    }
+  });
+
+  it('keeps a basket waiting for its value after the exchanges ruled its market out', () => {
+    jest.mocked(peekTokenPriceAssets).mockReturnValue(new Map([['mtst1basket', 'BLUEDW']]));
+    jest.mocked(peekTokenBaskets).mockReturnValue(new Map([['mtst1basket', [TEST_TOKEN_IETH.faucetId]]]));
+    jest.mocked(usdMarketPending).mockReturnValue(false);
+    try {
+      expect(quoteMayArrive('mtst1basket', 'BLUEDW')).toBe(true);
+    } finally {
+      jest.mocked(peekTokenBaskets).mockReturnValue(undefined);
+      jest.mocked(usdMarketPending).mockReturnValue(true);
+    }
   });
 });

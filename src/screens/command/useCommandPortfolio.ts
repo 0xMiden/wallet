@@ -3,11 +3,13 @@ import { readBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { valuedBalanceTotal } from 'lib/miden/front/fiat-total';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { tokenQuote } from 'lib/miden/swap/tokens';
+import { quoteMayArrive, tokenQuote } from 'lib/miden/swap/tokens';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
+import { DISPLAY_QUOTE_MAX_AGE_MS } from 'lib/prices/display-feed';
 import { useWalletStore } from 'lib/store';
 
+// How old a balance proof or market quote may be for the portfolio history; the figure shows older last-known values.
 const CURRENT_MS = 15 * 60_000;
 const EMPTY_ROWS: TokenBalanceData[] = [];
 
@@ -27,6 +29,8 @@ export function useCommandPortfolio(scope: AccountScope) {
   const pricedRows: TokenBalanceData[] = [];
   const pricedValues: { tokenId: string; value: number }[] = [];
   let partial = false;
+  // A held token the figure cannot value yet whose quote may still arrive: only it waits for the feed.
+  let awaitingQuote = false;
   let staleQuote = false;
   let hasMarketValue = false;
   let usesCachedPrice = false;
@@ -46,17 +50,18 @@ export function useCommandPortfolio(scope: AccountScope) {
     ) {
       partial = true;
       unpriced.push(row.tokenId);
+      awaitingQuote ||= hasKnownScale(row.metadata) && quoteMayArrive(row.tokenId, row.metadata.symbol);
       continue;
     }
-    if (
-      quote.kind !== 'fixed' &&
-      (!quote.observedAt || Date.now() - quote.observedAt > CURRENT_MS || quote.observedAt > Date.now())
-    ) {
+    const quoteAge = quote.observedAt === undefined ? Number.NaN : Date.now() - quote.observedAt;
+    if (quote.kind !== 'fixed' && !(quoteAge >= 0 && quoteAge <= DISPLAY_QUOTE_MAX_AGE_MS)) {
       staleQuote = true;
       partial = true;
       unpriced.push(row.tokenId);
+      awaitingQuote ||= quoteMayArrive(row.tokenId, row.metadata.symbol);
       continue;
     }
+    staleQuote ||= quote.kind !== 'fixed' && quoteAge > CURRENT_MS;
     const value = row.balance * quote.price;
     if (!Number.isFinite(value)) {
       partial = true;
@@ -71,16 +76,17 @@ export function useCommandPortfolio(scope: AccountScope) {
     priced.push(row.tokenId);
   }
   const proof = storedRows === rows ? readBalanceSnapshot(rows, scope) : null;
-  const current = Boolean(
-    proof?.capturedAt && proof.capturedAt <= Date.now() && Date.now() - proof.capturedAt <= CURRENT_MS
-  );
+  // This scope's last vault read, at any age: the figure shows it until the next read lands.
+  const proofAge = proof?.capturedAt ? Date.now() - proof.capturedAt : Number.NaN;
+  const proven = proofAge >= 0;
+  const current = proven && proofAge <= CURRENT_MS;
   const { totalFiat: total, previousFiat } = valuedBalanceTotal(pricedRows, tokenPrices);
   const empty =
-    current && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0');
-  // Fixed quotes and a proven empty vault do not depend on the market feed.
-  const canValueWithoutFeed = empty || (held && !partial && !hasMarketValue);
+    proven && !isLoading && hiddenReady && rows.length > 0 && rows.every(row => row.balanceBaseUnits === '0');
+  // Fixed quotes, tokens no quote can reach and a proven empty vault do not depend on the market feed.
+  const canValueWithoutFeed = empty || (held && !awaitingQuote && !hasMarketValue);
   const value =
-    current &&
+    proven &&
     hiddenReady &&
     // A fresh cached quote values the held tokens it covers, as the Sidebar total does; coverage says the rest are unpriced.
     (pricesStatus === 'ready' || canValueWithoutFeed || usesCachedPrice) &&
@@ -109,15 +115,20 @@ export function useCommandPortfolio(scope: AccountScope) {
       : null;
   const coverage: 'complete' | 'partial' = partial ? 'partial' : 'complete';
   return {
-    assets: current && hiddenReady ? assets : [],
+    assets: proven && hiddenReady ? assets : [],
+    /** The rows an action may spend from: only a proof at most CURRENT_MS old, never the older one the figure shows. */
+    actionBalances: current && hiddenReady ? assets : [],
     allocation,
     tokenPrices,
+    livePrices,
     value,
     priceMovement24h,
     coverage,
     coverageKey: `priced:${priced.sort().join(',')}|unpriced:${unpriced.sort().join(',')}`,
     capturedAt: proof?.capturedAt,
     current: current && !isLoading,
+    /** The rows can be shown: a proven read at any age, the one the figure shows. */
+    shown: proven && !isLoading,
     empty,
     canRecord:
       current &&
