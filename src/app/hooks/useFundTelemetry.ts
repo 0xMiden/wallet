@@ -101,7 +101,26 @@ export function useFundFlow(): FundFlowTelemetry {
   }, []);
 
   const transitionStep = useCallback((action: TelemetryStepAction, nextStep?: TelemetryStep) => {
-    if (nextStep !== undefined) flowRef.current?.step?.(nextStep);
+    if (!flowRef.current) {
+      if (trackerRef.current) {
+        trackerRef.current.transition(action);
+        detachRef.current?.();
+        detachRef.current = null;
+        trackerRef.current.disposeSilently();
+        trackerRef.current = null;
+      }
+      hasFailedAttemptRef.current = false;
+      if (nextStep === undefined) return;
+      const nextFlow = beginFlow('fund') ?? null;
+      flowRef.current = nextFlow;
+      const next = attachTrackerForFlow(nextFlow);
+      trackerRef.current = next.tracker;
+      detachRef.current = next.detach;
+      nextFlow?.step?.(nextStep);
+      next.tracker?.enter(nextStep);
+      return;
+    }
+    if (nextStep !== undefined) flowRef.current.step?.(nextStep);
     trackerRef.current?.transition(action, nextStep);
   }, []);
 
@@ -118,8 +137,14 @@ export function useFundFlow(): FundFlowTelemetry {
     let flow = flowRef.current;
     let activeTracker = trackerRef.current;
     if (!flow) {
-      const carriedVisibleMs =
-        trackerRef.current?.currentStep() === 'review' ? trackerRef.current.disposeSilently() : 0;
+      let carriedVisibleMs = 0;
+      if (trackerRef.current) {
+        if (trackerRef.current.currentStep() === 'review') {
+          carriedVisibleMs = trackerRef.current.disposeSilently();
+        } else {
+          trackerRef.current.finish('leave');
+        }
+      }
       detachRef.current?.();
       detachRef.current = null;
       trackerRef.current = null;

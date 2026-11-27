@@ -10,6 +10,7 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { usePageActive } from 'app/layouts/page-active';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
@@ -82,6 +83,7 @@ import { sendNetworkKind } from './send-network-kind';
 import {
   enterSendFlow,
   hasActiveSendSession,
+  hasOpenSendFlow,
   recordSendActionWithoutProgress,
   reportSendStep,
   settleSendFlow,
@@ -213,6 +215,14 @@ function stepForNavigatorRoute(routeName: unknown) {
       return 'select_route' as const;
     default:
       return undefined;
+  }
+}
+
+function ensureSendFlowAtStep(step: unknown): void {
+  if (!hasOpenSendFlow()) {
+    enterSendFlow();
+    const activeStep = stepForNavigatorRoute(step);
+    if (activeStep) reportSendStep(activeStep);
   }
 }
 
@@ -387,16 +397,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
   //
   // Dwelled on rather than merely current, because a swipe from Overview to Swap
   // commits /send on the way past — see `useRouteDwell`.
-  const onSendSurface = pathname === '/send' || pathname.startsWith('/send/');
-  const onSendForm = pathname === '/send';
-  const dwelledOnSend = useRouteDwell(onSendSurface);
+  const pageActive = usePageActive();
+  const onSendForm = pathname === '/send' && pageActive;
+  const dwelledOnSend = useRouteDwell(onSendForm);
   const [adoptingReturn, setAdoptingReturn] = useState(() => onSendForm && hasActiveSendSession());
-  const onSendRoute = onSendSurface && (dwelledOnSend || adoptingReturn);
+  const onSendRoute = onSendForm && (dwelledOnSend || adoptingReturn);
   useEffect(() => {
-    if (adoptingReturn && (!onSendSurface || dwelledOnSend)) {
+    if (adoptingReturn && (!onSendForm || dwelledOnSend)) {
       setAdoptingReturn(false);
     }
-  }, [adoptingReturn, dwelledOnSend, onSendSurface]);
+  }, [adoptingReturn, dwelledOnSend, onSendForm]);
   // Set when this screen navigates to review. That unmount is the handoff, not
   // the user leaving, so the review page still owns the terminal call.
   const reviewHandoffRef = useRef(false);
@@ -412,17 +422,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Returning from `/send/review` on a retained layer (mobile slide) flips
   // `onSendForm` false -> true without remounting `SendManager`: clear the
   // handoff guard (so leaving `/send` later cancels cleanly) and adopt/reopen
-  // the flow if returning after a failed submit.
+  // the flow when a send session exists.
   const wasOnSendFormRef = useRef(onSendForm);
   useEffect(() => {
     const returnedToForm = onSendForm && !wasOnSendFormRef.current;
     wasOnSendFormRef.current = onSendForm;
     if (!returnedToForm) return;
     reviewHandoffRef.current = false;
-    if (onSendRoute) {
+    if (hasActiveSendSession()) {
+      setAdoptingReturn(true);
       enterSendFlow();
     }
-  }, [onSendForm, onSendRoute]);
+  }, [onSendForm]);
 
   // Report the step the user reached, so an abandoned send says WHERE it was
   // abandoned. Without it every drop-out arrives as one bare `send_started` and
@@ -437,17 +448,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // a flow that did not exist yet and every send would arrive stepless.
   useEffect(() => {
     if (!onSendRoute || !onSendForm) return;
-    switch (currentStep) {
-      case SendFlowStep.SelectRecipient:
-        reportSendStep('select_recipient');
-        break;
-      case SendFlowStep.SelectAmount:
-        reportSendStep('select_amount');
-        break;
-      case SendFlowStep.Route:
-        reportSendStep('select_route');
-        break;
-    }
+    const step = stepForNavigatorRoute(currentStep);
+    if (step) reportSendStep(step);
   }, [currentStep, onSendForm, onSendRoute]);
 
   const registryScope = useSyncExternalStore(subscribeEffectiveEndpoints, getNameRegistryScope);
@@ -1129,6 +1131,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (reviewHandoffRef.current) return;
     const admission = commandDrafts?.readSendAdmission();
     if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
+      ensureSendFlowAtStep(currentStep);
       transitionSendStep('continue');
       settleSendFlow(flow => flow.complete());
       reviewHandoffRef.current = true;
@@ -1141,6 +1144,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         recordSendActionWithoutProgress();
         return;
       }
+      ensureSendFlowAtStep(currentStep);
       transitionSendStep('continue');
       reviewHandoffRef.current = true;
       const params = new URLSearchParams({
@@ -1210,6 +1214,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
       return;
     }
+    ensureSendFlowAtStep(currentStep);
     transitionSendStep('continue');
     reviewHandoffRef.current = true;
     // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.

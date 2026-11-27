@@ -1,4 +1,13 @@
-import React, { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -10,6 +19,7 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { formatNetworkFeeEstimate, useNetworkFeeEstimateDetails } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
@@ -109,11 +119,14 @@ import { NearIntentsQuoteMessage } from './Route';
 import { clearSendDraft } from './send-draft';
 import {
   beginSendSubmitting,
+  getSendSessionToken,
   recordSendActionWithoutProgress,
   reportSendStep,
   restoreSendReviewIfSubmitting,
   settleSendFlow,
-  transitionSendStep
+  settleSendFlowForSession,
+  transitionSendStep,
+  transitionSendStepForSession
 } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { TransferType, TransferTypeDrawer } from './TransferTypeDrawer';
@@ -270,8 +283,10 @@ export const ReviewTransaction: React.FC = () => {
   // and a context change clears any in-flight loading flags from the previous submission.
   const submissionAbort = useRef<AbortController | undefined>(undefined);
   const submittingRef = useRef(false);
+  const hasFailedAttemptRef = useRef(false);
   useEffect(() => {
     restoreSendReviewIfSubmitting();
+    hasFailedAttemptRef.current = false;
     submittingRef.current = false;
     setIsSubmitting(false);
     setRequestingDepositAddress(false);
@@ -667,32 +682,49 @@ export const ReviewTransaction: React.FC = () => {
   // next send would adopt it, inheriting a duration that is not its own.
   // Already-settled flows are untouched, so a completed submit is not
   // re-reported by the navigation away from this page.
+  const pageActive = usePageActive();
   const backToSendRef = useRef(false);
+  const ownedSessionRef = useRef(0);
+  const departedRef = useRef(false);
+  const handleReviewDeparture = useCallback(() => {
+    if (departedRef.current) return;
+    departedRef.current = true;
+    const ownedToken = ownedSessionRef.current;
+    if (backToSendRef.current || ownedToken === 0) return;
+    if (isReturningToSendRoute()) {
+      transitionSendStepForSession(ownedToken, 'back');
+      return;
+    }
+    settleSendFlowForSession(ownedToken, flow => flow.cancel());
+  }, []);
   useEffect(() => {
     // Reaching review is the most informative single fact about an abandoned
     // send: the user had chosen a recipient, a token and an amount, and stopped
     // at the last screen before committing. That is a very different problem
     // from giving up on the amount field, and only `step` distinguishes them.
     reportSendStep('review');
+    ownedSessionRef.current = getSendSessionToken();
     return () => {
-      if (backToSendRef.current) return;
-      if (isReturningToSendRoute()) {
-        transitionSendStep('back');
-        return;
-      }
-      settleSendFlow(flow => flow.cancel());
+      handleReviewDeparture();
     };
-  }, []);
+  }, [handleReviewDeparture]);
+  useLayoutEffect(() => {
+    if (!pageActive) handleReviewDeparture();
+  }, [pageActive, handleReviewDeparture]);
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
-  const hasFailedAttemptRef = useRef(false);
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
   const handleBack = useCallback(() => {
     backToSendRef.current = true;
-    transitionSendStep('back');
+    departedRef.current = true;
+    if (ownedSessionRef.current !== 0) {
+      transitionSendStepForSession(ownedSessionRef.current, 'back');
+    } else {
+      transitionSendStep('back');
+    }
     (command ? backToComposer : goBack)();
   }, [backToComposer, command]);
   useMobileBackHandler(() => {
@@ -733,9 +765,9 @@ export const ReviewTransaction: React.FC = () => {
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
       if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
+      if (!isCurrentSubmission()) return;
       transitionSendStep('continue');
       settleSendFlow(flow => flow.complete());
-      if (!isCurrentSubmission()) return;
       if (!command) clearSendDraft();
       else if (
         commandDrafts?.readDraft('send') &&
@@ -821,6 +853,7 @@ export const ReviewTransaction: React.FC = () => {
       const isRetry = hasFailedAttemptRef.current;
       hasFailedAttemptRef.current = false;
       beginSendSubmitting(isRetry);
+      ownedSessionRef.current = getSendSessionToken();
       let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -851,7 +884,6 @@ export const ReviewTransaction: React.FC = () => {
               ? await initiateSendTransaction(...commonArguments)
               : await initiateSendTransaction(...commonArguments, authorization);
         }
-        if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
         if (isExtension()) {
           try {
             requestSWTransactionProcessing();
@@ -859,10 +891,12 @@ export const ReviewTransaction: React.FC = () => {
             console.error(error);
           }
         }
+        if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
         goToGeneratingTransaction(txId);
       } catch (error) {
         if (txId !== undefined) return;
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
+        if (!isCurrentSubmission()) return;
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -881,6 +915,7 @@ export const ReviewTransaction: React.FC = () => {
         } catch (challengeError) {
           console.error(challengeError);
         }
+        if (!isCurrentSubmission()) return;
         if (opened) {
           transitionSendStep('back', 'review');
           setIsSubmitting(false);
@@ -954,6 +989,7 @@ export const ReviewTransaction: React.FC = () => {
       const isRetry = hasFailedAttemptRef.current;
       hasFailedAttemptRef.current = false;
       beginSendSubmitting(isRetry);
+      ownedSessionRef.current = getSendSessionToken();
       let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -1060,8 +1096,9 @@ export const ReviewTransaction: React.FC = () => {
             });
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
+              if (!isCurrentSubmission()) return;
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
-              if (isCurrentSubmission()) restoreSendReviewIfSubmitting();
+              restoreSendReviewIfSubmitting();
               setIsSubmitting(false);
             }
           }
@@ -1072,6 +1109,7 @@ export const ReviewTransaction: React.FC = () => {
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
         // A send that the page or account left behind shows nothing: no error and no state update.
         if (
+          !isCurrentSubmission() ||
           error instanceof NearIntentsSendSupersededError ||
           (route === 'near-intents' && submission.signal.aborted)
         ) {
@@ -1094,6 +1132,7 @@ export const ReviewTransaction: React.FC = () => {
         } catch (challengeError) {
           console.error(challengeError);
         }
+        if (!isCurrentSubmission()) return;
         if (opened) {
           transitionSendStep('back', 'review');
           setIsSubmitting(false);
@@ -1234,6 +1273,7 @@ export const ReviewTransaction: React.FC = () => {
       } catch (challengeError) {
         console.error(challengeError);
       }
+      if (!isCurrentSubmission()) return;
       if (opened) {
         setIsSubmitting(false);
         return;

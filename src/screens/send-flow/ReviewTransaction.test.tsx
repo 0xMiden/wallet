@@ -3834,6 +3834,110 @@ describe('ReviewTransaction — send telemetry', () => {
       expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
     );
   });
+
+  it('ignores stale same-chain txId completion after account change without completing telemetry or navigating', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const pendingSend = deferred<string>();
+    initiateMock.mockReturnValueOnce(pendingSend.promise);
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    await act(async () => {
+      pendingSend.resolve('stale-tx-1');
+    });
+    await flush();
+
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('close-btn'));
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
+    );
+  });
+
+  it('ignores stale same-chain and Epoch rejections after account change without failing flow or marking retry', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      enterSendFlow();
+      setValidRoute();
+      const pendingSend = deferred<string>();
+      initiateMock.mockReturnValueOnce(pendingSend.promise).mockResolvedValueOnce('fresh-tx-2');
+      const { rerender, unmount } = render(<ReviewTransaction />);
+      await flush();
+
+      await clickSubmit();
+      mockPublicKey = 'pubkey-2';
+      rerender(<ReviewTransaction />);
+      await flush();
+
+      await act(async () => {
+        pendingSend.reject(new Error('stale rpc boom'));
+      });
+      await flush();
+
+      expect(handleAt(0).fail).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+
+      reportTelemetryEventMock.mockClear();
+      await clickSubmit();
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({ step: 'review', stepAction: 'submit', complete: true })
+      );
+      expect(reportTelemetryEventMock).not.toHaveBeenCalledWith(expect.objectContaining({ stepAction: 'retry' }));
+      unmount();
+
+      // Stale Epoch rejection after unmount + fresh enterSendFlow never tears down the new session.
+      const pendingBridge = deferred<{ txId?: string }>();
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = {
+        ...reviewedEpochBinding,
+        amount: '4.8',
+        decimals: 6,
+        loading: false,
+        error: null,
+        symbol: 'USDC'
+      };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      bridgeEpochSendMock.mockReturnValueOnce(pendingBridge.promise as any);
+      mockPublicKey = 'pubkey-1';
+      enterSendFlow();
+      const firstView = render(<ReviewTransaction />);
+      await flush();
+      await clickSubmit();
+      firstView.unmount();
+
+      settleSendFlow(flow => flow.cancel());
+      reportTelemetryEventMock.mockClear();
+      enterSendFlow();
+      mockDetectedChain = 'miden';
+      setValidRoute();
+      const freshView = render(<ReviewTransaction />);
+      await flush();
+
+      await act(async () => {
+        pendingBridge.reject(new Error('stale bridge fail'));
+      });
+      await flush();
+
+      expect(handleAt(2).fail).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('close-btn'));
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({ flowId: 'flow-review-3', step: 'review', stepAction: 'close', complete: true })
+      );
+      freshView.unmount();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

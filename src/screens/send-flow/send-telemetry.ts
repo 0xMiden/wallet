@@ -24,6 +24,7 @@ import { TelemetryStep, TelemetryStepAction } from 'lib/telemetry/types';
 let handle: FlowHandle | null = null;
 let tracker: StepProgressionTracker | null = null;
 let detachLifecycle: (() => void) | null = null;
+let sessionToken = 0;
 
 /** Begin the send flow, or adopt the one already in progress. */
 export function enterSendFlow(): void {
@@ -33,12 +34,14 @@ export function enterSendFlow(): void {
     const staleDetach = detachLifecycle;
     tracker = null;
     detachLifecycle = null;
+    sessionToken = 0;
     staleDetach?.();
     staleTracker?.finish('leave');
   }
   const nextHandle = beginFlow('send');
   if (!nextHandle) return;
   handle = nextHandle;
+  sessionToken += 1;
   if (
     typeof nextHandle.flowId === 'string' &&
     nextHandle.flowId.length > 0 &&
@@ -70,11 +73,15 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
     if (currentTracker || detach) {
       tracker = null;
       detachLifecycle = null;
+      sessionToken = 0;
       detach?.();
       currentTracker?.finish('leave');
+    } else {
+      sessionToken = 0;
     }
     return;
   }
+  const activeToken = sessionToken;
   handle = null;
   tracker = null;
   detachLifecycle = null;
@@ -82,6 +89,7 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
   const finishTracker = (action: TelemetryStepAction) => {
     if (settled) return;
     settled = true;
+    sessionToken = 0;
     detach?.();
     currentTracker?.finish(action);
   };
@@ -103,7 +111,9 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
         currentTracker.transition('leave', 'review');
         tracker = currentTracker;
         detachLifecycle = detach;
+        sessionToken = activeToken;
       } else {
+        sessionToken = 0;
         detach?.();
         currentTracker?.finish('leave');
       }
@@ -121,6 +131,10 @@ export function hasActiveSendSession(): boolean {
   return handle !== null || tracker !== null;
 }
 
+export function getSendSessionToken(): number {
+  return hasActiveSendSession() ? sessionToken : 0;
+}
+
 /** Record the furthest step the open flow reached. No-op when none is open. */
 export function reportSendStep(step: TelemetryStep): void {
   handle?.step?.(step);
@@ -131,6 +145,22 @@ export function reportSendStep(step: TelemetryStep): void {
 export function transitionSendStep(action: TelemetryStepAction, nextStep?: TelemetryStep): void {
   if (nextStep !== undefined) handle?.step?.(nextStep);
   tracker?.transition(action, nextStep);
+}
+
+/** Record a transition only while `expectedToken` still owns the active send session. */
+export function transitionSendStepForSession(
+  expectedToken: number,
+  action: TelemetryStepAction,
+  nextStep?: TelemetryStep
+): void {
+  if (expectedToken === 0 || getSendSessionToken() !== expectedToken) return;
+  transitionSendStep(action, nextStep);
+}
+
+/** Settle the send flow only while `expectedToken` still owns the active send session. */
+export function settleSendFlowForSession(expectedToken: number, settle: (handle: FlowHandle) => void): void {
+  if (expectedToken === 0 || getSendSessionToken() !== expectedToken) return;
+  settleSendFlow(settle);
 }
 
 /** Restores `review` when an in-flight submit returns or is superseded without settling. */

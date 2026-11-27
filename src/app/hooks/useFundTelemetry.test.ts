@@ -1,4 +1,6 @@
-import { act, renderHook } from '@testing-library/react';
+import React, { useEffect } from 'react';
+
+import { act, render, renderHook } from '@testing-library/react';
 
 import { useFundFlow, useFundTelemetry } from './useFundTelemetry';
 
@@ -435,15 +437,95 @@ describe('useFundFlow step progression', () => {
   });
 
   it('consumes a child enterStep registered before mount effect runs and ignores overwriting active parent steps', () => {
-    const { result } = renderHook(() => useFundFlow());
+    function Child({ onEnter }: { onEnter: (step: 'select_route') => void }) {
+      useEffect(() => {
+        onEnter('select_route');
+      }, [onEnter]);
+      return null;
+    }
 
-    // Emulate child setting connect_wallet before subsequent enterStep('select_amount'): active step must hold.
+    function Parent() {
+      const fundFlow = useFundFlow();
+      useEffect(() => {
+        fundFlow.enterStep('select_amount');
+      }, [fundFlow]);
+      return React.createElement(Child, { onEnter: fundFlow.enterStep });
+    }
+
+    const { unmount } = render(React.createElement(Parent));
+    unmount();
+
+    expect(emittedSteps).toEqual([
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'fund',
+        flowId: 'flow-fund-1',
+        runId: RUN_ID,
+        step: 'select_route',
+        stepAction: 'leave',
+        order: 1,
+        complete: true
+      })
+    ]);
+  });
+
+  it('closes failed flow on backtrack, resets retry state, opens fresh flow, and disposes non-review trackers cleanly', async () => {
+    const { result, unmount } = renderHook(() => useFundFlow());
     act(() => {
-      result.current.enterStep('connect_wallet');
-      result.current.enterStep('select_amount');
-      result.current.transitionStep('close');
+      result.current.enterStep('review');
     });
 
-    expect(emittedSteps).toMatchObject([{ step: 'connect_wallet', stepAction: 'close', order: 1 }]);
+    await act(async () => {
+      await expect(result.current.reportDeposit(() => Promise.reject(new Error('rpc fail')))).rejects.toThrow(
+        'rpc fail'
+      );
+    });
+
+    // Stepping back from failed Review closes flow-fund-1 and opens flow-fund-2 at select_route.
+    act(() => {
+      result.current.transitionStep('back', 'select_route');
+      result.current.transitionStep('continue', 'review');
+    });
+
+    await act(async () => {
+      await result.current.reportDeposit(() => Promise.resolve('bridge-ok'));
+    });
+
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+    expect(emittedSteps).toMatchObject([
+      { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 },
+      { flowId: 'flow-fund-1', step: 'review', stepAction: 'back', order: 3, complete: true },
+      { flowId: 'flow-fund-2', step: 'select_route', stepAction: 'continue', order: 1, complete: true },
+      { flowId: 'flow-fund-2', step: 'review', stepAction: 'submit', order: 2, complete: true },
+      { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 3, complete: true }
+    ]);
+
+    // Closing directly on a failed Review emits close on the failed flow without starting a fresh flow.
+    emittedSteps.length = 0;
+    const second = renderHook(() => useFundFlow());
+    act(() => {
+      second.result.current.enterStep('review');
+    });
+    await act(async () => {
+      await expect(second.result.current.reportDeposit(() => Promise.reject(new Error('nope')))).rejects.toThrow(
+        'nope'
+      );
+    });
+    act(() => {
+      second.result.current.transitionStep('close');
+    });
+    second.unmount();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(3);
+    expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(2).cancel).not.toHaveBeenCalled();
+    expect(emittedSteps).toMatchObject([
+      { flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 },
+      { flowId: 'flow-fund-3', step: 'review', stepAction: 'close', order: 3, complete: true }
+    ]);
+    unmount();
   });
 });
