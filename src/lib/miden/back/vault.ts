@@ -925,7 +925,6 @@ export class Vault {
       };
 
       let preparedSeedRecovery: PreparedGuardianSeedRecovery | undefined;
-      let useLegacyRecoverFallback = false;
       let guardianCreateKey: GuardianCreateKey | undefined;
       let createdAccounts: SpawnedAccount[];
 
@@ -933,28 +932,13 @@ export class Vault {
         // Pre-commit validation & remote lookups (ZERO storage wipes / DB writes until commit passes).
         if (isGuardianRecovery) {
           console.log('[Vault.spawn] Step 7a: pre-commit scanning Guardian accounts...');
-          const seedPrep = await (async () => {
-            const client = await liveClient();
-            if (typeof client.prepareGuardianRecoveryBySeed === 'function') {
-              return {
-                prepared: await client.prepareGuardianRecoveryBySeed(
-                  makeColdSeedDeriver(resolvedMnemonic, WalletType.Guardian),
-                  resolvedGuardianEndpoint
-                )
-              };
-            }
-            return { legacy: true as const };
-          })().catch((err: unknown) => {
-            if (err instanceof PublicError) throw err;
-            throw toPublicError(err);
-          });
+          preparedSeedRecovery = await (async () =>
+            (await liveClient()).prepareGuardianRecoveryBySeed(
+              makeColdSeedDeriver(resolvedMnemonic, WalletType.Guardian),
+              resolvedGuardianEndpoint
+            ))().catch(mapGuardianRecoveryError);
 
-          if ('prepared' in seedPrep && seedPrep.prepared) {
-            preparedSeedRecovery = seedPrep.prepared;
-            await options?.checkAccountsAdmitted?.(preparedSeedRecovery.accountIds);
-          } else {
-            useLegacyRecoverFallback = true;
-          }
+          await options?.checkAccountsAdmitted?.(preparedSeedRecovery.accountIds);
         } else if (walletType === WalletType.Guardian) {
           // Pre-fetch guardian create key before wiping any existing wallet (#1207 + #2360).
           guardianCreateKey = await fetchGuardianCreateKey(guardianEndpoint);
@@ -987,21 +971,10 @@ export class Vault {
         await savePlain(preparedProtector.storageKey, preparedProtector.value);
 
         if (isGuardianRecovery) {
-          const recovered = await (async () => {
-            if (preparedSeedRecovery) {
-              return (await liveClient()).adoptPreparedGuardianSeedRecovery(preparedSeedRecovery);
-            }
-            if (useLegacyRecoverFallback) {
-              return (await liveClient()).recoverGuardianAccountsBySeed(
-                makeColdSeedDeriver(resolvedMnemonic, WalletType.Guardian),
-                resolvedGuardianEndpoint
-              );
-            }
-            return [];
-          })().catch((err: unknown) => {
-            if (err instanceof PublicError) throw err;
-            throw toPublicError(err);
-          });
+          const recovered = await (async () =>
+            (await liveClient()).adoptPreparedGuardianSeedRecovery(preparedSeedRecovery!))().catch(
+            mapGuardianRecoveryError
+          );
           // One recovery can match the same account at more than one HD index.
           // Keep the first (lowest-index) match; the vault holds one record per account.
           const seen = new Set<string>();
@@ -1247,25 +1220,12 @@ export class Vault {
       let recovered: { accountId: string; hotPublicKey: string }[];
 
       try {
-        const hotPrep = await (async () => {
-          const client = await liveClient();
-          if (typeof client.prepareGuardianRecoveryByHotKey === 'function') {
-            return {
-              prepared: await client.prepareGuardianRecoveryByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
-            };
-          }
-          return { legacy: true as const };
-        })().catch((err: unknown) => {
-          if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
-          rethrowTrapOrKill(err);
-          if (err instanceof PublicError) throw err;
-          throw toPublicError(err);
-        });
+        preparedHotKeyRecovery = await (async () =>
+          (await liveClient()).prepareGuardianRecoveryByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint))().catch(
+          mapGuardianRecoveryError
+        );
 
-        if ('prepared' in hotPrep && hotPrep.prepared) {
-          preparedHotKeyRecovery = hotPrep.prepared;
-          await options?.checkAccountsAdmitted?.(preparedHotKeyRecovery.accountIds);
-        }
+        await options?.checkAccountsAdmitted?.(preparedHotKeyRecovery.accountIds);
 
         // COMMIT POINT: paste validation, protector setup, Guardian lookup, and admission check passed.
         await options?.onBeforeCommit?.();
@@ -1274,25 +1234,10 @@ export class Vault {
         protectorInstalled = true;
         await savePlain(preparedProtector.storageKey, preparedProtector.value);
 
-        if (preparedHotKeyRecovery) {
-          recovered = await (await liveClient())
-            .adoptPreparedGuardianHotKeyRecovery(preparedHotKeyRecovery)
-            .catch((err: unknown) => {
-              if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
-              rethrowTrapOrKill(err);
-              if (err instanceof PublicError) throw err;
-              throw toPublicError(err);
-            });
-        } else {
-          recovered = await (await liveClient())
-            .recoverGuardianAccountByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
-            .catch((err: unknown) => {
-              if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
-              rethrowTrapOrKill(err);
-              if (err instanceof PublicError) throw err;
-              throw toPublicError(err);
-            });
-        }
+        recovered = await (async () =>
+          (await liveClient()).adoptPreparedGuardianHotKeyRecovery(preparedHotKeyRecovery!))().catch(
+          mapGuardianRecoveryError
+        );
       } catch (err) {
         if (!isWasmTrap(err) && !isWasmClientPoisonedError(err)) {
           preparedHotKeyRecovery?.dispose();
@@ -3188,6 +3133,13 @@ function createDynamicStorageKey(id: StorageEntity) {
 
 function combineStorageKey(...parts: (string | number)[]) {
   return parts.join('_');
+}
+
+function mapGuardianRecoveryError(err: unknown): never {
+  if (isWasmTrap(err)) retireWasmClientForUnheldTrap(err);
+  rethrowTrapOrKill(err);
+  if (err instanceof PublicError) throw err;
+  throw toPublicError(err);
 }
 
 // Flattening to PublicError drops the class; keep the code so the UI can still tell not-found apart.

@@ -1178,43 +1178,6 @@ export class MidenClientInterface {
   }
 
   /**
-   * Scan Guardian for any accounts registered under this seed, verify them and
-   * adopt them locally into MidenClient. Never writes keys: callers persist
-   * keys to Vault after this resolves.
-   */
-  async recoverGuardianAccountsBySeed(
-    deriveColdSeed: (hdIndex: number) => Uint8Array,
-    guardianEndpoint: string
-  ): Promise<RecoveredGuardianAccount[]> {
-    const prepared = await this.prepareGuardianRecoveryBySeed(deriveColdSeed, guardianEndpoint);
-    try {
-      return await this.adoptPreparedGuardianSeedRecovery(prepared);
-    } catch (error) {
-      if (!(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
-        prepared.dispose();
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Look up + adopt the Guardian accounts authorized by one key, as used by
-   * `recoverGuardianAccountByHotKey`. An empty return is a MISS, not an error —
-   * the callers own their empty semantics.
-   *
-   * `verifyAccount` (when given) runs inside the WASM lock on the decoded
-   * account BEFORE it is adopted; throwing from it aborts the adoption and
-   * propagates.
-   */
-  private async recoverAndAdoptByKey(
-    sk: AuthSecretKey,
-    guardianEndpoint: string,
-    verifyAccount?: (acc: Account) => Promise<void>
-  ): Promise<string[]> {
-    return this.adoptServedStates(await this.lookupServedStatesByKey(sk, guardianEndpoint, verifyAccount), sk);
-  }
-
-  /**
    * Look up the accounts one key is registered on and decode each, adopting none.
    * `verifyAccount` (when given) runs inside the WASM lock on each decoded
    * account; throwing from it aborts the lookup and propagates.
@@ -1391,52 +1354,6 @@ export class MidenClientInterface {
     } finally {
       if (!abortedByPoisonOrTrap) {
         prepared.dispose();
-      }
-    }
-  }
-
-  /**
-   * Adopt the Guardian account authorized by a pasted HOT secret key — the
-   * seed-less import flow. One lookup against one operator, no HD walk.
-   *
-   * The guardian's lookup is by key commitment over EVERY registered signer,
-   * so before adopting each match the pasted key is checked against the
-   * on-chain signer set: a rotated-out hot key can still be known to the
-   * guardian while no on-chain slot holds it, and it is refused with a pointed
-   * message. The check is by membership, because the set can hold more than one
-   * hot key and a membership change moves the slots.
-   *
-   * Limit: this flow holds no cold public key, and the cold key is also a member
-   * of the set, so a pasted COLD key is not refused here. Its slot is not a
-   * reliable signal after a membership change.
-   */
-  async recoverGuardianAccountByHotKey(
-    hotSecretKeyHex: string,
-    guardianEndpoint: string
-  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
-    const { sk, hotPublicKey, verifyAccount, noAccountMessage } = await this.prepareHotKeyVerification(hotSecretKeyHex);
-
-    let abortedByPoisonOrTrap = false;
-    try {
-      // Not yet bound to an account: on mobile its origin routes through native HTTP
-      // while it is looked up, and for the session only once an account is adopted from it.
-      const adopted = await withGuardianProbe(
-        guardianEndpoint,
-        () => this.recoverAndAdoptByKey(sk, guardianEndpoint, verifyAccount),
-        found => found.length > 0
-      );
-
-      if (adopted.length === 0) {
-        throw new NoGuardianAccountsFoundError(noAccountMessage);
-      }
-
-      return adopted.map(accountId => ({ accountId, hotPublicKey }));
-    } catch (error) {
-      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
-      throw error;
-    } finally {
-      if (!abortedByPoisonOrTrap) {
-        this.freeWasmKeySafely(sk);
       }
     }
   }

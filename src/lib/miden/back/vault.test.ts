@@ -29,7 +29,7 @@ import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-autho
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.setTimeout(30_000);
 
@@ -86,39 +86,37 @@ const mockCreateGuardianMidenWallet = jest.fn(
     registration: { stateBase64: 'state' }
   })
 );
-const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
+const defaultPreparedSeedEntries = [
   {
     accountId: 'guardian-acc-imported',
     hdIndex: 0,
     coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
     coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
   }
-]);
+];
 const mockPrepareGuardianRecoveryBySeedDispose = jest.fn();
-const mockPrepareGuardianRecoveryBySeed = jest.fn(async (deriveColdSeed: any, endpoint: string) => {
-  const recovered = await mockRecoverGuardianAccountsBySeed(deriveColdSeed, endpoint);
-  return {
-    guardianEndpoint: endpoint,
-    accountIds: recovered.map((r: any) => r.accountId),
-    recovered,
-    dispose: mockPrepareGuardianRecoveryBySeedDispose
-  };
+const makePreparedSeedRecovery = (entries: typeof defaultPreparedSeedEntries, endpoint: string) => ({
+  guardianEndpoint: endpoint,
+  accountIds: entries.map(r => r.accountId),
+  entries,
+  dispose: mockPrepareGuardianRecoveryBySeedDispose
 });
-const mockAdoptPreparedGuardianSeedRecovery = jest.fn(async (prepared: any) => prepared.recovered);
-const mockRecoverGuardianAccountByHotKey = jest.fn(async (_hotSecretKeyHex: string, _endpoint: string) => [
-  { accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }
-]);
+const mockPrepareGuardianRecoveryBySeed = jest.fn(async (_deriveColdSeed: any, endpoint: string) =>
+  makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint)
+);
+const mockAdoptPreparedGuardianSeedRecovery = jest.fn(async (prepared: any) => prepared.entries);
+const defaultPreparedHotKeyEntries = [{ accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }];
 const mockPrepareGuardianRecoveryByHotKeyDispose = jest.fn();
-const mockPrepareGuardianRecoveryByHotKey = jest.fn(async (hotSecretKeyHex: string, endpoint: string) => {
-  const recovered = await mockRecoverGuardianAccountByHotKey(hotSecretKeyHex, endpoint);
-  return {
-    guardianEndpoint: endpoint,
-    accountIds: recovered.map((r: any) => r.accountId),
-    recovered,
-    dispose: mockPrepareGuardianRecoveryByHotKeyDispose
-  };
+const makePreparedHotKeyRecovery = (entries: typeof defaultPreparedHotKeyEntries, endpoint: string) => ({
+  guardianEndpoint: endpoint,
+  accountIds: entries.map(r => r.accountId),
+  entries,
+  dispose: mockPrepareGuardianRecoveryByHotKeyDispose
 });
-const mockAdoptPreparedGuardianHotKeyRecovery = jest.fn(async (prepared: any) => prepared.recovered);
+const mockPrepareGuardianRecoveryByHotKey = jest.fn(async (_hotSecretKeyHex: string, endpoint: string) =>
+  makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint)
+);
+const mockAdoptPreparedGuardianHotKeyRecovery = jest.fn(async (prepared: any) => prepared.entries);
 const mockCheckNodeReachable = jest.fn(async () => {});
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
@@ -149,11 +147,8 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
-  recoverGuardianAccountsBySeed: (...args: unknown[]) => mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
   prepareGuardianRecoveryBySeed: (...args: unknown[]) => mockPrepareGuardianRecoveryBySeed(...(args as [any, string])),
   adoptPreparedGuardianSeedRecovery: (...args: unknown[]) => mockAdoptPreparedGuardianSeedRecovery(...(args as [any])),
-  recoverGuardianAccountByHotKey: (...args: unknown[]) =>
-    mockRecoverGuardianAccountByHotKey(...(args as [string, string])),
   prepareGuardianRecoveryByHotKey: (...args: unknown[]) =>
     mockPrepareGuardianRecoveryByHotKey(...(args as [string, string])),
   adoptPreparedGuardianHotKeyRecovery: (...args: unknown[]) =>
@@ -303,10 +298,8 @@ const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
   importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
   createGuardianMidenWallet: mockCreateGuardianMidenWallet,
-  recoverGuardianAccountsBySeed: mockRecoverGuardianAccountsBySeed,
   prepareGuardianRecoveryBySeed: mockPrepareGuardianRecoveryBySeed,
   adoptPreparedGuardianSeedRecovery: mockAdoptPreparedGuardianSeedRecovery,
-  recoverGuardianAccountByHotKey: mockRecoverGuardianAccountByHotKey,
   prepareGuardianRecoveryByHotKey: mockPrepareGuardianRecoveryByHotKey,
   adoptPreparedGuardianHotKeyRecovery: mockAdoptPreparedGuardianHotKeyRecovery,
   checkNodeReachable: mockCheckNodeReachable,
@@ -546,39 +539,20 @@ beforeEach(() => {
     rateLimitBudgetLeftMs: 90_000
   }));
   mockRegisterGuardianAccount.mockReset().mockResolvedValue(undefined);
-  mockMidenClient.recoverGuardianAccountsBySeed.mockReset().mockResolvedValue([
-    {
-      accountId: 'guardian-acc-imported',
-      hdIndex: 0,
-      coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
-      coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
-    }
-  ]);
-  mockPrepareGuardianRecoveryBySeed.mockReset().mockImplementation(async (deriveColdSeed: any, endpoint: string) => {
-    const recovered = await mockRecoverGuardianAccountsBySeed(deriveColdSeed, endpoint);
-    return {
-      guardianEndpoint: endpoint,
-      accountIds: recovered.map((r: any) => r.accountId),
-      recovered,
-      dispose: mockPrepareGuardianRecoveryBySeedDispose
-    };
-  });
-  mockAdoptPreparedGuardianSeedRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.recovered);
-  mockRecoverGuardianAccountByHotKey
+  mockPrepareGuardianRecoveryBySeedDispose.mockReset();
+  mockPrepareGuardianRecoveryBySeed
     .mockReset()
-    .mockResolvedValue([{ accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }]);
+    .mockImplementation(async (_deriveColdSeed: any, endpoint: string) =>
+      makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint)
+    );
+  mockAdoptPreparedGuardianSeedRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.entries);
+  mockPrepareGuardianRecoveryByHotKeyDispose.mockReset();
   mockPrepareGuardianRecoveryByHotKey
     .mockReset()
-    .mockImplementation(async (hotSecretKeyHex: string, endpoint: string) => {
-      const recovered = await mockRecoverGuardianAccountByHotKey(hotSecretKeyHex, endpoint);
-      return {
-        guardianEndpoint: endpoint,
-        accountIds: recovered.map((r: any) => r.accountId),
-        recovered,
-        dispose: mockPrepareGuardianRecoveryByHotKeyDispose
-      };
-    });
-  mockAdoptPreparedGuardianHotKeyRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.recovered);
+    .mockImplementation(async (_hotSecretKeyHex: string, endpoint: string) =>
+      makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint)
+    );
+  mockAdoptPreparedGuardianHotKeyRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.entries);
   mockCheckNodeReachable.mockReset().mockResolvedValue(undefined);
   mockDeserializeHotSecretKey.mockImplementation(() => fakeHotSecretKey() as any);
   // mockReset, not just a fresh value: a queued mockResolvedValueOnce from one
@@ -3969,14 +3943,14 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
-  it('Vault.spawn propagates recoverGuardianAccountsBySeed failures (no silent fallback)', async () => {
+  it('Vault.spawn propagates prepareGuardianRecoveryBySeed failures (no silent fallback)', async () => {
     // The Guardian recovery path must NOT fall back to createGuardianMidenWallet —
     // otherwise a silently-recreated account would leave the user with an empty
     // balance under their seed. The branch rethrows, wrapped as a PublicError by
     // withError.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
     // …and the lookup's OWN reason must survive. `withError('Failed to create
     // wallet', …)` replaces any non-PublicError with that generic string; on the
@@ -3995,15 +3969,15 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn scans once, under the v1 cold-key derivation, and surfaces a not-found as a PublicError', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValue(new NoGuardianAccountsFoundError());
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-none', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
     await expect(spawning).rejects.toThrow('No Guardian accounts found at this guardian endpoint for this seed');
     await expect(spawning).rejects.toMatchObject({ code: GUARDIAN_ACCOUNT_NOT_FOUND });
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledTimes(1);
     // The v1 Guardian ECDSA golden vector at index 0 (derive-seed.test.ts).
-    const [deriveColdSeed] = mockMidenClient.recoverGuardianAccountsBySeed.mock.calls[0]!;
+    const [deriveColdSeed] = mockPrepareGuardianRecoveryBySeed.mock.calls[0]!;
     expect(Buffer.from(deriveColdSeed(0)).toString('hex')).toBe(
       'a8ecedd7d91f0355bfa4f914044e00b1395c77db738e91ba7b6d897322ec383c'
     );
@@ -4014,7 +3988,7 @@ describe('Vault hardware branches', () => {
     // itself, not as a not-found.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
 
     const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-network', VALID_MNEMONIC, true);
     await expect(spawning).rejects.toThrow(PublicError);
@@ -4029,7 +4003,7 @@ describe('Vault hardware branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     const original = new PublicError('Could not reach the Miden network');
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(original);
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(original);
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-public', VALID_MNEMONIC, true)).rejects.toBe(original);
   });
@@ -4040,11 +4014,60 @@ describe('Vault hardware branches', () => {
     // alternative is the generic 'Failed to create wallet' after a wipe.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-string', VALID_MNEMONIC, true)).rejects.toThrow(
       'guardian endpoint returned 503'
     );
+  });
+
+  it('Vault.spawn preserves WasmClientPoisonedError and skips dispose() when Guardian seed prepare/adopt is evicted', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const preparePoison = new WasmClientPoisonedError('watchdog', new Error('operation abandoned'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(preparePoison);
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, 'pw-guardian-prepare-poison', VALID_MNEMONIC, true)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+
+    const adoptPoison = new WasmClientPoisonedError('watchdog', new Error('operation abandoned'));
+    mockAdoptPreparedGuardianSeedRecovery.mockRejectedValueOnce(adoptPoison);
+
+    await expect(
+      Vault.spawn(WalletType.Guardian, 'pw-guardian-adopt-poison', VALID_MNEMONIC, true)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn retires WASM traps from Guardian seed prepare/adopt once and skips dispose()', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const prepareTrap = new WebAssembly.RuntimeError('unreachable');
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(prepareTrap);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-prepare-trap', VALID_MNEMONIC, true)).rejects.toThrow(
+        'Failed to create wallet'
+      );
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(prepareTrap);
+      expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+
+      mockRetireUnheldTrap.mockClear();
+      const adoptTrap = new WebAssembly.RuntimeError('unreachable');
+      mockAdoptPreparedGuardianSeedRecovery.mockRejectedValueOnce(adoptTrap);
+
+      await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-adopt-trap', VALID_MNEMONIC, true)).rejects.toThrow(
+        'Failed to create wallet'
+      );
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(adoptTrap);
+      expect(mockPrepareGuardianRecoveryBySeedDispose).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('promotes a liveClient() rejection during the recovery scan to a PublicError with its own message', async () => {
@@ -4085,7 +4108,7 @@ describe('Vault hardware branches', () => {
     );
   });
 
-  it('Vault.spawn threads the probed guardianEndpoint into recoverGuardianAccountsBySeed (recovery path)', async () => {
+  it('Vault.spawn threads the probed guardianEndpoint into prepareGuardianRecoveryBySeed (recovery path)', async () => {
     // The probed endpoint reaches the recovery lookup explicitly.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
@@ -4096,7 +4119,7 @@ describe('Vault hardware branches', () => {
       true,
       'https://probed-guardian.example'
     );
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledWith(
       expect.any(Function),
       'https://probed-guardian.example'
     );
@@ -4139,10 +4162,15 @@ describe('Vault hardware branches', () => {
   it('Vault.spawn keeps one record, the lowest HD index, for an account recovered at two indices', async () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValueOnce([
-      { accountId: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0', coldSecretKeyHex: 'cold-sk-0' },
-      { accountId: 'guardian-acc-twice', hdIndex: 1, coldPublicKey: 'cold-pub-1', coldSecretKeyHex: 'cold-sk-1' }
-    ]);
+    mockPrepareGuardianRecoveryBySeed.mockResolvedValueOnce(
+      makePreparedSeedRecovery(
+        [
+          { accountId: 'guardian-acc-twice', hdIndex: 0, coldPublicKey: 'cold-pub-0', coldSecretKeyHex: 'cold-sk-0' },
+          { accountId: 'guardian-acc-twice', hdIndex: 1, coldPublicKey: 'cold-pub-1', coldSecretKeyHex: 'cold-sk-1' }
+        ],
+        getEffectiveDefaultGuardianEndpoint()
+      )
+    );
 
     const vault = await Vault.spawn(WalletType.Guardian, 'pw-guardian-twice', VALID_MNEMONIC, true);
 
@@ -4156,7 +4184,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     await Vault.spawn(WalletType.Guardian, 'pw-guardian-recover-default', VALID_MNEMONIC, true);
 
-    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+    expect(mockPrepareGuardianRecoveryBySeed).toHaveBeenCalledWith(
       expect.any(Function),
       getEffectiveDefaultGuardianEndpoint()
     );
@@ -5543,7 +5571,7 @@ describe('Vault.spawnFromHotKey', () => {
 
     // The canonical serialized hex (from the deserialized key, not the raw
     // paste) is what reaches the guardian lookup.
-    expect(mockRecoverGuardianAccountByHotKey).toHaveBeenCalledWith('01beef', ENDPOINT);
+    expect(mockPrepareGuardianRecoveryByHotKey).toHaveBeenCalledWith('01beef', ENDPOINT);
 
     const accounts = await vault.fetchAccounts();
     expect(accounts).toHaveLength(1);
@@ -5604,7 +5632,7 @@ describe('Vault.spawnFromHotKey', () => {
 
     await expect(Vault.spawnFromHotKey('pw', 'zz', ENDPOINT)).rejects.toThrow(PublicError);
 
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     // The existing wallet's storage was not cleared by the failed validation.
     await expect(getPlain('sentinel')).resolves.toBe('still-here');
   });
@@ -5618,7 +5646,7 @@ describe('Vault.spawnFromHotKey', () => {
     try {
       await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
       expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
-      expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+      expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
     }
@@ -5636,7 +5664,7 @@ describe('Vault.spawnFromHotKey', () => {
     await savePlain('sentinel', 'preserved');
     await expect(Vault.spawnFromHotKey('pw', payload, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockDeserializeHotSecretKey).not.toHaveBeenCalled();
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     await expect(getPlain('sentinel')).resolves.toBe('preserved');
   });
 
@@ -5650,7 +5678,7 @@ describe('Vault.spawnFromHotKey', () => {
     });
 
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('importHotKeyWrongScheme');
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
   });
 
   it('rejects a trap in the scheme probe without freeing the pasted key', async () => {
@@ -5677,7 +5705,7 @@ describe('Vault.spawnFromHotKey', () => {
       expect(errorSpy).toHaveBeenCalledWith(expect.any(String), trap);
       expect(publicKeyFree).not.toHaveBeenCalled();
       expect(secretKeyFree).not.toHaveBeenCalled();
-      expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+      expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
     } finally {
       errorSpy.mockRestore();
       mockDeserializeHotSecretKey.mockReset().mockImplementation(() => fakeHotSecretKey() as any);
@@ -5685,7 +5713,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('surfaces the guardian lookup reason as a PublicError (no account for this key)', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
 
     await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
       'No Guardian account was found for this key'
@@ -5693,7 +5721,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('keeps the not-found code on the rethrown PublicError', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
       new NoGuardianAccountsFoundError('No Guardian account was found for this key at this Guardian.')
     );
 
@@ -5704,7 +5732,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('gives a timeout no not-found code', async () => {
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
       new Error('RPC "recoverGuardianByKey" timed out after 30000ms')
     );
 
@@ -5716,7 +5744,7 @@ describe('Vault.spawnFromHotKey', () => {
 
   it('retires a trap from the guardian lookup once and fails the import with it, not with its message', async () => {
     const trap = new WebAssembly.RuntimeError('unreachable');
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(trap);
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(trap);
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
@@ -5729,9 +5757,35 @@ describe('Vault.spawnFromHotKey', () => {
     }
   });
 
+  it('preserves WasmClientPoisonedError and skips dispose() on hot-key prepare/adopt eviction, and skips dispose() on adopt trap', async () => {
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(
+      new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+    );
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(
+      new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+    );
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+
+    const adoptTrap = new WebAssembly.RuntimeError('unreachable');
+    mockAdoptPreparedGuardianHotKeyRecovery.mockRejectedValueOnce(adoptTrap);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('Failed to import wallet from key');
+      expect(mockRetireUnheldTrap).toHaveBeenCalledTimes(1);
+      expect(mockRetireUnheldTrap).toHaveBeenCalledWith(adoptTrap);
+      expect(mockPrepareGuardianRecoveryByHotKeyDispose).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('requires a password when hardware protection is unavailable', async () => {
     await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
-    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    expect(mockPrepareGuardianRecoveryByHotKey).not.toHaveBeenCalled();
   });
 
   it('leaves no protector or realm insert-key sink behind when post-commit adoption rejects (#946)', async () => {
@@ -5792,7 +5846,7 @@ describe('Vault.spawnFromHotKey', () => {
   it('falls back to the network default endpoint when none is passed', async () => {
     await Vault.spawnFromHotKey('pw', PAIR);
 
-    const [, endpoint] = mockRecoverGuardianAccountByHotKey.mock.calls[0]!;
+    const [, endpoint] = mockPrepareGuardianRecoveryByHotKey.mock.calls[0]!;
     expect(typeof endpoint).toBe('string');
     expect(endpoint.length).toBeGreaterThan(0);
   });
@@ -6149,7 +6203,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
   it('Vault.spawn (Guardian seed recovery) preserves the existing wallet when Guardian lookup fails with a network error', async () => {
     const snapshot = await seedExistingWallet();
     const clearSpy = clearStorageSpy();
-    mockRecoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new Error('Failed to fetch'));
 
     await expect(Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT)).rejects.toThrow(
       'Failed to fetch'
@@ -6161,7 +6215,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
   it('Vault.spawn (Guardian seed recovery) preserves the existing wallet on NoGuardianAccountsFoundError', async () => {
     const snapshot = await seedExistingWallet();
     const clearSpy = clearStorageSpy();
-    mockRecoverGuardianAccountsBySeed.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
+    mockPrepareGuardianRecoveryBySeed.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
 
     await expect(Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT)).rejects.toMatchObject({
       code: GUARDIAN_ACCOUNT_NOT_FOUND
@@ -6240,15 +6294,9 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     await seedExistingWallet();
     const clearSpy = clearStorageSpy();
     const order: string[] = [];
-    mockPrepareGuardianRecoveryBySeed.mockImplementationOnce(async (deriveColdSeed, endpoint) => {
+    mockPrepareGuardianRecoveryBySeed.mockImplementationOnce(async (_deriveColdSeed, endpoint) => {
       order.push('prepare');
-      const recovered = await mockRecoverGuardianAccountsBySeed(deriveColdSeed, endpoint);
-      return {
-        guardianEndpoint: endpoint,
-        accountIds: recovered.map((r: any) => r.accountId),
-        recovered,
-        dispose: mockPrepareGuardianRecoveryBySeedDispose
-      };
+      return makePreparedSeedRecovery(defaultPreparedSeedEntries, endpoint);
     });
     const checkAccountsAdmitted = jest.fn(async () => {
       order.push('admitted');
@@ -6263,7 +6311,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     });
     mockAdoptPreparedGuardianSeedRecovery.mockImplementationOnce(async (prepared: any) => {
       order.push('adopt');
-      return prepared.recovered;
+      return prepared.entries;
     });
 
     const vault = await Vault.spawn(WalletType.Guardian, NEW_PW, VALID_MNEMONIC, true, ENDPOINT, {
@@ -6299,7 +6347,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     // 3. Guardian lookup failure
     snapshot = await seedExistingWallet();
     clearSpy = clearStorageSpy();
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(new NoGuardianAccountsFoundError());
     await expect(Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT)).rejects.toMatchObject({
       code: GUARDIAN_ACCOUNT_NOT_FOUND
     });
@@ -6308,7 +6356,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     // 4. Rotated out
     snapshot = await seedExistingWallet();
     clearSpy = clearStorageSpy();
-    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('importHotKeyNotActive'));
+    mockPrepareGuardianRecoveryByHotKey.mockRejectedValueOnce(new Error('importHotKeyNotActive'));
     await expect(Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT)).rejects.toThrow('importHotKeyNotActive');
     await expectExistingWalletIntact(snapshot, clearSpy);
 
@@ -6333,15 +6381,9 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     await seedExistingWallet();
     const clearSpy = clearStorageSpy();
     const order: string[] = [];
-    mockPrepareGuardianRecoveryByHotKey.mockImplementationOnce(async (hex, endpoint) => {
+    mockPrepareGuardianRecoveryByHotKey.mockImplementationOnce(async (_hex, endpoint) => {
       order.push('prepare');
-      const recovered = await mockRecoverGuardianAccountByHotKey(hex, endpoint);
-      return {
-        guardianEndpoint: endpoint,
-        accountIds: recovered.map((r: any) => r.accountId),
-        recovered,
-        dispose: mockPrepareGuardianRecoveryByHotKeyDispose
-      };
+      return makePreparedHotKeyRecovery(defaultPreparedHotKeyEntries, endpoint);
     });
     const checkAccountsAdmitted = jest.fn(async () => {
       order.push('admitted');
@@ -6356,7 +6398,7 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
     });
     mockAdoptPreparedGuardianHotKeyRecovery.mockImplementationOnce(async (prepared: any) => {
       order.push('adopt');
-      return prepared.recovered;
+      return prepared.entries;
     });
 
     const vault = await Vault.spawnFromHotKey(NEW_PW, PAIR, ENDPOINT, {

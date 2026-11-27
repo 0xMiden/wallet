@@ -2713,8 +2713,10 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
-      const recover = () =>
-        client.recoverGuardianAccountsBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint);
+      const recover = async () =>
+        client.adoptPreparedGuardianSeedRecovery(
+          await client.prepareGuardianRecoveryBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint)
+        );
       return {
         held,
         insert,
@@ -2735,7 +2737,7 @@ describe('MidenClientInterface', () => {
       };
     };
 
-    it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
+    it('prepareGuardianRecoveryBySeed + adoptPreparedGuardianSeedRecovery adopts each match under the WASM lock and inserts its cold key', async () => {
       const { held, insert, adopt, fakeMidenClient, recover, probes } = await setupRecovery();
 
       const recovered = await recover();
@@ -2960,7 +2962,7 @@ describe('MidenClientInterface', () => {
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
-    it('recoverGuardianAccountsBySeed releases an endpoint with no account for the seed, never registering it', async () => {
+    it('prepareGuardianRecoveryBySeed releases an endpoint with no account for the seed, never registering it', async () => {
       const { recover, probes } = await setupRecovery(undefined, { finds: false });
       const { NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
 
@@ -2969,7 +2971,7 @@ describe('MidenClientInterface', () => {
       expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
     });
 
-    it('recoverGuardianAccountsBySeed: a client replaced during the lookup adopts nothing (#775)', async () => {
+    it('prepareGuardianRecoveryBySeed: a client replaced during the lookup adopts nothing (#775)', async () => {
       // The lookup parks outside the lock; the singleton is replaced under it.
       const { insert, adopt, recover } = await setupRecovery(client => client.markPoisoned());
 
@@ -2978,7 +2980,7 @@ describe('MidenClientInterface', () => {
       expect(insert).not.toHaveBeenCalled();
     });
 
-    it('recoverGuardianAccountsBySeed: an eviction during the adoption stops the cold-key insert (#775)', async () => {
+    it('adoptPreparedGuardianSeedRecovery: an eviction during the adoption stops the cold-key insert (#775)', async () => {
       const { held, insert, adopt, recover } = await setupRecovery();
       adopt.mockImplementationOnce(async () => {
         held.revoked = true;
@@ -3024,14 +3026,12 @@ describe('MidenClientInterface', () => {
     it('prepareGuardianRecoveryBySeed verifies served accounts without calling adopt or keystore.insert until adoptPreparedGuardianSeedRecovery', async () => {
       const { adopt, insert, fakeMidenClient, client, probes } = await setupRecovery();
       const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
-      const freed: string[] = [];
+      const freeSpies: jest.Mock[] = [];
       const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
       (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
-        const sk = origDerive(seed);
-        return {
-          ...sk,
-          free: () => freed.push(`sk-${seed[0]}`)
-        };
+        const free = jest.fn();
+        freeSpies.push(free);
+        return { ...origDerive(seed), free };
       });
 
       const prepared = await client.prepareGuardianRecoveryBySeed(
@@ -3044,6 +3044,7 @@ describe('MidenClientInterface', () => {
       expect(adopt).not.toHaveBeenCalled();
       expect(insert).not.toHaveBeenCalled();
       expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
+      expect(freeSpies[0]).toHaveBeenCalledTimes(0);
 
       const recovered = await client.adoptPreparedGuardianSeedRecovery(prepared);
 
@@ -3056,7 +3057,7 @@ describe('MidenClientInterface', () => {
         [fakeMidenClient, 'recovered-b']
       ]);
       expect(insert).toHaveBeenCalledTimes(2);
-      expect(freed.length).toBeGreaterThan(0);
+      expect(freeSpies[0]).toHaveBeenCalledTimes(1);
     });
 
     it('prepareGuardianRecoveryBySeed frees prepared AuthSecretKey handles when dispose() aborts adoption and throws NoGuardianAccountsFoundError on empty', async () => {
@@ -3074,9 +3075,10 @@ describe('MidenClientInterface', () => {
         hdIndex => new Uint8Array(32).fill(hdIndex + 1),
         'https://guardian.example'
       );
+      expect(freeSpies[0]).toHaveBeenCalledTimes(0);
       prepared.dispose();
 
-      expect(freeSpies.some(f => f.mock.calls.length > 0)).toBe(true);
+      expect(freeSpies[0]).toHaveBeenCalledTimes(1);
       expect(adopt).not.toHaveBeenCalled();
       expect(insert).not.toHaveBeenCalled();
 
@@ -3172,7 +3174,7 @@ describe('MidenClientInterface', () => {
         })
       }));
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
         'guardianOtherNetwork'
       );
       expect(lookupCalls.count).toBe(0);
@@ -3222,7 +3224,7 @@ describe('MidenClientInterface', () => {
 
       jest.useFakeTimers();
       try {
-        const pending = client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), 'https://guardian.example');
+        const pending = client.prepareGuardianRecoveryBySeed(() => new Uint8Array(32), 'https://guardian.example');
         pending.catch(() => {});
         // Past the bound: one attempt, no retry (an abandoned attempt is never aborted).
         await jest.advanceTimersByTimeAsync(30_000 + 1_000);
@@ -3248,7 +3250,7 @@ describe('MidenClientInterface', () => {
     });
   });
 
-  describe('recoverGuardianAccountByHotKey', () => {
+  describe('prepareGuardianRecoveryByHotKey and adoptPreparedGuardianHotKeyRecovery', () => {
     // The pasted key's commitment as its toHex() returns it (0x-prefixed); the method
     // normalizes it before the membership check.
     const PASTED_COMMITMENT = '0xaabb';
@@ -3259,10 +3261,10 @@ describe('MidenClientInterface', () => {
         onChain.some(entry => jest.requireActual('lib/secure-hot-key/commitment').sameCommitment(entry, commitment))
       );
 
-    // The lookup itself (recoverAndAdoptByKey) is spied on the instance rather than
-    // driven end to end (that path is already covered by the recoverGuardianAccountsBySeed
+    // The lookup itself (lookupServedStatesByKey) is spied on the instance rather than
+    // driven end to end (that path is already covered by the seed recovery
     // tests above); what's under test here is this method's own not-found throw and its
-    // adopt callback's refusal, so only the key handling around them runs for real.
+    // verify callback's refusal, so only the key handling around them runs for real.
     const setup = (hasSignerCommitment: jest.Mock = jest.fn()) => {
       const publicKey = {
         serialize: () => new Uint8Array([0, 0x11, 0x22]),
@@ -3282,23 +3284,32 @@ describe('MidenClientInterface', () => {
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
     };
 
-    // recoverAndAdoptByKey's 3rd argument is the adopt callback under test; invoking it
+    // lookupServedStatesByKey's 3rd argument is the verify callback under test; invoking it
     // with a stub account exercises its accept path and two refusals without a real lookup.
-    const spyRecoverAndAdoptByKeyInvokingVerify = (client: unknown, stubAccount: unknown) =>
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockImplementation(async (...args: unknown[]) => {
+    const spyLookupServedStatesByKeyInvokingVerify = (client: unknown, stubAccount: unknown) =>
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockImplementation(async (...args: unknown[]) => {
         const verify = args[2] as ((acc: unknown) => Promise<void>) | undefined;
         await verify?.(stubAccount);
-        return ['unreachable'];
+        return [
+          {
+            bytes: new Uint8Array(),
+            accountIdHex: '0x01',
+            accountId: 'unreachable',
+            nonce: 0n,
+            isNew: false,
+            commitment: 'feed'
+          }
+        ];
       });
 
-    it('rejects with GUARDIAN_ACCOUNT_NOT_FOUND and the localized no-account message when nothing was adopted', async () => {
+    it('rejects with GUARDIAN_ACCOUNT_NOT_FOUND and the localized no-account message when nothing was found', async () => {
       setup();
       const { MidenClientInterface } = await import('./miden-client-interface');
       const { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockResolvedValue([]);
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockResolvedValue([]);
 
-      const rejection = client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example');
+      const rejection = client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
 
       await expect(rejection).rejects.toBeInstanceOf(NoGuardianAccountsFoundError);
       await expect(rejection).rejects.toMatchObject({
@@ -3312,9 +3323,9 @@ describe('MidenClientInterface', () => {
       setup();
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockRejectedValue(new Error('HTTP 404'));
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockRejectedValue(new Error('HTTP 404'));
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
         'HTTP 404'
       );
       expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', false]]);
@@ -3327,9 +3338,11 @@ describe('MidenClientInterface', () => {
       setup(hasSignerCommitment);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
+      jest.spyOn(client as any, 'adoptServedStates').mockResolvedValueOnce(['unreachable']);
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).resolves.toEqual([
+      const prepared = await client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      await expect(client.adoptPreparedGuardianHotKeyRecovery(prepared)).resolves.toEqual([
         { accountId: 'unreachable', hotPublicKey: '1122' }
       ]);
       expect(hasSignerCommitment).toHaveBeenCalledWith(stubAccount, 'aabb');
@@ -3341,9 +3354,11 @@ describe('MidenClientInterface', () => {
       setup(membershipOf(['ffff', 'eeee', '0xAABB']));
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
+      jest.spyOn(client as any, 'adoptServedStates').mockResolvedValueOnce(['unreachable']);
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).resolves.toEqual([
+      const prepared = await client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      await expect(client.adoptPreparedGuardianHotKeyRecovery(prepared)).resolves.toEqual([
         { accountId: 'unreachable', hotPublicKey: '1122' }
       ]);
     });
@@ -3373,9 +3388,9 @@ describe('MidenClientInterface', () => {
         }));
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-        const lookup = jest.spyOn(client as any, 'recoverAndAdoptByKey');
+        const lookup = jest.spyOn(client as any, 'lookupServedStatesByKey');
 
-        await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
+        await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
         expect(frees.commitment).not.toHaveBeenCalled();
         expect(frees.publicKey).not.toHaveBeenCalled();
         expect(frees.secretKey).not.toHaveBeenCalled();
@@ -3403,7 +3418,7 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
         'not a commitment'
       );
       expect(frees.commitment).toHaveBeenCalledTimes(1);
@@ -3415,9 +3430,9 @@ describe('MidenClientInterface', () => {
       setup(membershipOf(['ffff', 'eeee']));
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
 
-      const rejection = client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example');
+      const rejection = client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
 
       await expect(rejection).rejects.toMatchObject({ message: 'importHotKeyNotActive' });
       await expect(rejection).rejects.not.toHaveProperty('code');
