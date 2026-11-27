@@ -1025,6 +1025,25 @@ describe('EvmBridgeDepositScreen from a relay source: hand-over with NEAR Intent
     selected: false
   };
 
+  it('opens on the chain, token, amount and route that a hand-over carries', async () => {
+    render(
+      <EvmBridgeDepositScreen
+        evmAddress={RELAY}
+        relaySource={RELAY_SOURCE}
+        relayServedChains={[CHAIN_ID]}
+        midenAccount={midenAccount}
+        onRelayUnsupported={onRelayUnsupported}
+        onClose={onClose}
+        initialForm={{ chainId: CHAIN_ID, token: { kind: 'epoch', key: 'USDC' }, amount: '1.505', route: 'agglayer' }}
+      />
+    );
+    await settle();
+
+    expect(screen.getByTestId('deposit-amount-input')).toHaveValue('1.505');
+    expect(screen.getByTestId('deposit-receipt-route')).toHaveTextContent('depositFlowRouteAgglayer');
+    expect(screen.getByTestId('deposit-token-selector').getAttribute('aria-label')).not.toContain('"token":"ETH"');
+  });
+
   it('reports the chain, token, amount and step', async () => {
     const onFormChange = jest.fn();
     render(

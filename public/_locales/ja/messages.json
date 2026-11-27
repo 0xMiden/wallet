@@ -10830,6 +10830,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "入金が確認されました。タップして完了してください。",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$（$network$ からの）",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "ご入金を確認しました。タップして追跡してください。",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "アドレスは",
     "englishSource": "Address expires in"
@@ -10855,6 +10875,19 @@
   "depositFlowPartialRestBody": {
     "message": "残りの部分は、このアドレスに送信してください。",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "新しい入金を行うには、新しい入金アドレスを取得してください。",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intentsはこの預入を完了できず、$address$へ返金しました。",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "入金の取引がチェーン上で失敗したため、ブリッジは行われませんでした。お客様の資金は依然として入金アドレスに残っています。",
@@ -10934,9 +10967,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2～3分",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "手数料に含まれるもの",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "預入は利用できません",

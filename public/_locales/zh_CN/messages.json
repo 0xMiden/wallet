@@ -10830,6 +10830,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "已收到存款。点击完成。",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$来自$network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "我们已收到您的存款。点击查看详情。",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "地址将在",
     "englishSource": "Address expires in"
@@ -10855,6 +10875,19 @@
   "depositFlowPartialRestBody": {
     "message": "其余内容请发送至此地址。",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "发起新的存款操作以获取新的存款地址。",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents 无法完成此次存款，已将资金退还至 $address$。",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "该存款交易在链上失败，因此未进行任何跨链转账。您的资金仍留在您的存款地址中。",
@@ -10934,9 +10967,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR 意图",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2 至 3 分钟",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "包含在费用中",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "不支持存款",

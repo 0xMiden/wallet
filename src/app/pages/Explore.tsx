@@ -52,6 +52,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { isWalletReadyNow, useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
+import { PendingDepositHomeRow } from 'screens/deposit-flow/PendingDepositHomeRow';
 import { isHexAddress } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
@@ -503,6 +504,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       </Balance>
 
       <HomeMoveActions />
+
+      {/* A deposit the user left, under the Deposit and Withdraw tiles (mock-up `.pend`). */}
+      <PendingDepositHomeRow accountPublicKey={address} />
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 

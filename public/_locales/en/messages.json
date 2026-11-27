@@ -10830,6 +10830,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Deposit received. Tap to finish.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ from $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "We see your deposit. Tap to follow it.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "Address expires in",
     "englishSource": "Address expires in"
@@ -10855,6 +10875,19 @@
   "depositFlowPartialRestBody": {
     "message": "Send the rest to this address.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Start a new deposit to get a new deposit address.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address.",
@@ -10934,9 +10967,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2 to 3 minutes",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Included in fee",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "Deposit isn't available",

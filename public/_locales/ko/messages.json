@@ -10830,6 +10830,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "입금 완료. 탭하여 완료하세요.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ from $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "입금 내역을 확인했습니다. 탭하여 내역을 확인하세요.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "주소 유효 기간은",
     "englishSource": "Address expires in"
@@ -10855,6 +10875,19 @@
   "depositFlowPartialRestBody": {
     "message": "나머지는 이 주소로 보내주십시오.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "새로운 입금을 시작하여 새로운 입금 주소를 받으십시오.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents는 이 입금을 완료할 수 없었으며, 해당 금액을 $address$로 환불했습니다.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "입금 거래가 온체인에서 실패했기 때문에, 아무것도 브릿지되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다.",
@@ -10934,9 +10967,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR 인텐트",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2~3분",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "수수료에 포함됨",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "입금은 이용할 수 없습니다",

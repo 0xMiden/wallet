@@ -177,6 +177,12 @@ jest.mock('app/templates/HomePrompts', () => ({
   )
 }));
 
+jest.mock('screens/deposit-flow/PendingDepositHomeRow', () => ({
+  PendingDepositHomeRow: ({ accountPublicKey }: { accountPublicKey: string }) => (
+    <div data-testid="pending-deposit-home-row">{accountPublicKey}</div>
+  )
+}));
+
 jest.mock('components/AssetRow', () => ({
   AssetRow: ({ asset, onClick, sparkline }: { asset: any; onClick: () => void; sparkline?: boolean }) => (
     <button
@@ -533,6 +539,24 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('puts the pending deposit row of the account under the Deposit and Withdraw tiles, above Assets', async () => {
+      await renderExplore();
+
+      const row = screen.getByTestId('pending-deposit-home-row');
+      expect(row).toHaveTextContent('mtst1account');
+      const tiles = screen.getByTestId('home-move-actions');
+      const assets = screen.getByTestId('asset-list');
+      expect(tiles.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+      expect(row.compareDocumentPosition(screen.getByTestId('home-prompts')) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+      expect(row.compareDocumentPosition(assets) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
     });
 
     it("formats the balance card with the active locale's number symbols", async () => {

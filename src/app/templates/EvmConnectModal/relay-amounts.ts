@@ -19,10 +19,8 @@ import type { DepositRouteOption } from 'screens/deposit-flow/DepositRouteSheet'
 import type { DepositAmountValue, DepositFee } from 'screens/deposit-flow/types';
 
 import { rankRouteOptions } from './deposit-routes';
+import { NO_FEE_YET } from './near-deposit';
 import type { RelayRoute } from './relay-deposit-record';
-
-/** A fee that the receipt cannot show yet (no amount typed): the mock-up's rate slot, which a quote fills. */
-const NO_FEE_YET = '–';
 
 /** The Epoch search that the screen keeps for one typed amount. */
 export interface EpochSendQuote {

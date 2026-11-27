@@ -41,6 +41,7 @@ import { setOperationTransport } from 'lib/telemetry/report-operation';
 import { DialogsProvider } from 'lib/ui/dialog';
 import { AppKitProvider } from 'lib/walletconnect/appkit';
 import * as Woozie from 'lib/woozie';
+import { PendingDepositArrivalWatcher } from 'screens/deposit-flow/PendingDepositArrivalWatcher';
 import '../i18n';
 
 import ConfirmPage from './ConfirmPage';
@@ -125,6 +126,7 @@ const App: FC<AppProps> = ({ env }) => {
                                 <HotKeyRotatedOutGate />
                                 <RecoveryPhraseKeepPrompt />
                                 <GuardianRecoveryProvider />
+                                <PendingDepositArrivalWatcher />
                                 <OpenLinkPrompt />
                                 <BreadConnectPrompt />
                                 <PageRouter />
@@ -136,6 +138,7 @@ const App: FC<AppProps> = ({ env }) => {
                               <HotKeyRotatedOutGate />
                               <RecoveryPhraseKeepPrompt />
                               <GuardianRecoveryProvider />
+                              <PendingDepositArrivalWatcher />
                               <PageRouter />
                             </UpdateNotificationProvider>
                           )}

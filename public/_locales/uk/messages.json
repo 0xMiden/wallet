@@ -10832,6 +10832,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Депозит отримано. Натисніть, щоб завершити.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ з $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Ми бачимо ваш депозит. Натисніть, щоб стежити за ним.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "Адреса втрачає чинність через",
     "englishSource": "Address expires in"
@@ -10857,6 +10877,19 @@
   "depositFlowPartialRestBody": {
     "message": "Решту надішліть на цю адресу.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Створіть новий депозит, щоб отримати нову адресу депозиту.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents не змогла виконати цей депозит і повернула кошти на адресу $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "Транзакція депозиту в ланцюгу не відбулася, тому нічого не було переведено. Ваші кошти все ще знаходяться на вашій депозитній адресі.",
@@ -10936,9 +10969,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2–3 хвилини",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Включено у комісію",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "Депозит недоступний",

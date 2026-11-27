@@ -155,7 +155,12 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { depositTokenPrice, useBridgeInBalanceCap } from './bridge-in-balance-cap';
-import { depositSheetOf, type DepositTokenSheetRows, type RelayFormReport } from './deposit-handover';
+import {
+  depositSheetOf,
+  type DepositTokenSheetRows,
+  type RelayFormReport,
+  type RelayOpeningForm
+} from './deposit-handover';
 import { arrivalKeyOf, mergeRouteOptions, RELAY_ROUTES_BY_COST } from './deposit-routes';
 import { type DepositToken, depositTokenKey, epochTokenKey, type OfferedErc20 } from './deposit-token';
 import { EpochWithdrawalGate } from './EpochWithdrawalGate';
@@ -305,6 +310,8 @@ interface EvmBridgeDepositScreenProps {
   pendingDepositId?: string;
   /** Supplied by the hosting page to report the outcome of a deposit attempt. */
   reportDeposit?: ReportDeposit;
+  /** A relay source only: the chain, token, amount and route to open on (a hand-over from the NEAR Intents flow). */
+  initialForm?: RelayOpeningForm;
   /**
    * A relay source only: the token sheet's chips and rows in the place of the relay's own (the relay's rows and the
    * rows of NEAR Intents). A pick of a row that the relay does not serve calls `onOtherToken`.
@@ -928,6 +935,25 @@ function routeForToken(token: DepositToken): BridgeRoute {
   return epochTokenKey(token) === null ? 'agglayer' : 'epoch';
 }
 
+/**
+ * The state the screen opens on: the hand-over's form, else Circle USDC on the default chain with no amount. A route
+ * that the form does not name is the token's own route (`openingRouteOf`).
+ */
+function openingFormOf(form: RelayOpeningForm | undefined): {
+  token: DepositToken;
+  chainId: number | undefined;
+  route: BridgeRoute | undefined;
+  amount: string;
+} {
+  if (form === undefined) return { token: 'CIRCLE_USDC', chainId: undefined, route: undefined, amount: '' };
+  return { token: form.token, chainId: form.chainId, route: form.route, amount: form.amount };
+}
+
+/** The route the screen opens on: the hand-over's route, else the route of the opening token. */
+function openingRouteOf(route: BridgeRoute | undefined, token: DepositToken): BridgeRoute {
+  return route ?? routeForToken(token);
+}
+
 async function readEthBalance(evmAddress: string, chainId: number, observer?: BalanceStageObserver): Promise<bigint> {
   const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest'], chainId, observer);
   recordBalanceStage(observer, 'value_decode');
@@ -989,6 +1015,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   onExit = onClose,
   pendingDepositId,
   reportDeposit,
+  initialForm,
   tokenSheet,
   onOtherToken,
   otherRoutes,
@@ -996,6 +1023,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   onFormChange
 }) => {
   const { t } = useTranslation();
+  const [opening] = useState(() => openingFormOf(initialForm));
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
@@ -1033,13 +1061,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setSlowStatus('idle');
     setSlowError(null);
   }, [resetEpoch]);
-  const { token, selectToken } = useDepositToken(clearTokenState, 'CIRCLE_USDC');
+  const { token, selectToken } = useDepositToken(clearTokenState, opening.token);
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
-  const [route, setRoute] = useState<BridgeRoute>(routeForToken(token));
+  const [route, setRoute] = useState<BridgeRoute>(() => openingRouteOf(opening.route, token));
   // The one chain picked in the network drawer. Every route starts from it, and the token drawer offers what it bridges.
-  const [pickedChainId, setPickedChainId] = useState<number>();
+  const [pickedChainId, setPickedChainId] = useState<number | undefined>(opening.chainId);
   const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSources = useMemo(() => usdcxSourceChains(bridgeConfig), [bridgeConfig]);
   // Every chain a deposit can start from, in the document's order: a Circle source, a chain whose Epoch route offers a
@@ -1070,7 +1098,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
   // The amount whose display quote Circle refused, which the relay amount step says.
   const [usdcxQuoteFailedFor, setUsdcxQuoteFailedFor] = useState<string | null>(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(opening.amount);
   const [epochBalanceSlot, setEpochBalanceSlot] = useState<StampedBalanceMap<EpochBalancesIdentity> | null>(null);
   const [circleBalanceSlot, setCircleBalanceSlot] = useState<StampedBalance<CircleBalanceIdentity> | null>(null);
   // Circle's Arc USDC is a source token only where its one route, xReserve, can start.

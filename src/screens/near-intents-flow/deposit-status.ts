@@ -1,17 +1,4 @@
-import type { IOneClickTrackingData, ITransaction } from 'lib/miden/db/types';
-
-/** What the deposit page tells the user about one tracking row. */
-export type NearIntentsDepositStatus =
-  | 'waiting'
-  | 'incomplete'
-  | 'processing'
-  | 'arriving'
-  | 'received'
-  | 'refunded'
-  | 'failed'
-  | 'expired';
-
-export type NearIntentsDepositTone = 'warning' | 'positive' | 'negative' | 'inactive';
+import type { IOneClickPhase, IOneClickTrackingData, ITransaction } from 'lib/miden/db/types';
 
 /** The tracking data of a NEAR Intents row, or undefined for a row that has none (or no deposit address). */
 export function nearIntentsTrackingOf(row: ITransaction | undefined): IOneClickTrackingData | undefined {
@@ -31,45 +18,17 @@ export function depositDeadlineMs(tracking: IOneClickTrackingData): number {
   return Date.parse(deadline);
 }
 
-/**
- * Maps the tracking phase to the status on the page. A row that still waits for its deposit after
- * the deadline is expired: 1Click refunds a late deposit, so the page must stop showing the address.
- */
-export function nearIntentsDepositStatus(
-  phase: IOneClickTrackingData['phase'],
-  deadlinePassed: boolean
-): NearIntentsDepositStatus {
+/** True while 1Click has not seen a deposit: the address can still take one (until its deadline). */
+export function waitsForDeposit(phase: IOneClickPhase): boolean {
   switch (phase) {
     case 'depositing':
     case 'pending-deposit':
-      return deadlinePassed ? 'expired' : 'waiting';
     case 'incomplete-deposit':
-      return 'incomplete';
+      return true;
     case 'known-deposit-tx':
     case 'processing':
-      return 'processing';
     case 'arriving':
-      return 'arriving';
     case 'delivered':
-      return 'received';
-    case 'refunded':
-      return 'refunded';
-    case 'failed':
-      return 'failed';
-    case 'expired':
-      return 'expired';
-  }
-}
-
-/** True while the user can still send to the deposit address, so the page shows the code and the address. */
-export function acceptsDeposit(status: NearIntentsDepositStatus): boolean {
-  switch (status) {
-    case 'waiting':
-    case 'incomplete':
-      return true;
-    case 'processing':
-    case 'arriving':
-    case 'received':
     case 'refunded':
     case 'failed':
     case 'expired':
@@ -77,21 +36,47 @@ export function acceptsDeposit(status: NearIntentsDepositStatus): boolean {
   }
 }
 
-/** The i18n key and the pill tone of each status. */
 /**
- * `hintKey` is the line under the pill for a status after the deposit: it tells the user what occurs next. A
- * status with no hint shows the general caption about the deposit.
+ * The screen of the deposit page for one tracking row:
+ * - `address`: the deposit address screen. `waiting`: nothing arrived. `incomplete`: less than the quoted amount
+ *   arrived, and the address takes the rest. `expired`: the address takes no deposit any more.
+ * - `processing`: the processing steps, with `step` in progress (0 detected, 1 bridging, 2 arrived).
+ * - `failed`: the processing screen with the failure. `refunded`: 1Click sent the deposit back.
+ * - `success`: the funds are in the wallet.
  */
-export const DEPOSIT_STATUS_DISPLAY: Record<
-  NearIntentsDepositStatus,
-  { labelKey: string; tone: NearIntentsDepositTone; hintKey?: string }
-> = {
-  waiting: { labelKey: 'nearIntentsStatusWaiting', tone: 'warning' },
-  incomplete: { labelKey: 'nearIntentsStatusIncomplete', tone: 'warning' },
-  processing: { labelKey: 'nearIntentsStatusProcessing', tone: 'warning', hintKey: 'nearIntentsHintProcessing' },
-  arriving: { labelKey: 'nearIntentsStatusArriving', tone: 'positive', hintKey: 'nearIntentsHintArriving' },
-  received: { labelKey: 'nearIntentsStatusReceived', tone: 'positive', hintKey: 'nearIntentsHintReceived' },
-  refunded: { labelKey: 'nearIntentsStatusRefunded', tone: 'inactive' },
-  failed: { labelKey: 'nearIntentsStatusFailed', tone: 'negative' },
-  expired: { labelKey: 'nearIntentsStatusExpired', tone: 'negative' }
-};
+export type NearIntentsDepositScreen =
+  | { kind: 'address'; state: 'waiting' | 'incomplete' | 'expired' }
+  | { kind: 'processing'; step: 0 | 1 | 2 }
+  | { kind: 'failed'; reason: 'refunded' | 'failed' }
+  | { kind: 'success' };
+
+/**
+ * Maps the tracking phase to the screen. A row that still waits for its deposit after the deadline is expired: 1Click
+ * refunds a late deposit, so the page must stop showing the address. 1Click knows the deposit transaction
+ * (`known-deposit-tx`): the deposit is detected and not yet confirmed. It processes the deposit (`processing`): the
+ * bridge is in progress. It delivered on Miden (`arriving`): the note arrives with the next sync. The wallet holds the
+ * funds (`delivered`): success.
+ */
+export function nearIntentsDepositScreenOf(phase: IOneClickPhase, deadlinePassed: boolean): NearIntentsDepositScreen {
+  switch (phase) {
+    case 'depositing':
+    case 'pending-deposit':
+      return { kind: 'address', state: deadlinePassed ? 'expired' : 'waiting' };
+    case 'incomplete-deposit':
+      return { kind: 'address', state: 'incomplete' };
+    case 'expired':
+      return { kind: 'address', state: 'expired' };
+    case 'known-deposit-tx':
+      return { kind: 'processing', step: 0 };
+    case 'processing':
+      return { kind: 'processing', step: 1 };
+    case 'arriving':
+      return { kind: 'processing', step: 2 };
+    case 'delivered':
+      return { kind: 'success' };
+    case 'refunded':
+      return { kind: 'failed', reason: 'refunded' };
+    case 'failed':
+      return { kind: 'failed', reason: 'failed' };
+  }
+}
