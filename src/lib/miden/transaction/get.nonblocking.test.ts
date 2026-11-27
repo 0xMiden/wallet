@@ -18,6 +18,7 @@ import {
 import {
   compareIdbKeys,
   countIndexEntriesUpTo,
+  DEFAULT_READ_CHUNK_SIZE,
   equalIndexSpec,
   RANGE_ANY,
   RANGE_BOUND,
@@ -913,9 +914,11 @@ describe('non-blocking transaction store reads (#2327)', () => {
         await table.bulkAdd(rows);
 
         const core = table.core;
-        const origCount = core.count.bind(core);
+        const origQuery = core.query.bind(core);
         const origOpenCursor = core.openCursor.bind(core);
         let sawNumericStart = false;
+        let sawChunkedStatusCursor = false;
+        let triggeredBeforeChunkedCursor = false;
         let pendingCompletion: Promise<number> | undefined;
         let triggered = false;
         const fireBetweenTransactions = () => {
@@ -970,16 +973,27 @@ describe('non-blocking transaction store reads (#2327)', () => {
             return res;
           });
         });
-        core.count = req =>
-          origCount(req).then(count => {
-            if (req.query.index.name === 'status') {
+        core.query = req =>
+          origQuery(req).then(res => {
+            if (
+              req.values === false &&
+              req.query.index.name === 'status' &&
+              res.result.length < DEFAULT_READ_CHUNK_SIZE
+            ) {
               sawNumericStart = true;
+              if (typeof req.trans === 'object' && req.trans !== null) {
+                numericCountTxns.add(req.trans);
+              }
               fireBetweenTransactions();
             }
-            return count;
+            return res;
           });
         core.openCursor = req => {
           if (req.values === false && req.query.index.name === 'status') {
+            if (!sawChunkedStatusCursor) {
+              sawChunkedStatusCursor = true;
+              triggeredBeforeChunkedCursor = triggered;
+            }
             sawNumericStart = true;
             if (typeof req.trans === 'object' && req.trans !== null) {
               numericCountTxns.add(req.trans);
@@ -994,12 +1008,15 @@ describe('non-blocking transaction store reads (#2327)', () => {
             { accountId: 'mtst1acct', limit: baseCount + 10, includeFailed: false, fromEnd: true },
             table
           );
+          expect(triggered).toBe(true);
+          expect(await pendingCompletion).toBe(1);
+          expect(triggeredBeforeChunkedCursor).toBe(false);
           expect(page.transactions.map(tx => tx.id)).toContain('fallback-missing');
-          expect(barrierAwaitedInDetect).toBe(baseCount >= 64);
+          expect(barrierAwaitedInDetect).toBe(baseCount >= DEFAULT_READ_CHUNK_SIZE);
         } finally {
           transSpy.mockRestore();
           txSpy.mockRestore();
-          core.count = origCount;
+          core.query = origQuery;
           core.openCursor = origOpenCursor;
         }
       });
