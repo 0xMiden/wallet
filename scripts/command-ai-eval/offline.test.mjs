@@ -1398,3 +1398,49 @@ test('fails the measure on a rejected schema or a router prompt over 3,600 token
   assert.ok(failures.includes('the router prompt is 3601 tokens, over 3600'));
   assert.ok(failures.includes('the writer call failed with HTTP 400'));
 });
+
+/** The deploy gate over `count` questions about write cards, with the writer failing on the first `failing`. */
+async function gateWithWriting(context, { count = 6, failing = 0, listed = writeCardIds() } = {}) {
+  mockProviderKey(context);
+  const writable = writeCardIds();
+  const fixtures = [];
+  mockQuestionFixtures(context, cases => {
+    fixtures.splice(0, fixtures.length, ...cases.filter(item => writable.includes(item.cards?.[0])).slice(0, count));
+    return fixtures;
+  });
+  let current;
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    const name = body.response_format.json_schema.name;
+    const user = body.messages[1].content;
+    if (name === 'bread_command_intent') {
+      current = fixtures.find(fixture => user.includes(fixture.expectedRedacted));
+      return completion({ result: { op: 'help', cards: [current.cards[0]] } });
+    }
+    if (name === 'bread_help_check') return completion({ supported: true, answers: true });
+    if (fixtures.indexOf(current) < failing) return new Response(null, { status: 429 });
+    const fact = JSON.parse(user).cards[0].FACTS[0];
+    return completion({ answerable: true, sentences: [{ facts: [fact.id], text: fact.text }] });
+  });
+  const summary = await runEval({ offlineOnly: false, questions: true, dataset: writingOn(...listed) });
+  assert.equal(fixtures.length, count);
+  return summary.gate?.failures;
+}
+
+test('passes the deploy gate when two thirds of the writer questions are answered in written text', async context => {
+  assert.deepEqual(await gateWithWriting(context, { failing: 2 }), []);
+});
+
+test('blocks the deploy when writer failures leave under two thirds written', async context => {
+  assert.deepEqual(await gateWithWriting(context, { failing: 3 }), [
+    'only 3 of 6 writer questions were answered in written text'
+  ]);
+});
+
+test('blocks the deploy when fewer than six questions reach a listed card', async context => {
+  assert.deepEqual(await gateWithWriting(context, { count: 5 }), ['5 questions expect a listed writing card, needs 6']);
+});
+
+test('asks nothing of written answers while no card is listed', async context => {
+  assert.deepEqual(await gateWithWriting(context, { count: 5, listed: [] }), []);
+});
