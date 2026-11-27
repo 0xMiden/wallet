@@ -156,24 +156,32 @@ test("runs the Worker's own parse and reports its path", () => {
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ allowedTargets: [] }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.allowedTargets must be a non-empty array/
   );
-  // Deduct mode needs a fee recipient and the price symbol of the native coin on each served chain.
+  // Deduct mode needs a fee recipient and the price symbol of the native coin on each served chain. The Worker knows
+  // the symbol of a chain of its default table (8453 and 1 are in it). 999 is not in the table.
   refuses({ EVM_RELAY_GAS_MODE: 'deduct' }, /Worker refuses the release config: .*feeRecipient is required/);
-  refuses(
-    { EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: relayConfig({ 8453: chain() }, { feeRecipient: FEE_RECIPIENT }) },
-    /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.nativePrice is required when GAS_MODE is deduct/
-  );
   const deduct = chain({ nativePrice: 'ETHUSDT', feeTokens: { [`0x${'ee'.repeat(20)}`]: 'usd' } });
   const deductConfig = relayConfig({ 8453: deduct }, { feeRecipient: FEE_RECIPIENT });
   refuses(
     {
       EVM_RELAY_GAS_MODE: 'deduct',
       EVM_RELAY_CONFIG: deductConfig,
-      EVM_RELAY_RPC_URLS: JSON.stringify({ 1: 'https://one.example', 8453: RPC_URL })
+      EVM_RELAY_RPC_URLS: JSON.stringify({ 999: 'https://one.example', 8453: RPC_URL })
     },
-    /Worker refuses the release config: RELAY_CONFIG\.chains\.1\.nativePrice is required when GAS_MODE is deduct/
+    /Worker refuses the release config: RELAY_CONFIG\.chains\.999\.nativePrice is required when GAS_MODE is deduct/
   );
   const release = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: deductConfig }), worker);
   assert.equal(release.vars.GAS_MODE, 'deduct');
+  // A chain of the default table needs no nativePrice: an entry without one, and no entry at all.
+  const defaults = relayConfig({ 8453: chain() }, { feeRecipient: FEE_RECIPIENT });
+  const defaultRelease = validateRelease(
+    env({
+      EVM_RELAY_GAS_MODE: 'deduct',
+      EVM_RELAY_CONFIG: defaults,
+      EVM_RELAY_RPC_URLS: JSON.stringify({ 1: 'https://one.example', 8453: RPC_URL })
+    }),
+    worker
+  );
+  assert.equal(defaultRelease.vars.GAS_MODE, 'deduct');
   // A chain whose native coin is a USD stablecoin (Arc) takes "usd", and feeTokens is optional.
   const arc = relayConfig({ 8453: chain({ nativePrice: 'usd' }) }, { feeRecipient: FEE_RECIPIENT });
   const arcRelease = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct', EVM_RELAY_CONFIG: arc }), worker);

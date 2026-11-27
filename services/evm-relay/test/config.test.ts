@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 
-import { ConfigError, parseConfig } from '../src/config';
+import { ConfigError, DEFAULT_NATIVE_PRICES, parseConfig } from '../src/config';
 import type { Env } from '../src/types';
 
 const ZERO = `0x${'0'.repeat(40)}`;
@@ -95,12 +95,38 @@ describe('parseConfig', () => {
     }
   });
 
-  it('gives a served chain without an entry no price, no fee token and no target list', () => {
-    const parsed = parseConfig(env({ '1': entry({ allowedTargets: [TARGET] }) }, 'sponsor', ['1', '8453']));
+  it('gives a served chain without an entry the default native price, no fee token and no target list', () => {
+    const parsed = parseConfig(env({ '1': entry({ allowedTargets: [TARGET] }) }, 'sponsor', ['1', '8453', '999']));
     expect(parsed.chains.get(1)?.allowedTargets).toEqual([`0x${'2a'.repeat(20)}`]);
-    expect(parsed.chains.get(8453)?.nativePrice).toBeNull();
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('ETHUSDT');
     expect(parsed.chains.get(8453)?.feeTokens).toEqual(new Map());
     expect(parsed.chains.get(8453)?.allowedTargets).toBeNull();
+    // 999 is not in DEFAULT_NATIVE_PRICES.
+    expect(parsed.chains.get(999)?.nativePrice).toBeNull();
+  });
+
+  it('has a valid price symbol for each chain of the default table', () => {
+    expect(DEFAULT_NATIVE_PRICES.size).toBeGreaterThan(0);
+    for (const [chainId, symbol] of DEFAULT_NATIVE_PRICES) {
+      expect(Number.isSafeInteger(chainId) && chainId > 0).toBe(true);
+      expect(symbol).toMatch(/^(usd|[A-Z0-9]{5,20})$/);
+    }
+    expect(DEFAULT_NATIVE_PRICES.get(8453)).toBe('ETHUSDT');
+    expect(DEFAULT_NATIVE_PRICES.get(137)).toBe('POLUSDT');
+    // The native coin of Arc is USDC.
+    expect(DEFAULT_NATIVE_PRICES.get(5042)).toBe('usd');
+  });
+
+  it('lets the nativePrice of an entry replace the default of the chain', () => {
+    const parsed = parseConfig(env({ '8453': { nativePrice: 'usd' } }, 'deduct'));
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('usd');
+  });
+
+  it('accepts a known chain in deduct mode without an entry and with an empty entry', () => {
+    const parsed = parseConfig(env({ '137': {} }, 'deduct', ['137', '8453']));
+    expect(parsed.chains.get(137)?.nativePrice).toBe('POLUSDT');
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('ETHUSDT');
+    expect(parsed.chains.get(8453)?.feeTokens.size).toBe(0);
   });
 
   it('checks the entry of a chain without an RPC URL, but does not serve that chain', () => {
@@ -124,7 +150,7 @@ describe('parseConfig', () => {
     expect(value.RELAY_CONFIG).toBe(JSON.stringify({ calibur: CALIBUR }));
     const parsed = parseConfig(value).chains.get(1);
     expect(parsed?.feeRecipient).toBeNull();
-    expect(parsed?.nativePrice).toBeNull();
+    expect(parsed?.nativePrice).toBe('ETHUSDT');
     expect(parsed?.feeTokens).toEqual(new Map());
     expect(parsed?.allowedTargets).toBeNull();
   });
@@ -328,27 +354,28 @@ describe('parseConfig', () => {
         env({}, 'deduct', [], { feeRecipient: undefined }),
         'RELAY_CONFIG.feeRecipient is required when GAS_MODE is deduct.'
       ],
+      // 999 is not in DEFAULT_NATIVE_PRICES, so it needs its own nativePrice.
       [
-        'a served chain without nativePrice',
-        env({ '1': entry({ nativePrice: undefined }) }, 'deduct'),
-        `${at}.nativePrice is required when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, without nativePrice',
+        env({ '999': entry({ nativePrice: undefined }) }, 'deduct'),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ],
       [
-        'a served chain with an empty entry',
-        env({ '1': {} }, 'deduct'),
-        `${at}.nativePrice is required when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, with an empty entry',
+        env({ '999': {} }, 'deduct'),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ],
       [
-        'a served chain without an entry',
-        env({ '8453': entry() }, 'deduct', ['8453', '1']),
-        `${at}.nativePrice is required when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, without an entry',
+        env({ '8453': entry() }, 'deduct', ['8453', '999']),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ]
     ])('refuses %s', (_name, value, message) => {
       expect(parseError(value)).toBe(message);
     });
 
     it('accepts the same chains in sponsor mode', () => {
-      const value = env({ '1': entry({ nativePrice: undefined }) }, 'sponsor', ['1', '8453'], {
+      const value = env({ '999': entry({ nativePrice: undefined }) }, 'sponsor', ['999', '8453'], {
         feeRecipient: undefined
       });
       expect(parseConfig(value).chains.size).toBe(2);
