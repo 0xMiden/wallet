@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
 - [FIX][all] Show the spendable Available balance in Swap and Earn when a large balance exceeds the number precision limit.

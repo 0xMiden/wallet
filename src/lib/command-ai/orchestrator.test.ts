@@ -706,7 +706,7 @@ describe('command-ai orchestrator', () => {
       ],
       ['a route that left the catalog', { routeId: 'gone' }, ['in-usdc', 'in-eth', 'out-usdcx']]
     ])('says there is no route for %s and offers the others', (_label, draft, offered) => {
-      expectNoRoute(request(draft), offered);
+      expect(expectNoRoute(request(draft), offered).slot).toBe('route');
     });
 
     it('does not carry an amount over to a different asset', () => {
