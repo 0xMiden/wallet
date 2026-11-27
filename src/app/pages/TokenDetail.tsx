@@ -112,12 +112,16 @@ function findByFaucetId<T>(map: Record<string, T>, tokenId: string, canonicalId:
   return undefined;
 }
 
-function formatProviderLabel(provider: PriceProvider): string {
-  return provider === 'binance' ? 'Binance' : 'Kraken';
-}
+const PROVIDER_LABELS: Record<PriceProvider, string> = {
+  binance: 'Binance',
+  kraken: 'Kraken'
+};
 
-function isVerifiedProvider(provider: unknown): provider is PriceProvider {
-  return provider === 'binance' || provider === 'kraken';
+function providerLabel(provider: unknown): string | undefined {
+  for (const [key, label] of Object.entries(PROVIDER_LABELS)) {
+    if (key === provider) return label;
+  }
+  return undefined;
 }
 
 function resolveQuoteContext(
@@ -130,76 +134,48 @@ function resolveQuoteContext(
 ): { tone: 'neutral' | 'warning'; role: 'note' | 'status'; title?: string; body: string } | null {
   if (state === 'loading') return null;
 
-  if (state === 'ready' && quote) {
-    if (quote.kind === 'fixed' && priceSymbol) {
-      return {
-        tone: 'neutral',
-        role: 'note',
-        body: t('tokenDetailFixedQuoteContext', { symbol: priceSymbol, network: networkLabel })
-      };
-    }
-    if (
-      quote.kind === 'market' &&
-      isVerifiedProvider(quote.provider) &&
-      quote.observedAt !== undefined &&
-      priceSymbol
-    ) {
-      return {
-        tone: 'neutral',
-        role: 'note',
-        body: t('tokenDetailMarketQuoteContext', {
-          symbol: priceSymbol,
-          provider: formatProviderLabel(quote.provider),
-          network: networkLabel,
-          retrievedAt: new Date(quote.observedAt).toLocaleString()
-        })
-      };
-    }
-    if (quote.kind === 'basket' && quote.observedAt !== undefined) {
-      return {
-        tone: 'neutral',
-        role: 'note',
-        body: t('tokenDetailBasketQuoteContext', {
-          network: networkLabel,
-          retrievedAt: new Date(quote.observedAt).toLocaleString()
-        })
-      };
-    }
+  if (state === 'ready' && quote?.kind === 'fixed' && priceSymbol) {
+    return {
+      tone: 'neutral',
+      role: 'note',
+      body: t('tokenDetailFixedQuoteContext', { symbol: priceSymbol, network: networkLabel })
+    };
   }
 
-  if (state === 'stale') {
-    const title = t('tokenDetailQuoteStaleTitle');
-    if (
-      quote?.kind === 'market' &&
-      isVerifiedProvider(quote.provider) &&
-      quote.observedAt !== undefined &&
-      Number.isFinite(quote.observedAt) &&
-      priceSymbol
-    ) {
+  if (state === 'ready' || state === 'stale') {
+    const isStale = state === 'stale';
+    const meta: { tone: 'neutral' | 'warning'; role: 'note' | 'status'; title?: string } = isStale
+      ? { tone: 'warning', role: 'status', title: t('tokenDetailQuoteStaleTitle') }
+      : { tone: 'neutral', role: 'note' };
+    const retrievedAt =
+      quote?.observedAt !== undefined && Number.isFinite(quote.observedAt)
+        ? new Date(quote.observedAt).toLocaleString()
+        : undefined;
+    const provider = quote?.kind === 'market' ? providerLabel(quote.provider) : undefined;
+
+    if (retrievedAt && quote?.kind === 'market' && provider && priceSymbol) {
       return {
-        tone: 'warning',
-        role: 'status',
-        title,
-        body: t('tokenDetailQuoteStaleMarketBody', {
+        ...meta,
+        body: t(isStale ? 'tokenDetailQuoteStaleMarketBody' : 'tokenDetailMarketQuoteContext', {
           symbol: priceSymbol,
-          provider: formatProviderLabel(quote.provider),
+          provider,
           network: networkLabel,
-          retrievedAt: new Date(quote.observedAt).toLocaleString()
+          retrievedAt
         })
       };
     }
-    if (quote?.kind === 'basket' && quote.observedAt !== undefined && Number.isFinite(quote.observedAt)) {
+    if (retrievedAt && quote?.kind === 'basket') {
       return {
-        tone: 'warning',
-        role: 'status',
-        title,
-        body: t('tokenDetailQuoteStaleBasketBody', {
+        ...meta,
+        body: t(isStale ? 'tokenDetailQuoteStaleBasketBody' : 'tokenDetailBasketQuoteContext', {
           network: networkLabel,
-          retrievedAt: new Date(quote.observedAt).toLocaleString()
+          retrievedAt
         })
       };
     }
-    return { tone: 'warning', role: 'status', title, body: t('tokenDetailQuoteStaleBody') };
+    if (isStale) {
+      return { ...meta, body: t('tokenDetailQuoteStaleBody') };
+    }
   }
 
   if (priceSymbol && tokenPricesStatus === 'error') {
@@ -313,9 +289,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const displayQuote = quotedPrice(tokenPrices, priceSymbol);
   const quote = displayQuote?.kind === 'nominal' ? undefined : displayQuote;
   const rawQuoteStatus = usdQuoteStatus(quote);
-  const isFixedQuote = quote?.kind === 'fixed';
-  const quoteReady = rawQuoteStatus === 'ready' && (quote?.kind !== 'market' || isVerifiedProvider(quote.provider));
-  useQuoteClock(quoteReady && !isFixedQuote ? quoteExpiryMs(quote) : undefined);
+  const verifiedSource = quote?.kind !== 'market' || providerLabel(quote.provider) !== undefined;
+  const quoteReady = rawQuoteStatus === 'ready' && verifiedSource;
+  const quoteStale = rawQuoteStatus === 'stale' && verifiedSource;
+  useQuoteClock(quoteReady ? quoteExpiryMs(quote) : undefined);
 
   const quoteLoading =
     !quote &&
@@ -328,7 +305,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
     ? 'ready'
     : quoteLoading
       ? 'loading'
-      : rawQuoteStatus === 'stale'
+      : quoteStale
         ? 'stale'
         : 'unavailable';
 

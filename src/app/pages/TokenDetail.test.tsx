@@ -2308,6 +2308,25 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
     rerender(<TokenDetail tokenId={TOKEN_ID} />);
     expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
 
+    configure({
+      tokenPrices: {
+        ETH: {
+          price: 2000,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: Date.now() - USD_QUOTE_MAX_AGE_MS - 1,
+          kind: 'market' as const
+        }
+      }
+    });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    const expiredMissingProvider = screen.getByTestId('token-detail-quote-context');
+    expect(expiredMissingProvider).toHaveAttribute('data-tone', 'neutral');
+    expect(expiredMissingProvider).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+    expect(expiredMissingProvider).not.toHaveTextContent('tokenDetailQuoteStaleTitle');
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-hero').querySelector('p')).toBeNull();
+
     configure({ tokenPrices: {}, tokenPricesStatus: 'error' });
     rerender(<TokenDetail tokenId={TOKEN_ID} />);
     const errorContext = screen.getByTestId('token-detail-quote-context');
