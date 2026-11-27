@@ -109,6 +109,42 @@ describe('screen visit on the wire', () => {
     expect(isNameableEvent(payload)).toBe(false);
   });
 
+  it('sends a fixed discovery name with closed fields and refuses a mismatched feature and entry point', async () => {
+    const discovery = {
+      phase: 'discovery',
+      feature: 'funding',
+      entryPoint: 'receive_tile',
+      discoveryAction: 'exposed',
+      surface: 'popup',
+      runId: 'qK2soVj-m6Ybb_4eNKga0',
+      address: SECRETS[0]
+    } as unknown as Parameters<typeof sendEvent>[0];
+    await sendEvent(discovery, context);
+    await sendEvent({ ...discovery, feature: 'me' } as Parameters<typeof sendEvent>[0], context);
+    for (const patch of [
+      { discoveryAction: 'unique-secret' },
+      { entryPoint: '__proto__' },
+      { runId: 'secret with a space' },
+      { surface: 'secret-device' }
+    ]) {
+      await sendEvent({ ...discovery, ...patch } as unknown as Parameters<typeof sendEvent>[0], context);
+    }
+    jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+    await sendEvent(discovery, context);
+    expect(sent.map(payload => buildEnvelope(payload))).toEqual([
+      expect.objectContaining({
+        eventName: 'feature_discovery',
+        props: {
+          network: 'mainnet',
+          feature: 'funding',
+          entryPoint: 'receive_tile',
+          discoveryAction: 'exposed',
+          surface: 'popup'
+        }
+      })
+    ]);
+  });
+
   it('carries no persistent or cross-session identifier beyond the in-memory run', () => {
     const keys = Object.keys(serializeEvent(visit, context));
     expect(keys).not.toEqual(expect.arrayContaining(['flowId']));

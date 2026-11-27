@@ -7612,8 +7612,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Інформація про те, які екрани ви відкриваєте і як довго кожен з них залишається видимим, як ви туди потрапили, яке вікно використовуєте, де виникають затримки, загальні категорії помилок, версія додатка та ваша платформа — все це дозволяє нам виправити те, що не працює. Ніколи — ваші ключі, фраза відновлення, пароль, адреси, залишки на рахунках, суми або зміст транзакцій. Ми не відстежуємо ваші дії в інших додатках чи на сайтах, не використовуємо дані для реклами та не продаємо чи не передаємо їх брокерам даних. Звіти про збій надсилаються в будь-якому разі: інформація про помилку та місце її виникнення в коді, очищена від конфіденційних даних, без ідентифікаторів вас чи вашого пристрою. Ви можете змінити ці налаштування в будь-який час.",
-    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Вкажіть, які екрани ви відкриваєте і як довго кожен із них залишається видимим, як ви туди потрапили, які елементи керування ви бачите або обираєте, яке вікно використовуєте, де виникають затримки, загальні категорії помилок, версію додатка та вашу платформу, щоб ми могли виправити те, що не працює. Ніколи — ваші ключі, фраза відновлення, пароль, адреси, залишки на рахунках, суми або зміст транзакцій. Ми не відстежуємо ваші дії в інших додатках чи на сайтах, не використовуємо дані для реклами та не продаємо чи не передаємо їх брокерам даних. Звіти про збій надсилаються в будь-якому випадку: інформація про помилку та місце її виникнення в коді, очищена від конфіденційних даних, без ідентифікаторів вас чи вашого пристрою. Ви можете змінити це в будь-який час.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Поділіться даними про використання",
@@ -7632,8 +7632,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Які екрани ви відкриваєте і як довго кожен з них залишається видимим, як ви туди потрапили, яке вікно використовуєте, де у вас виникають труднощі, загальні категорії помилок, версія додатка та ваша платформа.",
-    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Які екрани ви відкриваєте і як довго кожен з них залишається видимим, як ви туди потрапили, які елементи керування ви бачите або вибираєте, яке вікно використовуєте, де у вас виникають труднощі, загальні категорії помилок, версія додатка та ваша платформа.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
