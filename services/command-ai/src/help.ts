@@ -75,6 +75,23 @@ export function matchTopicButton(text: string, topic: string | null, data: HelpD
 export const isPlaceholderOnly = (text: string): boolean =>
   text.search(PLACEHOLDER) >= 0 && /^[\s\p{P}\p{S}]*$/u.test(text.replace(PLACEHOLDER, ''));
 
+const words = (list: string) => new Set(list.split(' '));
+// The closed vocabulary of a typed reply. A symbol, network or provider the app adds needs a line here.
+const CHOICES = words(
+  'public private first second third fast slow epoch agglayer xreserve across cctp near ethereum base solana bitcoin miden eth usdc usdcx'
+);
+const EDIT_WORDS = words('a actually amount and change instead it make one please the to use via with');
+
+/** Whether a message may only answer a pending question: a choice or a redacted literal, with at most edit words. */
+export function isTypedReply(text: string): boolean {
+  if (isPlaceholderOnly(text)) return true;
+  const rest = text.replace(PLACEHOLDER, ' ').normalize('NFKC').toLowerCase();
+  if (rest.includes('?')) return false;
+  const used = rest.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const hasValue = text.search(PLACEHOLDER) >= 0 || used.some(word => CHOICES.has(word));
+  return hasValue && used.every(word => CHOICES.has(word) || EDIT_WORDS.has(word));
+}
+
 const UNKNOWN = new Set(['not_covered', 'cannot_diagnose']);
 
 /** The cards a router pick may be answered from, best first: one that wins alone, or up to two. */
