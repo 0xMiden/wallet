@@ -24,6 +24,8 @@ const MIXED_CASE_ADDRESS = `0x${'1A'.repeat(20)}`;
 const CALLER = { 'CF-Connecting-IP': '203.0.113.7' };
 const SALT = `0x${'00'.repeat(12)}${'ca'.repeat(20)}`;
 const OTHER_TARGET = `0x${'3b'.repeat(20)}`;
+/** The USDC of Base: the one default fee token of the chain 8453 (DEFAULT_FEE_TOKENS). */
+const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const CONFIG = relayConfigOf({ '8453': chainEntry(), '1': chainEntry({ allowedTargets: [TARGET, OTHER_TARGET] }) });
 /** The chains that the tests serve: each one has an RPC URL. */
 const CHAINS = [8453, 1];
@@ -75,23 +77,33 @@ describe('GET /v1/account', () => {
     const body = await bodyOf(await send(harnessFor('deduct'), accountPath('8453', ADDRESS, `${USDC},${NATIVE}`)));
     expect(body.mode).toBe('deduct');
     expect(body.feeRecipient).toBe(FEE_RECIPIENT);
-    expect(body.feeTokens).toEqual([NATIVE, USDC]);
+    expect(body.feeTokens).toEqual([NATIVE, BASE_USDC, USDC]);
     expect(body).not.toHaveProperty('fees');
   });
 
-  it('answers the feeTokens of the config in config order', async () => {
+  it('answers the default fee tokens of the chain, then the feeTokens of the config in config order', async () => {
     const OTHER = `0x${'bb'.repeat(20)}`;
     const config = relayConfigOf({ '8453': chainEntry({ feeTokens: { [OTHER]: 'BTCUSDT', [USDC]: 'usd' } }) });
     const harness = createHarness({ gasMode: 'deduct', relayConfig: config, chains: [8453] });
     const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS)));
-    expect(body.feeTokens).toEqual([NATIVE, OTHER, USDC]);
+    expect(body.feeTokens).toEqual([NATIVE, BASE_USDC, OTHER, USDC]);
   });
 
-  it('answers only the native coin for a deduct chain without feeTokens', async () => {
-    const config = relayConfigOf({ '8453': { nativePrice: 'usd' } });
+  it('answers only the native coin for a deduct chain without a fee token', async () => {
+    // 999 has no default fee token.
+    const config = relayConfigOf({ '999': { nativePrice: 'usd' } });
+    const harness = createHarness({ gasMode: 'deduct', relayConfig: config, chains: [999] });
+    const body = await bodyOf(await send(harness, accountPath('999', ADDRESS)));
+    expect(body.feeTokens).toEqual([NATIVE]);
+  });
+
+  it('answers the relayer as the fee recipient, and the default fee tokens, for a deduct config with no values', async () => {
+    const config = relayConfigOf({}, { feeRecipient: undefined });
     const harness = createHarness({ gasMode: 'deduct', relayConfig: config, chains: [8453] });
     const body = await bodyOf(await send(harness, accountPath('8453', ADDRESS)));
-    expect(body.feeTokens).toEqual([NATIVE]);
+    expect(body.mode).toBe('deduct');
+    expect(body.feeRecipient).toBe(body.executor);
+    expect(body.feeTokens).toEqual([NATIVE, BASE_USDC]);
   });
 
   it.each(['sponsor', 'deduct'])('answers the allowed targets of the chain in %s mode', async gasMode => {
