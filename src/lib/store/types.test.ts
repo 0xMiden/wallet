@@ -105,12 +105,14 @@ describe('lib/store/types', () => {
         balancesLastFetched: { addr: 1234 },
         balancesDisplayFaucetId: { addr: 'faucet' },
         balanceReadFailed: { addr: true },
+        balanceRefreshFailed: { addr: true },
         balanceReadInFlight: { addr: true }
       };
       expect(slice.balances.addr).toEqual([]);
       expect(slice.balancesLoading.addr).toBe(true);
       expect(slice.balancesLastFetched.addr).toBe(1234);
       expect(slice.balanceReadFailed.addr).toBe(true);
+      expect(slice.balanceRefreshFailed.addr).toBe(true);
       expect(slice.balanceReadInFlight.addr).toBe(true);
     });
 
@@ -425,6 +427,7 @@ describe('lib/store/types', () => {
         balances: {},
         balancesLoading: {},
         balanceReadFailed: {},
+        balanceRefreshFailed: {},
         balanceReadInFlight: {},
         balancesLastFetched: {},
         assetsMetadata: {},

@@ -34,9 +34,18 @@
 
 import * as Repo from 'lib/miden/repo';
 
-import { failInterruptedTransactions, MAX_WAIT_BEFORE_CANCEL, SESSION_STARTED_AT } from './cancel';
+import {
+  cancelTransactionAfterPipelineStopped,
+  failInterruptedTransactions,
+  MAX_WAIT_BEFORE_CANCEL,
+  SESSION_STARTED_AT
+} from './cancel';
+import { TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
 import { generateTransaction } from './index';
-import { ITransactionStatus } from '../db/types';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { ITransaction, ITransactionStatus } from '../db/types';
+import { isKilledBeforeSubmit, markLockEvictedError } from '../sdk/sdk-error-code';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -619,6 +628,541 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     expect(row.submitEvidence ?? []).toEqual([]);
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
+
+  it('drains in-flight submitGate work in finally on normal completion and awaits tracked external handlers (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    let releaseHandler!: () => void;
+    const parkedHandler = new Promise<void>(resolve => {
+      releaseHandler = resolve;
+    });
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[3] as Gate & { track?: (run: Promise<unknown>) => void };
+      gate.track?.(parkedHandler);
+      pendingGate = gate(evidence);
+      await enteredStamp;
+      return makeResult();
+    });
+
+    try {
+      let runSettled = false;
+      const run = runSend('tx-gate-finally-drain').then(
+        () => {
+          runSettled = true;
+        },
+        () => {
+          runSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(runSettled).toBe(false);
+
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(runSettled).toBe(false);
+
+      releaseHandler();
+      await run;
+      expect(await pendingGate).toBe(false);
+      const finallyRow = txStore.find(r => r.id === 'tx-gate-finally-drain')!;
+      expect(finallyRow.mayHaveSubmitted).toBeUndefined();
+      expect(finallyRow.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      releaseHandler?.();
+    }
+  });
+
+  it('keeps opened true and omits preSubmitKill when failClosed hits a failing retireCrossing DB write (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let gateOpened = false;
+    let retirementAttempted = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (
+            gateOpened &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retirementAttempted = true;
+            throw new Error('QuotaExceededError during failClosed retirement');
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    try {
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        const gate = a[3] as Gate & { failClosed?: () => Promise<void> };
+        expect(await gate(evidence)).toBe(true);
+        gateOpened = true;
+        await gate.failClosed?.();
+        throw new OperationAbortedError('op-failclosed-db-reject', 'deadline');
+      });
+
+      const caught = await runSend('tx-failclosed-db-reject').catch((err: unknown) => err);
+      expect(retirementAttempted).toBe(true);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      const row = txStore.find(r => r.id === 'tx-failclosed-db-reject')!;
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+    }
+  });
+
+  it('keeps opened true and omits preSubmitKill when settled gate finishes stamp while retireCrossing throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    let failRetire = false;
+    let retirementAttempted = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (
+            failRetire &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retirementAttempted = true;
+            throw new Error('QuotaExceededError during late-stamp retirement');
+          }
+          if (!parked && current) {
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[3] as Gate;
+      pendingGate = gate(evidence);
+      await enteredStamp;
+      failRetire = true;
+      throw new OperationAbortedError('op-late-stamp-retire-fail', 'deadline');
+    });
+
+    try {
+      const sendPromise = runSend('tx-late-stamp-retire-fail').catch((err: unknown) => err);
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 10));
+      releaseStamp();
+      const caught = await sendPromise;
+      expect(await pendingGate).toBe(false);
+      expect(retirementAttempted).toBe(true);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      const row = txStore.find(r => r.id === 'tx-late-stamp-retire-fail')!;
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
+  it('settles synchronously before recordLeafEnd and retires late crossings on pre-open offscreen failure (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { hasErrorBeforeSubmit, markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    let capturedGate: Gate | undefined;
+    let settledDuringRecordLeafEnd: boolean | undefined;
+    const realWhere = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhere(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          if (query.id === 'tx-gate-preopen' && capturedGate && settledDuringRecordLeafEnd === undefined) {
+            settledDuringRecordLeafEnd = !(await capturedGate(evidence));
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+    try {
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        capturedGate = a[3] as Gate;
+        throw new Error('pre-open bus failure');
+      });
+
+      await expect(runSend('tx-gate-preopen')).rejects.toThrow('pre-open bus failure');
+      expect(settledDuringRecordLeafEnd).toBe(true);
+      expect(txStore.find(r => r.id === 'tx-gate-preopen')?.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'end' })
+      ]);
+
+      let taggedGate: Gate | undefined;
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        taggedGate = a[3] as Gate;
+        throw markErrorBeforeSubmit(new Error('tagged pre-open failure'));
+      });
+      const caught = await runSend('tx-gate-tagged-preopen').catch((error: unknown) => error);
+      expect(hasErrorBeforeSubmit(caught)).toBe(true);
+      expect(await taggedGate!(evidence)).toBe(false);
+      expect(txStore.find(r => r.id === 'tx-gate-tagged-preopen')?.submitEvidence).toBeUndefined();
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhere);
+    }
+
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      pendingGate = (a[3] as Gate)(evidence);
+      await enteredStamp;
+      throw markErrorBeforeSubmit(new Error('pre-open settle while stamp awaits Dexie'));
+    });
+
+    try {
+      let runSettled = false;
+      const run = runSend('tx-gate-late-stamp').then(
+        () => {
+          runSettled = true;
+        },
+        () => {
+          runSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(runSettled).toBe(false);
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp();
+      await run;
+      expect(await pendingGate).toBe(false);
+
+      const rowLate = txStore.find(r => r.id === 'tx-gate-late-stamp')!;
+      expect(rowLate.mayHaveSubmitted).toBeUndefined();
+      expect(rowLate.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+      expect(rowLate.submitEvidence).toHaveLength(1);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
+  it('keeps ungated consumeNoteId crossings untouched outside offscreenSubmitGate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    proxy.consumeNoteId.mockImplementationOnce(
+      async (_tx: unknown, _signer: unknown, stamp?: (s: string) => Promise<void>) => {
+        await stamp?.('submitting');
+        throw new Error('apply failed after submit');
+      }
+    );
+
+    const tx = {
+      id: 'tx-ungated-consume',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    await generateTransaction(tx as never, signCallback, false, provider as never).catch(() => undefined);
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume')!;
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    expect((row.submitEvidence as Array<{ preSubmitEnd?: boolean }>)[0]?.preSubmitEnd).toBeUndefined();
+  });
+
+  it('keeps ungated consumeNoteId kills as unconfirmed kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    proxy.consumeNoteId.mockRejectedValueOnce(new OperationAbortedError('op-consume-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-ungated-consume-kill',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const consumeKill = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const liveConsume = txStore.find(r => r.id === 'tx-ungated-consume-kill')!;
+    await cancelTransactionAfterPipelineStopped(
+      liveConsume as never,
+      consumeKill,
+      liveConsume.attemptId as string | undefined
+    );
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'kill' })]);
+  });
+
+  it('marks offscreen-gated execute pre-submit kills as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      newTransaction: jest.Mock;
+    };
+    proxy.newTransaction.mockRejectedValueOnce(new OperationAbortedError('op-exec-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-gated-exec-kill',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const execKill = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const liveExec = txStore.find(r => r.id === 'tx-gated-exec-kill')!;
+    await cancelTransactionAfterPipelineStopped(liveExec as never, execKill, liveExec.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-gated-exec-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
+  });
+
+  it('marks prepared consume zero-fill pre-submit kills as preSubmitKill (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      newTransaction: jest.Mock;
+    };
+    proxy.newTransaction.mockRejectedValueOnce(new OperationAbortedError('op-reclaim-kill', 'deadline'));
+
+    const tx = {
+      id: 'tx-gated-reclaim-kill',
+      type: 'consume',
+      noteId: 'zero-fill-tip',
+      noteIds: ['zero-fill-tip'],
+      requestBytes: new Uint8Array([1]),
+      extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-gated-reclaim-kill')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-gated-reclaim-kill')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
+  });
+
+  it('keeps ungated consumeNoteId evicted inside the leaf as kill evidence rather than preSubmitKill (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const proxy = jest.requireMock('../back/miden-client-proxy').midenClientProxy as {
+      consumeNoteId: jest.Mock;
+    };
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('inside consume leaf'));
+    markLockEvictedError(evicted);
+    proxy.consumeNoteId.mockRejectedValueOnce(evicted);
+
+    const tx = {
+      id: 'tx-ungated-consume-evict',
+      type: 'consume',
+      noteId: 'n1',
+      noteIds: ['n1'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-ungated-consume-evict')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-ungated-consume-evict')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'kill' })]);
+  });
+
+  it('marks pre-leaf non-guardian lock eviction before execute leaf as preSubmitKill without kill evidence (#2325)', async () => {
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('pre-leaf lock eviction'));
+    markLockEvictedError(evicted);
+    mockGetMidenClient.mockRejectedValueOnce(evicted);
+
+    const tx = {
+      id: 'tx-preleaf-exec-evict',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      approvedEffects: { summary: { removed: [], created: [] } },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(tx as never, signCallback, false, provider as never).catch(e => e);
+    const live = txStore.find(r => r.id === 'tx-preleaf-exec-evict')!;
+    await cancelTransactionAfterPipelineStopped(live as never, killErr, live.attemptId as string | undefined);
+
+    const row = txStore.find(r => r.id === 'tx-preleaf-exec-evict')!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect((row as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(row.submitEvidence ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: 'kill' })]));
+  });
 });
 
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {
@@ -828,5 +1372,30 @@ describe('the cold-start sweep against a row the real writer moved to Generating
       send.release();
     }
     await sending;
+  });
+
+  it('marks pre-leaf non-guardian ClientTerminatedError before execute leaf as preSubmitKill (#2325)', async () => {
+    mockGetMidenClient.mockRejectedValueOnce(new Error('WebClient terminated'));
+    const tx = {
+      id: 'tx-preleaf-exec-term',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      approvedEffects: { summary: { removed: [], created: [] } },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      { isGuardianAccount: async () => false, getAccounts: async () => [] } as never
+    ).catch(e => e);
+
+    expect(isKilledBeforeSubmit(killErr)).toBe(true);
   });
 });

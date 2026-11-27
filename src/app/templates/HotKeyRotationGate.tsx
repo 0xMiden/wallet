@@ -17,7 +17,18 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity';
-import { type HotKeyActivationMode, isLiveTransaction, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  hasTransactionIndex,
+  readTransactionIndexChunks,
+  statusTypeIndexSpecs,
+  typeIndexSpecs
+} from 'lib/miden/db/index-query';
+import {
+  type HotKeyActivationMode,
+  type ITransaction,
+  isLiveTransaction,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -160,23 +171,36 @@ const ensureRotationTx = async (
     if (adoptExisting) {
       await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
         if (!lock) return;
-        await Repo.transactions
-          .filter(
-            r =>
-              (isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey)) &&
-              r.status === ITransactionStatus.GeneratingTransaction
-          )
-          .modify(r => {
-            r.status = ITransactionStatus.Queued;
-            r.processingStartedAt = undefined;
-            r.attemptId = undefined;
-            r.requeueStreak = undefined;
-          });
+        const matchesGenerating = (r: ITransaction) =>
+          (isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey)) &&
+          r.status === ITransactionStatus.GeneratingTransaction;
+        const collection = hasTransactionIndex('[status+type]', Repo.transactions)
+          ? Repo.transactions
+              .where('[status+type]')
+              .anyOf([
+                [ITransactionStatus.GeneratingTransaction, 'replace-hot-key'],
+                [ITransactionStatus.GeneratingTransaction, 'consume']
+              ])
+              .filter(matchesGenerating)
+          : Repo.transactions.filter(matchesGenerating);
+        await collection.modify(r => {
+          r.status = ITransactionStatus.Queued;
+          r.processingStartedAt = undefined;
+          r.attemptId = undefined;
+          r.requeueStreak = undefined;
+        });
       });
     }
     // A live device revocation is never the activation: the gate waits for it, so no activation is queued beside
     // a signer change already in flight.
-    const live = await Repo.transactions.filter(r => isLiveRotationRow(r, accountPublicKey)).toArray();
+    const live = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'replace-hot-key'],
+        [ITransactionStatus.GeneratingTransaction, 'replace-hot-key']
+      ]),
+      r => isLiveRotationRow(r, accountPublicKey)
+    );
     const existing = live.find(
       row => isActivationRow(row, accountPublicKey) && row.extraInputs?.rotationRequest === rotationRequest
     );
@@ -184,10 +208,16 @@ const ensureRotationTx = async (
       txId = existing.id;
       return;
     }
-    if (
-      live.length > 0 ||
-      (await Repo.transactions.filter(r => isLiveRotationFundingRow(r, accountPublicKey)).first())
-    ) {
+    const [liveFunding] = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Queued, 'consume'],
+        [ITransactionStatus.GeneratingTransaction, 'consume']
+      ]),
+      r => isLiveRotationFundingRow(r, accountPublicKey),
+      { limit: 1 }
+    );
+    if (live.length > 0 || liveFunding !== undefined) {
       deferred = true;
       return;
     }
@@ -199,12 +229,10 @@ const ensureRotationTx = async (
       txId = failed.id;
       return;
     }
-    const activationMode =
-      mode ??
-      resumableActivationMode(
-        await Repo.transactions.filter(r => isActivationRow(r, accountPublicKey)).toArray(),
-        rotationRequest
-      );
+    const activationRows = await readTransactionIndexChunks(Repo.transactions, typeIndexSpecs(['replace-hot-key']), r =>
+      isActivationRow(r, accountPublicKey)
+    );
+    const activationMode = mode ?? resumableActivationMode(activationRows, rotationRequest);
     if (activationMode === null) return;
     txId = await initiateReplaceHotKeyTransaction(
       accountPublicKey,
@@ -448,9 +476,17 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey, rotationReq
       try {
         // Under the rotation lock, so no rotation queues beside the import and none already live lands after it.
         await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
-          const live = await Repo.transactions
-            .filter(r => isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey))
-            .first();
+          const [live] = await readTransactionIndexChunks(
+            Repo.transactions,
+            statusTypeIndexSpecs([
+              [ITransactionStatus.Queued, 'replace-hot-key'],
+              [ITransactionStatus.GeneratingTransaction, 'replace-hot-key'],
+              [ITransactionStatus.Queued, 'consume'],
+              [ITransactionStatus.GeneratingTransaction, 'consume']
+            ]),
+            r => isLiveRotationRow(r, accountPublicKey) || isLiveRotationFundingRow(r, accountPublicKey),
+            { limit: 1 }
+          );
           if (live) throw new Error(t('hotKeyRotationImportBusy'));
           await importHotKeyPair(accountPublicKey, keyPairPayload);
         });

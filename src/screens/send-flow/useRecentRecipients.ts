@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { hasTransactionIndex } from 'lib/miden/db/index-query';
 import { type IBridgedSendExtraInputs, type ITransaction, nearIntentsSendTrackingOf } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { type AddressChain, detectAddressChain } from 'utils/miden';
@@ -133,18 +134,22 @@ export const useRecentRecipients = (accountId: string | null | undefined): Recen
     }
 
     return subscribeToLiveQuery(
-      () =>
-        Repo.transactions
-          .filter(
-            row =>
-              // "Addresses you have sent to before" is a trust signal, and a
-              // restored row is not evidence of that - it is whatever the backup's
-              // author wrote. Without this, five rows in a dump own the entire
-              // Recent list, and the wallet itself vouches for the attacker's
-              // address at the exact moment the user is choosing where to send.
-              !row.restoredFromBackup && (row.type === 'send' || row.type === 'bridged-send')
-          )
-          .toArray(),
+      () => {
+        // "Addresses you have sent to before" is a trust signal, and a
+        // restored row is not evidence of that - it is whatever the backup's
+        // author wrote. Without this, five rows in a dump own the entire
+        // Recent list, and the wallet itself vouches for the attacker's
+        // address at the exact moment the user is choosing where to send.
+        return hasTransactionIndex('type', Repo.transactions)
+          ? Repo.transactions
+              .where('type')
+              .anyOf(['send', 'bridged-send'])
+              .filter(row => !row.restoredFromBackup)
+              .toArray()
+          : Repo.transactions
+              .filter(row => !row.restoredFromBackup && (row.type === 'send' || row.type === 'bridged-send'))
+              .toArray();
+      },
       {
         next: rows => setRecents(selectRecentRecipients(rows, accountId)),
         error: err => {

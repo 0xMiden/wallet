@@ -751,11 +751,11 @@ describe('Vault hardware-backed unlock + reveal', () => {
     expect(installRealmKeystore).not.toHaveBeenCalled();
   });
 
-  it('spawnFromMidenClient throws when hardware is available but setupHardwareProtector reports failure', async () => {
+  it('spawnFromMidenClient throws when hardware is available but prepareHardwareProtector reports failure', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
     (isDesktop as jest.Mock).mockReturnValue(false);
-    // Force the encryption step to throw on this call only so setupHardwareProtector
-    // returns false → spawnFromMidenClient hits its `Hardware security setup failed` branch.
+    // Force the encryption step to throw on this call only so prepareHardwareProtector
+    // returns null → prepareVaultProtector hits its `Hardware security setup failed` branch.
     const biometric = require('lib/biometric');
     biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-encrypt-fail'));
     await expect(

@@ -860,6 +860,127 @@
     "message": "無法進行負載平衡。",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "無法更新餘額。顯示最後一次確認的餘額。",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "$symbol$ 在 $network$ 上的固定匯率為 1.00 美元。",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$ 在 $provider$ 上的價格，來自 $network$，更新時間為 $retrievedAt$。",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "$network$ 上的 Vault USD 價值，更新於 $retrievedAt$。",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "美元價格已過時",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "來自 $provider$ 於 $network$（$retrievedAt$）的最新 $symbol$ 價格已超過 10 分鐘，且未計入總計中。",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "$network$ 上金庫的最新美元價值（$retrievedAt$）已超過 10 分鐘，且未計入總額中。",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "最新 USD 價格已超過 10 分鐘，且不會顯示在總額中。",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "美元價格無法取得",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "$network$ 上目前沒有可驗證的美元價格。",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "無法載入美元價格。在頁面重新整理前，餘額總計不包含美元價值。",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "此代幣已在測試網（Testnet）上註銷，無法進行轉帳。",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "發送前請在「代幣資訊」中設定代幣的小數位數。",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "無可用餘額可供轉帳。",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "目前尚無可用餘額可供轉帳。請先處理待處理的轉帳。",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "無法進行負載平衡。請在傳送前重試。",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
     "englishSource": "ID: $id$",
@@ -4082,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "除非您知道自己的 12 字恢復短語，或擁有加密的備份檔案，否則請勿登出。",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "在您確認替換之前，目前的錢包會保留在此裝置上。繼續之前，請先準備好您的 12 字恢復短語、Guardian 金鑰或加密的備份檔案。",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "需要透過生物辨識解鎖",
@@ -7489,8 +7610,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "我們會記錄您開啟哪些畫面、每個畫面顯示的時間長短、您如何進入該畫面、使用哪個視窗、卡在何處、廣泛的錯誤類別、應用程式版本以及您的平台，以便我們修復故障。絕不會記錄您的金鑰、恢復短語、密碼、地址、餘額、金額或交易內容。 我們不會跨其他應用程式或網站進行追蹤，不會將任何資料用於廣告，也不會將資料出售或分享給資料經紀商。無論是否發生當機，系統都會傳送錯誤報告：內容包含錯誤訊息及程式碼中的發生位置，並已刪除敏感資料，且不含您或您裝置的任何識別資訊。您可隨時變更此設定。",
-    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "請說明您開啟了哪些畫面、每個畫面顯示的時間長短、您是如何進入該頁面的、您看到或選取了哪些功能控制項、您使用的是哪個視窗、您卡在何處、錯誤的大致類別、應用程式版本以及您的平台，以便我們能修復出現問題的部分。 絕不會收集您的私鑰、恢復短語、密碼、地址、餘額、金額或交易內容。 我們不會跨其他應用程式或網站進行追蹤，不會將任何資料用於廣告，也不會將資料出售或分享給資料經紀商。當程式發生當機時，系統會自動傳送當機報告：內容包含錯誤訊息及發生位置（已從程式碼中刪除敏感資料），且不包含您或您裝置的任何識別資訊。您可隨時變更此設定。",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "分享使用數據",
@@ -7509,8 +7630,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "您開啟了哪些畫面、每個畫面顯示的時間長短、您如何進入該畫面、使用哪個視窗、卡在何處、錯誤的大致類別、應用程式版本，以及您的操作平台。",
-    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "您開啟了哪些畫面、每個畫面顯示的時間長短、您如何進入該畫面、您看到或選取了哪些功能控制項、您使用的是哪個視窗、您卡在何處、錯誤的大致類別、應用程式版本，以及您的平台。",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -10968,5 +11089,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "要替換現有錢包嗎？",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼建立新錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼還原已復原的錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "如果您仍需要目前的錢包，請確認手邊保有目前的恢復短語或備份。此操作無法復原。",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "清除並還原錢包",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "清除並建立錢包",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "返回登入",
+    "englishSource": "Back to sign in"
   }
 }

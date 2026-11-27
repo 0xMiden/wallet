@@ -47,7 +47,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
+import { markErrorBeforeSubmit, markLockEvictedError } from 'lib/miden/sdk/sdk-error-code';
 import {
   WasmClientPoisonedError,
   isWasmClientPoisonReason,
@@ -448,7 +448,12 @@ const opStageCallbacks = new Map<string, StageCallback>();
  * writes since #1081, and a reviewed bridge source), and says whether it may: false once the leaf has settled. A throw
  * refuses the gate too, since a crossing that cannot be recorded must not happen.
  */
-export type SubmitGate = (evidence?: SubmitEvidenceFields) => Promise<boolean>;
+export type SubmitGate = ((evidence?: SubmitEvidenceFields) => Promise<boolean>) & {
+  retract?: () => Promise<boolean>;
+  settle?: () => void;
+  failClosed?: () => Promise<void>;
+  track?: (task: Promise<unknown>) => void;
+};
 
 /** op_id → that write's {@link SubmitGate}, on the same lifetime as {@link opStageCallbacks}. */
 const opSubmitGates = new Map<string, SubmitGate>();
@@ -466,6 +471,7 @@ function newOpId(): string {
 function takeInFlight(op_id: string): InFlightOp | undefined {
   const op = inFlight.get(op_id);
   if (!op) return undefined;
+  opSubmitGates.get(op_id)?.settle?.();
   if (op.timer) clearTimeout(op.timer);
   inFlight.delete(op_id);
   return op;
@@ -525,7 +531,9 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // so fall back to the mechanism that bounds every wedge rather than
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
-      reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      const error = new WasmClientPoisonedError(reason, new Error(resp.error));
+      markLockEvictedError(error);
+      reject(error);
       return;
     }
     // Rebuilt as its class too: the row's copy and the reported reason read the class, and it carries its before-submit
@@ -926,12 +934,31 @@ export async function handleOffscreenSubmitGate(msg: OffscreenSubmitGateRequest)
   const { op_id } = msg;
   const gate = opSubmitGates.get(op_id);
   if (!inFlight.has(op_id) || gate === undefined) return { ok: false, error: `op ${op_id} is not awaiting a submit` };
-  try {
-    if (!(await gate(msg.evidence))) return { ok: false, error: `op ${op_id} has already settled` };
-  } catch (err) {
-    return { ok: false, error: `op ${op_id} could not record its submit: ${String(err)}` };
+  let run: () => Promise<boolean>;
+  let verb: 'retract' | 'record';
+  if (msg.action === 'retract') {
+    const retract = gate.retract;
+    if (retract === undefined) {
+      return { ok: false, error: `op ${op_id} does not support retracting its submit` };
+    }
+    run = () => retract();
+    verb = 'retract';
+  } else {
+    run = () => gate(msg.evidence);
+    verb = 'record';
   }
-  return inFlight.has(op_id) ? { ok: true } : { ok: false, error: `op ${op_id} ended while recording its submit` };
+  const task = (async (): Promise<OffscreenSubmitGateResponse> => {
+    try {
+      if (!(await run())) return { ok: false, error: `op ${op_id} has already settled` };
+    } catch (err) {
+      return { ok: false, error: `op ${op_id} could not ${verb} its submit: ${String(err)}` };
+    }
+    if (inFlight.has(op_id)) return { ok: true };
+    if (verb === 'record') await gate.failClosed?.();
+    return { ok: false, error: `op ${op_id} ended while ${verb}ing its submit` };
+  })();
+  gate.track?.(task);
+  return task;
 }
 
 /**

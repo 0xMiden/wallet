@@ -54,6 +54,7 @@ When the setting is on, the App reports the start and the end of a small set of 
 | Order and completeness, for a screen visit              | A counter that orders the visits of one run of the App, and whether the visit ended normally, including by hiding the window first (`true`), or the window was closed while the screen was still showing (`false`)                                                                                           |
 | A short random number for that one activity             | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 | A short random number for that run of the App           | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
+| Feature controls visible or selected                    | For the bottom navigation, Home actions and the Receive funding tile: a fixed feature name, where the control appears, whether it was visible or selected, and which wallet surface showed it. See "Feature discovery" below.                                                                          |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above - the underlying error message is read to pick a category and is never sent.
 
@@ -62,6 +63,10 @@ That is the complete list. There is no other field, and the error category is ch
 When the setting is on, the App also reports which screen you were looking at and for how long. One message is sent when you leave a screen, hide the window, or close it, and it carries only the fields in the table above marked "for a screen visit". A screen only counts after it has been on screen for 600 milliseconds, so swiping across several panes reports only the one you stopped on. Time while the window is hidden is not counted, and coming back to it starts a new visit. If a window is closed abruptly the visit may be lost or short, and we treat that as missing data, not as a reason you left.
 
 A screen visit never carries a page address, account, contact, token, balance, amount, transaction or note identifier, error text, anything typed or pasted, or what you tapped. It shares the run-of-the-App number described under "Identifiers", so the visits of one run can be read in order, and nothing links them to another run, another device, crash reports, or any public record.
+
+#### Feature discovery
+
+With usage sharing on, the App reports when an enabled control for a wallet feature has been fully visible for 600 milliseconds, at most once per feature and entry point each time the window is in the foreground. It also reports when you select one of these controls to open a feature. These events name the feature, the bottom navigation, Home actions or Receive funding tile where it appeared, and the wallet surface. They share the temporary run number used by other usage events. They carry no routes, addresses, payment details, identifiers for you or your device, or anything you type.
 
 #### Work the App does on your behalf
 

@@ -100,8 +100,10 @@ export interface OnboardingFlowProps {
    * wallet is being created, or already exists). Welcome never shows it: nothing comes before it.
    */
   canGoBack?: boolean;
+  replacesExistingWallet?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
+  onCancel?: () => void;
 }
 
 const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
@@ -176,8 +178,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   importViaKey = false,
   canCreateWithPhrase = false,
   canGoBack = true,
+  replacesExistingWallet = false,
   onBiometricChange,
-  onAction
+  onAction,
+  onCancel
 }) => {
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
@@ -405,8 +409,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             recoveryError={recoveryError}
             recoveryErrorId={recoveryErrorId}
             creating={confirmCreating}
+            replacesExistingWallet={replacesExistingWallet}
             onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
+            onCancel={onCancel}
             onSwitchToPassword={onSwitchToPassword}
           />
         );
@@ -439,9 +445,11 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     guardianProbe,
     guardianNetwork,
     confirmCreating,
+    replacesExistingWallet,
     importViaKey,
     canCreateWithPhrase,
-    onboardingType
+    onboardingType,
+    onCancel
   ]);
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right

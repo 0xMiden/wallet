@@ -25,10 +25,11 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 const mockToArray = jest.fn();
-const mockAnyOf = jest.fn((..._types: string[]) => ({ toArray: (...args: unknown[]) => mockToArray(...args) }));
-const mockWhere = jest.fn((_index: string) => ({ anyOf: (...types: string[]) => mockAnyOf(...types) }));
+const mockFilter = jest.fn((predicate: (tx: ITransaction) => boolean) => ({
+  toArray: async () => ((await mockToArray()) as ITransaction[]).filter(predicate)
+}));
 jest.mock('lib/miden/repo', () => ({
-  transactions: { where: (index: string) => mockWhere(index) }
+  transactions: { filter: (predicate: (tx: ITransaction) => boolean) => mockFilter(predicate) }
 }));
 
 let mockContacts: WalletContact[] = [];
@@ -179,20 +180,102 @@ describe('isNewRecipient', () => {
 describe('useIsNewRecipient', () => {
   beforeEach(() => {
     mockToArray.mockReset();
-    mockWhere.mockClear();
-    mockAnyOf.mockClear();
+    mockFilter.mockClear();
     mockCanonical.mockClear();
     mockContacts = [];
   });
 
-  it('reads only send rows, through the type index', async () => {
-    mockToArray.mockResolvedValue([]);
+  it('reads only non-failed, non-restored send and bridged-send rows via chunked type-index specs', async () => {
+    mockToArray.mockResolvedValue([
+      sendRow({ type: 'consume', secondaryAccountId: 'mtst1sent' }),
+      sendRow({ restoredFromBackup: true, secondaryAccountId: 'mtst1sent' }),
+      sendRow({ status: ITransactionStatus.Failed, secondaryAccountId: 'mtst1sent' }),
+      bridgedRow('0x0000000000000000000000000000000000000001')
+    ]);
 
     const { result } = renderHook(() => useIsNewRecipient(ACCOUNT, 'mtst1sent'));
     await waitFor(() => expect(result.current).toBe(true));
+    expect(mockFilter).toHaveBeenCalledTimes(1);
 
-    expect(mockWhere).toHaveBeenCalledWith('type');
-    expect(mockAnyOf).toHaveBeenCalledWith('send', 'bridged-send');
+    const { result: bridgedResult } = renderHook(() =>
+      useIsNewRecipient(ACCOUNT, '0x0000000000000000000000000000000000000001')
+    );
+    await waitFor(() => expect(bridgedResult.current).toBe(false));
+  });
+
+  it('chunks large real-Dexie send scans (>64 rows) via useIsNewRecipient so concurrent writes commit mid-scan', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.unmock('lib/miden/repo');
+      jest.unmock('lib/miden/sdk/helpers');
+      const DexieMod = (await import('dexie')).default;
+      const {
+        renderHook: renderIsolatedHook,
+        waitFor: waitIsolatedFor,
+        cleanup
+      } = await import('@testing-library/react/pure');
+      const Repo = await import('lib/miden/repo');
+      const { useIsNewRecipient: realUseIsNewRecipient } = await import('./useIsNewRecipient');
+      await Repo.transactions.clear();
+      await Repo.transactions.bulkAdd([
+        ...Array.from({ length: 130 }, (_, i) =>
+          sendRow({
+            id: `send-${i}`,
+            type: i % 2 === 0 ? 'send' : 'bridged-send',
+            secondaryAccountId: i === 128 ? 'mtst1knownrecipient' : 'mtst1otherrecipient',
+            initiatedAt: 1_700_000_000 + i,
+            completedAt: 1_700_000_000 + i
+          })
+        ),
+        sendRow({
+          id: 'consume-ignored',
+          type: 'consume',
+          secondaryAccountId: 'mtst1knownrecipient',
+          initiatedAt: 1_700_000_500,
+          completedAt: 1_700_000_500
+        })
+      ]);
+      const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+      let writePromise: Promise<string> | undefined;
+      let writeDone = false;
+      let cursorOpensAfterWrite = 0;
+      const openedIndexes: string[] = [];
+      const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+      Repo.transactions.core.openCursor = req => {
+        openedIndexes.push(req.query.index.name ?? '');
+        if (writeDone) {
+          cursorOpensAfterWrite += 1;
+        } else if (!writePromise) {
+          writePromise = DexieMod.ignoreTransaction(() =>
+            Repo.transactions.add(
+              sendRow({ id: 'concurrent-send', status: ITransactionStatus.Queued, completedAt: undefined })
+            )
+          ).then(id => {
+            writeDone = true;
+            return id;
+          });
+        }
+        return origOpenCursor(req);
+      };
+      try {
+        const { result } = renderIsolatedHook(({ to }) => realUseIsNewRecipient(ACCOUNT, to), {
+          initialProps: { to: 'mtst1knownrecipient' }
+        });
+        await waitIsolatedFor(() => expect(result.current).toBe(false));
+        expect(filterSpy).not.toHaveBeenCalled();
+        expect(openedIndexes).toContain('type');
+        await writePromise;
+        expect(writeDone).toBe(true);
+        expect(cursorOpensAfterWrite).toBeGreaterThan(0);
+
+        const { result: fresh } = renderIsolatedHook(() => realUseIsNewRecipient(ACCOUNT, 'mtst1unseenrecipient'));
+        await waitIsolatedFor(() => expect(fresh.current).toBe(true));
+      } finally {
+        cleanup();
+        filterSpy.mockRestore();
+        Repo.transactions.core.openCursor = origOpenCursor;
+        await Repo.transactions.clear();
+      }
+    });
   });
 
   it('does not walk the history again when the contacts change', async () => {

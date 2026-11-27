@@ -1,7 +1,7 @@
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
 
 import type { TimelineRecorder } from './timeline-recorder';
-import type { EventSeverity } from './types';
+import type { EventSeverity, WalletLabel } from './types';
 
 function consoleSeverity(type: string): EventSeverity {
   switch (type) {
@@ -24,7 +24,7 @@ function consoleSeverity(type: string): EventSeverity {
  */
 export function attachConsoleCapture(
   context: BrowserContext,
-  walletLabel: 'A' | 'B',
+  walletLabel: WalletLabel,
   timeline: TimelineRecorder
 ): void {
   const onPage = (page: Page) => {
