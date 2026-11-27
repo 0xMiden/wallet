@@ -1,15 +1,14 @@
 /**
- * The box the four home-carousel panes share.
+ * The box the four Home action panes share.
  *
  * Two of the three things this pins are regressions, not preferences:
  *
- * - **The horizontal gesture belongs to the carousel.** `HomeSwipeContainer` is a native
- *   scroll-snap scroller, and `touch-action` intersects up to it. A pane that becomes a horizontal
- *   scroll container is the handler for a sideways pan and takes that gesture before the carousel sees it, which is how
- *   the Send pane stopped switching tabs. The body's `touch-action: pan-x pan-y` and
- *   `overflow-x-hidden` are what make that impossible, so they are asserted rather than left to a reviewer's eye.
+ * - **Both axes pan, and the body is never a horizontal scroller.** The body's `touch-action:
+ *   pan-x pan-y` keeps a sideways scroller inside a pane (Earn's position row) pannable on every
+ *   engine, and `overflow-x-hidden` stops the body itself from scrolling sideways when content
+ *   bleeds past the margin, so both are asserted rather than left to a reviewer's eye.
  * - **One page margin, and one top offset per kind of pane**, so a titled pane's first line does
- *   not move as you swipe between them, and no pane sits inset from its neighbours.
+ *   not move as you switch between them, and no pane sits inset from its neighbours.
  *
  * jsdom has no layout and no touch, so these are assertions about the contract — the classes and
  * the inline `touch-action` — not about pixels. What a device has to confirm is the feel; what
@@ -48,7 +47,7 @@ describe('HomeGroupPaneBody', () => {
     expect(body(container).className).not.toContain('--navbar-cushion');
     expect(screen.getByText('Amount')).toBeInTheDocument();
   });
-  it('lets horizontal pans reach the pager: pan-x pan-y, and never a horizontal scroller', () => {
+  it('pans on both axes and is never a horizontal scroller itself', () => {
     const { container } = render(
       <HomeGroupPaneBody>
         <p>content</p>
@@ -61,8 +60,6 @@ describe('HomeGroupPaneBody', () => {
     // `overflow-y-auto` alone computes `overflow-x` to `auto`, which makes the body itself a
     // horizontal scroll container the moment anything inside it bleeds past the page margin.
     expect(el).toHaveClass('overflow-y-auto', 'overflow-x-hidden', 'overscroll-y-contain');
-    // Both-axis containment would stop a sideways pan or wheel here instead of chaining it to the pager.
-    expect(el).not.toHaveClass('overscroll-contain');
   });
 
   it('puts every pane on the one page margin, and a titled pane at the root top offset', () => {
@@ -204,7 +201,7 @@ describe('the four panes are drawn in one box', () => {
 
     const root = container.querySelector<HTMLElement>('[data-testid="send-flow"]')!;
     expect(root).toHaveClass('h-full', 'w-full', 'bg-app-bg', 'overflow-hidden');
-    // No `mx-auto`, no cap of its own: the pane fills the carousel's cell edge to edge, and
+    // No `mx-auto`, no cap of its own: the pane fills its Home pane edge to edge, and
     // TabLayout already caps the column at 600px where there is room for more.
     expect(root.className).not.toMatch(/mx-auto|max-w-/);
   });

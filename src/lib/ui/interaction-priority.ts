@@ -1,8 +1,8 @@
 import { pagerMotion } from 'lib/animation';
 
 /**
- * Module-scoped "a gesture is in flight" signal, so background work (sync, prefetch, re-renders)
- * can yield while a finger is dragging the pager instead of competing for the main thread.
+ * Module-scoped "an interaction is in flight" signal, so background work (sync, prefetch, re-renders)
+ * can yield while the Home pages switch instead of competing for the main thread.
  */
 
 interface Waiter {

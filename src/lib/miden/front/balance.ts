@@ -314,7 +314,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // No-op in production (tree-shaken).
     const intervalId = setInterval(() => {
       if (live && !isTestSyncPaused()) {
-        // The poll's store write re-renders Home; wait out a moving pager (capped).
+        // The poll's store write re-renders Home; wait out a Home page switch (capped).
         void whenInteractionIdle().then(() => {
           if (live && !isTestSyncPaused()) void fetchBalancesWithDeduping();
         });

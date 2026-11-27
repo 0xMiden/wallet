@@ -38,7 +38,6 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: () => mockHapticMedium()
 }));
 
-jest.mock('lib/mobile/useNavbarHidden', () => ({ useNavbarHidden: () => true }));
 jest.mock('components/NetworkModeBanner', () => ({ NetworkModeBanner: () => null }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,

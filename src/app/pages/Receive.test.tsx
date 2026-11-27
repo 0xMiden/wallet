@@ -798,9 +798,8 @@ describe('Receive - Address', () => {
     expect(container.querySelector('[data-testid="receive-page"]')).toHaveClass(stepFooterCushionClass());
   });
 
-  it('leaves the horizontal swipe to the home carousel', async () => {
-    // The pager is a native scroller: a body that allowed only `pan-y` would swallow the sideways
-    // pan, and one that scrolled sideways itself would take it.
+  it('pans on both axes and never scrolls sideways itself', async () => {
+    // Both axes stay free for a sideways scroller inside, and the body itself never becomes one.
     const container = await renderReceive();
 
     const page = container.querySelector<HTMLElement>('[data-testid="receive-page"]')!;
@@ -1401,7 +1400,7 @@ describe('Receive - receive_share telemetry', () => {
 
   /**
    * Let the route settle. Entering a pane no longer begins its flow on arrival:
-   * the carousel commits a route on every swipe release, so a route has to hold
+   * quick taps and back pops commit every route they pass, so a route has to hold
    * still to count as a visit — see `useRouteDwell`. Every render helper below
    * dwells by default, since that is what a real visit does; the tests that
    * exercise a transit are the ones that deliberately do not.
@@ -1540,9 +1539,9 @@ describe('Receive - receive_share telemetry', () => {
     expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
   });
 
-  it('reports nothing for a pane the carousel only swiped past', async () => {
+  it('reports nothing for a pane only passed through', async () => {
     // Receive sits between Send and Earn, so it is the pane transited most, and
-    // its flow completes on sight of the address — meaning a swipe past it used
+    // its flow completes on sight of the address, so passing through it used
     // to emit a `completed` share indistinguishable from a real one. No
     // duration filter on the reading side could separate them, because both
     // last milliseconds. This is why the gate is a dwell and not a route check.

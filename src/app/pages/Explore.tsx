@@ -311,8 +311,8 @@ const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => 
     const deltaY = touch.clientY - gesture.startY;
     const deltaX = Math.abs(touch.clientX - gesture.startX);
 
-    // Give horizontal gestures to HomeSwipeContainer and upward gestures to
-    // the native scroller. We only take over once the intent is clearly down.
+    // Leave horizontal gestures to the content under the finger and upward
+    // gestures to the native scroller. We only take over once the intent is clearly down.
     if (deltaY <= 0 || deltaX > deltaY) {
       pullGestureRef.current = null;
       setIsPulling(false);

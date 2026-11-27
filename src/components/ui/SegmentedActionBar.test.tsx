@@ -132,33 +132,6 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Swap')).toHaveAttribute('aria-selected', 'false');
   });
 
-  it('shows the preview while keeping tap no-ops tied to the committed route', () => {
-    const onChange = jest.fn();
-    const { rerender } = renderBar({ activeId: 'receive', onChange });
-    const previewProps: React.ComponentProps<typeof SegmentedActionBar> & { displayId: string } = {
-      items,
-      activeId: 'receive',
-      displayId: 'send',
-      onChange
-    };
-
-    rerender(<SegmentedActionBar {...previewProps} />);
-
-    expect(getTab('Send')).toHaveAttribute('aria-selected', 'true');
-    expect(getTab('Receive')).toHaveAttribute('aria-selected', 'false');
-    expect(pillIn(getTab('Send'))).not.toBeNull();
-    expect(mockHapticSelection).not.toHaveBeenCalled();
-
-    fireEvent.click(getTab('Send'));
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith('send');
-    expect(mockHapticSelection).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(getTab('Receive'));
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(mockHapticSelection).toHaveBeenCalledTimes(1);
-  });
-
   it('applies the active layout classes to the selected tab and the fill classes to the rest', () => {
     renderBar({ activeId: 'send' });
 
@@ -342,8 +315,8 @@ describe('SegmentedActionBar - shown again after its pane was hidden', () => {
   });
 
   // A slide page closing back onto Home (TokenDetail to Send, Earn's withdraw Done to Overview) only
-  // flips PageActiveContext, not the tab itself: HomeSwipeContainer's carousel animates that reveal, so
-  // the bar must too, instead of reading it as a swap (#1068 design review).
+  // flips PageActiveContext, not the tab itself: the Home panes animate that reveal, so the bar must
+  // too, instead of reading it as a swap (#1068 design review).
   it('animates normally when a slide page closes back onto Home with a different segment', () => {
     const { rerender } = render(
       <PageActiveContext.Provider value={true}>
@@ -401,7 +374,7 @@ describe('SegmentedActionBar — selection behaviour and haptics', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
   });
 
-  it('stays silent when a swipe moves the active segment (HomeSwipeContainer buzzes for that)', () => {
+  it('stays silent when the route, not a tap, moves the active segment', () => {
     const { rerender } = renderBar({ activeId: 'send' });
 
     rerender(<SegmentedActionBar items={items} activeId="receive" onChange={jest.fn()} />);

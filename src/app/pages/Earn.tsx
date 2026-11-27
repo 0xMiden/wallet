@@ -86,7 +86,7 @@ const Earn: FC = () => {
     // and Swap. 20px between sections is this page's own.
     <HomeGroupPane paneTestId="earn-page">
       {/* No visible title: the summary's "Total earned" is the pane's first line, at the height Send's
-          and Swap's first lines sit, so nothing moves as you swipe between them. The page is still
+          and Swap's first lines sit, so nothing moves as you switch between them. The page is still
           named for assistive tech, as Receive's is. */}
       <h1 data-testid="earn-title" className="sr-only">
         {t('earnTitle')}

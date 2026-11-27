@@ -54,8 +54,8 @@ interface Deps {
  * Turns route and visibility changes into one event per visit.
  *
  * A visit is a stretch on one screen while the document is visible, so hiding the page ends it and showing it again
- * starts a new one (`resume`). Stretches shorter than the carousel dwell are dropped, as `useRouteDwell` does for
- * flows, so a swipe across panes does not inflate visits. Everything lives in memory.
+ * starts a new one (`resume`). Stretches shorter than the Home page dwell are dropped, as `useRouteDwell` does for
+ * flows, so passing through panes does not inflate visits. Everything lives in memory.
  */
 export function createVisitTracker({ now, surface, runId, emit }: Deps): VisitTracker {
   let screen: TelemetryScreen | null = null;

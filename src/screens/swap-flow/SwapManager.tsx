@@ -215,11 +215,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, []);
 
   // Gated on the route, not on mount, for the same reason as the send flow: the
-  // home carousel mounts this screen on every app open and keeps it mounted, so
+  // Home pages mount this screen on every app open and keep it mounted, so
   // a mount-triggered flow would report a swap nobody started and then leave it
-  // open, because swiping to another page does not unmount this one.
-  // Dwelled on rather than merely current: a swipe from Overview to Swap commits
-  // the panes in between, and this one is itself transited on the way back.
+  // open, because switching to another page does not unmount this one.
+  // Dwelled on rather than merely current: quick taps and back pops commit the
+  // panes they pass through, and this one is itself passed on the way back.
   const onSwapRoute = useRouteDwell(pathname === '/swap' || pathname.startsWith('/swap/'));
   useEffect(() => {
     if (!onSwapRoute) return;
@@ -234,7 +234,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   }, [onSwapRoute, settleSwap]);
 
   // Keyed on the route gate as well as the step, since the flow begins when the
-  // user arrives at /swap — after this screen mounted inside the carousel — and
+  // user arrives at /swap (after this screen mounted inside the Home stack), and
   // a step reported before then would land in no flow at all.
   const currentStep = cardStack[cardStack.length - 1]?.name;
   useEffect(() => {

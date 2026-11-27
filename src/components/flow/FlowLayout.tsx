@@ -34,8 +34,8 @@ export interface FlowLayoutProps {
  * content and the CTA sit at the same position on each page.
  *
  * The body is `HomeGroupPaneBody`, the same box Receive and Earn are drawn in — a flow that starts
- * as a home-carousel pane (Send, Swap) keeps one frame from its tab root through its pushed steps
- * to its receipt, at the one 16px page margin, and never takes the carousel's horizontal swipe.
+ * as a Home pane (Send, Swap) keeps one frame from its tab root through its pushed steps to its
+ * receipt, at the one 16px page margin.
  */
 export const FlowLayout: React.FC<FlowLayoutProps> = ({
   title,

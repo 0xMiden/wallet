@@ -375,6 +375,7 @@ describe('HomePanes', () => {
       const { rerender } = mount();
       route(rerender, '/send');
       draw('overview', 0.4);
+      draw('send', 0);
       route(rerender, '/receive');
       expect(shown().length).toBeLessThanOrEqual(2);
       draw('overview', 0.1);

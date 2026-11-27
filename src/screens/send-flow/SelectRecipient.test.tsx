@@ -83,11 +83,8 @@ describe('SelectRecipient', () => {
     expect(title).toHaveClass('text-title-tab');
     expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
 
-    // The row used to be a sideways scroller bleeding past the page margin. A horizontally
-    // scrollable element is the handler for a sideways pan, so it — not HomeSwipeContainer — took
-    // the swipe, and the Send pane could no longer be swiped to the next tab; the bleed also let
-    // the column be dragged out from under its own title. Scan QR code goes to a second line
-    // instead.
+    // The row used to be a sideways scroller bleeding past the page margin, and the bleed let the
+    // column be dragged out from under its own title. Scan QR code goes to a second line instead.
     const pills = screen.getByTestId('send-address-book').parentElement;
     expect(pills).toHaveClass('flex-wrap');
     expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);

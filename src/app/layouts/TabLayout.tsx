@@ -19,7 +19,6 @@ import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import CommandLauncher from 'app/layouts/CommandLauncher';
-import { useHomePagerPreview } from 'app/layouts/home-pager-preview';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import {
   PageActiveContext,
@@ -29,7 +28,7 @@ import {
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
 import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
-import { BottomNav, BottomNavItem, SegmentedActionBar, type SegmentedActionBarProps } from 'components/ui';
+import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { useHasUnreadBadges } from 'lib/badges/useWalletBadges';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -99,16 +98,6 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
   );
 };
 
-/**
- * The Home action bar. A leaf on purpose: during a swipe it shows the page the pager previews
- * (`useHomePagerPreview`), so the pill moves with the swipe, and only the bar re-renders for it.
- */
-const HomeActionBar: FC<SegmentedActionBarProps> = ({ activeId, ...props }) => {
-  const previewId = useHomePagerPreview();
-  // Keep activeId bound to the route so a previewed segment can still be selected.
-  return <SegmentedActionBar {...props} activeId={activeId} displayId={previewId} />;
-};
-
 function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
@@ -140,7 +129,7 @@ interface FloatingNavBarProps {
   onChange: (id: string) => void;
 }
 
-// Keep scroll-driven renders in the footer so the carousel and its action bar never remeasure mid-swipe.
+// Keep scroll-driven renders in the footer so the Home pages and their action bar never remeasure on a scroll.
 const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
   ({ items, activeId, pathname, onChange }, ref) => {
     const [condensed, setCondensed] = useState(false);
@@ -158,7 +147,6 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(
           !(target instanceof HTMLElement) ||
           !currentTarget.contains(target) ||
           target.closest('[data-tab-pane]')?.getAttribute('data-tab-pane') !== activeId ||
-          target.hasAttribute('data-home-pager') ||
           document.body.hasAttribute('data-hide-navbar')
         ) {
           return;
@@ -340,7 +328,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // SegmentedActionBar already no-ops re-taps on the active segment and
-  // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
+  // fires the selection haptic itself.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) {
@@ -367,12 +355,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   // The action bar lives inside the Home pane. A tab change swaps whole
   // panes in one frame, so the bar can never shift the content below it.
-  // The Home pane holds the swipe carousel for every home-group route.
+  // The Home pane holds the stacked Home pages for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
       {activeAction !== 'overview' && <CommandLauncher />}
       <div ref={actionDiscovery.ref} className="shrink-0 relative z-10" data-home-actions="true">
-        <HomeActionBar
+        <SegmentedActionBar
           items={actionItems}
           activeId={activeAction}
           onChange={handleActionChange}

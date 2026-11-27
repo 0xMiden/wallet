@@ -7,7 +7,7 @@
  * here now that the iOS build ships swap for distribution.
  *
  * This is the single source of truth for swap availability — the swap tab, the
- * home swipe pane, the `/swap` route, and the featured swap dApps all read it.
+ * Home Swap pane, the `/swap` route, and the featured swap dApps all read it.
  * To gate swap again (per-platform, per-region, or behind a remote flag),
  * change only this function.
  */

@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHANGE][all] The Home panels (Home, Send, Receive, Earn, Swap) switch only from the top tabs, and each switch fades the old panel out and the new one in, instead of sliding one strip sideways (#2415).
 - [CHANGE][ios] On iOS, require device authentication when opening a biometric wallet, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
 - [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
