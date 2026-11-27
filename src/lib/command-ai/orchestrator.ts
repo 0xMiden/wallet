@@ -5,6 +5,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from 'lib/miden/swap/quote';
 import { getSwapPartners, tokenQuote, type SwapToken } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { usdQuoteStatus } from 'lib/prices/amount';
 import type { CommandDrafts } from 'screens/command/command-drafts';
 import type { CommandAction } from 'screens/command/command-routes';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, MidenAddressError } from 'utils/miden';
@@ -272,6 +273,9 @@ function resolveSymbolicAmount(
   if (draft.fiatUsdAmount) {
     const symbol = balance?.metadata.symbol ?? fallbackSymbol ?? draft.assetQuery ?? '';
     const verifiedQuote = balance?.tokenId ? tokenQuote(ctx.tokenPrices, balance.tokenId, symbol) : undefined;
+    if (draft.action === 'send' && usdQuoteStatus(verifiedQuote) !== 'ready') {
+      return { errorKey: 'commandAiFiatPriceUnavailable' };
+    }
     const upperSym = symbol.trim().toUpperCase();
     const feedQuote =
       verifiedQuote ?? (upperSym ? (ctx.tokenPrices[upperSym] ?? ctx.tokenPrices[symbol.trim()]) : undefined);
@@ -633,6 +637,9 @@ function resolveSendFlow(
 
   // 3. Resolve amount.
   const { amount, errorKey } = resolveSymbolicAmount(draft, balance, ctx);
+  if (errorKey === 'commandAiFiatPriceUnavailable') {
+    return { kind: 'error', messageKey: errorKey };
+  }
   if (errorKey) {
     return {
       kind: 'handoff',
