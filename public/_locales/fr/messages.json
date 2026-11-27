@@ -11121,5 +11121,53 @@
   "backToUnlock": {
     "message": "Retour à la connexion",
     "englishSource": "Back to sign in"
+  },
+  "authReasonUnlock": {
+    "message": "Déverrouillez votre portefeuille",
+    "englishSource": "Unlock your wallet"
+  },
+  "authReasonViewRecoveryPhrase": {
+    "message": "Consultez votre phrase de récupération",
+    "englishSource": "View your recovery phrase"
+  },
+  "authReasonRevealPrivateKey": {
+    "message": "Révélez votre clé privée",
+    "englishSource": "Reveal your private key"
+  },
+  "authReasonRevealEverydayKey": {
+    "message": "Révélez votre clé quotidienne",
+    "englishSource": "Reveal your everyday key"
+  },
+  "authReasonExportAccountFile": {
+    "message": "Exportez le fichier de votre compte",
+    "englishSource": "Export your account file"
+  },
+  "authReasonExportWalletFile": {
+    "message": "Exportez le fichier de votre portefeuille",
+    "englishSource": "Export your wallet file"
+  },
+  "authReasonChangeSpendingLimit": {
+    "message": "Modifier votre limite de dépenses",
+    "englishSource": "Change your spending limit"
+  },
+  "authReasonOverLimitTransaction": {
+    "message": "Approuver une transaction dépassant votre limite",
+    "englishSource": "Approve a transaction over your limit"
+  },
+  "authReasonRemoveDevice": {
+    "message": "Retirer un appareil",
+    "englishSource": "Remove a device"
+  },
+  "authReasonSwitchGuardian": {
+    "message": "Changer de Guardian",
+    "englishSource": "Switch your Guardian"
+  },
+  "authReasonSetUp": {
+    "message": "Configurer la sécurité du portefeuille",
+    "englishSource": "Set up wallet security"
+  },
+  "encryptedWalletFileDescriptionExportAuth": {
+    "message": "Une authentification vous sera demandée lors de la création du fichier.",
+    "englishSource": "You will be asked to authenticate when the file is created."
   }
 }

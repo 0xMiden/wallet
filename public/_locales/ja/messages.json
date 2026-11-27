@@ -11117,5 +11117,53 @@
   "backToUnlock": {
     "message": "サインインに戻る",
     "englishSource": "Back to sign in"
+  },
+  "authReasonUnlock": {
+    "message": "ウォレットのロックを解除する",
+    "englishSource": "Unlock your wallet"
+  },
+  "authReasonViewRecoveryPhrase": {
+    "message": "リカバリーフレーズを確認する",
+    "englishSource": "View your recovery phrase"
+  },
+  "authReasonRevealPrivateKey": {
+    "message": "秘密鍵を公開する",
+    "englishSource": "Reveal your private key"
+  },
+  "authReasonRevealEverydayKey": {
+    "message": "日常的に使用する鍵を公開する",
+    "englishSource": "Reveal your everyday key"
+  },
+  "authReasonExportAccountFile": {
+    "message": "アカウントファイルをエクスポートする",
+    "englishSource": "Export your account file"
+  },
+  "authReasonExportWalletFile": {
+    "message": "ウォレットファイルをエクスポートする",
+    "englishSource": "Export your wallet file"
+  },
+  "authReasonChangeSpendingLimit": {
+    "message": "利用限度額を変更する",
+    "englishSource": "Change your spending limit"
+  },
+  "authReasonOverLimitTransaction": {
+    "message": "制限額を超える取引を承認する",
+    "englishSource": "Approve a transaction over your limit"
+  },
+  "authReasonRemoveDevice": {
+    "message": "デバイスの削除",
+    "englishSource": "Remove a device"
+  },
+  "authReasonSwitchGuardian": {
+    "message": "Guardianを切り替える",
+    "englishSource": "Switch your Guardian"
+  },
+  "authReasonSetUp": {
+    "message": "ウォレットのセキュリティ設定",
+    "englishSource": "Set up wallet security"
+  },
+  "encryptedWalletFileDescriptionExportAuth": {
+    "message": "ファイルの作成時に、本人確認が求められます。",
+    "englishSource": "You will be asked to authenticate when the file is created."
   }
 }

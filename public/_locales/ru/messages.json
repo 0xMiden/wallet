@@ -11121,5 +11121,53 @@
   "backToUnlock": {
     "message": "Вернуться ко входу",
     "englishSource": "Back to sign in"
+  },
+  "authReasonUnlock": {
+    "message": "Разблокируйте свой кошелек",
+    "englishSource": "Unlock your wallet"
+  },
+  "authReasonViewRecoveryPhrase": {
+    "message": "Просмотрите свою фразу восстановления",
+    "englishSource": "View your recovery phrase"
+  },
+  "authReasonRevealPrivateKey": {
+    "message": "Раскрыть свой закрытый ключ",
+    "englishSource": "Reveal your private key"
+  },
+  "authReasonRevealEverydayKey": {
+    "message": "Раскройте свой повседневный ключ",
+    "englishSource": "Reveal your everyday key"
+  },
+  "authReasonExportAccountFile": {
+    "message": "Экспортируйте файл своего счёта",
+    "englishSource": "Export your account file"
+  },
+  "authReasonExportWalletFile": {
+    "message": "Экспортируйте файл своего кошелька",
+    "englishSource": "Export your wallet file"
+  },
+  "authReasonChangeSpendingLimit": {
+    "message": "Измените лимит расходов",
+    "englishSource": "Change your spending limit"
+  },
+  "authReasonOverLimitTransaction": {
+    "message": "Утвердить транзакцию, превышающую ваш лимит",
+    "englishSource": "Approve a transaction over your limit"
+  },
+  "authReasonRemoveDevice": {
+    "message": "Удалить устройство",
+    "englishSource": "Remove a device"
+  },
+  "authReasonSwitchGuardian": {
+    "message": "Смените свой Guardian",
+    "englishSource": "Switch your Guardian"
+  },
+  "authReasonSetUp": {
+    "message": "Настройка безопасности кошелька",
+    "englishSource": "Set up wallet security"
+  },
+  "encryptedWalletFileDescriptionExportAuth": {
+    "message": "При создании файла вам будет предложено пройти аутентификацию.",
+    "englishSource": "You will be asked to authenticate when the file is created."
   }
 }

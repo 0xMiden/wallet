@@ -11117,5 +11117,53 @@
   "backToUnlock": {
     "message": "로그인으로 돌아가기",
     "englishSource": "Back to sign in"
+  },
+  "authReasonUnlock": {
+    "message": "지갑 잠금 해제",
+    "englishSource": "Unlock your wallet"
+  },
+  "authReasonViewRecoveryPhrase": {
+    "message": "복구 문구 확인하기",
+    "englishSource": "View your recovery phrase"
+  },
+  "authReasonRevealPrivateKey": {
+    "message": "개인 키를 공개하십시오",
+    "englishSource": "Reveal your private key"
+  },
+  "authReasonRevealEverydayKey": {
+    "message": "일상적인 키를 공개하세요",
+    "englishSource": "Reveal your everyday key"
+  },
+  "authReasonExportAccountFile": {
+    "message": "계정 파일 내보내기",
+    "englishSource": "Export your account file"
+  },
+  "authReasonExportWalletFile": {
+    "message": "지갑 파일을 내보내기",
+    "englishSource": "Export your wallet file"
+  },
+  "authReasonChangeSpendingLimit": {
+    "message": "지출 한도 변경",
+    "englishSource": "Change your spending limit"
+  },
+  "authReasonOverLimitTransaction": {
+    "message": "한도 초과 거래 승인",
+    "englishSource": "Approve a transaction over your limit"
+  },
+  "authReasonRemoveDevice": {
+    "message": "기기 제거",
+    "englishSource": "Remove a device"
+  },
+  "authReasonSwitchGuardian": {
+    "message": "Guardian 변경하기",
+    "englishSource": "Switch your Guardian"
+  },
+  "authReasonSetUp": {
+    "message": "지갑 보안 설정",
+    "englishSource": "Set up wallet security"
+  },
+  "encryptedWalletFileDescriptionExportAuth": {
+    "message": "파일이 생성되면 인증을 요청받게 됩니다.",
+    "englishSource": "You will be asked to authenticate when the file is created."
   }
 }

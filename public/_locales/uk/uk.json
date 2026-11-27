@@ -2402,5 +2402,17 @@
   "replaceWalletEraseWarning": "Переконайтеся, що у вас є поточна фраза відновлення або резервна копія, якщо вони вам ще потрібні. Цю дію не можна скасувати.",
   "eraseAndRestoreWallet": "Видалити та відновити гаманець",
   "eraseAndCreateWallet": "Видалити та створити гаманець",
-  "backToUnlock": "Повернутися до входу"
+  "backToUnlock": "Повернутися до входу",
+  "authReasonUnlock": "Розблокуйте свій гаманець",
+  "authReasonViewRecoveryPhrase": "Перегляньте свою фразу відновлення",
+  "authReasonRevealPrivateKey": "Розкрийте свій приватний ключ",
+  "authReasonRevealEverydayKey": "Розкрийте свій повсякденний ключ",
+  "authReasonExportAccountFile": "Експортуйте файл вашого облікового запису",
+  "authReasonExportWalletFile": "Експортуйте файл вашого гаманця",
+  "authReasonChangeSpendingLimit": "Змінити ліміт витрат",
+  "authReasonOverLimitTransaction": "Затвердження транзакції, що перевищує ваш ліміт",
+  "authReasonRemoveDevice": "Видалити пристрій",
+  "authReasonSwitchGuardian": "Змініть свій Guardian",
+  "authReasonSetUp": "Налаштування безпеки гаманця",
+  "encryptedWalletFileDescriptionExportAuth": "Під час створення файлу вам буде запропоновано пройти аутентифікацію."
 }
