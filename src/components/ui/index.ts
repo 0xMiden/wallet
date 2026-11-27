@@ -103,6 +103,9 @@ export type { ClearFieldButtonProps } from './ClearFieldButton';
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
 
+export { SlideToConfirm } from './SlideToConfirm';
+export type { SlideToConfirmProps } from './SlideToConfirm';
+
 export { ActivityRow } from './ActivityRow';
 export type { ActivityRowProps, ActivityAmountDirection } from './ActivityRow';
 

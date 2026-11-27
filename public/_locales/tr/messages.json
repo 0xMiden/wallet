@@ -10573,6 +10573,291 @@
     "message": "Bu ay ne kadar USDCx gönderdim?",
     "englishSource": "How much USDCx did I send this month?"
   },
+  "depositFlowTitle": {
+    "message": "Para yatırma",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "Para yatırma işlemini gözden geçirin",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "Para yatırma ayrıntıları",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "$token$ yatırın",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "Para yatırma tutarı",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$ USD",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$, $network$ üzerinde",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ üzerinde $network$, değişiklik",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "Köprü ücreti",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "Değişiklik",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "Şu anda",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "Ağ gazı",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "Paid by Bread",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "Şunları alırsınız",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "Gönderirsiniz",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "Para yatırma limiti hakkında",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "Partner Mainnet, para yatırma işleminden sonra cüzdan bakiyenizi yaklaşık $cap$ ile sınırlar.",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "Para yatırma adresini göstermek için kaydırın",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowYouSendFrom": {
+    "message": "$amount$ tutarındaki <b>'yi $network$ ağından </b> adresine gönderirsiniz.",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "Ücret, bu depozitonun $percent$'si kadardır.",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "Daha büyük mevduatlar, daha küçük bir pay kaybeder.",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "Kopyalanan miktar",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "Tutarın kopyalanması",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "Bu adrese",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "Adresi kopyala",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "QR kodu",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "Bread EVM adresiniz",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "Para yatırma işleminizi bekliyoruz",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "Bread'den ayrılabilirsiniz. Sizi bilgilendireceğiz.",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "Para yatırmanızı bekliyoruz. Para yatırıldığını görür görmez işlemlere devam edeceğiz.",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "Para yatırma tespit edildi",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "Miden'e köprü kurun. Bread'i açık tutun.",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "Para yatırımı tespit edildi. Miden'e köprü kuruluyor.",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "Bu para yatırma işlemini kullanamayız",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "Token veya ağ bu adresle eşleşmedi.",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "$expected$ tutarından $received$ tutarı alındı",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "Geri kalanını bu adrese gönderin veya elinize geçen miktarı yatırın.",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "Bunun yerine $amount$ tutarını yatırın",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "Tarayıp gönderin",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "Cüzdanınızı diğer cihazınızda tarayın.",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "Aç",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "Adres ve tutar sizin adınıza doldurulur. Siz o uygulamada onay verirsiniz.",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "Bir yol seçin",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "$fee$ ücreti",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "Ücret yok",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "En çok alınan",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "En hızlı",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$'dan az",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowAddressExpiresIn": {
+    "message": "Adresin geçerlilik süresi",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "Adresin geçerlilik süresi $countdown$ içinde dolacak. Bread'den ayrılabilirsiniz. Sizi bilgilendireceğiz.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "$expected$'dan daha az tutar geldi",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "Geri kalanını bu adrese gönderin.",
+    "englishSource": "Send the rest to this address."
+  },
   "depositFlowRelayReverted": {
     "message": "Para yatırma işlemi zincir üzerinde başarısız oldu, bu nedenle hiçbir şey köprülenmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10580,5 +10865,160 @@
   "depositFlowRelayExpired": {
     "message": "Para yatırma işlemi, süre sınırı dolmadan gönderilmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Lütfen tekrar deneyin.",
     "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "Relay, para yatırma işlemini göndermedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Daha sonra tekrar deneyin.",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "Bread'e para yatırma",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "Köprü portalında",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "Henüz mevcut değil",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "$token$ olarak gelir",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "bridge.miden.xyz adresini açar",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "Canlı rota yok",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "Portal",
+    "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "$network$ üzerinde, $token$ olarak gelir",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "\"$query$\" ile eşleşen hiçbir token veya ağ bulunmamaktadır.",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearArrives": {
+    "message": "2 ila 3 dakika",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "Para yatırma işlemi mevcut değildir",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "Diğer ağlardan yapılan para yatırma işlemleri bu ağda henüz desteklenmemektedir.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "Bu hesabın para yatırma adresi bulunmadığından, henüz diğer ağlardan para yatırımı alamaz.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "Bu ağdan bu token'ın yatırılması henüz desteklenmemektedir.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
+  },
+  "depositFlowUnavailableUnreachable": {
+    "message": "Para yatırma hizmetine ulaşılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "Köprü ücreti bu tutardan daha fazladır. Daha yüksek bir tutar girin.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "İncelemenizden sonra köprü ücreti arttı, bu nedenle incelediğinizden daha az bir tutar alacaksınız. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Geri dönüp para yatırma işlemini tekrar inceleyin.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "Para yatırma hizmeti şu anda $network$'e hizmet vermiyor, bu nedenle bu para yatırma işlemi başlatılamaz. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "Yaklaşık 30 dakika",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "Yaklaşık 2 dakika",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "Köprü çalışmaya başlamadı",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "Paralarınız hâlâ para yatırma adresinizde bulunmaktadır. Geri dönüp tekrar deneyin.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "Para yatırma tespit edildi",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Miden'e Köprü Kurma",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Bread'e geldi",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "Bunu kapatabilirsiniz. İşlem tamamlandığında sizi bilgilendireceğiz.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "Bu işlem yaklaşık 30 dakika sürer. Bu pencereyi kapatabilirsiniz. İşlem tamamlandığında sizi bilgilendireceğiz.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "Para yatırma işlemi tamamlandı",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "Tekrar para yatırın",
+    "englishSource": "Deposit again"
   }
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { Icon, IconName } from 'app/icons/v2';
+import { DepositFlow } from 'app/templates/EvmConnectModal/DepositFlow';
+import type { DepositUnavailableCause } from 'app/templates/EvmConnectModal/DepositUnavailable';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { FlowLayout } from 'components/flow/FlowLayout';
@@ -16,8 +18,12 @@ import { Card } from 'components/ui/Card';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { getRelayBaseUrl } from 'lib/evm-relay/base-url';
+import { relaySourceOf } from 'lib/evm-relay/source';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { getRelayConfig } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
@@ -25,6 +31,14 @@ import { navigate } from 'lib/woozie';
 
 interface BridgeDepositProps {
   onClose?: () => void;
+}
+
+/**
+ * Why the relay is not the source of the current account: it is off for this network (no relay config or no base URL),
+ * or it is on and the account has no deposit address (`relayEvmAddress`).
+ */
+function relayOffCauseOf(): DepositUnavailableCause {
+  return getRelayConfig() !== null && getRelayBaseUrl() !== null ? 'no-address' : 'off';
 }
 
 interface ConnectStepProps {
@@ -55,6 +69,13 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { t } = useTranslation();
   const goBack = useBackWithFallback();
   const currentMidenAccount = useWalletStore(s => s.currentAccount);
+  // `relaySourceOf` reads the config snapshot as it is, so a new snapshot reads the relay source again.
+  const bridgeConfig = useBridgeConfigSnapshot();
+  const relaySource = useMemo(
+    () => relaySourceOf(currentMidenAccount),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the snapshot is what `relaySourceOf` reads
+    [bridgeConfig, currentMidenAccount]
+  );
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
   // The test-wallet warning belongs to the test networks; on mainnet the funds are real and it is not shown.
@@ -125,6 +146,19 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       setConnectError(err instanceof Error && err.message ? err.message : t('bridgeConnectPickerFailed'));
     }
   }, [disconnect, nativeReown, t, useNativeReownWallet]);
+
+  if (relaySource !== null && currentMidenAccount) {
+    return (
+      <DepositFlow
+        midenAccount={currentMidenAccount}
+        relaySource={relaySource}
+        onClose={handleClose}
+        onExit={handleExit}
+        reportDeposit={reportDeposit}
+        relayOffCause={relayOffCauseOf()}
+      />
+    );
+  }
 
   if (walletReady) {
     return (

@@ -10571,6 +10571,279 @@
     "message": "本月我轉出了多少 USDCx？",
     "englishSource": "How much USDCx did I send this month?"
   },
+  "depositFlowTitle": {
+    "message": "存款",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "審閱存款",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "存款詳情",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "存入$token$",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "存入金額",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$ 美元",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$ 在 $network$ 上",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ 在 $network$ 上，變更",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "橋接手續費",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "變更",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "抵達於",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "網路 gas",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "由 Bread 支付",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "您將收到",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "您發送",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "關於存款上限",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "在 Partner Mainnet 中，存款後您的錢包餘額上限為約 $cap$。",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "滑動以顯示存款地址",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "手續費為該筆存款的 $percent$%",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "存款金額越大，損失的比例越小。",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "複製的金額",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "複製金額",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "發送至此地址",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "複製地址",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "QR 碼",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "您的 Bread EVM 地址",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "等待您的存款",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "您可以離開 Bread。我們會通知您。",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "等待您的存款。一經確認到帳，我們將立即進行後續處理。",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "偵測到存款",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "橋接至 Miden。請保持 Bread 應用程式開啟。",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "偵測到存款。正在進行至 Miden 的跨鏈轉移。",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "我們無法使用此存款",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "該代幣或網路與此地址不符。",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "已收到 $received$ 的 $expected$",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "請將剩餘款項匯至此地址，或將已收到的款項存入帳戶。",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "請改為存入 $amount$",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "掃描以傳送",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "請使用您另一台裝置上的錢包進行掃描。",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "在",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "地址和金額會自動填入。您只需在該應用程式中確認即可。",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "選擇路徑",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "$fee$ 手續費",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "無手續費",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "收件最多",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "最快",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$ 減去",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowAddressExpiresIn": {
+    "message": "地址將於",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "該地址將於 $countdown$ 後過期。您可以離開 Bread，我們會通知您。",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "收到的金額少於$expected$",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "其餘內容請寄至此地址。",
+    "englishSource": "Send the rest to this address."
+  },
   "depositFlowRelayReverted": {
     "message": "該存款交易在鏈上失敗，因此並未進行跨鏈轉移。您的資金仍存於您的存款地址中。",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10578,5 +10851,160 @@
   "depositFlowRelayExpired": {
     "message": "該筆存款未在時限內發送。您的資金仍存於存款地址中。請重新嘗試。",
     "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "中繼器並未發送該筆存款。您的資金仍存於您的存款地址中。請稍後再試。",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "在 Bread 中存款",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "在橋接平台入口網站上",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "尚未提供",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "以 $token$ 的形式到帳",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "開啟 bridge.miden.xyz",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "無即時路由",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "入口網站",
+    "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "在 $network$ 上，以 $token$ 的形式到達",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "沒有任何代幣或網路符合「$query$」。",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Epoch",
+    "englishSource": "Epoch"
+  },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearArrives": {
+    "message": "2 至 3 分鐘",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "目前不提供存款服務",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "目前本網路尚不支援來自其他網路的存款。",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "此帳戶目前沒有存款地址，因此尚無法接收來自其他網路的存款。",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "目前尚不支援從該網路存入此代幣。",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
+  },
+  "depositFlowUnavailableUnreachable": {
+    "message": "無法連線至存款服務。請稍後重試。",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "橋接手續費高於此金額。請輸入較大的金額。",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "橋接手續費在您審核後已上調，因此您實際收到的金額將少於審核時的數額。您的資金仍存放在存款地址中。請返回並重新審核該筆存款。",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "該存款服務目前不支援 $network$，因此此筆存款無法開始。您的資金仍存於您的存款地址中。",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "約 30 分鐘",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "約 2 分鐘",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "該橋接服務並未啟動",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "您的資金仍存於您的存款地址中。請返回並重新嘗試。",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "偵測到存款",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "銜接至 Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "已抵達 Bread",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "您可以關閉此事項。完成後我們會通知您。",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "此流程約需 30 分鐘。您可以關閉此視窗。完成後我們會通知您。",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "存款已到帳",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "再次存入",
+    "englishSource": "Deposit again"
   }
 }

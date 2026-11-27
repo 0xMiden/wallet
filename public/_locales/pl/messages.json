@@ -10575,6 +10575,291 @@
     "message": "Ile USDCx wysłałem w tym miesiącu?",
     "englishSource": "How much USDCx did I send this month?"
   },
+  "depositFlowTitle": {
+    "message": "Wpłata",
+    "englishSource": "Deposit"
+  },
+  "depositFlowReviewTitle": {
+    "message": "Sprawdź wpłatę",
+    "englishSource": "Review deposit"
+  },
+  "depositFlowDetailsTitle": {
+    "message": "Szczegóły dotyczące wpłat",
+    "englishSource": "Deposit details"
+  },
+  "depositFlowDepositTokenTitle": {
+    "message": "Wpłata $token$",
+    "englishSource": "Deposit $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowDepositAmount": {
+    "message": "Kwota wpłaty",
+    "englishSource": "Deposit amount"
+  },
+  "depositFlowUsdEstimate": {
+    "message": "≈ $value$ USD",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOnNetwork": {
+    "message": "$token$ w sieci $network$",
+    "englishSource": "$token$ on $network$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenOnNetworkChange": {
+    "message": "$token$ w sieci $network$, zmiana",
+    "englishSource": "$token$ on $network$, change",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowBridgeFee": {
+    "message": "Opłata za most",
+    "englishSource": "Bridge fee"
+  },
+  "depositFlowChange": {
+    "message": "Zmiana",
+    "englishSource": "Change"
+  },
+  "depositFlowArrivesIn": {
+    "message": "Przybywa do",
+    "englishSource": "Arrives in"
+  },
+  "depositFlowNetworkGas": {
+    "message": "Opłata sieciowa",
+    "englishSource": "Network gas"
+  },
+  "depositFlowPaidByBread": {
+    "message": "Opłacone przez Bread",
+    "englishSource": "Paid by Bread"
+  },
+  "depositFlowYouReceive": {
+    "message": "Otrzymujesz",
+    "englishSource": "You receive"
+  },
+  "depositFlowYouSend": {
+    "message": "Wysyłasz",
+    "englishSource": "You send"
+  },
+  "depositFlowOverCapTitle": {
+    "message": "Ponad limit wpłat",
+    "englishSource": "Over the deposit cap"
+  },
+  "depositFlowOverCapBody": {
+    "message": "Sieć główna Partner ogranicza saldo portfela do około $cap$ po dokonaniu wpłaty.",
+    "englishSource": "Partner Mainnet caps your wallet balance at about $cap$ after a deposit.",
+    "placeholders": {
+      "cap": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowSlideToShowAddress": {
+    "message": "Przesuń, aby wyświetlić adres do wpłaty",
+    "englishSource": "Slide to show deposit address"
+  },
+  "depositFlowYouSendFrom": {
+    "message": "Wysyłasz <b>$amount$</b> z $network$",
+    "englishSource": "You send <b>$amount$</b> from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowHighFeeTitle": {
+    "message": "Opłata wynosi $percent$% tej wpłaty",
+    "englishSource": "The fee is $percent$% of this deposit",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowHighFeeBody": {
+    "message": "Większe depozyty tracą mniejszą część.",
+    "englishSource": "Larger deposits lose a smaller share."
+  },
+  "depositFlowAmountCopied": {
+    "message": "Skopiowana kwota",
+    "englishSource": "Amount copied"
+  },
+  "depositFlowCopyAmount": {
+    "message": "Kopiuj kwotę",
+    "englishSource": "Copy amount"
+  },
+  "depositFlowToThisAddress": {
+    "message": "Na ten adres",
+    "englishSource": "To this address"
+  },
+  "depositFlowCopyAddress": {
+    "message": "Skopiuj adres",
+    "englishSource": "Copy address"
+  },
+  "depositFlowQrCode": {
+    "message": "Kod QR",
+    "englishSource": "QR code"
+  },
+  "depositFlowYourEvmAddress": {
+    "message": "Twój adres EVM w Bread",
+    "englishSource": "Your Bread EVM address"
+  },
+  "depositFlowWaitingTitle": {
+    "message": "Oczekiwanie na wpłatę",
+    "englishSource": "Waiting for your deposit"
+  },
+  "depositFlowWaitingBody": {
+    "message": "Możesz opuścić Bread. Powiadomimy Cię o tym.",
+    "englishSource": "You can leave Bread. We'll notify you."
+  },
+  "depositFlowWaitingNote": {
+    "message": "Czekamy na Państwa wpłatę. Kontynuujemy działania, gdy tylko ją zauważymy.",
+    "englishSource": "Waiting for your deposit. We'll move on as soon as we see it."
+  },
+  "depositFlowStartingTitle": {
+    "message": "Wykryto wpłatę",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowStartingBody": {
+    "message": "Przejście do Miden. Nie zamykaj aplikacji Bread.",
+    "englishSource": "Bridging to Miden. Keep Bread open."
+  },
+  "depositFlowStartingNote": {
+    "message": "Wykryto wpłatę. Łączenie z Miden.",
+    "englishSource": "Deposit detected. Bridging to Miden."
+  },
+  "depositFlowFailedTitle": {
+    "message": "Nie możemy skorzystać z tej wpłaty",
+    "englishSource": "We can't use this deposit"
+  },
+  "depositFlowFailedBody": {
+    "message": "Token lub sieć nie pasowały do tego adresu.",
+    "englishSource": "The token or network didn't match this address."
+  },
+  "depositFlowPartialTitle": {
+    "message": "Otrzymano $received$ z $expected$",
+    "englishSource": "Received $received$ of $expected$",
+    "placeholders": {
+      "received": {
+        "content": "$1"
+      },
+      "expected": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowPartialBody": {
+    "message": "Resztę wyślij na ten adres lub zdeponuj to, co dotarło.",
+    "englishSource": "Send the rest to this address, or deposit what arrived."
+  },
+  "depositFlowPartialAction": {
+    "message": "Zamiast tego zdeponuj $amount$",
+    "englishSource": "Deposit $amount$ instead",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowScanToSend": {
+    "message": "Zeskanuj, aby wysłać",
+    "englishSource": "Scan to send"
+  },
+  "depositFlowScanNote": {
+    "message": "Zeskanuj za pomocą portfela na innym urządzeniu.",
+    "englishSource": "Scan with the wallet on your other device."
+  },
+  "depositFlowOpenIn": {
+    "message": "Otwórz w",
+    "englishSource": "Open in"
+  },
+  "depositFlowOpenInNote": {
+    "message": "Adres i kwota są wypełniane automatycznie. Potwierdzasz to w tej aplikacji.",
+    "englishSource": "The address and amount are filled in for you. You confirm in that app."
+  },
+  "depositFlowChooseRoute": {
+    "message": "Wybierz trasę",
+    "englishSource": "Choose a route"
+  },
+  "depositFlowRouteFee": {
+    "message": "Opłata $fee$",
+    "englishSource": "$fee$ fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowNoFee": {
+    "message": "Brak opłat",
+    "englishSource": "No fee"
+  },
+  "depositFlowMostReceived": {
+    "message": "Najczęściej otrzymywane",
+    "englishSource": "Most received"
+  },
+  "depositFlowFastest": {
+    "message": "Najszybszy",
+    "englishSource": "Fastest"
+  },
+  "depositFlowRouteLess": {
+    "message": "$amount$ mniej",
+    "englishSource": "$amount$ less",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowAddressExpiresIn": {
+    "message": "Adres wygasa za",
+    "englishSource": "Address expires in"
+  },
+  "depositFlowExpiringBody": {
+    "message": "Adres wygaśnie za $countdown$. Możesz opuścić Bread. Powiadomimy Cię o tym.",
+    "englishSource": "Address expires in $countdown$. You can leave Bread. We'll notify you.",
+    "placeholders": {
+      "countdown": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialUnknownTitle": {
+    "message": "Otrzymano kwotę mniejszą niż $expected$",
+    "englishSource": "Less than $expected$ arrived",
+    "placeholders": {
+      "expected": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowPartialRestBody": {
+    "message": "Resztę proszę przesłać na ten adres.",
+    "englishSource": "Send the rest to this address."
+  },
   "depositFlowRelayReverted": {
     "message": "Transakcja wpłaty nie powiodła się w łańcuchu bloków, więc nic nie zostało przeniesione. Twoje środki nadal znajdują się na Twoim adresie wpłaty.",
     "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
@@ -10582,5 +10867,160 @@
   "depositFlowRelayExpired": {
     "message": "Wpłata nie została wysłana przed upływem wyznaczonego terminu. Twoje środki nadal znajdują się na Twoim adresie wpłaty. Spróbuj ponownie.",
     "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
+  },
+  "depositFlowRelayRefused": {
+    "message": "Przekaźnik nie wysłał wpłaty. Twoje środki nadal znajdują się na Twoim adresie wpłaty. Spróbuj ponownie później.",
+    "englishSource": "The relay did not send the deposit. Your funds are still at your deposit address. Try again later."
+  },
+  "depositFlowTokenGroupInBread": {
+    "message": "Wpłata w Bread",
+    "englishSource": "Deposit in Bread"
+  },
+  "depositFlowTokenGroupPortal": {
+    "message": "Na portalu mostkowym",
+    "englishSource": "On the bridge portal"
+  },
+  "depositFlowTokenGroupNotYet": {
+    "message": "Jeszcze niedostępne",
+    "englishSource": "Not available yet"
+  },
+  "depositFlowTokenArrivesAs": {
+    "message": "Przychodzi jako $token$",
+    "englishSource": "Arrives as $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowTokenOpensPortal": {
+    "message": "Otwiera stronę bridge.miden.xyz",
+    "englishSource": "Opens bridge.miden.xyz"
+  },
+  "depositFlowTokenNoRoute": {
+    "message": "Brak trasy na żywo",
+    "englishSource": "No live route"
+  },
+  "depositFlowTokenPortalTag": {
+    "message": "Portal",
+    "englishSource": "Portal"
+  },
+  "depositFlowTokenOnNetworkArrivesAs": {
+    "message": "W sieci $network$ pojawia się jako $token$",
+    "englishSource": "On $network$, arrives as $token$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowTokenNoMatch": {
+    "message": "Żaden token ani sieć nie pasuje do „$query$”.",
+    "englishSource": "No token or network matches \"$query$\".",
+    "placeholders": {
+      "query": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowRouteAgglayer": {
+    "message": "Agglayer",
+    "englishSource": "Agglayer"
+  },
+  "depositFlowRouteEpoch": {
+    "message": "Epoka",
+    "englishSource": "Epoch"
+  },
+  "depositFlowRouteCircle": {
+    "message": "Circle xReserve",
+    "englishSource": "Circle xReserve"
+  },
+  "depositFlowNearArrives": {
+    "message": "2–3 minuty",
+    "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowUnavailableTitle": {
+    "message": "Wpłata nie jest dostępna",
+    "englishSource": "Deposit isn't available"
+  },
+  "depositFlowUnavailableOff": {
+    "message": "Wpłaty z innych sieci nie są jeszcze dostępne w tej sieci.",
+    "englishSource": "Deposits from other networks aren't available on this network yet."
+  },
+  "depositFlowUnavailableNoAddress": {
+    "message": "To konto nie posiada adresu do wpłat, więc nie może jeszcze przyjmować wpłat z innych sieci.",
+    "englishSource": "This account has no deposit address, so it can't receive deposits from other networks yet."
+  },
+  "depositFlowUnavailableDeduct": {
+    "message": "Wpłaty tego tokenu z tej sieci nie są jeszcze obsługiwane.",
+    "englishSource": "Deposits of this token from this network aren't supported yet."
+  },
+  "depositFlowUnavailableUnreachable": {
+    "message": "Nie można połączyć się z usługą wpłat. Spróbuj ponownie później.",
+    "englishSource": "The deposit service can't be reached. Try again later."
+  },
+  "depositFlowAmountBelowFee": {
+    "message": "Opłata za most przekracza tę kwotę. Wprowadź wyższą kwotę.",
+    "englishSource": "The bridge fee is more than this amount. Enter a larger amount."
+  },
+  "depositFlowTermsChanged": {
+    "message": "Opłata za most wzrosła po Twojej weryfikacji, więc otrzymasz mniej niż podałeś w weryfikacji. Twoje środki nadal znajdują się na Twoim adresie depozytowym. Wróć i ponownie sprawdź depozyt.",
+    "englishSource": "The bridge fee went up after your review, so you would receive less than you reviewed. Your funds are still at your deposit address. Go back and review the deposit again."
+  },
+  "depositFlowChainNotServed": {
+    "message": "Usługa wpłat nie obsługuje obecnie sieci $network$, więc ta wpłata nie może zostać zrealizowana. Twoje środki nadal znajdują się na Twoim adresie wpłat.",
+    "englishSource": "The deposit service doesn't serve $network$ now, so this deposit can't start. Your funds are still at your deposit address.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositFlowArrivesAgglayer": {
+    "message": "Około 30 minut",
+    "englishSource": "About 30 minutes"
+  },
+  "depositFlowArrivesEpoch": {
+    "message": "Około 2 minuty",
+    "englishSource": "About 2 minutes"
+  },
+  "depositFlowStartFailedTitle": {
+    "message": "Most nie został uruchomiony",
+    "englishSource": "The bridge did not start"
+  },
+  "depositFlowStartFailedBody": {
+    "message": "Twoje środki nadal znajdują się na Twoim adresie depozytowym. Wróć i spróbuj ponownie.",
+    "englishSource": "Your funds are still at your deposit address. Go back and try again."
+  },
+  "depositFlowStepDetected": {
+    "message": "Wykryto wpłatę",
+    "englishSource": "Deposit detected"
+  },
+  "depositFlowBridgingToMiden": {
+    "message": "Połączenie z Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "depositFlowStepArrived": {
+    "message": "Dostarczone do Bread",
+    "englishSource": "Arrived in Bread"
+  },
+  "depositFlowProcessingNote": {
+    "message": "Możesz to zamknąć. Powiadomimy Cię, gdy będzie gotowe.",
+    "englishSource": "You can close this. We'll notify you when it's done."
+  },
+  "depositFlowProcessingSlowNote": {
+    "message": "Ta operacja trwa około 30 minut. Możesz to zamknąć. Powiadomimy Cię, gdy operacja zostanie zakończona.",
+    "englishSource": "This route takes about 30 minutes. You can close this. We'll notify you when it's done."
+  },
+  "depositFlowArrivedTitle": {
+    "message": "Wpłata dotarła",
+    "englishSource": "Deposit arrived"
+  },
+  "depositFlowDepositAgain": {
+    "message": "Wpłata ponownie",
+    "englishSource": "Deposit again"
   }
 }
