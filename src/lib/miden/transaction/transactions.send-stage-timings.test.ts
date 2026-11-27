@@ -714,6 +714,143 @@ describe('which dispatches carry a submit gate (#1081)', () => {
     }
   });
 
+  it('keeps opened true and omits preSubmitKill when failClosed hits a failing retireCrossing DB write (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let gateOpened = false;
+    let retirementAttempted = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (
+            gateOpened &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retirementAttempted = true;
+            throw new Error('QuotaExceededError during failClosed retirement');
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    try {
+      mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+        const gate = a[3] as Gate & { failClosed?: () => Promise<void> };
+        expect(await gate(evidence)).toBe(true);
+        gateOpened = true;
+        await gate.failClosed?.();
+        throw new OperationAbortedError('op-failclosed-db-reject', 'deadline');
+      });
+
+      const caught = await runSend('tx-failclosed-db-reject').catch((err: unknown) => err);
+      expect(retirementAttempted).toBe(true);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      const row = txStore.find(r => r.id === 'tx-failclosed-db-reject')!;
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+    }
+  });
+
+  it('keeps opened true and omits preSubmitKill when settled gate finishes stamp while retireCrossing throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const realWhereImpl = jest.mocked(Repo.transactions.where).getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    let failRetire = false;
+    let retirementAttempted = false;
+    jest.mocked(Repo.transactions.where).mockImplementation(((query: { id: string }) => {
+      const inner = realWhereImpl(query) as unknown as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (
+            failRetire &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retirementAttempted = true;
+            throw new Error('QuotaExceededError during late-stamp retirement');
+          }
+          if (!parked && current) {
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    }) as never);
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxySendTransaction.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[3] as Gate;
+      pendingGate = gate(evidence);
+      await enteredStamp;
+      failRetire = true;
+      throw new OperationAbortedError('op-late-stamp-retire-fail', 'deadline');
+    });
+
+    try {
+      const sendPromise = runSend('tx-late-stamp-retire-fail').catch((err: unknown) => err);
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 10));
+      releaseStamp();
+      const caught = await sendPromise;
+      expect(await pendingGate).toBe(false);
+      expect(retirementAttempted).toBe(true);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      const row = txStore.find(r => r.id === 'tx-late-stamp-retire-fail')!;
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'stage', raisedFlag: true })]);
+    } finally {
+      jest.mocked(Repo.transactions.where).mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
   it('settles synchronously before recordLeafEnd and retires late crossings on pre-open offscreen failure (#2325)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const { hasErrorBeforeSubmit, markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');

@@ -758,11 +758,14 @@ const offscreenSubmitGate = (
       }
     }
   };
-  const retireBestEffort = async (): Promise<void> => {
+  const retireBestEffort = async (): Promise<boolean> => {
+    if (!retireCrossing) return false;
     try {
-      await retireCrossing?.();
+      await retireCrossing();
+      return true;
     } catch {
       /* retirement is best-effort so pre-submit errors remain visible */
+      return false;
     }
   };
   const gate: SubmitGate = Object.assign(
@@ -777,12 +780,12 @@ const offscreenSubmitGate = (
           if (settled) await retireBestEffort();
           throw error;
         }
+        opened = true;
         if (settled) {
-          await retireBestEffort();
+          if (await retireBestEffort()) opened = false;
           return false;
         }
         if (retractGeneration !== entryGeneration) return false;
-        opened = true;
         return true;
       });
     },
@@ -791,12 +794,11 @@ const offscreenSubmitGate = (
         ? {
             retract: async () => {
               if (settled) return false;
-              opened = false;
               retractGeneration += 1;
               return enqueue(async () => {
                 if (settled) return false;
-                opened = false;
                 await retractCrossing();
+                opened = false;
                 return !settled;
               });
             }
@@ -807,8 +809,9 @@ const offscreenSubmitGate = (
       },
       failClosed: async () => {
         settled = true;
-        opened = false;
-        await enqueue(retireBestEffort);
+        await enqueue(async () => {
+          if (await retireBestEffort()) opened = false;
+        });
       },
       track
     }
@@ -2728,7 +2731,9 @@ const generateTransactionWithProvider = async (
             const stamp = ownedBridgeStageStamp(transaction, stageStampFor(transaction.id, attempt));
             const submitGate = offscreenSubmitGate(stamp, {
               retireCrossing:
-                attempt === undefined ? undefined : () => markAttemptPreSubmitEnd(transaction.id, attempt.attemptId)
+                attempt === undefined
+                  ? undefined
+                  : () => markAttemptPreSubmitEndOrThrow(transaction.id, attempt.attemptId)
             });
             return runGatedWriteLeaf({
               txId: transaction.id,
@@ -3616,7 +3621,7 @@ const runStampedWriteLeaf = async <T>(
   const stamp = stageStampFor(txId, attempt);
   if (!gated) return runWriteLeaf(txId, attempt, writeLeafRunsOffscreen(), () => leaf(stamp));
   const submitGate = offscreenSubmitGate(stamp, {
-    retireCrossing: () => markAttemptPreSubmitEnd(txId, attempt.attemptId)
+    retireCrossing: () => markAttemptPreSubmitEndOrThrow(txId, attempt.attemptId)
   });
   return runGatedWriteLeaf({
     txId,
@@ -4006,7 +4011,7 @@ const generateDirectSwitchGuardianTransaction = async (
     const stamp = stageStampFor(transaction.id, attempt);
     const submitGate = offscreenSubmitGate(stamp, {
       retractCrossing: () => retractSubmitCrossing(transaction.id, attempt.attemptId, 'sending'),
-      retireCrossing: () => markAttemptPreSubmitEnd(transaction.id, attempt.attemptId)
+      retireCrossing: () => markAttemptPreSubmitEndOrThrow(transaction.id, attempt.attemptId)
     });
     result = await runGatedWriteLeaf({
       txId: transaction.id,
@@ -5496,7 +5501,8 @@ const generateGuardianTransaction = async (
   const submitGate = offscreenSubmitGate(stampStage, {
     retractCrossing:
       attemptId === undefined ? undefined : () => retractSubmitCrossing(transaction.id, attemptId, 'sending'),
-    retireCrossing: attemptId === undefined ? undefined : () => markAttemptPreSubmitEnd(transaction.id, attemptId)
+    retireCrossing:
+      attemptId === undefined ? undefined : () => markAttemptPreSubmitEndOrThrow(transaction.id, attemptId)
   });
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the

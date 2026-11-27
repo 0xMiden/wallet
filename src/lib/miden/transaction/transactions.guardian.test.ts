@@ -13071,6 +13071,139 @@ describe('generateTransaction - Guardian routing', () => {
     }
   });
 
+  it('keeps gate opened and omits preSubmitKill on late stamp when offscreen switch-guardian retireCrossing throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const proxy = jest.requireMock('../back/miden-client-proxy') as {
+      dispatchGuardianPipeline: (...args: unknown[]) => Promise<unknown>;
+    };
+    const txId = 'switch-guardian-direct-late-retire-fail';
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parkedOnce = false;
+    let failRetire = false;
+    let retireAttempted = false;
+    let pendingGate: Promise<boolean> | undefined;
+    let settled = false;
+    let dispatchSpy: jest.SpyInstance | undefined;
+    try {
+      mockGetOrCreateMultisigService.mockRejectedValueOnce(new Error('Failed to fetch'));
+      mockCreateDirectSwitchRequest.mockResolvedValueOnce({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockIsGuardianAccount.mockResolvedValueOnce(true);
+      mockGetMidenClient.mockResolvedValueOnce({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const inner = realWhereImpl(query) as {
+          modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<unknown>;
+          first: () => Promise<unknown>;
+        };
+        return {
+          ...inner,
+          modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+            const current = (await inner.first()) as Record<string, unknown> | undefined;
+            const probe: Record<string, unknown> = current
+              ? {
+                  ...current,
+                  submitEvidence: Array.isArray(current.submitEvidence)
+                    ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                    : undefined
+                }
+              : {};
+            fn(probe);
+            if (
+              !parkedOnce &&
+              (probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')
+            ) {
+              parkedOnce = true;
+              stampStarted();
+              await parkedStamp;
+            } else if (
+              failRetire &&
+              (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+                e => e.preSubmitEnd === true
+              )
+            ) {
+              retireAttempted = true;
+              throw new Error('QuotaExceededError during switch-guardian retire');
+            }
+            return inner.modify(fn);
+          }
+        };
+      });
+
+      dispatchSpy = jest.spyOn(proxy, 'dispatchGuardianPipeline').mockImplementationOnce(async (...a: unknown[]) => {
+        pendingGate = (a[6] as (evidence?: unknown) => Promise<boolean>)();
+        await enteredStamp;
+        throw new OperationAbortedError('op-switch-late-retire-fail', 'deadline');
+      });
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: jest.fn(async () => 'sig')
+      };
+
+      const runPromise = generateTransaction(
+        {
+          id: txId,
+          type: 'switch-guardian',
+          accountId: 'guardian-acc',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider as never
+      ).then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      failRetire = true;
+      releaseStamp();
+      await runPromise;
+      expect(settled).toBe(true);
+      expect(await pendingGate).toBe(false);
+      expect(retireAttempted).toBe(true);
+      const row = txStore.find(r => r.id === txId)!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.mayHaveSubmitted).toBe(true);
+      expect((row as unknown as { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    } finally {
+      dispatchSpy?.mockRestore();
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+    }
+  });
+
   it('Guardian switch-guardian: OLD guardian unreachable at cold co-sign → direct fallback (proposal already pushed)', async () => {
     const txId = 'switch-guardian-direct-2';
     const result = makeResult();
