@@ -192,10 +192,12 @@ export function isRunningPipelineKill(err: unknown): boolean {
  * The landed shape stays landed: a terminated client under an apply-after-submit
  * error failed the local apply after the node took the write.
  */
+export function isClientTerminatedKill(err: unknown): boolean {
+  return someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err);
+}
+
 export function isKilledPipeline(err: unknown): boolean {
-  return (
-    isRunningPipelineKill(err) || (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
-  );
+  return isRunningPipelineKill(err) || isClientTerminatedKill(err);
 }
 
 /**

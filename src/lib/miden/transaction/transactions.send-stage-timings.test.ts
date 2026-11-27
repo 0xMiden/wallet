@@ -44,7 +44,7 @@ import { TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
 import { generateTransaction } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus } from '../db/types';
-import { markLockEvictedError } from '../sdk/sdk-error-code';
+import { isKilledBeforeSubmit, markLockEvictedError } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const txStore: Array<Record<string, unknown>> = [];
@@ -1235,5 +1235,30 @@ describe('the cold-start sweep against a row the real writer moved to Generating
       send.release();
     }
     await sending;
+  });
+
+  it('marks pre-leaf non-guardian ClientTerminatedError before execute leaf as preSubmitKill (#2325)', async () => {
+    mockGetMidenClient.mockRejectedValueOnce(new Error('WebClient terminated'));
+    const tx = {
+      id: 'tx-preleaf-exec-term',
+      type: 'execute',
+      requestBytes: new Uint8Array([1, 2, 3]),
+      approvedEffects: { summary: { removed: [], created: [] } },
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    };
+    txStore.push({ ...tx });
+    const killErr = await generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      { isGuardianAccount: async () => false, getAccounts: async () => [] } as never
+    ).catch(e => e);
+
+    expect(isKilledBeforeSubmit(killErr)).toBe(true);
   });
 });

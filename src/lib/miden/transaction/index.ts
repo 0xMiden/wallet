@@ -164,6 +164,7 @@ import {
   landedValueRowFields,
   type LandedWithoutResult,
   markAttemptPreSubmitEnd,
+  markAttemptPreSubmitEndOrThrow,
   markMayHaveSubmitted,
   pinGuardianCrossing,
   recordBridgeNoteLanded,
@@ -277,6 +278,7 @@ import {
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
   isApplyAfterSubmitError,
+  isClientTerminatedKill,
   isIndefiniteSubmitOutcomeError,
   isInsideSubmitLeaf,
   isKilledBeforeSubmit,
@@ -291,6 +293,7 @@ import {
   markErrorBeforeSubmit,
   markInsideSubmitLeaf,
   markKilledBeforeSubmit,
+  markLockEvictedError,
   someInCauseChain,
   SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
@@ -670,6 +673,9 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
  * submit's precondition, so its failure stops the leaf before the submit rather than
  * letting a write reach the network unrecorded.
  */
+const isConfirmedKill = (error: unknown): boolean =>
+  isLockEvictedError(error) || isOperationAbortedError(error) || isClientTerminatedKill(error);
+
 const stageStampFor =
   (
     txId: string,
@@ -2582,7 +2588,7 @@ const generateTransactionWithProvider = async (
       // 'landed-external' (not provably mine) / 'invalid' / 'not-landed' /
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only - send/swap/execute have no post-kill node identity (deferred #3b).
-      if (!isInsideSubmitLeaf(error) && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+      if (!isInsideSubmitLeaf(error) && isConfirmedKill(error)) {
         markKilledBeforeSubmit(error);
       }
       if (await tryCompleteKilledConsume(transaction, error)) return;
@@ -2803,7 +2809,7 @@ const generateTransactionWithProvider = async (
       }
     });
   } catch (error) {
-    if (!isInsideSubmitLeaf(error) && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+    if (!isInsideSubmitLeaf(error) && isConfirmedKill(error)) {
       markKilledBeforeSubmit(error);
     }
     // An unknown chain fee stops the check before it reads the summary, so the write fails before its submit. The
@@ -3099,7 +3105,9 @@ const ensureGuardianRecallableSendRequestBytes = async (
  */
 const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
   if (getCurrentWasmLockHold() === hold) return;
-  throw new WasmClientPoisonedError('watchdog', new Error(`guardian pipeline abandoned ${where}`));
+  const error = new WasmClientPoisonedError('watchdog', new Error(`guardian pipeline abandoned ${where}`));
+  markLockEvictedError(error);
+  throw error;
 };
 
 /**
@@ -3526,13 +3534,20 @@ const runInlineGuardianLeaf = async ({
   onPreSubmitFailure?: () => void;
 }): Promise<TransactionResult> => {
   let inlineSubmittingStageStarted = false;
+  let submittingStampCompleted = false;
+  let submittingRetracted = false;
   let inlineLockEvicted = false;
   let inlineSubmitCallReached = false;
   let endedPreSubmit = false;
   const wrappedSetStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
-    if (stage === 'submitting') inlineSubmittingStageStarted = true;
+    if (stage === 'submitting') {
+      inlineSubmittingStageStarted = true;
+      submittingStampCompleted = false;
+      submittingRetracted = false;
+    }
     await stampStage(stage, detail);
     if (stage === 'submitting') {
+      submittingStampCompleted = true;
       onSubmittingStageRecorded?.();
       // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
       // that has not landed yet, so retire it again after the awaited stage stamp creates it.
@@ -3544,10 +3559,11 @@ const runInlineGuardianLeaf = async ({
   const retractSubmittingStage = async (): Promise<void> => {
     if (attemptId !== undefined) {
       await retractSubmitCrossing(txId, attemptId, 'proving');
+      submittingRetracted = true;
+      onSubmittingStageRetracted?.();
     }
     // Keep `inlineSubmittingStageStarted` true: once an inline pass entered 'submitting' and retracted before
     // `onSubmitCallReached`, a direct hold loss before submit must still classify as `inlineSubmitNotReached`.
-    onSubmittingStageRetracted?.();
   };
   try {
     return await runGuardianPipeline(accountId, tr, delegateTransaction, wrappedSetStage, {
@@ -3562,11 +3578,29 @@ const runInlineGuardianLeaf = async ({
     });
   } catch (error) {
     markInsideSubmitLeaf(error);
-    const inlineSubmitNotReached = !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted);
+    const confirmedPreSubmitKill = !inlineSubmitCallReached && isConfirmedKill(error);
+    const inlineSubmitNotReached =
+      !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted || confirmedPreSubmitKill);
     if (inlineSubmitNotReached) {
-      endedPreSubmit = true;
-      onPreSubmitFailure?.();
-      if (isKilledPipeline(error)) markKilledBeforeSubmit(error);
+      let preSubmitCleanlyRetired = true;
+      if (submittingStampCompleted && !submittingRetracted) {
+        if (attemptId === undefined) {
+          preSubmitCleanlyRetired = false;
+        } else {
+          try {
+            await markAttemptPreSubmitEndOrThrow(txId, attemptId);
+            submittingRetracted = true;
+            onSubmittingStageRetracted?.();
+          } catch {
+            preSubmitCleanlyRetired = false;
+          }
+        }
+      }
+      if (preSubmitCleanlyRetired) {
+        endedPreSubmit = true;
+        onPreSubmitFailure?.();
+        if (isKilledPipeline(error)) markKilledBeforeSubmit(error);
+      }
     }
     throw error;
   }
@@ -5638,7 +5672,7 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
-    if (!submitLeafEntered && (isLockEvictedError(error) || isOperationAbortedError(error))) {
+    if (!submitLeafEntered && isConfirmedKill(error)) {
       markKilledBeforeSubmit(error);
     }
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and

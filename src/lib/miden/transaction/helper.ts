@@ -1025,22 +1025,36 @@ const mayClearMayHaveSubmitted = (
     candidate => candidate.attemptId !== attemptId && candidate.raisedFlag === true && candidate.preSubmitEnd !== true
   );
 
-export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
+export const markAttemptPreSubmitEndOrThrow = async (id: string, attemptId: string): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
+  let rowFound = false;
+  let retiredOrAbsent = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    rowFound = true;
+    const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
+    if (entry === undefined) {
+      retiredOrAbsent = tx.mayHaveSubmitted !== true || tx.attemptId !== attemptId;
+      return false;
+    }
+    const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attemptId,
+      { source: entry.source, preSubmitEnd: true },
+      nowSec
+    );
+    if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
+    retiredOrAbsent = true;
+    return undefined;
+  });
+  if (!rowFound || !retiredOrAbsent) {
+    throw new Error(`[submit-evidence] could not verify pre-submit retirement for ${attemptId} on ${id}`);
+  }
+};
+
+export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
   try {
-    await Repo.transactions.where({ id }).modify(tx => {
-      const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
-      if (entry === undefined) return false;
-      const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
-      tx.submitEvidence = upsertEvidenceEntry(
-        tx.submitEvidence,
-        attemptId,
-        { source: entry.source, preSubmitEnd: true },
-        nowSec
-      );
-      if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
-      return undefined;
-    });
+    await markAttemptPreSubmitEndOrThrow(id, attemptId);
   } catch (error) {
     console.warn(`[submit-evidence] could not retire the pin of attempt ${attemptId} on ${id}`, error);
   }

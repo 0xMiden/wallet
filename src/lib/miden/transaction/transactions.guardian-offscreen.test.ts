@@ -4166,6 +4166,55 @@ describe('guardian offscreen submit gate (#1644)', () => {
       expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
     );
   });
+
+  it('marks pre-leaf Guardian send ClientTerminatedError during proposal creation as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-term-send', sendRow);
+    service.createSendProposal.mockRejectedValueOnce(new Error('WebClient terminated'));
+
+    await generateTransaction(buildTx('preleaf-term-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-term-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('abandons candidate and marks preSubmitKill when pre-leaf signAndCreateTransactionRequest fails with poisoned ClientTerminatedError (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-poison-term-send', sendRow);
+    service.signAndCreateTransactionRequest.mockRejectedValueOnce(
+      new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))
+    );
+
+    await generateTransaction(
+      buildTx('preleaf-poison-term-send', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === 'preleaf-poison-term-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
 });
 
 describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {

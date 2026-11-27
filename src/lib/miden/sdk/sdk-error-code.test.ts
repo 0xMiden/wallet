@@ -8,6 +8,7 @@ import {
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isClientTerminatedError,
+  isClientTerminatedKill,
   isGuardianCanonicalizationError,
   isIndefiniteSubmitOutcomeError,
   isInsideSubmitLeaf,
@@ -972,5 +973,23 @@ describe('pre-submit kill, lock-eviction, and inside-submit-leaf WeakSet tags (#
     expect(isInsideSubmitLeaf(leafErr)).toBe(true);
     expect(isInsideSubmitLeaf(new Error('outer', { cause: leafErr }))).toBe(true);
     expect(isInsideSubmitLeaf(new Error('other'))).toBe(false);
+  });
+
+  it('recognizes isClientTerminatedKill outside ApplyAfterSubmitError with isKilledPipeline parity (#2325)', () => {
+    const direct = new Error('WebClient terminated');
+    const wrapped = new Error('execute failed', { cause: new Error('Client terminated') });
+    const afterSubmit = new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!, { cause: new Error('Client terminated') });
+    const wrappedAfterSubmit = new Error('Client terminated', { cause: afterSubmit });
+
+    expect(isClientTerminatedKill(direct)).toBe(true);
+    expect(isClientTerminatedKill(wrapped)).toBe(true);
+    expect(isClientTerminatedKill(afterSubmit)).toBe(false);
+    expect(isClientTerminatedKill(wrappedAfterSubmit)).toBe(false);
+    expect(isClientTerminatedKill(new Error('network blip'))).toBe(false);
+    expect(isClientTerminatedKill(null)).toBe(false);
+
+    expect(isKilledPipeline(direct)).toBe(isRunningPipelineKill(direct) || isClientTerminatedKill(direct));
+    expect(isKilledPipeline(wrapped)).toBe(isRunningPipelineKill(wrapped) || isClientTerminatedKill(wrapped));
+    expect(isKilledPipeline(wrappedAfterSubmit)).toBe(false);
   });
 });

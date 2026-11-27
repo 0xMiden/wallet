@@ -6051,6 +6051,422 @@ describe('generateTransaction - Guardian routing', () => {
     expect(stored?.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
   });
 
+  it('Guardian send: pre-submitting WebClient terminated abandons candidate and sets preSubmitKill without kill evidence (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-pre-submitting-terminated';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    client.transactions.executeRequest.mockRejectedValueOnce(new Error('WebClient terminated'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(stored.guardianCandidate).toBeUndefined();
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('Guardian send: assertStillHoldingLock hold loss after executing stage sets preSubmitKill and abandons (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-assert-hold-loss';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let revokedOnExecuting = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          const current = txStore.find(row => row.id === query.id);
+          if (!revokedOnExecuting && current?.stage === 'executing') {
+            revokedOnExecuting = true;
+            revokeHold();
+          }
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(revokedOnExecuting).toBe(true);
+    expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('Guardian send: un-retracted completed submitting stamp retires via markAttemptPreSubmitEndOrThrow before preSubmitKill (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-unretracted-submitting-retire';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let revokedOnSubmitting = false;
+    let failedRetractOnce = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const live = txStore.find(row => row.id === query.id);
+          const probe = live ? { ...live } : {};
+          fn(probe);
+          if (revokedOnSubmitting && !failedRetractOnce && probe.stage === 'proving') {
+            failedRetractOnce = true;
+            throw new Error('transient retract DB error');
+          }
+          await handle.modify(fn);
+          const current = txStore.find(row => row.id === query.id);
+          if (!revokedOnSubmitting && current?.stage === 'submitting') {
+            revokedOnSubmitting = true;
+            revokeHold();
+          }
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(failedRetractOnce).toBe(true);
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(stored.submitEvidence).toEqual(expect.arrayContaining([expect.objectContaining({ preSubmitEnd: true })]));
+  });
+
+  it('Guardian send: retracted submitting stamp skips redundant preSubmitEnd retirement on post-retract kill (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-retracted-skips-redundant-retire';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let revokedOnSubmitting = false;
+    let retractedToProving = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const live = txStore.find(row => row.id === query.id);
+          const probe = live ? { ...live } : {};
+          const modResult = fn(probe);
+          if (retractedToProving && modResult === false) {
+            throw new Error('unexpected preSubmitEnd after clean retract');
+          }
+          await handle.modify(fn);
+          const current = txStore.find(row => row.id === query.id);
+          if (revokedOnSubmitting && current?.stage === 'proving') {
+            retractedToProving = true;
+          }
+          if (!revokedOnSubmitting && current?.stage === 'submitting') {
+            revokedOnSubmitting = true;
+            revokeHold();
+          }
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+  });
+
+  it('Guardian send: pre-leaf ClientTerminatedError at proposal creation sets preSubmitKill without kill evidence (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-preleaf-terminated';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => {
+        throw new Error('WebClient terminated');
+      }),
+      signAndCreateTransactionRequest: jest.fn(),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('Guardian switch-guardian: failing retirement preserves WasmClientPoisonedError so isPoisonedPipeline keeps candidate un-abandoned (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'switch-guardian-failing-retire-preserves-poison';
+    const tx = {
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'acc-1',
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+      delegateTransaction: false
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      guardianEndpoint: 'https://guardian.test',
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-sw', nonce: 6 },
+        exportedProposal: new Uint8Array([9])
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let revokedOnSubmitting = false;
+    let retirementAttempted = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const live = txStore.find(row => row.id === query.id);
+          const probe = live ? { ...live } : {};
+          fn(probe);
+          const ev = (probe.submitEvidence ?? []) as Array<{ preSubmitEnd?: boolean }>;
+          if (revokedOnSubmitting && (probe.stage === 'proving' || ev.some(e => e.preSubmitEnd === true))) {
+            retirementAttempted = true;
+            throw new Error('QuotaExceededError during crossing retirement');
+          }
+          await handle.modify(fn);
+          const current = txStore.find(row => row.id === query.id);
+          if (!revokedOnSubmitting && current?.stage === 'submitting') {
+            revokedOnSubmitting = true;
+            revokeHold();
+          }
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(revokedOnSubmitting).toBe(true);
+    expect(retirementAttempted).toBe(true);
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+  });
+
   it('Guardian send: an eviction during delegated proving retires a late submit-stage stamp', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -7424,6 +7840,105 @@ describe('generateTransaction - Guardian routing', () => {
           expirationBlock: REF_BLOCK + 25 + FEE_POLICY_WINDOW_BLOCKS
         })
       ]);
+    });
+
+    it('resets submittingRetracted on pass 2 of withFreshProof so failing pass-2 retirement fails closed (#2325)', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const txId = 'send-guardian-multipass-fail-closed';
+      let chainTip = REF_BLOCK;
+      mockReadChainTip.mockImplementation(async () => chainTip);
+      const { tx, abandonCandidate, client } = arrangeSend(txId, false);
+      const results = ['0xstale-pass1', '0xpass2'].map(hash => {
+        const result = makeResult();
+        const executed = result.executedTransaction();
+        return {
+          ...result,
+          executedTransaction: () => ({
+            ...executed,
+            id: () => ({ toHex: () => hash }),
+            accountId: () => 'guardian-acc',
+            initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => `${hash}-initial` }) })
+          })
+        };
+      });
+      const proofs = [proofOnRefBlock(REF_BLOCK), proofOnRefBlock(REF_BLOCK + 25)];
+      let executions = 0;
+      client.transactions.executeRequest.mockImplementation(async () => {
+        const index = executions++;
+        const [result, proof] = [results[index]!, proofs[index]!];
+        return {
+          id: result.executedTransaction().id(),
+          result,
+          prove: async () => ({
+            proof,
+            result,
+            submit: async () => ({
+              ...(await client.transactions.submitProven(proof, result)),
+              result,
+              apply: async () => {}
+            })
+          })
+        } as never;
+      });
+      const accounts = { get: jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xpass2-initial' }) })) };
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: Object.assign(client, { accounts })
+      });
+
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      let submittingWrites = 0;
+      let revokedPass2 = false;
+      let pass2RetirementAttempted = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+        return {
+          ...handle,
+          modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+            const live = txStore.find(row => row.id === query.id);
+            const probe = live ? { ...live } : {};
+            fn(probe);
+            const ev = (probe.submitEvidence ?? []) as Array<{ preSubmitEnd?: boolean }>;
+            if (revokedPass2 && (probe.stage === 'proving' || ev.some(e => e.preSubmitEnd === true))) {
+              pass2RetirementAttempted = true;
+              throw new Error('QuotaExceededError on pass-2 retirement');
+            }
+            const beforeStage = live?.stage;
+            await handle.modify(fn);
+            const after = txStore.find(row => row.id === query.id);
+            if (after?.stage === 'submitting' && beforeStage !== 'submitting') {
+              submittingWrites += 1;
+              if (submittingWrites === 1) {
+                chainTip = REF_BLOCK + 25;
+              } else if (submittingWrites === 2) {
+                revokedPass2 = true;
+                revokeHold();
+              }
+            }
+          }
+        };
+      });
+
+      try {
+        await run(tx);
+      } finally {
+        repo.transactions.where.mockImplementation(realWhere);
+        errorSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
+
+      expect(submittingWrites).toBe(2);
+      expect(revokedPass2).toBe(true);
+      expect(pass2RetirementAttempted).toBe(true);
+      expect(abandonCandidate).not.toHaveBeenCalled();
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored.mayHaveSubmitted).toBe(true);
+      expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 5, proposalId: 'prop-1' }));
     });
 
     it('aborts before broadcast, retracts submitting state, and leaves Retry open when the chain stays past expiry after a slow submitting DB update (#2325)', async () => {
@@ -9098,7 +9613,14 @@ describe('generateTransaction - Guardian routing', () => {
         jest.spyOn(console, 'error').mockImplementation(() => {});
         const service = busyService();
         service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
-        arrangeFailureBeforeSubmit(service, new OperationAbortedError('op-7', 'deadline'));
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(new OperationAbortedError('op-7', 'deadline'));
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
 
         await run(queueRow('killed-abandon-failed', EARN_DEPOSIT));
 
@@ -9787,7 +10309,14 @@ describe('generateTransaction - Guardian routing', () => {
           jest.spyOn(console, 'warn').mockImplementation(() => {});
           jest.spyOn(console, 'error').mockImplementation(() => {});
           const service = busyService();
-          arrangeFailureBeforeSubmit(service, new OperationAbortedError('op-7', 'deadline'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          const client = makeClientApi(makeResult());
+          client.transactions.submitProven.mockRejectedValueOnce(new OperationAbortedError('op-7', 'deadline'));
+          mockGetMidenClient.mockResolvedValue({
+            getAccount: jest.fn(async () => undefined),
+            syncState: jest.fn(async () => {}),
+            client
+          });
           const row = queueRow('kept-killed', SEND);
 
           await run(row);
@@ -9802,7 +10331,14 @@ describe('generateTransaction - Guardian routing', () => {
           jest.spyOn(console, 'warn').mockImplementation(() => {});
           jest.spyOn(console, 'error').mockImplementation(() => {});
           const service = busyService();
-          arrangeFailureBeforeSubmit(service, new Error('WebClient terminated'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          const client = makeClientApi(makeResult());
+          client.transactions.submitProven.mockRejectedValueOnce(new Error('WebClient terminated'));
+          mockGetMidenClient.mockResolvedValue({
+            getAccount: jest.fn(async () => undefined),
+            syncState: jest.fn(async () => {}),
+            client
+          });
           const row = queueRow('kept-terminated', SEND);
 
           await run(row);
