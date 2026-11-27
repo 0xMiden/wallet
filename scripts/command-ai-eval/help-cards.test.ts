@@ -228,6 +228,15 @@ describe('owner decisions', () => {
       expect(answer('guardian_down')).toContain(limit);
   });
 
+  it('says a current Encrypted Wallet File and its password can restore a standard account', () => {
+    expect(answer('wallet_file')).toContain(
+      'A current file and password can restore a standard account; keep your 12 words.'
+    );
+    expect(answer('wallet_file')).not.toContain('Do not rely on it');
+    expect(answer('lost_device')).toContain('A current Encrypted Wallet File and password can restore your account.');
+    expect(answer('lost_device').length).toBeLessThanOrEqual(600);
+  });
+
   it('never leaves open that support could recover funds', () => {
     const open = (value: string) =>
       value
