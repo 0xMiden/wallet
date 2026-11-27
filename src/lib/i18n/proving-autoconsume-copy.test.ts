@@ -12,7 +12,7 @@ import path from 'path';
 // back to a bare/misleading label.
 
 const EN_DIR = path.join(__dirname, '../../../public/_locales/en');
-type Entry = { message: string };
+type Entry = { message: string; englishSource?: string };
 const messages: Record<string, Entry> = JSON.parse(fs.readFileSync(path.join(EN_DIR, 'messages.json'), 'utf8'));
 const enJson: Record<string, string> = JSON.parse(fs.readFileSync(path.join(EN_DIR, 'en.json'), 'utf8'));
 
@@ -54,6 +54,15 @@ describe('auto-consume + proving settings copy accuracy (#478)', () => {
     const desc = msg('delegateProofSettingsDescription');
     expect(desc).toMatch(/on by default/i);
     expect(desc).toMatch(/sends transaction details to a remote/i);
+  });
+
+  it('discloses bridge withdrawals and Earn deposits still try remote proving when the setting is off', () => {
+    const key = 'delegateProofSettingsDescription';
+    const desc = msg(key);
+    expect(desc).toMatch(/when off[^.]*except bridge withdrawals and earn deposits[^.]*still try that remote service/i);
+    expect(desc).toMatch(/if the service is unavailable, local proving is available/i);
+    expect(enJson[key]).toBe(desc);
+    expect(messages[key].englishSource).toBe(desc);
   });
 
   it('keeps en/messages.json and en/en.json in sync for the edited keys', () => {

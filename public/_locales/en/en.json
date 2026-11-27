@@ -519,7 +519,7 @@
   "searchAssets": "Search assets...",
   "contract": "Contract",
   "delegateProofSettings": "Delegate Proof Generation",
-  "delegateProofSettingsDescription": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, or if the service is unavailable, the wallet proves locally on your device.",
+  "delegateProofSettingsDescription": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available.",
   "transfer": "Transfer",
   "clean": "Clean",
   "ok": "OK",
