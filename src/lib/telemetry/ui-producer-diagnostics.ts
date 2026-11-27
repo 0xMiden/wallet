@@ -74,6 +74,8 @@ export const EARN_POSITIONS_LOAD_STAGES = [
   'unrecorded'
 ] as const;
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
+export const CONFIRM_APPROVAL_FAILURE_ORIGINS = ['approve', 'decline', 'automatic_reconnect'] as const;
+export type ConfirmApprovalFailureOrigin = (typeof CONFIRM_APPROVAL_FAILURE_ORIGINS)[number];
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
 export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
@@ -177,6 +179,7 @@ type TokenScaleProducer = (typeof TOKEN_SCALE_PRODUCERS)[number];
 export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
+  | { kind: 'confirm_approval_failure'; confirmApprovalFailureOrigin: ConfirmApprovalFailureOrigin }
   | {
       kind: 'bridge_balance_read';
       bridgeBalanceBranch: BridgeBalanceBranch;
@@ -218,6 +221,7 @@ export type UiEvidenceInput =
   | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage }
   | { kind: 'backup_export_failure'; backupExportFailureStage: BackupExportFailureStage };
 export type UiProducerDiagnostics = {
+  confirmApprovalFailureOrigin?: ConfirmApprovalFailureOrigin;
   guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
@@ -241,6 +245,7 @@ export type UiProducerDiagnostics = {
   backupExportFailureStage?: BackupExportFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
+  'confirmApprovalFailureOrigin',
   'guardianOutageReason',
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
@@ -264,6 +269,11 @@ export const UI_PRODUCER_KEYS = [
   'backupExportFailureStage'
 ] as const;
 const groups = {
+  confirm_approval_failure: {
+    id: 'raw_confirm_approval_failed',
+    surface: 'notice',
+    fields: { confirmApprovalFailureOrigin: CONFIRM_APPROVAL_FAILURE_ORIGINS }
+  },
   guardian_outage: {
     id: 'connectivityGuardianBody',
     surface: 'inline',

@@ -16,6 +16,7 @@ import { SectionHeader } from 'components/ui/SectionHeader';
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { WalletAccount } from 'lib/shared/types';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { truncateAddress } from 'utils/string';
 
@@ -66,7 +67,7 @@ export interface ConnectRequestProps {
   consentChecked: boolean;
   onConsentChange: (checked: boolean) => void;
   /** A failed answer: shown above the facts, which stay, so Retry is taken with the request in view. */
-  error?: { message: string; errorId: UserErrorId | null };
+  error?: { message: string; errorId: UserErrorId | null; diagnostics?: UiEvidenceInput };
 }
 
 /**
@@ -118,6 +119,7 @@ export const ConnectRequest: FC<ConnectRequestProps> = ({
             tone="negative"
             role="alert"
             errorId={error.errorId}
+            errorDiagnostics={error.diagnostics}
             title={t('connectFailedTitle')}
             icon={<Icon name={IconName.FactCross} size="xs" fill="currentColor" />}
             data-testid="connect-error"

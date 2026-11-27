@@ -63,6 +63,7 @@ import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
   FEATURE_UNAVAILABLE_FEATURES,
   FEATURE_UNAVAILABLE_REASONS,
+  CONFIRM_APPROVAL_FAILURE_ORIGINS,
   SUBMISSION_FEEDBACK_BRANCHES,
   PENDING_RETRY_REASONS,
   RECIPIENT_VALIDATION_STAGES,
@@ -205,6 +206,7 @@ it('states the retention of the diagnostic records once, apart from the 90 days 
 it.each([
   ['featureUnavailableFeature', FEATURE_UNAVAILABLE_FEATURES],
   ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
+  ['confirmApprovalFailureOrigin', CONFIRM_APPROVAL_FAILURE_ORIGINS],
   ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
   ['submissionRejectedEndpoint', SUBMIT_ENDPOINTS],
   ['submissionRejectedStatus', SUBMIT_GRPC_STATUSES],
