@@ -349,6 +349,11 @@ function applyAmountExpr(amount: AmountExpr | null, map: RedactionMap, target: H
   }
 }
 
+/** The same trim and case folding that symbol resolution uses. */
+function isSameSymbol(a: string | undefined, b: string): boolean {
+  return a?.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 function applyAssetSlot(
   value: string | null,
   map: RedactionMap,
@@ -358,13 +363,13 @@ function applyAssetSlot(
   if (!value) return;
   const nicheId = resolveNicheTokenId(value, map);
   const symbol = resolveAssetRef(value, map);
-  if (field === 'asset') {
-    target.assetQuery = symbol;
-    if (nicheId) target.tokenId = nicheId;
-  } else {
-    target.toAssetQuery = symbol;
-    if (nicheId) target.toTokenId = nicheId;
-  }
+  const [queryKey, idKey] =
+    field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
+  // Resolution prefers the id, so another symbol must drop it. A repeated symbol keeps it: a held
+  // ticker's placeholder always names the first holding, not necessarily the one the user picked.
+  if (!isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  else target[idKey] ??= nicheId;
+  target[queryKey] = symbol;
 }
 
 function hydrateSlots(slots: IntentSlots, map: RedactionMap): HydratedIntentDraft {
@@ -414,9 +419,8 @@ export function applyPatchToDraft(
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
   const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
   if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
-    // A chosen route (and a held token) answers the old request, not the changed one.
+    // A chosen route answers the old request, not the changed one.
     next.routeId = undefined;
-    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
   }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
@@ -771,7 +775,7 @@ function bridgeRouteCarries(route: BridgeRouteSummary, asset: string): boolean {
   return bridgeSymbolMatches(route.sourceSymbol, asset) || bridgeSymbolMatches(route.destinationSymbol, asset);
 }
 
-function bridgeRouteChips(routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
+function bridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
   const labels = bridgeClarificationLabels(routes);
   return routes.map((route, index) => ({
     id: route.id,
@@ -782,14 +786,16 @@ function bridgeRouteChips(routes: readonly BridgeRouteSummary[]): ClarificationC
       provider: route.provider,
       fromChain: route.sourceNetwork,
       toChain: route.destinationNetwork,
-      assetQuery: route.sourceSymbol
+      assetQuery: route.sourceSymbol,
+      // The chip merge keeps the draft's token id unless the patch overwrites it.
+      ...(isSameSymbol(draft.assetQuery, route.sourceSymbol) ? {} : { tokenId: undefined })
     }
   }));
 }
 
 /** Offered after a request that no route serves: the user picks one, nothing is picked for them. */
 function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
-  return bridgeRouteChips(routes).map((chip, index) => {
+  return bridgeRouteChips(draft, routes).map((chip, index) => {
     const keepsAsset = !draft.assetQuery || bridgeRouteCarries(routes[index]!, draft.assetQuery);
     return {
       ...chip,
@@ -865,7 +871,7 @@ function resolveBridgeFlow(
 
   // Clarification needed when multiple bridge routes/providers remain eligible.
   if (candidates.length > 1) {
-    const chips = bridgeRouteChips(candidates.slice(0, 6));
+    const chips = bridgeRouteChips(draft, candidates.slice(0, 6));
     return {
       kind: 'clarifying',
       slot: 'provider',
@@ -963,7 +969,8 @@ function resolveSwapFlow(
   if (!receive) {
     const partners = getSwapPartners(offer.faucetId);
     const choices = partners.length > 0 ? partners : ctx.swapTokens.filter(t => t.faucetId !== offer.faucetId);
-    if (choices.length === 1) {
+    // A named token that is not listed must not turn into the only partner.
+    if (choices.length === 1 && !draft.toAssetQuery) {
       receive = choices[0];
     } else if (choices.length > 1) {
       const chips: ClarificationChip[] = choices.slice(0, 5).map(tok => ({
