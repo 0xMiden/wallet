@@ -2268,6 +2268,7 @@
   "commandAiChooseEarnVault": "В какое хранилище Earn вы хотите внести средства?",
   "commandAiChooseEarnPosition": "С какой позиции в программе Earn вы хотите вывести средства?",
   "commandAiBridgeUnavailable": "В данный момент нет доступного маршрута сопоставления.",
+  "commandAiBridgeNoRoute": "Для этого нет подходящего варианта. Выберите один из других вариантов:",
   "commandAiSwapUnavailable": "Своп для этой пары в данный момент недоступен.",
   "commandAiEarnUnavailable": "В настоящее время хранилища и позиции Earn недоступны.",
   "commandAiFiatPriceUnavailable": "Текущая цена в долларах США для этого токена недоступна. Введите сумму токена.",

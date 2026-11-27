@@ -10503,6 +10503,10 @@
     "message": "В данный момент нет доступного маршрута сопоставления.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Для этого нет подходящего варианта. Выберите один из других вариантов:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Своп для этой пары в данный момент недоступен.",
     "englishSource": "Swap is unavailable for that pair right now."

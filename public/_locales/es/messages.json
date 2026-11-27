@@ -10507,6 +10507,10 @@
     "message": "En este momento no hay ninguna ruta de puente de correspondencia disponible.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "No existe ninguna ruta para eso. Elige una de las otras rutas:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "El intercambio no está disponible para ese par en este momento.",
     "englishSource": "Swap is unavailable for that pair right now."

@@ -10501,6 +10501,10 @@
     "message": "Şu anda uygun bir köprü rotası mevcut değildir.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Bunun için uygun bir yol yoktur. Diğer yollardan birini seçin:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Bu ikili için swap şu anda kullanılamıyor.",
     "englishSource": "Swap is unavailable for that pair right now."
