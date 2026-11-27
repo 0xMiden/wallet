@@ -1186,7 +1186,7 @@
     "expectedRedacted": "yes",
     "forbiddenSubstrings": [],
     "expected": {
-      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported", "cancel"]
     }
   }
 ]
