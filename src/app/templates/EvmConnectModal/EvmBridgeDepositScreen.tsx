@@ -705,6 +705,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>(routeForToken(token));
+  const [routeChosen, setRouteChosen] = useState(false);
   // The one chain picked in the network drawer. Every route starts from it, and the token drawer offers what it bridges.
   const [pickedChainId, setPickedChainId] = useState<number>();
   const bridgeConfig = useBridgeConfigSnapshot();
@@ -953,6 +954,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (first === undefined) return;
     selectToken(first);
     setRoute(routeForToken(first));
+    setRouteChosen(false);
   }, [onAmountStep, tokenOffered, bridgeConfig.status, usdcxPending, fallbackTokens, selectToken]);
   // A Circle or ETH pick on the Fast route moves back to its own route when no Epoch token names the same contract,
   // including after the picked chain changes.
@@ -1062,7 +1064,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxQuotedFeeUnits === undefined
       ? undefined
       : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' });
-  const canQuoteEpoch = fastKey !== null && fastAvailability.state === 'available';
+  const canPreselectFast =
+    activeRoute?.name === ReceiveStep.ShowBridgePageRoute && !routeChosen && route !== 'epoch' && !!sharedFastToken;
+  const quoteToken = fastToken ?? (canPreselectFast ? sharedFastToken : undefined);
+  const canQuoteEpoch = !!quoteToken && fastAvailability.state === 'available';
   const [debouncedAmount] = useDebounce(canQuoteEpoch && isValidAmount(amount) ? amount.trim() : '', 500);
 
   useMobileBackHandler(() => {
@@ -1276,23 +1281,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // re-quote to recover (executeEVMToMiden requires status 'quoted', so without
   // this a failed attempt dead-ends until the amount is edited).
   const requote = useCallback(() => {
-    if (!evmUsdc || !midenUsdc) return undefined;
-    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, midenUsdc.decimals);
+    if (!quoteToken?.midenFaucetId) return undefined;
+    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, quoteToken.midenDecimals);
     if (!minTokenOut) return undefined;
     return quoteEVMToMiden(
       {
-        sourceChainId: evmUsdc.chainId,
+        sourceChainId: quoteToken.chainId,
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
         evmSourceAddress: evmAddress,
-        evmTokenAddress: evmUsdc.address,
-        isNative: fastNative,
+        evmTokenAddress: quoteToken.address,
+        isNative: quoteToken.address.toLowerCase() === NATIVE_TOKEN_ADDRESS,
         midenRecipientId: midenAccount.publicKey,
-        midenFaucetId: midenUsdc.faucetId,
+        midenFaucetId: quoteToken.midenFaucetId,
         minTokenOut
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, evmUsdc, fastNative, midenAccount.publicKey, midenUsdc, quoteEVMToMiden]);
+  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden, quoteToken]);
 
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
@@ -1327,6 +1332,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setTokenDrawerOpen(false);
       selectToken(next);
       setRoute(routeForToken(next));
+      setRouteChosen(false);
     },
     [selectToken]
   );
@@ -1384,12 +1390,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setNetworkDrawerOpen(true);
   }, []);
 
-  const handleNetworkSelect = useCallback((next: BridgeNetwork) => {
-    if (confirming.current) return;
-    hapticLight();
-    setNetworkDrawerOpen(false);
-    setPickedChainId(next.chainId);
-  }, []);
+  const handleNetworkSelect = useCallback(
+    (next: BridgeNetwork) => {
+      if (confirming.current) return;
+      hapticLight();
+      setNetworkDrawerOpen(false);
+      if (next.chainId !== pickedChainId) setRouteChosen(false);
+      setPickedChainId(next.chainId);
+    },
+    [pickedChainId]
+  );
 
   // The drawer may have been open since before the tap.
   const handleConnectAnother = useCallback(() => {
@@ -1399,7 +1409,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
-      if (next === route || confirming.current) return;
+      if (confirming.current) return;
+      setRouteChosen(true);
+      if (next === route) return;
       setRoute(next);
       setSlowStatus('idle');
       setSlowError(null);
@@ -2050,22 +2062,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance && !capHold;
 
   const fastParams = epochQuote?.params;
-  const minTokenOut = midenUsdc && evmToMidenMinTokenOut(amount, midenUsdc.decimals);
+  const minTokenOut = quoteToken && evmToMidenMinTokenOut(amount, quoteToken.midenDecimals);
   const currentFastQuote =
     canQuoteEpoch &&
     epochFlow === 'evm-to-miden' &&
     epochStatus === 'quoted' &&
     fastParams &&
     'sourceChainId' in fastParams &&
-    evmUsdc &&
-    midenUsdc &&
+    quoteToken?.midenFaucetId &&
     minTokenOut &&
-    fastParams.sourceChainId === evmUsdc.chainId &&
+    fastParams.sourceChainId === quoteToken.chainId &&
     fastParams.destinationChainId === MIDEN_DESTINATION_CHAIN_ID &&
     fastParams.evmSourceAddress.toLowerCase() === evmAddress.toLowerCase() &&
-    fastParams.evmTokenAddress.toLowerCase() === evmUsdc.address.toLowerCase() &&
+    fastParams.evmTokenAddress.toLowerCase() === quoteToken.address.toLowerCase() &&
     fastParams.midenRecipientId === midenAccount.publicKey &&
-    fastParams.midenFaucetId === midenUsdc.faucetId &&
+    fastParams.midenFaucetId === quoteToken.midenFaucetId &&
     fastParams.minTokenOut === minTokenOut
       ? epochQuote
       : undefined;
@@ -2079,6 +2090,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     quotedTokenIn !== null &&
     usdcBalance.value !== null &&
     quotedTokenIn <= usdcBalance.value;
+  const fastComparisonBalance = sharedFastToken ? epochBalances[sharedFastToken.key]?.value : undefined;
+  const fastComparisonReady =
+    canPreselectFast &&
+    !!currentFastQuote &&
+    /^[1-9]\d*$/.test(String(currentFastQuote.quoteResult.tokenOut ?? '')) &&
+    quotedTokenIn !== null &&
+    quotedTokenIn > 0n &&
+    fastComparisonBalance != null &&
+    quotedTokenIn <= fastComparisonBalance;
+  useEffect(() => {
+    if (fastComparisonReady && !confirming.current) setRoute('epoch');
+  }, [fastComparisonReady]);
+
   // Picking Slow can move the USDC to the AggLayer chain's, so the amount is held to that balance here as well.
   const slowReady =
     route === 'agglayer' &&
@@ -2364,6 +2388,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // than submitting directly. The Review step's Confirm runs handleConfirm.
   const handleContinueToReview = useCallback(() => {
     if (!canConfirmRoute) return;
+    setRouteChosen(true);
     hapticMedium();
     navigateTo(ReceiveStep.ShowBridgePageReview);
   }, [canConfirmRoute, navigateTo]);
