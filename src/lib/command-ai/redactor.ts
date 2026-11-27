@@ -128,7 +128,7 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
 
   // Priority 1: Addresses — Miden bech32 (including partial prefixes), hex (4+ hex chars), ENS, BTC/Solana literals.
   const addrPatterns = [
-    /\b(?:mm1|mtst1|mdev1|mlcl1)[0-9a-zA-Z_]{4,}\b/g,
+    /\b(?:mm1|mtst1|mdev1|mlcl1)[0-9a-zA-Z_]{4,}\b/gi,
     /\b0x[0-9a-fA-F]{4,}\b/gi,
     /\b[0-9a-f]{64}\b/gi,
     /\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9-]{2,})*\.eth\b/gi,
@@ -141,6 +141,18 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
       const raw = match[0];
       const start = match.index ?? 0;
       spans.push({ start, end: start + raw.length, priority: 1, kind: 'ADDR', raw });
+    }
+  }
+
+  // Saved addresses and own account ids, matched literally: no pattern above covers every format
+  // (a NEAR account name, for one). `raw` stays as typed, since some formats are case-sensitive.
+  for (const { address } of ctx.contacts) {
+    if (!address) continue;
+    for (const match of input.matchAll(new RegExp(escapeRegExp(address), 'gi'))) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (!isWordBoundaryChar(input[start - 1]) || !isWordBoundaryChar(input[end])) continue;
+      spans.push({ start, end, priority: 1, kind: 'ADDR', raw: match[0] });
     }
   }
 
@@ -207,7 +219,7 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
 
   // Priority 5: Held niche tokens outside the liquid ticker allowlist.
   for (const token of nicheTokens) {
-    const rx = new RegExp(`(?<![A-Za-z_])${escapeRegExp(token.symbol.trim())}\\b`, 'gi');
+    const rx = new RegExp(`(?<![A-Za-z_])${escapeRegExp(token.symbol.trim())}(?![A-Za-z0-9_])`, 'gi');
     for (const match of input.matchAll(rx)) {
       const start = match.index ?? 0;
       spans.push({ start, end: start + match[0].length, priority: 5, kind: 'TOKEN', raw: match[0], token });

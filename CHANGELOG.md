@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
 - [FIX][all] Show the spendable Available balance in Swap and Earn when a large balance exceeds the number precision limit.
