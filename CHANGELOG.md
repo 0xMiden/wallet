@@ -3,6 +3,9 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] With usage sharing enabled, report closed-list Send and Funding step progression (steps reached, transition actions, active visible time, repeats, and retries) without transaction or wallet details, and update consent copy and telemetry docs (#1969).
+- [FIX][all] Show the specific reason Command swap review is blocked by insufficient fees, invalid amounts, or an unavailable pair.
+- [FIX][all] Identify which amount screen showed an unknown token precision warning in opt-in diagnostics.
+- [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
 - [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
 - [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
 - [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.

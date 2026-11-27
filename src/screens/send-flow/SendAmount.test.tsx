@@ -408,11 +408,11 @@ describe('SendAmount user-visible errors', () => {
     jest.useRealTimers();
   });
 
-  const expectReport = async (id: string, surface: string) => {
+  const expectReport = async (...expected: [id: string, surface: string, evidence?: unknown]) => {
     await act(async () => jest.advanceTimersByTimeAsync(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTimeAsync(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, surface]]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([expected]);
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   };
@@ -501,7 +501,10 @@ describe('SendAmount user-visible errors', () => {
 
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
-    await expectReport('unknownTokenScale', 'inline');
+    await expectReport('unknownTokenScale', 'inline', {
+      kind: 'token_scale',
+      tokenScaleProducer: 'send_amount'
+    });
   });
 
   it('does not report the pending burn-fee measurement as an error', async () => {
