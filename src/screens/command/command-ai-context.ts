@@ -48,15 +48,19 @@ export function useCommandAiWalletData(
     (earnPositions: EarnSubjectSummary[] = []): OrchestratorWalletContext => {
       const bridgeRoutes: BridgeRouteSummary[] = deriveBridgeRoutes(bridgeConfig)
         .filter(r => !(r.provider === 'epoch' && r.mode === 'receive'))
-        .map(r => ({
-          id: r.id,
-          provider: r.provider,
-          mode: r.mode,
-          sourceSymbol: r.source.symbol,
-          sourceNetwork: r.source.network,
-          destinationSymbol: r.destination.symbol,
-          destinationNetwork: r.destination.network
-        }));
+        .map(r => {
+          const evmSide = r.mode === 'receive' ? r.source : r.destination;
+          return {
+            id: r.id,
+            provider: r.provider,
+            mode: r.mode,
+            sourceSymbol: r.source.symbol,
+            sourceNetwork: r.source.network,
+            destinationSymbol: r.destination.symbol,
+            destinationNetwork: r.destination.network,
+            ...(evmSide.kind === 'erc20' ? { contractAddress: evmSide.address } : {})
+          };
+        });
       const catalog = selectEarnVaultCatalog(bridgeConfig);
       const earnCollateralId = selectMidenUsdcFaucetId(bridgeConfig);
       const earnVaults: EarnSubjectSummary[] = catalog

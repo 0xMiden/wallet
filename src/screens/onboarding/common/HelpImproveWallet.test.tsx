@@ -176,7 +176,7 @@ describe('HelpImproveWalletScreen', () => {
     renderScreen();
     const body = screen.getByTestId('help-improve-wallet-disclosure');
 
-    expect(body).toHaveTextContent(/which parts of Wallet you use/i);
+    expect(body).toHaveTextContent(/which screens you open and how long each is visible/i);
     expect(body).toHaveTextContent(/where you get stuck/i);
     expect(body).toHaveTextContent(/broad error categories/i);
     expect(body).toHaveTextContent(/the app version/i);

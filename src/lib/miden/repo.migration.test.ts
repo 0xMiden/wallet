@@ -222,7 +222,65 @@ describe('transactions upgrades', () => {
     expect(byId['restored-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['undelivered-unspent']).toMatchObject({ relayAttempts: 2, nextRelayAt: now + 1800 });
     for (const row of Object.values(byId)) expect(row).not.toHaveProperty('badgeEvidenceRevision');
-    expect(repo!.db.verno).toBe(3.3);
+    expect(repo!.db.verno).toBe(3.4);
+
+    repo!.db.close();
+    await Dexie.delete(DB_NAME);
+  });
+
+  it('upgrades a populated 3.3 database to 3.4 carrying forward all tables and adding status/heldNoteIds indexes without rewriting blobs', async () => {
+    await Dexie.delete(DB_NAME);
+    const legacy = new Dexie(DB_NAME);
+    legacy.version(3.3).stores({
+      transactions:
+        'id,accountId,transactionId,initiatedAt,completedAt,noteId,*noteIds,noteDelivery,extraInputs.destinationAddress,extraInputs.swapOrderTxId,spendingLimitAuthorizationId,type,[badgeNetwork+status+type],[badgeNetwork+status+type+badgeEvidenceRevision],[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]',
+      spendingLimits: 'accountId,revision',
+      portfolioObservations: '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]'
+    });
+    await legacy.open();
+    await legacy.table('transactions').bulkPut([
+      { ...bigRow('send-v33', 'send'), status: 2, completedAt: 1000 },
+      { ...bigRow('exec-v33', 'execute'), status: 2, completedAt: 1000, heldNoteIds: ['n-1', 'n-2'] },
+      { ...bigRow('queued-v33', 'consume'), status: 0, completedAt: undefined }
+    ]);
+    await legacy
+      .table('spendingLimits')
+      .put({ accountId: 'acc', limit: '50', revision: 'rev-1', createdAt: 1, updatedAt: 1 });
+    await legacy.table('portfolioObservations').put({
+      accountId: 'acc',
+      network: 'mainnet',
+      rpcUrl: 'https://rpc',
+      currency: 'USD',
+      bucket: 900_000,
+      capturedAt: 900_000,
+      value: '12.34',
+      coverage: 'complete',
+      coverageKey: 'k'
+    });
+    legacy.close();
+
+    let repo: typeof import('./repo');
+    jest.isolateModules(() => {
+      repo = require('./repo');
+    });
+    const written: string[] = [];
+    repo!.transactions.hook('updating', (_mods, primKey) => {
+      written.push(String(primKey));
+    });
+
+    await repo!.db.open();
+    expect(repo!.db.verno).toBe(3.4);
+    expect(written).toEqual([]);
+    expect((await repo!.transactions.get('send-v33'))?.resultBytes).toBeDefined();
+    expect(await repo!.spendingLimits.get('acc')).toMatchObject({ limit: '50' });
+    expect(await repo!.portfolioObservations.count()).toBe(1);
+    expect(await repo!.transactions.where('status').equals(0).primaryKeys()).toEqual(['queued-v33']);
+    expect(await repo!.transactions.where('[status+type]').equals([2, 'send']).primaryKeys()).toEqual(['send-v33']);
+    expect(await repo!.transactions.where('[status+completedAt]').between([2, 500], [2, 1500]).primaryKeys()).toEqual([
+      'exec-v33',
+      'send-v33'
+    ]);
+    expect(await repo!.transactions.where('heldNoteIds').equals('n-2').primaryKeys()).toEqual(['exec-v33']);
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);

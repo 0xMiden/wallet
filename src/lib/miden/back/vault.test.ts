@@ -5539,6 +5539,96 @@ describe('seed phrase removal', () => {
     expect(await vault.fetchSeedPhraseStatus()).toBe('unavailable');
     await expect(vault.removeSeedPhrase()).rejects.toThrow();
   });
+
+  it('ignores restored Queued transactions during seed phrase removal', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    await Repo.transactions.clear();
+    await Repo.transactions.bulkPut(
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `restored-q-${i}`,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        initiatedAt: nowSec - 10,
+        displayIcon: 'SEND',
+        restoredFromBackup: true
+      })) as ITransaction[]
+    );
+    const vault = await seedVault('password123', { accounts: [] });
+    await expect(vault.removeSeedPhrase()).resolves.toBeUndefined();
+    await Repo.transactions.clear();
+  });
+
+  it('stops after the first pending transaction without core.count or transactions.filter and supports stripped mocks', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const makeTx = (id: string, overrides: Partial<ITransaction>): ITransaction =>
+      ({
+        id,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: nowSec - 10,
+        completedAt: nowSec - 5,
+        displayIcon: 'SEND',
+        ...overrides
+      }) as ITransaction;
+
+    const vault = await seedVault('password123', { accounts: [] });
+    await Repo.transactions.clear();
+    await Repo.transactions.bulkPut([
+      ...Array.from({ length: 70 }, (_, i) => makeTx(`done-${i}`, {})),
+      ...Array.from({ length: 15 }, (_, i) =>
+        makeTx(`live-q-${i}`, { status: ITransactionStatus.Queued, completedAt: undefined })
+      )
+    ]);
+
+    const countSpy = jest.spyOn(Repo.transactions.core, 'count');
+    const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+    const whereSpy = jest.spyOn(Repo.transactions, 'where');
+    let continueCalls = 0;
+    const origOpenCursor = Repo.transactions.core.openCursor.bind(Repo.transactions.core);
+    Repo.transactions.core.openCursor = req =>
+      origOpenCursor(req).then(cursor => {
+        if (cursor) {
+          const origContinue = cursor.continue.bind(cursor);
+          cursor.continue = (...args) => {
+            continueCalls += 1;
+            return origContinue(...args);
+          };
+        }
+        return cursor;
+      });
+    try {
+      await expect(vault.removeSeedPhrase()).rejects.toThrow('seedRemovalBusy');
+      expect(countSpy).not.toHaveBeenCalled();
+      expect(filterSpy).not.toHaveBeenCalled();
+      expect(whereSpy).not.toHaveBeenCalled();
+      expect(continueCalls).toBe(0);
+    } finally {
+      Repo.transactions.core.openCursor = origOpenCursor;
+      countSpy.mockRestore();
+      filterSpy.mockRestore();
+      whereSpy.mockRestore();
+    }
+
+    const origSchema = Object.getOwnPropertyDescriptor(Repo.transactions, 'schema');
+    const origFilter = Object.getOwnPropertyDescriptor(Repo.transactions, 'filter');
+    const strippedWhereSpy = jest.spyOn(Repo.transactions, 'where').mockImplementation((() => {
+      throw new Error('must not call where on stripped mock');
+    }) as never);
+    Object.defineProperty(Repo.transactions, 'schema', { value: undefined, configurable: true });
+    Object.defineProperty(Repo.transactions, 'filter', { value: undefined, configurable: true });
+    try {
+      await expect(vault.removeSeedPhrase()).rejects.toThrow('seedRemovalBusy');
+    } finally {
+      if (origSchema) Object.defineProperty(Repo.transactions, 'schema', origSchema);
+      else delete (Repo.transactions as unknown as Record<string, unknown>).schema;
+      if (origFilter) Object.defineProperty(Repo.transactions, 'filter', origFilter);
+      else delete (Repo.transactions as unknown as Record<string, unknown>).filter;
+      strippedWhereSpy.mockRestore();
+      await Repo.transactions.clear();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

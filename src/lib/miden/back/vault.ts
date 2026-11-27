@@ -39,6 +39,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import { signableArbitraryElements } from 'lib/miden/dapp-sign-inputs';
 import { DAPP_SIGN_RULE } from 'lib/miden/dapp-sign-rule';
+import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { isCurrentRotationRequest, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { deriveLoginKeyScalar } from 'lib/miden/login-key/derive';
@@ -421,13 +422,12 @@ export class Vault {
           }
           recoveryPublicKeys.push(account.coldPublicKey);
         }
-        const pending = await Repo.transactions
-          .filter(
-            tx =>
-              !tx.restoredFromBackup &&
-              (tx.status === ITransactionStatus.Queued || tx.status === ITransactionStatus.GeneratingTransaction)
-          )
-          .count();
+        const [pending] = await readTransactionIndexChunks(
+          Repo.transactions,
+          statusIndexSpecs([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction]),
+          tx => !tx.restoredFromBackup,
+          { limit: 1 }
+        );
         if (pending) throw new PublicError(getMessage('seedRemovalBusy'));
         // The backup sync key is derived from the phrase. Store it before the phrase
         // leaves this device, so the backup continues to work after the removal.

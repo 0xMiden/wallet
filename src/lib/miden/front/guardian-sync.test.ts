@@ -24,6 +24,7 @@ import {
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
   GUARDIAN_SYNC_STAMP_FRESH_MS,
   isGuardianSyncOutage,
+  getGuardianSyncOutage,
   isGuardianUnrepairable,
   MISSING_REGISTRATION_BACKOFF_MS,
   MISSING_REGISTRATION_MAX_ATTEMPTS,
@@ -885,6 +886,10 @@ describe('syncGuardianAccounts', () => {
       expect(isSyncFused(key)).toBe(true);
       // The lit fuse skips this account's sync, and with it the outage count, so the prompt arms on this lap.
       expect(isGuardianSyncOutage('guardian-silent')).toBe(true);
+      expect(getGuardianSyncOutage('guardian-silent')).toEqual({
+        kind: 'guardian_outage',
+        guardianOutageReason: 'request_timeout_fuse'
+      });
 
       __resetSyncFuseStateForTests();
       jest.restoreAllMocks();
@@ -2816,6 +2821,10 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
 
     await runSyncs(1);
     expect(isGuardianSyncOutage(pk)).toBe(true);
+    const outage = getGuardianSyncOutage(pk);
+    expect(outage).toEqual({ kind: 'guardian_outage', guardianOutageReason: 'consecutive_unreachable' });
+    await runSyncs(1);
+    expect(getGuardianSyncOutage(pk)).toBe(outage);
 
     sync.mockResolvedValue(undefined);
     await runSyncs(1);

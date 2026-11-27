@@ -166,3 +166,24 @@ it('refuses private, inherited, accessor and trapped backup evidence and clears 
   expect(snapshotCrashDiagnostics(root)).not.toHaveProperty('backupNetworkFailureStage');
   expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toContain(canary);
 });
+
+it('attaches only the closed Guardian outage reason to its inline banner', () => {
+  const id = 'connectivityGuardianBody';
+  const reason = { kind: 'guardian_outage', guardianOutageReason: 'request_timeout_fuse' };
+  const error = new Error('private diagnostic');
+  annotateCrash(error, { userErrorId: id, userErrorSurface: 'inline' });
+  annotateUiProducer(error, id, 'inline', reason);
+  expect(snapshotCrashDiagnostics(error)).toHaveProperty('guardianOutageReason', 'request_timeout_fuse');
+  expect(validateUiEvidence('connectivityNodeBody', 'inline', reason)).toBeUndefined();
+  expect(validateUiEvidence(id, 'notice', reason)).toBeUndefined();
+  for (const payload of [
+    { ...reason, guardianOutageReason: 'fetch failed from https://private.example/rpc' },
+    { ...reason, accountId: 'private-account' },
+    { ...reason, url: 'https://private.example/rpc' },
+    { ...reason, error: new Error('private diagnostic') }
+  ]) {
+    annotateUiProducer(error, id, 'inline', payload);
+    expect(snapshotCrashDiagnostics(error)).not.toHaveProperty('guardianOutageReason');
+    expect(validateUiEvidence(id, 'inline', payload)).toBeUndefined();
+  }
+});

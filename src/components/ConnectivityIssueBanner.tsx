@@ -6,7 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
-import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
+import {
+  getGuardianSyncOutage,
+  isGuardianSyncOutage,
+  subscribeGuardianSyncOutage
+} from 'lib/miden/front/guardian-sync';
 import { useStorage } from 'lib/miden/front/storage';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { STORAGE_STALL_KEY } from 'lib/miden/storage-health';
@@ -155,7 +159,7 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
   // the banner rather than inheriting an old dismiss.
   const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
-    currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
+    currentAccountPk ? getGuardianSyncOutage(currentAccountPk) : undefined
   );
   // The dismissed ACCOUNT, not a bare boolean: the flag is per-account, so with
   // two guardian accounts on two dead operators a boolean would let a dismiss on
@@ -178,11 +182,12 @@ const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ classNa
   const guardianDismissed = dismissedAccountPk !== undefined && dismissedAccountPk === currentAccountPk;
 
   const active = useMemo(
-    () => pickActiveCategory(state, guardianOutage && !guardianDismissed, storageStalled === true),
+    () => pickActiveCategory(state, Boolean(guardianOutage) && !guardianDismissed, storageStalled === true),
     [guardianDismissed, guardianOutage, state, storageStalled]
   );
   const view = active ? VIEWS[active] : null;
-  useUserVisibleError(view?.errorId, 'inline');
+  const reportedOutage = active === 'guardian' ? guardianOutage : undefined;
+  useUserVisibleError(view?.errorId, 'inline', reportedOutage, reportedOutage);
 
   const onCta = useCallback(() => {
     hapticLight();
