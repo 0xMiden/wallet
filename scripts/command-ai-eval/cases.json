@@ -1138,5 +1138,55 @@
       "op": "explain"
     },
     "helpContext": null
+  },
+  {
+    "id": "first_reply_note_type",
+    "category": "fragment",
+    "prompt": "make it public",
+    "expectedRedacted": "make it public",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first_reply_provider",
+    "category": "fragment",
+    "prompt": "use epoch and make it 400",
+    "expectedRedacted": "use epoch and make it <AMT_1>",
+    "forbiddenSubstrings": ["400"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first_reply_amount",
+    "category": "fragment",
+    "prompt": "actually change the amount to 12.5",
+    "expectedRedacted": "actually change the amount to <AMT_1>",
+    "forbiddenSubstrings": ["12.5"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first_reply_reset_amount",
+    "category": "fragment",
+    "prompt": "reset the amount to 20",
+    "expectedRedacted": "reset the amount to <AMT_1>",
+    "forbiddenSubstrings": ["20"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first_reply_yes",
+    "category": "fragment",
+    "prompt": "yes",
+    "expectedRedacted": "yes",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
   }
 ]

@@ -149,6 +149,52 @@ describe('clarification follow-ups', () => {
   });
 });
 
+describe('a first request the provider cannot shape', () => {
+  // A bare "public" made the model return set_intent with a null action, which the schema refuses.
+  const refused = { result: { op: 'set_intent', action: null, note_type: 'public' } };
+  const refusal =
+    (status: number, body: string = JSON.stringify({ error: { code: 'json_validate_failed' } })) =>
+    async () =>
+      new Response(body, { status });
+
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it.each([{}, { helpContext: null }, { helpContext: 'Privacy' }])(
+    'answers that it has no command, so the app goes on to its follow-up: %j',
+    async context => {
+      const { fetchMock, service, traces } = setup({});
+      fetchMock.mockImplementation(
+        refusal(
+          400,
+          JSON.stringify({ error: { code: 'json_validate_failed', failed_generation: JSON.stringify(refused) } })
+        )
+      );
+      const response = await compile(service, { redactedText: 'public', ...context });
+      const output = { op: 'unsupported', reason: '', suggested_route: null };
+      expect(response).toMatchObject({ status: 200, body: { output } });
+      expect(parseAiCompilerOutput(response.body.output)).toEqual(output);
+      expect(traces).toEqual([{ path: 'refused', picked: [], unknownIds: [], served: null }]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify((console.warn as jest.Mock).mock.calls)).toBe(
+        JSON.stringify([[JSON.stringify({ event: 'compile_refused', model: 'openai/gpt-oss-120b' })]])
+      );
+    }
+  );
+
+  it.each([
+    ['another provider code', refusal(400, JSON.stringify({ error: { code: 'invalid_request_error' } }))],
+    ['a body that is not JSON', refusal(400, 'json_validate_failed')],
+    ['no body', refusal(400, '')],
+    ['a null body', refusal(400, 'null')],
+    ['another status', refusal(500)]
+  ])('still fails on %s', async (_name, fetchImpl) => {
+    const response = await compile(createService({ fetchImpl }), { redactedText: 'public', helpContext: null });
+    expect(response.status).toBe(502);
+  });
+});
+
 describe('help replies', () => {
   const ask = async (output: unknown, redactedText = SECRET) => {
     const run = setup(output);

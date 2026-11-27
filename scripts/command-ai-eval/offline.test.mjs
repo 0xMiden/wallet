@@ -44,7 +44,7 @@ test('offline privacy redaction and provenance eval suite passes with 0 leaks ac
 test('synthetic question fixtures redact text and reject invented references', async () => {
   const summary = await runEval({ offlineOnly: true, questions: true });
   assert.equal(summary.mode, 'offline');
-  assert.equal(summary.totalCases, 49);
+  assert.equal(summary.totalCases, 57);
   assert.equal(summary.redactionFailures, 0, summary.errors.join('\n'));
   assert.equal(summary.provenanceFailures, 0, summary.errors.join('\n'));
 });
@@ -54,7 +54,7 @@ test('requires accepted and forbidden cards on every sensitive question fixture'
   const help = cases.filter(item => item.cards);
   const controls = cases.filter(item => item.expected);
   assert.equal(help.length, 32);
-  assert.equal(controls.length, 17);
+  assert.equal(controls.length, 25);
   assert.equal(help.length + controls.length, cases.length);
   assert.equal(help.filter(item => item.cards.length === 0).length, 2);
   assert.deepEqual(
@@ -120,6 +120,31 @@ test('blocks a deploy that refuses any shape of clarification follow-up', async 
   assert.deepEqual(followUps.map(item => item.snapshot.missingSlot).sort(), ['note_type', 'provider', 'recipient']);
   const { gate } = await runEval({ offlineOnly: false, questions: true });
   for (const { id } of followUps) assert.ok(gate.failures.includes(`${id}: control failed`), id);
+});
+
+// The app sends a typed clarification reply without its snapshot first, and drops the follow-up if that request fails.
+const refuseJson = async () => Response.json({ error: { code: 'json_validate_failed' } }, { status: 400 });
+
+test('passes a deploy whose first-request replies the provider refuses to shape', async context => {
+  mockProviderKey(context);
+  context.mock.method(console, 'warn', () => {});
+  mockQuestionFixtures(context, cases =>
+    cases.filter(({ id }) => id.startsWith('first-reply-') && id !== 'first-reply-cancel')
+  );
+  context.mock.method(globalThis, 'fetch', refuseJson);
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.results.length, 7);
+  assert.deepEqual(summary.gate.failures, []);
+  for (const result of summary.results) assert.deepEqual(result.ops, ['unsupported'], result.id);
+});
+
+test('still blocks a deploy whose commands the provider refuses to shape', async context => {
+  mockProviderKey(context);
+  context.mock.method(console, 'warn', () => {});
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'first-reply-cancel'));
+  context.mock.method(globalThis, 'fetch', refuseJson);
+  const { gate } = await runEval({ offlineOnly: false, questions: true });
+  assert.deepEqual(gate.failures, ['first-reply-cancel: control failed']);
 });
 
 test('never forwards a model free-text answer', async context => {

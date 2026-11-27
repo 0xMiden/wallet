@@ -498,5 +498,77 @@
     "expected": {
       "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
     }
+  },
+  {
+    "id": "first-reply-note-type",
+    "prompt": "make it public",
+    "expectedRedacted": "make it public",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-provider",
+    "prompt": "use epoch and make it 400",
+    "expectedRedacted": "use epoch and make it <AMT_1>",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-amount",
+    "prompt": "actually change the amount to 12.5",
+    "expectedRedacted": "actually change the amount to <AMT_1>",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-reset-amount",
+    "prompt": "reset the amount to 20",
+    "expectedRedacted": "reset the amount to <AMT_1>",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-yes",
+    "prompt": "yes",
+    "expectedRedacted": "yes",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-public",
+    "prompt": "public",
+    "expectedRedacted": "public",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-epoch",
+    "prompt": "epoch",
+    "expectedRedacted": "epoch",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-cancel",
+    "prompt": "cancel",
+    "expectedRedacted": "cancel",
+    "helpContext": null,
+    "expected": {
+      "op": "cancel"
+    }
   }
 ]
