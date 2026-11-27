@@ -472,6 +472,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <Notice
               variant="inline"
               tone={quoteContext.tone}
+              errorId={null}
               role={quoteContext.role}
               title={quoteContext.title}
               className="-mt-2"
@@ -514,6 +515,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               id={sendReasonId}
               variant="inline"
               tone={sendReason.tone}
+              errorId={null}
               role="status"
               className="-mt-3"
               data-testid="token-detail-send-reason"
