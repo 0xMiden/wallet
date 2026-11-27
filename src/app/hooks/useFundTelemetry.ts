@@ -184,7 +184,7 @@ export function useFundFlow(): FundFlowTelemetry {
       const result = await attempt();
       // Only settle while the ref still holds this flow: a leave mid-deposit has
       // already reported it abandoned, and that reading should stand.
-      if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
+      if (flow && flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
         if (trackerRef.current === activeTracker) {
           activeTracker?.transition('continue');
@@ -193,7 +193,7 @@ export function useFundFlow(): FundFlowTelemetry {
       }
       return result;
     } catch (err) {
-      if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
+      if (flow && flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
         hasFailedAttemptRef.current = true;
         if (trackerRef.current === activeTracker) {

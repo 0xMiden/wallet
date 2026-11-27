@@ -451,6 +451,28 @@ describe('useFundFlow step progression', () => {
     ]);
   });
 
+  it('resolves and rejects reportDeposit cleanly without throwing when beginFlow returns undefined on mount and submit', async () => {
+    beginFlowMock
+      .mockReturnValueOnce(undefined as any)
+      .mockReturnValueOnce(undefined as any)
+      .mockReturnValueOnce(undefined as any);
+    const { result, unmount } = renderHook(() => useFundFlow());
+
+    await act(async () => {
+      await expect(result.current.reportDeposit(() => Promise.resolve('bridge-tx-ok'))).resolves.toBe('bridge-tx-ok');
+    });
+
+    await act(async () => {
+      await expect(result.current.reportDeposit(() => Promise.reject(new Error('rpc down')))).rejects.toThrow(
+        'rpc down'
+      );
+    });
+
+    unmount();
+    expect(beginFlowMock).toHaveBeenCalledTimes(3);
+    expect(emittedSteps).toEqual([]);
+  });
+
   it('consumes a child enterStep registered before mount effect runs and ignores overwriting active parent steps', () => {
     function Child({ onEnter }: { onEnter: (step: 'select_route') => void }) {
       useEffect(() => {

@@ -9,7 +9,7 @@ import { LocationProvider, LocationState } from 'lib/woozie/location';
 
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
-import { beginSendSubmitting, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
+import { beginSendSubmitting, hasActiveSendSession, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 
 type TelemetryHandle = {
@@ -108,8 +108,9 @@ const navigateMock = jest.fn((to: string) => {
   mockLocation = buildLocation(pathname, search, HistoryAction.Push, mockLocation.historyPosition + 1);
   setAppRoute?.(mockLocation);
 });
+let mockPopPathname = '/send';
 const goBackMock = jest.fn(() => {
-  mockLocation = buildLocation('/send', '', HistoryAction.Pop, Math.max(0, mockLocation.historyPosition - 1));
+  mockLocation = buildLocation(mockPopPathname, '', HistoryAction.Pop, Math.max(0, mockLocation.historyPosition - 1));
   setAppRoute?.(mockLocation);
 });
 
@@ -375,6 +376,7 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
     reportTelemetryEventMock.mockReset();
     for (const k of Object.keys(layerMotionProps)) delete layerMotionProps[k];
     mockAnimated = true;
+    mockPopPathname = '/send';
     mockLocation = buildLocation('/send', '', HistoryAction.Push, 1);
   });
 
@@ -603,5 +605,56 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
       expect.objectContaining({ flowId: 'flow-layer-1', step: 'review', stepAction: 'submit' }),
       expect.objectContaining({ flowId: 'flow-layer-1', step: 'review', stepAction: 'submit' })
     ]);
+  });
+
+  it('settles open flow and clears postFailureDwell when Back from direct review returns to / under MobilePageLayers', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockPopPathname = '/';
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Push, 2);
+      const pendingTx = deferred<string>();
+      jest.mocked(initiateSendTransaction).mockReturnValueOnce(pendingTx.promise);
+
+      const firstView = render(<TestMobileApp />);
+      await flushMicrotasks();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
+
+      fireEvent.click(screen.getByTestId('review-back'));
+      await flushMicrotasks();
+
+      expect(telemetryHandles[0]?.cancel).toHaveBeenCalledTimes(1);
+      expect(hasOpenSendFlow()).toBe(false);
+      expect(hasActiveSendSession()).toBe(false);
+      firstView.unmount();
+
+      // Failed submit followed by Back to '/' must not leave hasActiveSendSession() true for a subsequent swipe past /send.
+      jest.mocked(initiateSendTransaction).mockRejectedValueOnce(new Error('rpc failure'));
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Push, 2);
+      const secondView = render(<TestMobileApp />);
+      await flushMicrotasks();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(telemetryHandles[1]?.fail).toHaveBeenCalledWith('rpc'));
+      expect(hasActiveSendSession()).toBe(true);
+
+      fireEvent.click(screen.getByTestId('review-back'));
+      await flushMicrotasks();
+
+      expect(hasActiveSendSession()).toBe(false);
+      expect(telemetryHandles[1]?.cancel).not.toHaveBeenCalled();
+
+      const flowsBeforeSwipe = beginFlowMock.mock.calls.length;
+      act(() => {
+        mockLocation = buildLocation('/send', '', HistoryAction.Replace, 1);
+        setAppRoute?.(mockLocation);
+        jest.advanceTimersByTime(100);
+        mockLocation = buildLocation('/', '', HistoryAction.Replace, 1);
+        setAppRoute?.(mockLocation);
+      });
+      expect(beginFlowMock).toHaveBeenCalledTimes(flowsBeforeSwipe);
+      secondView.unmount();
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });

@@ -3637,6 +3637,9 @@ describe('ReviewTransaction — send telemetry', () => {
     const { unmount } = render(<ReviewTransaction />);
     await flush();
 
+    goBackMock.mockImplementationOnce(() => {
+      mockLocationPathname = '/send';
+    });
     fireEvent.click(screen.getByTestId('back-btn'));
     expect(goBack).toHaveBeenCalledTimes(1);
     expect(hasOpenSendFlow()).toBe(true);
@@ -3661,6 +3664,9 @@ describe('ReviewTransaction — send telemetry', () => {
     const { unmount } = render(<ReviewTransaction />);
     await flush();
 
+    goBackMock.mockImplementationOnce(() => {
+      mockLocationPathname = '/send';
+    });
     expect(mockMobileBackHandler?.()).toBe(true);
     expect(goBack).toHaveBeenCalledTimes(1);
     expect(hasOpenSendFlow()).toBe(true);
@@ -3861,6 +3867,9 @@ describe('ReviewTransaction — send telemetry', () => {
 
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1));
+    goBackMock.mockImplementationOnce(() => {
+      mockLocationPathname = '/send';
+    });
     fireEvent.click(screen.getByTestId('back-btn'));
     firstView.unmount();
     expect(hasActiveSendSession()).toBe(true);
@@ -3900,6 +3909,81 @@ describe('ReviewTransaction — send telemetry', () => {
       })
     );
     secondView.unmount();
+  });
+
+  it('cancels open flows and clears post-failure dwell when Back from direct review returns to a non-/send route', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      setValidRoute();
+      mockHistoryPosition = 2;
+      const pendingTx = deferred<string>();
+      initiateMock.mockReturnValueOnce(pendingTx.promise);
+
+      const firstView = render(<ReviewTransaction />);
+      await flush();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+
+      goBackMock.mockImplementationOnce(() => {
+        mockLocationPathname = '/';
+      });
+      fireEvent.click(screen.getByTestId('back-btn'));
+      firstView.unmount();
+
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+      expect(hasOpenSendFlow()).toBe(false);
+      expect(hasActiveSendSession()).toBe(false);
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'step',
+          flow: 'send',
+          flowId: 'flow-review-1',
+          step: 'submitting',
+          stepAction: 'leave'
+        })
+      );
+      expect(reportTelemetryEventMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ flowId: 'flow-review-1', stepAction: 'back' })
+      );
+
+      // Failed direct submit followed by Back to '/' clears postFailureDwell without cancelling or emitting post-ended steps.
+      reportTelemetryEventMock.mockClear();
+      initiateMock.mockRejectedValueOnce(new Error('rpc down'));
+      const secondView = render(<ReviewTransaction />);
+      await flush();
+      await clickSubmit();
+      expect(handleAt(1).fail).toHaveBeenCalledWith('rpc');
+      expect(hasActiveSendSession()).toBe(true);
+      const eventsBeforeBack = reportTelemetryEventMock.mock.calls.length;
+
+      goBackMock.mockImplementationOnce(() => {
+        mockLocationPathname = '/';
+      });
+      fireEvent.click(screen.getByTestId('back-btn'));
+      secondView.unmount();
+
+      expect(hasActiveSendSession()).toBe(false);
+      expect(handleAt(1).cancel).not.toHaveBeenCalled();
+      expect(reportTelemetryEventMock.mock.calls.length).toBe(eventsBeforeBack);
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('routes cold-opened compact review Back via /send fallback without wedging close controls', async () => {
+    setValidRoute();
+    mockHistoryPosition = 0;
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('back-btn'));
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/send', 'replacestate');
+    expect(goBackMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('close-btn'));
+    expect(navigateMock).toHaveBeenCalledWith('/');
+    unmount();
   });
 
   it('keeps review step intact when Epoch quote becomes incomplete before post-challenge submit', async () => {

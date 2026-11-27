@@ -94,7 +94,7 @@ import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
 import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
-import { createLocationState, goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { createLocationState, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
@@ -268,7 +268,6 @@ export const ReviewTransaction: React.FC = () => {
   const pageActiveRef = useRef(pageActive);
   pageActiveRef.current = pageActive;
   const mounted = useRef(false);
-  const backToSendRef = useRef(false);
   const ownedSessionRef = useRef(0);
   const departedRef = useRef(false);
   const submissionAttemptRef = useRef(0);
@@ -701,7 +700,7 @@ export const ReviewTransaction: React.FC = () => {
     submissionAbort.current?.abort();
     submissionAbort.current = undefined;
     const ownedToken = ownedSessionRef.current;
-    if (backToSendRef.current || ownedToken === 0) return;
+    if (ownedToken === 0) return;
     if (isReturningToSendRoute()) {
       transitionSendStepForSession(ownedToken, 'back');
       return;
@@ -730,18 +729,11 @@ export const ReviewTransaction: React.FC = () => {
   >();
   const handleBack = useCallback(() => {
     if (departedRef.current) return;
-    backToSendRef.current = true;
-    departedRef.current = true;
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
     submissionAbort.current = undefined;
-    if (ownedSessionRef.current !== 0) {
-      transitionSendStepForSession(ownedSessionRef.current, 'back');
-    } else {
-      transitionSendStep('back');
-    }
-    (command ? backToComposer : goBack)();
-  }, [backToComposer, command]);
+    backToComposer();
+  }, [backToComposer]);
   useMobileBackHandler(() => {
     if (showTransferType || showCalendar || spendingLimitChallenge !== undefined) return false;
     handleBack();
