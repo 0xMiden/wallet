@@ -1,4 +1,4 @@
-import { attachStepProgressionLifecycle } from './step-lifecycle';
+import { attachStepProgressionLifecycle, startVisibleDwellTimer } from './step-lifecycle';
 import {
   createStepProgressionTracker,
   MAX_REPEAT_EVENTS_PER_STEP_VISIT,
@@ -329,40 +329,50 @@ describe('step-progression', () => {
     }
   });
 
-  it('carries carried visible time via enter(step, initialVisibleMs) and disposeSilently()', () => {
+  it('carries passive foreground dwell via startVisibleDwellTimer() into enter(step, initialVisibleMs) without holding a flowId', () => {
     let clock = 100;
-    const firstEmitted: TaskStepEvent[] = [];
-    const first = createStepProgressionTracker({
-      flow: 'send',
-      flowId: 'flow-carry-1',
-      runId: 'run-1',
-      now: () => clock,
-      emit: event => firstEmitted.push(event)
-    });
+    const dwell = startVisibleDwellTimer(() => clock);
 
-    first.enter('review');
-    clock += 650;
-    const carriedMs = first.disposeSilently();
+    clock += 450;
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    clock += 5_000;
 
-    expect(carriedMs).toBe(650);
-    expect(firstEmitted).toEqual([]);
-    expect(first.isDisposed()).toBe(true);
-    expect(first.disposeSilently()).toBe(0);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    clock += 200;
 
-    const secondEmitted: TaskStepEvent[] = [];
-    const second = createStepProgressionTracker({
+    // Persisted BFCache hide pauses without discarding; pageshow resumes accumulation.
+    const persistedHide = new Event('pagehide');
+    Object.defineProperty(persistedHide, 'persisted', { value: true });
+    window.dispatchEvent(persistedHide);
+    clock += 3_000;
+
+    const persistedShow = new Event('pageshow');
+    Object.defineProperty(persistedShow, 'persisted', { value: true });
+    window.dispatchEvent(persistedShow);
+    clock += 100;
+
+    const carriedMs = dwell.consume();
+    expect(carriedMs).toBe(750);
+    // Consuming is idempotent and detaches listeners.
+    clock += 500;
+    expect(dwell.consume()).toBe(0);
+
+    const emitted: TaskStepEvent[] = [];
+    const retryTracker = createStepProgressionTracker({
       flow: 'send',
       flowId: 'flow-carry-2',
       runId: 'run-1',
       now: () => clock,
-      emit: event => secondEmitted.push(event)
+      emit: event => emitted.push(event)
     });
 
-    second.enter('review', carriedMs);
+    retryTracker.enter('review', carriedMs);
     clock += 100;
-    second.transition('retry', 'submitting');
+    retryTracker.transition('retry', 'submitting');
 
-    expect(secondEmitted).toEqual([
+    expect(emitted).toEqual([
       {
         phase: 'step',
         flow: 'send',
@@ -371,9 +381,22 @@ describe('step-progression', () => {
         step: 'review',
         stepAction: 'retry',
         order: 1,
-        visibleMs: 750,
+        visibleMs: 850,
         complete: true
       }
     ]);
+
+    // Non-persisted pagehide and cancel() discard accumulated dwell cleanly.
+    const cancelledByPageHide = startVisibleDwellTimer(() => clock);
+    clock += 300;
+    const terminalHide = new Event('pagehide');
+    Object.defineProperty(terminalHide, 'persisted', { value: false });
+    window.dispatchEvent(terminalHide);
+    expect(cancelledByPageHide.consume()).toBe(0);
+
+    const cancelledExplicitly = startVisibleDwellTimer(() => clock);
+    clock += 250;
+    cancelledExplicitly.cancel();
+    expect(cancelledExplicitly.consume()).toBe(0);
   });
 });

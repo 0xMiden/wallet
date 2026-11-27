@@ -17,7 +17,12 @@
  */
 import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { reportTelemetryEvent } from 'lib/telemetry/report-flow';
-import { attachStepProgressionLifecycle, isDocumentHidden } from 'lib/telemetry/step-lifecycle';
+import {
+  attachStepProgressionLifecycle,
+  isDocumentHidden,
+  startVisibleDwellTimer,
+  VisibleDwellTimer
+} from 'lib/telemetry/step-lifecycle';
 import { createStepProgressionTracker, StepProgressionTracker } from 'lib/telemetry/step-progression';
 import { TelemetryStep, TelemetryStepAction } from 'lib/telemetry/types';
 
@@ -26,10 +31,20 @@ let tracker: StepProgressionTracker | null = null;
 let detachLifecycle: (() => void) | null = null;
 let sessionToken = 0;
 let nextSessionToken = 0;
+let postFailureDwell: VisibleDwellTimer | null = null;
+let postFailureSessionToken = 0;
+
+function clearPostFailureDwell(): number {
+  const carried = postFailureDwell?.consume() ?? 0;
+  postFailureDwell = null;
+  postFailureSessionToken = 0;
+  return carried;
+}
 
 /** Begin the send flow, or adopt the one already in progress. */
 export function enterSendFlow(): void {
   if (handle) return;
+  clearPostFailureDwell();
   if (tracker || detachLifecycle) {
     const staleTracker = tracker;
     const staleDetach = detachLifecycle;
@@ -71,6 +86,7 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
   const current = handle;
   const currentTracker = tracker;
   const detach = detachLifecycle;
+  clearPostFailureDwell();
   if (!current) {
     if (currentTracker || detach) {
       tracker = null;
@@ -87,11 +103,11 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
   handle = null;
   tracker = null;
   detachLifecycle = null;
+  sessionToken = 0;
   let settled = false;
   const finishTracker = (action: TelemetryStepAction) => {
     if (settled) return;
     settled = true;
-    sessionToken = 0;
     detach?.();
     currentTracker?.finish(action);
   };
@@ -107,17 +123,12 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
       current.cancel();
     },
     fail: kind => {
-      settled = true;
+      const failedDuringSubmit = currentTracker?.currentStep() === 'submitting';
+      finishTracker('leave');
       current.fail(kind);
-      if (currentTracker && currentTracker.currentStep() === 'submitting') {
-        currentTracker.transition('leave', 'review');
-        tracker = currentTracker;
-        detachLifecycle = detach;
-        sessionToken = activeToken;
-      } else {
-        sessionToken = 0;
-        detach?.();
-        currentTracker?.finish('leave');
+      if (failedDuringSubmit) {
+        postFailureDwell = startVisibleDwellTimer();
+        postFailureSessionToken = activeToken;
       }
     },
     step: step => current.step?.(step)
@@ -130,11 +141,11 @@ export function hasOpenSendFlow(): boolean {
 }
 
 export function hasActiveSendSession(): boolean {
-  return handle !== null || tracker !== null;
+  return handle !== null || tracker !== null || postFailureDwell !== null;
 }
 
 export function getSendSessionToken(): number {
-  return hasActiveSendSession() ? sessionToken : 0;
+  return handle !== null || tracker !== null ? sessionToken : 0;
 }
 
 /** Record the furthest step the open flow reached. No-op when none is open. */
@@ -145,6 +156,10 @@ export function reportSendStep(step: TelemetryStep): void {
 
 /** Record a transition action within the open send flow attempt. */
 export function transitionSendStep(action: TelemetryStepAction, nextStep?: TelemetryStep): void {
+  if (!handle && !tracker) {
+    if (action === 'close' || action === 'leave') clearPostFailureDwell();
+    return;
+  }
   if (nextStep !== undefined) handle?.step?.(nextStep);
   tracker?.transition(action, nextStep);
 }
@@ -161,8 +176,14 @@ export function transitionSendStepForSession(
 
 /** Settle the send flow only while `expectedToken` still owns the active send session. */
 export function settleSendFlowForSession(expectedToken: number, settle: (handle: FlowHandle) => void): void {
-  if (expectedToken === 0 || getSendSessionToken() !== expectedToken) return;
-  settleSendFlow(settle);
+  if (expectedToken === 0) return;
+  if (getSendSessionToken() === expectedToken) {
+    settleSendFlow(settle);
+    return;
+  }
+  if (postFailureSessionToken === expectedToken) {
+    clearPostFailureDwell();
+  }
 }
 
 /** Restores `review` when an in-flight submit returns or is superseded without settling. */
@@ -193,14 +214,7 @@ export function recordSendRetry(): void {
  * cleanly on retry after an earlier submit failure settled the prior handle.
  */
 export function beginSendSubmitting(isRetry: boolean): void {
-  let carriedVisibleMs = 0;
-  if (!handle && tracker) {
-    carriedVisibleMs = tracker.currentStep() === 'review' ? tracker.disposeSilently() : 0;
-    const staleDetach = detachLifecycle;
-    tracker = null;
-    detachLifecycle = null;
-    staleDetach?.();
-  }
+  const carriedVisibleMs = !handle ? clearPostFailureDwell() : 0;
   enterSendFlow();
   handle?.step?.('review');
   if (tracker && tracker.currentStep() === null) {

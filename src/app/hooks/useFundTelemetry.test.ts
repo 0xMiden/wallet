@@ -361,7 +361,7 @@ describe('useFundFlow step progression', () => {
     ]);
   });
 
-  it('keeps tracker alive on review after failure, records post-error events, and carries dwell to retry', async () => {
+  it('closes failed flowId before fail(), emits no post-ended events, and carries passive review dwell into retry', async () => {
     let clock = 500;
     const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
     try {
@@ -371,12 +371,18 @@ describe('useFundFlow step progression', () => {
         clock += 200;
       });
 
+      let stepCountAtFail = -1;
+      handleAt(0).fail.mockImplementationOnce(() => {
+        stepCountAtFail = emittedSteps.length;
+      });
       await act(async () => {
         await expect(result.current.reportDeposit(() => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
       });
+      expect(stepCountAtFail).toBe(2);
 
       act(() => {
         clock += 400;
+        // No tracker remains bound to the ended flowId, so post-failure blocked actions emit nothing on flow-fund-1.
         result.current.recordActionWithoutProgress();
         result.current.recordActionWithoutProgress();
         result.current.recordRetry();
@@ -386,16 +392,26 @@ describe('useFundFlow step progression', () => {
       await act(async () => {
         await result.current.reportDeposit(() => Promise.resolve('bridge-tx-ok'));
       });
-      expect(emittedSteps).toMatchObject([
-        { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1, visibleMs: 200 },
-        { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 },
-        { flowId: 'flow-fund-1', step: 'review', stepAction: 'repeat', order: 3, visibleMs: 400 },
-        { flowId: 'flow-fund-1', step: 'review', stepAction: 'retry', order: 4, visibleMs: 400 },
-        { flowId: 'flow-fund-2', step: 'review', stepAction: 'retry', order: 1, visibleMs: 250 },
-        { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 2 }
+      expect(emittedSteps).toEqual([
+        expect.objectContaining({
+          flowId: 'flow-fund-1',
+          step: 'review',
+          stepAction: 'submit',
+          order: 1,
+          visibleMs: 200
+        }),
+        expect.objectContaining({ flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 }),
+        expect.objectContaining({
+          flowId: 'flow-fund-2',
+          step: 'review',
+          stepAction: 'retry',
+          order: 1,
+          visibleMs: 650
+        }),
+        expect.objectContaining({ flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 2 })
       ]);
 
-      // Post-failure close/unmount without retry also emits review exit without calling cancel on failed handle.
+      // Post-failure unmount without retry emits no post-ended step events and does not call cancel().
       emittedSteps.length = 0;
       const { result: second, unmount: unmountSecond } = renderHook(() => useFundFlow());
       act(() => {
@@ -412,10 +428,9 @@ describe('useFundFlow step progression', () => {
 
       expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
       expect(handleAt(2).cancel).not.toHaveBeenCalled();
-      expect(emittedSteps).toMatchObject([
-        { flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 },
-        { flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 },
-        { flowId: 'flow-fund-3', step: 'review', stepAction: 'leave', order: 3, visibleMs: 150, complete: true }
+      expect(emittedSteps).toEqual([
+        expect.objectContaining({ flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 }),
+        expect.objectContaining({ flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 })
       ]);
     } finally {
       nowSpy.mockRestore();
@@ -469,7 +484,7 @@ describe('useFundFlow step progression', () => {
     ]);
   });
 
-  it('closes failed flow on backtrack, resets retry state, opens fresh flow, and disposes non-review trackers cleanly', async () => {
+  it('starts a fresh flow on post-failure backtrack, resets retry state, and emits nothing on post-failure close', async () => {
     const { result, unmount } = renderHook(() => useFundFlow());
     act(() => {
       result.current.enterStep('review');
@@ -481,7 +496,7 @@ describe('useFundFlow step progression', () => {
       );
     });
 
-    // Stepping back from failed Review closes flow-fund-1 and opens flow-fund-2 at select_route.
+    // Stepping back from failed Review emits nothing on ended flow-fund-1 and opens flow-fund-2 at select_route.
     act(() => {
       result.current.transitionStep('back', 'select_route');
       result.current.transitionStep('continue', 'review');
@@ -493,16 +508,33 @@ describe('useFundFlow step progression', () => {
 
     expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
     expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
-    expect(emittedSteps).toMatchObject([
-      { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1 },
-      { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 },
-      { flowId: 'flow-fund-1', step: 'review', stepAction: 'back', order: 3, complete: true },
-      { flowId: 'flow-fund-2', step: 'select_route', stepAction: 'continue', order: 1, complete: true },
-      { flowId: 'flow-fund-2', step: 'review', stepAction: 'submit', order: 2, complete: true },
-      { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 3, complete: true }
+    expect(emittedSteps).toEqual([
+      expect.objectContaining({ flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1 }),
+      expect.objectContaining({ flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 }),
+      expect.objectContaining({
+        flowId: 'flow-fund-2',
+        step: 'select_route',
+        stepAction: 'continue',
+        order: 1,
+        complete: true
+      }),
+      expect.objectContaining({
+        flowId: 'flow-fund-2',
+        step: 'review',
+        stepAction: 'submit',
+        order: 2,
+        complete: true
+      }),
+      expect.objectContaining({
+        flowId: 'flow-fund-2',
+        step: 'submitting',
+        stepAction: 'continue',
+        order: 3,
+        complete: true
+      })
     ]);
 
-    // Closing directly on a failed Review emits close on the failed flow without starting a fresh flow.
+    // Closing directly on a failed Review emits no post-ended events and starts no fresh flow.
     emittedSteps.length = 0;
     const second = renderHook(() => useFundFlow());
     act(() => {
@@ -521,10 +553,9 @@ describe('useFundFlow step progression', () => {
     expect(beginFlowMock).toHaveBeenCalledTimes(3);
     expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
     expect(handleAt(2).cancel).not.toHaveBeenCalled();
-    expect(emittedSteps).toMatchObject([
-      { flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 },
-      { flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 },
-      { flowId: 'flow-fund-3', step: 'review', stepAction: 'close', order: 3, complete: true }
+    expect(emittedSteps).toEqual([
+      expect.objectContaining({ flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 }),
+      expect.objectContaining({ flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 })
     ]);
     unmount();
   });

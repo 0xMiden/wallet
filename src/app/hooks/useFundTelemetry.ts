@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { reportTelemetryEvent } from 'lib/telemetry/report-flow';
-import { attachStepProgressionLifecycle, isDocumentHidden } from 'lib/telemetry/step-lifecycle';
+import {
+  attachStepProgressionLifecycle,
+  isDocumentHidden,
+  startVisibleDwellTimer,
+  VisibleDwellTimer
+} from 'lib/telemetry/step-lifecycle';
 import { createStepProgressionTracker, StepProgressionTracker } from 'lib/telemetry/step-progression';
 import { TelemetryStep, TelemetryStepAction } from 'lib/telemetry/types';
 
@@ -64,6 +69,7 @@ export function useFundFlow(): FundFlowTelemetry {
   const hasFailedAttemptRef = useRef(false);
   const pendingStepRef = useRef<TelemetryStep | null>(null);
   const activeDepositTokenRef = useRef(0);
+  const postFailureDwellRef = useRef<VisibleDwellTimer | null>(null);
 
   useEffect(() => {
     const initialFlow = beginFlow('fund');
@@ -81,6 +87,8 @@ export function useFundFlow(): FundFlowTelemetry {
       activeDepositTokenRef.current += 1;
       pendingStepRef.current = null;
       hasFailedAttemptRef.current = false;
+      postFailureDwellRef.current?.cancel();
+      postFailureDwellRef.current = null;
       detachRef.current?.();
       detachRef.current = null;
       trackerRef.current?.finish('leave');
@@ -105,11 +113,12 @@ export function useFundFlow(): FundFlowTelemetry {
   const transitionStep = useCallback((action: TelemetryStepAction, nextStep?: TelemetryStep) => {
     activeDepositTokenRef.current += 1;
     if (!flowRef.current) {
+      postFailureDwellRef.current?.cancel();
+      postFailureDwellRef.current = null;
       if (trackerRef.current) {
-        trackerRef.current.transition(action);
         detachRef.current?.();
         detachRef.current = null;
-        trackerRef.current.disposeSilently();
+        trackerRef.current.finish(action);
         trackerRef.current = null;
       }
       hasFailedAttemptRef.current = false;
@@ -140,17 +149,14 @@ export function useFundFlow(): FundFlowTelemetry {
     let flow = flowRef.current;
     let activeTracker = trackerRef.current;
     if (!flow) {
-      let carriedVisibleMs = 0;
+      const carriedVisibleMs = postFailureDwellRef.current?.consume() ?? 0;
+      postFailureDwellRef.current = null;
       if (trackerRef.current) {
-        if (trackerRef.current.currentStep() === 'review') {
-          carriedVisibleMs = trackerRef.current.disposeSilently();
-        } else {
-          trackerRef.current.finish('leave');
-        }
+        detachRef.current?.();
+        detachRef.current = null;
+        trackerRef.current.finish('leave');
+        trackerRef.current = null;
       }
-      detachRef.current?.();
-      detachRef.current = null;
-      trackerRef.current = null;
       flow = beginFlow('fund') ?? null;
       flowRef.current = flow;
       const next = attachTrackerForFlow(flow);
@@ -160,6 +166,9 @@ export function useFundFlow(): FundFlowTelemetry {
       if (activeTracker) {
         activeTracker.enter('review', carriedVisibleMs);
       }
+    } else {
+      postFailureDwellRef.current?.cancel();
+      postFailureDwellRef.current = null;
     }
 
     hasFailedAttemptRef.current = false;
@@ -177,20 +186,24 @@ export function useFundFlow(): FundFlowTelemetry {
       // already reported it abandoned, and that reading should stand.
       if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
-        flow.complete();
         if (trackerRef.current === activeTracker) {
           activeTracker?.transition('continue');
         }
+        flow.complete();
       }
       return result;
     } catch (err) {
       if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
         hasFailedAttemptRef.current = true;
-        flow.fail(classifyError(err));
         if (trackerRef.current === activeTracker) {
-          activeTracker?.transition('leave', 'review');
+          detachRef.current?.();
+          detachRef.current = null;
+          activeTracker?.finish('leave');
+          trackerRef.current = null;
         }
+        flow.fail(classifyError(err));
+        postFailureDwellRef.current = startVisibleDwellTimer();
       }
       throw err;
     }

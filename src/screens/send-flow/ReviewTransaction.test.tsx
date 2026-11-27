@@ -50,7 +50,7 @@ import { isValidMidenAddress } from 'utils/miden';
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { nearIntentsSendFailureId, ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
-import { enterSendFlow, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
+import { enterSendFlow, hasActiveSendSession, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 import type { NearIntentsSendQuote, NearIntentsSendQuoteParams } from './useNearIntentsSendQuote';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
@@ -3712,7 +3712,7 @@ describe('ReviewTransaction — send telemetry', () => {
     }
   });
 
-  it('carries real post-failure review dwell into retry and exits tracker cleanly on post-failure unmount', async () => {
+  it('carries passive post-failure review dwell into retry and closes failed flowId with no post-ended events', async () => {
     let clock = 2_000;
     const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -3723,12 +3723,22 @@ describe('ReviewTransaction — send telemetry', () => {
       const firstView = render(<ReviewTransaction />);
       await flush();
 
+      let stepCountAtFail = -1;
+      handleAt(0).fail.mockImplementationOnce(() => {
+        stepCountAtFail = reportTelemetryEventMock.mock.calls.length;
+      });
       await clickSubmit();
+      expect(stepCountAtFail).toBeGreaterThanOrEqual(2);
+      const stepEventsAfterFail = () =>
+        reportTelemetryEventMock.mock.calls.map(([event]) => event).filter(event => event?.flowId === 'flow-review-1');
+      const countBeforeRetry = stepEventsAfterFail().length;
+
       clock += 350;
       await clickSubmit();
 
       expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
       expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+      expect(stepEventsAfterFail()).toHaveLength(countBeforeRetry);
       expect(reportTelemetryEventMock).toHaveBeenCalledWith(
         expect.objectContaining({
           phase: 'step',
@@ -3742,7 +3752,7 @@ describe('ReviewTransaction — send telemetry', () => {
       );
       firstView.unmount();
 
-      // Failed submit followed by navigation unmount finishes review tracker without cancelling handle.
+      // Failed submit followed by navigation unmount emits no post-ended review leave and clears active session.
       reportTelemetryEventMock.mockClear();
       initiateMock.mockRejectedValueOnce(new Error('rpc down again'));
       enterSendFlow();
@@ -3754,17 +3764,25 @@ describe('ReviewTransaction — send telemetry', () => {
 
       expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
       expect(handleAt(2).cancel).not.toHaveBeenCalled();
-      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect(hasActiveSendSession()).toBe(false);
+      expect(reportTelemetryEventMock.mock.calls.map(([event]) => event)).toEqual([
         expect.objectContaining({
           phase: 'step',
           flow: 'send',
           flowId: 'flow-review-3',
           step: 'review',
+          stepAction: 'submit',
+          complete: true
+        }),
+        expect.objectContaining({
+          phase: 'step',
+          flow: 'send',
+          flowId: 'flow-review-3',
+          step: 'submitting',
           stepAction: 'leave',
-          visibleMs: 180,
           complete: true
         })
-      );
+      ]);
     } finally {
       consoleSpy.mockRestore();
       nowSpy.mockRestore();
@@ -3820,6 +3838,68 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(reportTelemetryEventMock).toHaveBeenCalledWith(
       expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
     );
+  });
+
+  it('does not let stale Epoch {} settlement after Back revert a second attempt submitting step on the shared session', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    const attempt1 = deferred<{ txId?: string }>();
+    const attempt2 = deferred<{ txId?: string }>();
+    bridgeEpochSendMock.mockReturnValueOnce(attempt1.promise as any).mockReturnValueOnce(attempt2.promise as any);
+    enterSendFlow();
+    const firstView = render(<ReviewTransaction />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId('back-btn'));
+    firstView.unmount();
+    expect(hasActiveSendSession()).toBe(true);
+
+    enterSendFlow();
+    const secondView = render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    reportTelemetryEventMock.mockClear();
+    await act(async () => {
+      attempt1.resolve({});
+      await attempt1.promise;
+    });
+    await flush();
+
+    expect(reportTelemetryEventMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    await act(async () => {
+      attempt2.resolve({ txId: 'epoch-tx-2' });
+      await attempt2.promise;
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/epoch-tx-2', 'replacestate');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        step: 'submitting',
+        stepAction: 'continue',
+        complete: true
+      })
+    );
+    secondView.unmount();
   });
 
   it('keeps review step intact when Epoch quote becomes incomplete before post-challenge submit', async () => {

@@ -30,7 +30,6 @@ export interface StepProgressionTracker {
   recordRetry(): void;
   finish(action: TelemetryStepAction): void;
   teardown(): void;
-  disposeSilently(): number;
   visible(isVisible: boolean): void;
   currentStep(): TelemetryStep | null;
   isDisposed(): boolean;
@@ -156,16 +155,6 @@ export function createStepProgressionTracker(options: StepProgressionTrackerOpti
 
     teardown(): void {
       endFlow('leave', false);
-    },
-
-    disposeSilently(): number {
-      if (disposed) return 0;
-      const at = now();
-      flushVisibleTime(at);
-      const carried = activeStep !== null ? Math.max(0, Math.round(visibleMsAccumulated)) : 0;
-      disposed = true;
-      resetVisit(null, null);
-      return carried;
     },
 
     visible(nextVisible: boolean): void {

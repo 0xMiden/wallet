@@ -1104,8 +1104,9 @@ export const ReviewTransaction: React.FC = () => {
           default: {
             if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
+              if (!isCurrentSubmission(attemptId)) return;
               restoreSendReviewIfSubmittingForSession(submitSessionToken);
-              if (isCurrentSubmission(attemptId)) setIsSubmitting(false);
+              setIsSubmitting(false);
               return;
             }
             const { txId } = await bridgeEpochSend({
@@ -1127,8 +1128,8 @@ export const ReviewTransaction: React.FC = () => {
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
-              restoreSendReviewIfSubmittingForSession(submitSessionToken);
               if (!isCurrentSubmission(attemptId)) return;
+              restoreSendReviewIfSubmittingForSession(submitSessionToken);
               setIsSubmitting(false);
             }
           }

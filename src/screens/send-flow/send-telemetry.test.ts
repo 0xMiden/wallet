@@ -2,6 +2,7 @@ import {
   beginSendSubmitting,
   enterSendFlow,
   getSendSessionToken,
+  hasActiveSendSession,
   hasOpenSendFlow,
   recordSendActionWithoutProgress,
   recordSendRetry,
@@ -254,7 +255,7 @@ describe('send-telemetry', () => {
     ]);
   });
 
-  it('keeps the step tracker alive on review after failure, records post-error actions, and carries dwell into retry', () => {
+  it('closes the failed flowId before fail(), emits no post-ended events, and carries passive dwell into retry', () => {
     let clock = 1_000;
     const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
     try {
@@ -263,10 +264,17 @@ describe('send-telemetry', () => {
       clock += 200;
       beginSendSubmitting(false);
       clock += 100;
+      let stepCountAtFail = -1;
+      handleAt(0).fail.mockImplementationOnce(() => {
+        stepCountAtFail = emittedEvents.length;
+      });
       settleSendFlow(flow => flow.fail('rpc'));
 
-      // Handle settled as failed, while step tracker remains alive on `review`.
+      // Handle and step tracker settled before fail; session stays recoverable with zero active token.
+      expect(stepCountAtFail).toBe(2);
       expect(hasOpenSendFlow()).toBe(false);
+      expect(hasActiveSendSession()).toBe(true);
+      expect(getSendSessionToken()).toBe(0);
       clock += 450;
       recordSendActionWithoutProgress();
       recordSendActionWithoutProgress();
@@ -276,28 +284,45 @@ describe('send-telemetry', () => {
       transitionSendStep('continue');
       settleSendFlow(flow => flow.complete());
 
-      // Post-failure teardown without retry also finishes tracker cleanly without cancelling handle.
+      // Post-failure close/teardown emits no post-ended step events, clears active session, and skips cancel().
       enterSendFlow();
+      const failedToken = getSendSessionToken();
       beginSendSubmitting(false);
       settleSendFlow(flow => flow.fail('rpc'));
       clock += 120;
-      settleSendFlow(flow => flow.cancel());
+      settleSendFlowForSession(failedToken, flow => flow.cancel());
+      expect(hasActiveSendSession()).toBe(false);
 
       expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
       expect(handleAt(0).cancel).not.toHaveBeenCalled();
       expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
       expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
       expect(handleAt(2).cancel).not.toHaveBeenCalled();
-      expect(emittedEvents).toMatchObject([
-        { flowId: 'flow-send-1', step: 'review', stepAction: 'submit', order: 1, visibleMs: 200 },
-        { flowId: 'flow-send-1', step: 'submitting', stepAction: 'leave', order: 2, visibleMs: 100 },
-        { flowId: 'flow-send-1', step: 'review', stepAction: 'repeat', order: 3, visibleMs: 450 },
-        { flowId: 'flow-send-1', step: 'review', stepAction: 'retry', order: 4, visibleMs: 450 },
-        { flowId: 'flow-send-2', step: 'review', stepAction: 'retry', order: 1, visibleMs: 300 },
-        { flowId: 'flow-send-2', step: 'submitting', stepAction: 'continue', order: 2 },
-        { flowId: 'flow-send-3', step: 'review', stepAction: 'submit', order: 1 },
-        { flowId: 'flow-send-3', step: 'submitting', stepAction: 'leave', order: 2 },
-        { flowId: 'flow-send-3', step: 'review', stepAction: 'leave', order: 3, visibleMs: 120, complete: true }
+      expect(emittedEvents).toEqual([
+        expect.objectContaining({
+          flowId: 'flow-send-1',
+          step: 'review',
+          stepAction: 'submit',
+          order: 1,
+          visibleMs: 200
+        }),
+        expect.objectContaining({
+          flowId: 'flow-send-1',
+          step: 'submitting',
+          stepAction: 'leave',
+          order: 2,
+          visibleMs: 100
+        }),
+        expect.objectContaining({
+          flowId: 'flow-send-2',
+          step: 'review',
+          stepAction: 'retry',
+          order: 1,
+          visibleMs: 750
+        }),
+        expect.objectContaining({ flowId: 'flow-send-2', step: 'submitting', stepAction: 'continue', order: 2 }),
+        expect.objectContaining({ flowId: 'flow-send-3', step: 'review', stepAction: 'submit', order: 1 }),
+        expect.objectContaining({ flowId: 'flow-send-3', step: 'submitting', stepAction: 'leave', order: 2 })
       ]);
     } finally {
       nowSpy.mockRestore();

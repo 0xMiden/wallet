@@ -56,6 +56,41 @@ jest.mock('lib/epoch/bridge-in-recovery', () => ({
   cancelLockWithdrawal: jest.fn().mockResolvedValue(undefined)
 }));
 
+const mockStateSetterProbe = {
+  recording: false,
+  armed: false,
+  preUnmountCalls: 0,
+  postUnmountCalls: [] as unknown[]
+};
+jest.mock('react', () => {
+  const actual = jest.requireActual<typeof import('react')>('react');
+  const wrappedSetters = new WeakMap<
+    React.Dispatch<React.SetStateAction<unknown>>,
+    React.Dispatch<React.SetStateAction<unknown>>
+  >();
+  return {
+    ...actual,
+    useState: (...args: unknown[]) => {
+      const [state, setState] = args.length > 0 ? actual.useState<unknown>(args[0]) : actual.useState<unknown>();
+      let wrapped = wrappedSetters.get(setState);
+      if (!wrapped) {
+        wrapped = value => {
+          if (mockStateSetterProbe.recording) {
+            if (mockStateSetterProbe.armed) {
+              mockStateSetterProbe.postUnmountCalls.push(value);
+            } else {
+              mockStateSetterProbe.preUnmountCalls += 1;
+            }
+          }
+          return setState(value);
+        };
+        wrappedSetters.set(setState, wrapped);
+      }
+      return [state, wrapped];
+    }
+  };
+});
+
 let mockBalanceEncodingFailure = false;
 jest.mock('viem', () => {
   const actual = jest.requireActual<typeof import('viem')>('viem');
@@ -2024,27 +2059,10 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   it.each(['release', 'fail'] as const)(
     'ignores %s settlement after unmount mid-row-creation without post-unmount state updates',
     async outcome => {
-      const originalUseState = React.useState;
-      const wrappedSetters = new WeakMap<
-        React.Dispatch<React.SetStateAction<unknown>>,
-        React.Dispatch<React.SetStateAction<unknown>>
-      >();
-      let unmounted = false;
-      let preUnmountSetterCalls = 0;
-      const postUnmountSetterCalls: unknown[] = [];
-      const useStateSpy = jest.spyOn(React, 'useState').mockImplementation(((...args: unknown[]) => {
-        const [state, setState] = args.length > 0 ? originalUseState<unknown>(args[0]) : originalUseState<unknown>();
-        let wrapped = wrappedSetters.get(setState);
-        if (!wrapped) {
-          wrapped = value => {
-            if (unmounted) postUnmountSetterCalls.push(value);
-            else preUnmountSetterCalls += 1;
-            return setState(value);
-          };
-          wrappedSetters.set(setState, wrapped);
-        }
-        return [state, wrapped];
-      }) as unknown as typeof React.useState);
+      mockStateSetterProbe.recording = true;
+      mockStateSetterProbe.armed = false;
+      mockStateSetterProbe.preUnmountCalls = 0;
+      mockStateSetterProbe.postUnmountCalls.length = 0;
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       try {
         const fundFlow: FundFlowTelemetry = {
@@ -2065,7 +2083,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         jest.mocked(fundFlow.enterStep).mockClear();
         view.unmount();
         await settle();
-        unmounted = true;
+        mockStateSetterProbe.armed = true;
 
         if (outcome === 'release') row.release();
         else row.fail();
@@ -2074,14 +2092,17 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         const rowCreationErrors = errorSpy.mock.calls.filter(
           ([msg]) => msg === '[EvmBridgeDepositScreen] bridge row creation failed'
         );
-        expect(preUnmountSetterCalls).toBeGreaterThan(0);
-        expect(postUnmountSetterCalls).toEqual([]);
+        expect(mockStateSetterProbe.preUnmountCalls).toBeGreaterThan(0);
+        expect(mockStateSetterProbe.postUnmountCalls).toEqual([]);
         expect(rowCreationErrors).toHaveLength(outcome === 'fail' ? 1 : 0);
         expect(errorSpy).toHaveBeenCalledTimes(outcome === 'fail' ? 1 : 0);
         expect(fundFlow.enterStep).not.toHaveBeenCalledWith('status');
         expect(screen.queryByTestId('deposit-status')).not.toBeInTheDocument();
       } finally {
-        useStateSpy.mockRestore();
+        mockStateSetterProbe.recording = false;
+        mockStateSetterProbe.armed = false;
+        mockStateSetterProbe.preUnmountCalls = 0;
+        mockStateSetterProbe.postUnmountCalls.length = 0;
         errorSpy.mockRestore();
       }
     }
