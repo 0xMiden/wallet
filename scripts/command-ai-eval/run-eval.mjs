@@ -527,10 +527,7 @@ export function loadWritingCases({
   return [...selection, ...written.map(item => ({ ...item, set: 'holdout' }))];
 }
 
-// Safety and who-can-see cards stay word for word. Until the owner rules on these three, no suite writes them and
-// the allowlist never names them.
-const HELD_CARDS = ['assistant_sees', 'stay_safe', 'unexpected_tokens'];
-const mayWrite = card => card.mode === 'write' && !HELD_CARDS.includes(card.id);
+const mayWrite = card => card.mode === 'write';
 
 const allWriting = data => ({
   ...data,

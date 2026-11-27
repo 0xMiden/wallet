@@ -125,8 +125,8 @@ describe('writerInput', () => {
     }
   });
 
-  it('leaves at least 250 characters for each of the 56 write cards', () => {
-    expect(writable).toHaveLength(56);
+  it('leaves at least 250 characters for each of the 53 write cards', () => {
+    expect(writable).toHaveLength(53);
     const budgets = writable.map(item => writerInput([item], real, 'q', null).budget);
     expect(Math.min(...budgets)).toBeGreaterThanOrEqual(250);
     expect(writerInput([realCard('guardian_what')], real, 'q', null).user).toContain('g.service');

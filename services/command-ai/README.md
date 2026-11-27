@@ -29,7 +29,7 @@ Writer and checker calls are never retried and end within 9 seconds of the reque
 
 ### The writing switch
 
-`writing` in `src/help-cards.json` names the `writer` and `checker` models and lists the cards that may be written. **`cards: []`, the committed value, turns writing off, and is the kill switch.** Fixed, checked, safety, emergency and who-can-see cards are never written. `assistant_sees`, `stay_safe` and `unexpected_tokens` are also held back, pending an owner ruling: no suite writes them and the allowlist never names them. A card is listed only from the allowlist that the `writing-score` suite prints, in a commit that names the graded run ids and updates the pin in `help-cards.test.ts`.
+`writing` in `src/help-cards.json` names the `writer` and `checker` models and lists the cards that may be written. **`cards: []`, the committed value, turns writing off, and is the kill switch.** Only `write` cards are ever written: the safety, emergency and who-can-see cards are `fixed` or `checked`, so they are served word for word. A card is listed only from the allowlist that the `writing-score` suite prints, in a commit that names the graded run ids and updates the pin in `help-cards.test.ts`.
 
 The cards are in `src/help-cards.json`:
 
