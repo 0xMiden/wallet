@@ -101,6 +101,14 @@ export async function retryTransient(run, budget = freshRetryBudget()) {
   }
 }
 
+const MAX_LIMIT_WAIT_MS = 300000;
+
+/** How long a 429 asks a caller to wait. */
+function limitWaitMs(headers) {
+  const seconds = Number(headers.get('retry-after') ?? Number.NaN);
+  return seconds >= 0 ? seconds * 1000 : parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
+}
+
 const MIN_TOKEN_LIMIT = 8000;
 const MIN_REQUEST_LIMIT = 1000;
 
@@ -192,9 +200,14 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
       : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
         ? `provider finish ${finishReason}`
         : undefined;
-    // A 429 is waited for once, by retryTransient, which charges that wait to the retry budget.
-    delays.set(requested, response.status === 429 ? 0 : paceDelayMs(response.headers, promptTokens));
-    if (guard) quotaStop ??= quotaStopReason(requested, response.headers);
+    // The router's 429 reaches retryTransient, which waits and charges its budget. A writer's or checker's never
+    // does (the Worker answers 200), so the pace waits for it.
+    const limitedMs = response.status === 429 && requested !== model ? limitWaitMs(response.headers) : 0;
+    delays.set(requested, response.status === 429 ? limitedMs : paceDelayMs(response.headers, promptTokens));
+    if (guard) {
+      quotaStop ??= quotaStopReason(requested, response.headers);
+      if (limitedMs > MAX_LIMIT_WAIT_MS) quotaStop ??= `${requested} asks to wait ${limitedMs / 1000} s`;
+    }
     return new Response(response.status === 204 ? null : body, {
       status: response.status,
       headers: response.headers
@@ -338,6 +351,7 @@ export function scoreSelection(results) {
   return {
     devAccepted: accepted('dev'),
     holdoutAccepted: accepted('holdout'),
+    devAnsweredRate: clusterShare(inClass('dev', 'answerable'), (_, run) => isAnswered(run)),
     answeredRate: clusterShare(inClass(gated, 'answerable'), (_, run) => isAnswered(run)),
     nearMissRefused: refused('near_miss'),
     outOfScopeRefused: refused('out_of_scope'),
@@ -363,6 +377,7 @@ export function scoreSelection(results) {
 const MIN_SHARES = {
   devAccepted: 0.95,
   holdoutAccepted: 0.9,
+  devAnsweredRate: 0.8,
   answeredRate: 0.8,
   nearMissRefused: 0.85,
   outOfScopeRefused: 0.9
@@ -370,8 +385,9 @@ const MIN_SHARES = {
 const MAX_PROMPT_TOKENS = 3600;
 
 export function selectionFailures(score) {
-  // The holdout and near-miss bars are judged on a holdout only.
-  const holdoutOnly = ['holdoutAccepted', 'nearMissRefused'];
+  // The holdout and near-miss bars are judged on a holdout only, and without one answeredRate is already dev's.
+  // With one, dev needs its own: devAccepted counts only the dev clusters that got a card.
+  const holdoutOnly = ['holdoutAccepted', 'devAnsweredRate', 'nearMissRefused'];
   const failures = Object.entries(MIN_SHARES)
     .filter(([name]) => score.holdoutAccepted !== null || !holdoutOnly.includes(name))
     .filter(([name, bar]) => !(score[name] >= bar))
@@ -397,12 +413,19 @@ export function compareCommands(cases, baseline, current) {
     const was = before.get(item.id);
     const expected = [item.expected.op].flat();
     const failures = [];
-    // A case added after the baseline has nothing to compare with, so it must pass on its own.
-    const guarded = !was || was.passes === was.runs;
-    if (!item.intendedChange && guarded && now.runs - now.passes >= 2) {
-      const before = was ? `passed ${was.passes} of ${was.runs} on the baseline` : 'not on the baseline';
+    // A case added after the baseline, or meant to change, has nothing to compare with: it must pass on its own.
+    const guarded = item.intendedChange || !was || was.passes === was.runs;
+    if (guarded && now.runs - now.passes >= 2) {
+      const before = item.intendedChange
+        ? 'an intended change'
+        : was
+          ? `passed ${was.passes} of ${was.runs} on the baseline`
+          : 'not on the baseline';
       failures.push(`${before}, now ${now.passes} of ${now.runs}`);
     }
+    // A failed request measures nothing, on either side.
+    if (was?.ops.includes('error')) failures.push('the baseline has failed requests, record it again');
+    if (now.ops.includes('error')) failures.push('requests failed');
     if (expected.includes('explain')) {
       const intent = now.ops.find(op => INTENT_OPS.includes(op));
       if (intent) failures.push(`a help question produced ${intent}`);
@@ -504,14 +527,31 @@ export function loadWritingCases({
   return [...selection, ...written.map(item => ({ ...item, set: 'holdout' }))];
 }
 
+// Safety and who-can-see cards stay word for word. Until the owner rules on these three, no suite writes them and
+// the allowlist never names them.
+const HELD_CARDS = ['assistant_sees', 'stay_safe', 'unexpected_tokens'];
+const mayWrite = card => card.mode === 'write' && !HELD_CARDS.includes(card.id);
+
 const allWriting = data => ({
   ...data,
-  writing: { ...data.writing, cards: data.cards.filter(card => card.mode === 'write').map(card => card.id) }
+  writing: { ...data.writing, cards: data.cards.filter(mayWrite).map(card => card.id) }
 });
 const noWriting = data => ({ ...data, writing: { ...data.writing, cards: [] } });
 
 const TECHNICAL = ['writer_technical', 'checker_technical'];
 const TECHNICAL_RERUNS = 3;
+const MAX_INVALID_IN_A_ROW = 3;
+
+/** Ends a suite that has stopped producing answers: every further run would spend quota for no verdict. */
+function invalidStreak() {
+  let streak = 0;
+  return invalid => {
+    streak = invalid ? streak + 1 : 0;
+    if (streak === MAX_INVALID_IN_A_ROW) {
+      throw new Error(`${streak} runs in a row stayed technical failures: stopping with no verdict.`);
+    }
+  };
+}
 
 async function writingRun(compile, parse) {
   let technicalAttempts = 0;
@@ -526,6 +566,7 @@ async function writingRun(compile, parse) {
         served: reply.trace?.served ?? null,
         outcome: reply.trace?.writing?.outcome ?? null,
         cards: reply.trace?.writing?.cards ?? [],
+        given: reply.trace?.writing?.given,
         text: parsed?.op === 'explain' ? parsed.answer : JSON.stringify(reply.output)
       };
     } catch (error) {
@@ -549,6 +590,7 @@ export async function runWriting({ cases, runs = 3, knockout = false, service = 
   const { schemaMod, redactorMod } = loadAppModules();
   const written = allWriting(helpDataset());
   const budget = freshRetryBudget();
+  const watch = invalidStreak();
   const results = [];
   for (const item of cases) {
     const { redactedText } = redactorMod.redactPrompt(item.q, DEFAULT_CONTEXT);
@@ -558,13 +600,13 @@ export async function runWriting({ cases, runs = 3, knockout = false, service = 
     const result = { id: item.id, cluster: item.cluster, class: item.class, set: item.set ?? item.split, runs: [] };
     results.push(result);
     for (let attempt = 0; attempt < runs; attempt++) {
-      result.runs.push(
-        await writingRun(
-          () =>
-            retryTransient(() => service.compile({ redactedText, helpContext: item.helpContext }, { dataset }), budget),
-          schemaMod.parseAiCompilerOutput
-        )
+      const run = await writingRun(
+        () =>
+          retryTransient(() => service.compile({ redactedText, helpContext: item.helpContext }, { dataset }), budget),
+        schemaMod.parseAiCompilerOutput
       );
+      result.runs.push(run);
+      watch(!isScorable(run));
     }
   }
   return {
@@ -593,8 +635,10 @@ export function gradingRows(cases, results, { knockout = false } = {}) {
     for (const run of result.runs.filter(run => isGraded(run, knockout))) {
       const row = runRow(item, run);
       const cards = citedBy(run);
+      // A written text also carries the lead and limit of a card it was given and did not cite.
+      const shown = run.given ?? cards;
       const ids = data.cards
-        .filter(card => cards.includes(card.id))
+        .filter(card => shown.includes(card.id))
         .flatMap(card => [...card.lead, ...card.facts, ...card.limit]);
       const facts = [...new Set(ids)].map(id => data.facts[id].text);
       rows.set(rowKey(row), { ...row, cards, facts, verdict: null, serious: null });
@@ -615,11 +659,21 @@ const BAD_CLASSES = [
 const MIN_CHECKER_ROWS = { bad: 150, perClass: 20, good: 75 };
 
 export function checkerRowErrors(rows) {
-  const cards = new Set(
+  const cards = new Map(
     helpDataset()
       .cards.filter(card => card.mode === 'write')
-      .map(card => card.id)
+      .map(card => [card.id, card])
   );
+  // The gates reject a slip such as a mistyped fact id before the claim is read, which would count as a catch.
+  const isSentence = (item, facts) =>
+    Object.keys(item ?? {})
+      .sort()
+      .join() === 'facts,text' &&
+    typeof item.text === 'string' &&
+    item.text.trim() !== '' &&
+    Array.isArray(item.facts) &&
+    item.facts.length > 0 &&
+    item.facts.every(id => facts.includes(id));
   const seen = new Set();
   const errors = rows.flatMap((row, index) => {
     const bad = [];
@@ -629,8 +683,14 @@ export function checkerRowErrors(rows) {
     if (!['P0', 'P1', 'P2'].includes(row.priority)) bad.push('bad priority');
     if (!(row.cards?.length >= 1 && row.cards.length <= 2 && row.cards.every(id => cards.has(id)))) {
       bad.push('needs one or two write cards');
+    } else {
+      const facts = row.cards.flatMap(id => cards.get(id).facts);
+      const sound = Array.isArray(row.sentences) && row.sentences.length > 0;
+      if (!sound || !row.sentences.every(item => isSentence(item, facts))) {
+        bad.push('needs sentences of facts and text from its cards');
+      }
     }
-    if (!Array.isArray(row.sentences) || !row.q) bad.push('needs sentences and q');
+    if (!row.q) bad.push('needs q');
     return bad.map(error => `${row.id || `row ${index}`}: ${error}`);
   });
   const count = test => rows.filter(test).length;
@@ -671,6 +731,7 @@ export async function runWritingChecker({ rows, runs = 3, service = createEvalWo
   const { reviewDraft, writerInput, checkerInput, CHECKER_RULES } = loadHelpWrite();
   const { CHECKER, isVerdict } = loadWorker();
   const data = helpDataset();
+  const watch = invalidStreak();
   const results = [];
   const invalid = [];
   for (const row of rows) {
@@ -708,6 +769,7 @@ export async function runWritingChecker({ rows, runs = 3, service = createEvalWo
         accepted: isVerdict(verdict) ? verdict.supported && verdict.answers : null,
         technicalAttempts
       });
+      watch(!isVerdict(verdict));
     }
   }
   return { results, invalid: [...new Set(invalid)] };
@@ -947,14 +1009,12 @@ export function scoreWriting({ summaries, grading, knockoutGrading, cases }) {
   const checkedAnswers = mode =>
     rate(runs.filter(run => run.path === 'card' && run.outcome === null && modeOf.get(run.served) === mode));
   const cards = Object.fromEntries(
-    data.cards
-      .filter(card => card.mode === 'write')
-      .map(card => {
-        const own = written.filter(run => run.cards.includes(card.id));
-        const wrong = clusters(own.filter(run => !isRight(run))).length;
-        const row = { clusters: clusters(own).length, wrong, serious: own.some(run => run.row.serious) };
-        return [card.id, row];
-      })
+    data.cards.filter(mayWrite).map(card => {
+      const own = written.filter(run => run.cards.includes(card.id));
+      const wrong = clusters(own.filter(run => !isRight(run))).length;
+      const row = { clusters: clusters(own).length, wrong, serious: own.some(run => run.row.serious) };
+      return [card.id, row];
+    })
   );
   const allowlist = Object.entries(cards)
     .filter(([, row]) => row.clusters >= MIN_CARD_CLUSTERS && !row.serious && row.wrong < 2)
@@ -985,13 +1045,14 @@ export function scoreWriting({ summaries, grading, knockoutGrading, cases }) {
 }
 
 const MEASURE_ATTEMPTS = 3;
-const MEASURE_SMALL_CALLS = 5;
+const MEASURE_MIN_SMALL_CALLS = 5;
+const MEASURE_MAX_SMALL_CALLS = 40;
 const MEASURE_TIMEOUT_MS = 20000;
 // The router's completion cap, which the provider may hold against the bucket until the reply is counted.
 const ROUTER_OUTPUT_CAP = 512;
 
 /**
- * One call of each kind, then the proof that the writer and checker have their own quota: five of their calls
+ * One call of each kind, then the proof that the writer and checker have their own quota: a batch of their calls
  * between two router calls must move neither the router's daily requests nor its tokens. Run it unpaced.
  */
 export async function runMeasure({ service = createEvalWorker({ paced: false }) } = {}) {
@@ -1047,17 +1108,29 @@ export async function runMeasure({ service = createEvalWorker({ paced: false }) 
     const usage = service.stats.models[writer];
     return usage.promptTokens + usage.completionTokens;
   };
+  const tokenLimit = reply => Number(reply?.headers['x-ratelimit-limit-tokens'] ?? Number.NaN);
+  const perCall = written.promptTokens + written.completionTokens;
+  // Aims at twice what a shared bucket's drop could hide in, from at most half of the writer's bucket.
+  const batchSize = seconds => {
+    const hidden = router.promptTokens + ROUTER_OUTPUT_CAP + (tokenLimit(router) / 60) * seconds;
+    const most = Math.min(MEASURE_MAX_SMALL_CALLS, Math.floor(tokenLimit(written) / 2 / perCall));
+    return Math.max(MEASURE_MIN_SMALL_CALLS, Math.min(Math.ceil((2 * hidden) / perCall), most) || 0);
+  };
+  let seconds = (router.latencyMs + written.latencyMs) / 1000;
   const attempts = [];
   let proven = false;
   while (!proven && attempts.length < MEASURE_ATTEMPTS) {
+    const calls = batchSize(seconds);
     const before = await routerCall();
     const spentBefore = smallTokens();
-    await Promise.all(Array.from({ length: MEASURE_SMALL_CALLS }, writerCall));
+    await Promise.all(Array.from({ length: calls }, writerCall));
     const spent = smallTokens() - spentBefore;
     const after = await routerCall();
     const read = (reply, name) => Number(reply.headers[`x-ratelimit-${name}`] ?? Number.NaN);
     const elapsedMs = after.respondedAt - before.respondedAt;
+    seconds = elapsedMs / 1000;
     const attempt = {
+      calls,
       requestsApart: Math.abs(read(before, 'remaining-requests') - read(after, 'remaining-requests')),
       tokenDrop: read(before, 'remaining-tokens') - read(after, 'remaining-tokens'),
       reservation: after.promptTokens + ROUTER_OUTPUT_CAP,
@@ -1216,14 +1289,18 @@ export async function runEval({
           result.ops.push(parsed?.op ?? 'invalid');
           if (questions) {
             result.served.push(served);
-            const forbid = [...globalForbid, ...(cards.get(served)?.forbid ?? [])];
+            // A written reply shows text of every card the writer was given, not only the first one it cites.
+            const shown = res.trace?.path === 'written' ? res.trace.writing.given : [served];
+            const forbid = [...globalForbid, ...shown.flatMap(id => cards.get(id)?.forbid ?? [])];
             if (!parsed) block('reply failed the app parser');
             else if (parsed.op === 'explain' && forbid.some(pattern => new RegExp(pattern, 'i').test(parsed.answer))) {
               block('reply hit a forbidden pattern');
             }
             if (isHelp && INTENT_OPS.includes(parsed?.op)) block(`a help question produced ${parsed.op}`);
-            if (isHelp && testCase.priority === 'P0' && testCase.forbidCards.includes(served)) {
-              block(`served the forbidden card ${served}`);
+            if (isHelp && testCase.priority === 'P0') {
+              for (const id of shown.filter(id => testCase.forbidCards.includes(id))) {
+                block(`served the forbidden card ${id}`);
+              }
             }
           }
           if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
