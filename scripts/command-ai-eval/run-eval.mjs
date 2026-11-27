@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -73,7 +75,9 @@ export function parseResetMs(value) {
 
 export function paceDelayMs(headers, lastPromptTokens) {
   const remaining = headers.get('x-ratelimit-remaining-tokens');
-  if (remaining === null || Number(remaining) >= lastPromptTokens + PACE_TOKEN_MARGIN) return 0;
+  // Live traffic shares the account, so a suite never takes more than half of a model's bucket.
+  const half = Number(headers.get('x-ratelimit-limit-tokens') ?? 0) / 2;
+  if (remaining === null || Number(remaining) >= Math.max(half, lastPromptTokens + PACE_TOKEN_MARGIN)) return 0;
   return parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
 }
 
@@ -97,6 +101,34 @@ export async function retryTransient(run, budget = freshRetryBudget()) {
   }
 }
 
+const MIN_TOKEN_LIMIT = 8000;
+const MIN_REQUEST_LIMIT = 1000;
+
+/** Why a suite must stop to leave the production account its quota, if it must. `requests` counts a day. */
+export function quotaStopReason(model, headers) {
+  const header = name => {
+    const value = headers.get(`x-ratelimit-${name}`);
+    return value === null ? null : Number(value);
+  };
+  const tokens = header('limit-tokens');
+  const requests = header('limit-requests');
+  const left = header('remaining-requests');
+  if (tokens !== null && tokens <= MIN_TOKEN_LIMIT) return `${model} allows only ${tokens} tokens a minute`;
+  if (requests !== null && requests <= MIN_REQUEST_LIMIT) return `${model} allows only ${requests} requests a day`;
+  if (requests !== null && left !== null && left < requests / 2) {
+    return `${model} has ${left} of ${requests} requests left today`;
+  }
+  return null;
+}
+
+/** Ends a suite with no verdict. */
+export class QuotaStop extends Error {
+  constructor(reason) {
+    super(`Quota stop: ${reason}. Only the measure suite may run on this limit.`);
+    this.quotaStop = true;
+  }
+}
+
 const readJson = file => JSON.parse(readFileSync(path.join(__dirname, file), 'utf8'));
 const DEFAULT_CONTEXT = readJson('eval-context.json');
 const DEFAULT_EVAL_MODEL = () => process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b';
@@ -109,53 +141,94 @@ function loadAppModules() {
   return { schemaMod, redactorMod: loadTsModule('src/lib/command-ai/redactor.ts', { './schema': schemaMod }) };
 }
 
-/** The real Worker with paced provider calls. `compile` also returns the Worker's help trace. */
-export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset } = {}) {
-  const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0 };
+const loadWorker = () => loadTsModule('services/command-ai/src/index.ts', WORKER_MODULES);
+const loadHelpWrite = () => loadTsModule('services/command-ai/src/help-write.ts', WORKER_MODULES);
+
+/**
+ * The real Worker with paced provider calls. `compile` also returns the Worker's help trace, and `call` makes one
+ * writer or checker call. Waits happen between requests, never inside one: the Worker gives writing 9 seconds.
+ */
+export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard = false, paced = true } = {}) {
+  const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0, models: {}, last: {} };
+  const delays = new Map();
+  let quotaStop = null;
   let providerFailureDetail;
   let trace;
-  const service = loadTsModule('services/command-ai/src/index.ts', WORKER_MODULES).createService({
-    dataset,
-    onTrace: value => {
-      trace = value;
-    },
-    fetchImpl: async (...args) => {
-      providerFailureDetail = undefined;
-      const response = await fetch(...args);
-      const body = await response.text();
-      let data = null;
-      try {
-        data = JSON.parse(body);
-      } catch {}
-      stats.promptTokens = data?.usage?.prompt_tokens ?? 0;
-      stats.maxPromptTokens = Math.max(stats.maxPromptTokens, stats.promptTokens);
-      const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
-      if (limits.length > 0) stats.rateLimitHeaders = Object.fromEntries(limits);
-      const finishReason = data?.choices?.[0]?.finish_reason;
-      providerFailureDetail = !response.ok
-        ? `provider HTTP ${response.status}`
-        : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
-          ? `provider finish ${finishReason}`
-          : undefined;
-      // A 429 is waited for once, by retryTransient, which charges that wait to the retry budget.
-      const delayMs = response.status === 429 ? 0 : paceDelayMs(response.headers, stats.promptTokens);
-      if (delayMs > 0) {
-        stats.pacedMs += delayMs;
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
-      // Rebuilt because the sleep can outlast the Worker's abort timer, which would break the original body.
-      return new Response(response.status === 204 ? null : body, {
-        status: response.status,
-        headers: response.headers
-      });
-    }
-  });
+  const workerModule = loadWorker();
 
-  async function compile(body) {
+  const fetchImpl = async (url, init) => {
+    const requested = JSON.parse(String(init.body)).model;
+    providerFailureDetail = undefined;
+    const started = Date.now();
+    const response = await fetch(url, init);
+    const body = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(body);
+    } catch {}
+    const promptTokens = data?.usage?.prompt_tokens ?? 0;
+    if (requested === model) {
+      stats.promptTokens = promptTokens;
+      stats.maxPromptTokens = Math.max(stats.maxPromptTokens, promptTokens);
+    }
+    const limits = Object.fromEntries([...response.headers].filter(([name]) => name.startsWith('x-ratelimit-')));
+    if (Object.keys(limits).length > 0 && requested === model) stats.rateLimitHeaders = limits;
+    const usage = (stats.models[requested] ??= { calls: 0, promptTokens: 0, completionTokens: 0, headers: null });
+    usage.calls += 1;
+    usage.promptTokens += promptTokens;
+    usage.completionTokens += data?.usage?.completion_tokens ?? 0;
+    if (Object.keys(limits).length > 0) usage.headers = limits;
+    stats.last[requested] = {
+      status: response.status,
+      promptTokens,
+      completionTokens: data?.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - started,
+      respondedAt: Date.now(),
+      headers: limits
+    };
+    const finishReason = data?.choices?.[0]?.finish_reason;
+    providerFailureDetail = !response.ok
+      ? `provider HTTP ${response.status}`
+      : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
+        ? `provider finish ${finishReason}`
+        : undefined;
+    // A 429 is waited for once, by retryTransient, which charges that wait to the retry budget.
+    delays.set(requested, response.status === 429 ? 0 : paceDelayMs(response.headers, promptTokens));
+    if (guard) quotaStop ??= quotaStopReason(requested, response.headers);
+    return new Response(response.status === 204 ? null : body, {
+      status: response.status,
+      headers: response.headers
+    });
+  };
+
+  async function pace() {
+    if (quotaStop) throw new QuotaStop(quotaStop);
+    if (!paced) return;
+    const delayMs = Math.max(0, ...delays.values());
+    delays.clear();
+    if (delayMs > 0) {
+      stats.pacedMs += delayMs;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  const services = new Map();
+  function serviceFor(override) {
+    if (!services.has(override)) {
+      const onTrace = value => {
+        trace = value;
+      };
+      services.set(override, workerModule.createService({ dataset: override, onTrace, fetchImpl }));
+    }
+    return services.get(override);
+  }
+
+  async function compile(body, { dataset: override = dataset } = {}) {
+    await pace();
     providerFailureDetail = undefined;
     trace = undefined;
     stats.promptTokens = 0;
-    const response = await service.fetch(
+    const response = await serviceFor(override).fetch(
       new Request('https://command-ai.test/v1/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,7 +254,12 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset } = {})
     throw error;
   }
 
-  return { stats, compile };
+  async function call(request) {
+    await pace();
+    return workerModule.askModel({ ...request, fetchImpl, apiKey: process.env.GROQ_API_KEY });
+  }
+
+  return { stats, compile, call, model };
 }
 
 /** Sends each help question `runs` times, redacted as the app would send it. */
@@ -216,6 +294,7 @@ export async function runSelection({ cases, runs = 3, service = createEvalWorker
           promptTokens: service.stats.promptTokens
         });
       } catch (error) {
+        if (error?.quotaStop) throw error;
         result.runs.push({ op: 'error', served: null, unknownIds: [], promptTokens: 0, error: error?.message });
       }
     }
@@ -399,6 +478,512 @@ export function loadSelectionCases({ devOnly = false, holdoutPath = HOLDOUT_PATH
   return [...dev, ...holdout.map(item => ({ ...item, set: 'holdout' }))];
 }
 
+const WRITING_HOLDOUT_PATH = path.join(__dirname, 'help-writing-holdout.json');
+
+/** The written-answer questions: dev for tuning, else both holdouts, checked together with dev. */
+export function loadWritingCases({
+  devOnly = false,
+  holdoutPath = HOLDOUT_PATH,
+  writingHoldoutPath = WRITING_HOLDOUT_PATH
+} = {}) {
+  if (devOnly) return loadSelectionCases({ devOnly });
+  const selection = loadSelectionCases({ holdoutPath }).filter(item => item.set === 'holdout');
+  if (!existsSync(writingHoldoutPath)) throw new Error('help-writing-holdout.json is missing. Tune with --dev-only.');
+  const written = JSON.parse(readFileSync(writingHoldoutPath, 'utf8'));
+  const dev = readJson('help-eval.json');
+  const all = [...dev, ...selection, ...written];
+  const clusters = new Set(selection.map(item => item.cluster));
+  const errors = [
+    ...selectionCaseErrors(all),
+    ...selectionClusterErrors(dev, written),
+    ...[...new Set(written.map(item => item.cluster))]
+      .filter(name => clusters.has(name))
+      .map(name => `the writing holdout reuses selection holdout cluster ${name}`)
+  ];
+  if (errors.length > 0) throw new Error(`Bad writing cases:\n${errors.join('\n')}`);
+  return [...selection, ...written.map(item => ({ ...item, set: 'holdout' }))];
+}
+
+const allWriting = data => ({
+  ...data,
+  writing: { ...data.writing, cards: data.cards.filter(card => card.mode === 'write').map(card => card.id) }
+});
+const noWriting = data => ({ ...data, writing: { ...data.writing, cards: [] } });
+
+const TECHNICAL = ['writer_technical', 'checker_technical'];
+const TECHNICAL_RERUNS = 3;
+
+async function writingRun(compile, parse) {
+  let technicalAttempts = 0;
+  let run;
+  do {
+    try {
+      const reply = await compile();
+      const parsed = parse(reply.output);
+      run = {
+        op: parsed?.op ?? 'invalid',
+        path: reply.trace?.path ?? null,
+        served: reply.trace?.served ?? null,
+        outcome: reply.trace?.writing?.outcome ?? null,
+        cards: reply.trace?.writing?.cards ?? [],
+        text: parsed?.op === 'explain' ? parsed.answer : JSON.stringify(reply.output)
+      };
+    } catch (error) {
+      if (error?.quotaStop) throw error;
+      run = { op: 'error', path: null, served: null, outcome: null, cards: [], text: '', error: error?.message };
+    }
+    if (!TECHNICAL.includes(run.outcome)) break;
+    technicalAttempts += 1;
+  } while (technicalAttempts <= TECHNICAL_RERUNS);
+  return { ...run, technicalAttempts };
+}
+
+// A failed writer or checker answers with HTTP 200: scored, it would pass for a refusal or a fallback.
+const isScorable = run => run.op !== 'error' && !TECHNICAL.includes(run.outcome);
+
+/** The selection suite's Worker: writing off, so it measures the router's pick even after cards are listed. */
+export const selectionWorker = (data = helpDataset()) => createEvalWorker({ dataset: noWriting(data), guard: true });
+
+/** Each question `runs` times with every write card on. With `knockout`, its accepted cards leave the index. */
+export async function runWriting({ cases, runs = 3, knockout = false, service = createEvalWorker({ guard: true }) }) {
+  const { schemaMod, redactorMod } = loadAppModules();
+  const written = allWriting(helpDataset());
+  const budget = freshRetryBudget();
+  const results = [];
+  for (const item of cases) {
+    const { redactedText } = redactorMod.redactPrompt(item.q, DEFAULT_CONTEXT);
+    const dataset = knockout
+      ? { ...written, cards: written.cards.filter(card => !item.cards.includes(card.id)) }
+      : written;
+    const result = { id: item.id, cluster: item.cluster, class: item.class, set: item.set ?? item.split, runs: [] };
+    results.push(result);
+    for (let attempt = 0; attempt < runs; attempt++) {
+      result.runs.push(
+        await writingRun(
+          () =>
+            retryTransient(() => service.compile({ redactedText, helpContext: item.helpContext }, { dataset }), budget),
+          schemaMod.parseAiCompilerOutput
+        )
+      );
+    }
+  }
+  return {
+    results,
+    invalid: results.filter(result => !result.runs.every(isScorable)).map(result => result.id)
+  };
+}
+
+const knockoutCases = cases => cases.filter(item => item.class === 'answerable');
+// A knockout run counts only if it reached the writer, and its refusals need no grade.
+const isGraded = (run, knockout) => !knockout || (run.outcome !== null && run.path !== 'unknown');
+const citedBy = run => (run.path === 'written' ? run.cards : run.served ? [run.served] : []);
+const rowKey = row => JSON.stringify([row.cluster, row.q, row.previousTopic, row.text, row.path]);
+
+function runRow(item, run) {
+  return { cluster: item.cluster, q: item.q, previousTopic: item.helpContext, text: run.text, path: run.path };
+}
+
+/** What a person grades: each distinct text shown for a question, with the facts of the cards behind it. */
+export function gradingRows(cases, results, { knockout = false } = {}) {
+  const data = helpDataset();
+  const byId = new Map(cases.map(item => [item.id, item]));
+  const rows = new Map();
+  for (const result of results) {
+    const item = byId.get(result.id);
+    for (const run of result.runs.filter(run => isGraded(run, knockout))) {
+      const row = runRow(item, run);
+      const cards = citedBy(run);
+      const ids = data.cards
+        .filter(card => cards.includes(card.id))
+        .flatMap(card => [...card.lead, ...card.facts, ...card.limit]);
+      const facts = [...new Set(ids)].map(id => data.facts[id].text);
+      rows.set(rowKey(row), { ...row, cards, facts, verdict: null, serious: null });
+    }
+  }
+  return [...rows.values()];
+}
+
+const BAD_CLASSES = [
+  'flipped_not',
+  'swapped_actor',
+  'dropped_condition',
+  'added_detail',
+  'joined_facts',
+  'neighbour_question',
+  'forbidden_or_injected'
+];
+const MIN_CHECKER_ROWS = { bad: 150, perClass: 20, good: 75 };
+
+export function checkerRowErrors(rows) {
+  const cards = new Set(
+    helpDataset()
+      .cards.filter(card => card.mode === 'write')
+      .map(card => card.id)
+  );
+  const seen = new Set();
+  const errors = rows.flatMap((row, index) => {
+    const bad = [];
+    if (!row.id || seen.has(row.id)) bad.push('missing or repeated id');
+    seen.add(row.id);
+    if (![...BAD_CLASSES, 'good'].includes(row.class)) bad.push('bad class');
+    if (!['P0', 'P1', 'P2'].includes(row.priority)) bad.push('bad priority');
+    if (!(row.cards?.length >= 1 && row.cards.length <= 2 && row.cards.every(id => cards.has(id)))) {
+      bad.push('needs one or two write cards');
+    }
+    if (!Array.isArray(row.sentences) || !row.q) bad.push('needs sentences and q');
+    return bad.map(error => `${row.id || `row ${index}`}: ${error}`);
+  });
+  const count = test => rows.filter(test).length;
+  const need = (name, found, minimum) => found < minimum && errors.push(`${found} ${name} rows, needs ${minimum}`);
+  need(
+    'bad',
+    count(row => row.class !== 'good'),
+    MIN_CHECKER_ROWS.bad
+  );
+  for (const name of BAD_CLASSES)
+    need(
+      name,
+      count(row => row.class === name),
+      MIN_CHECKER_ROWS.perClass
+    );
+  need(
+    'good',
+    count(row => row.class === 'good'),
+    MIN_CHECKER_ROWS.good
+  );
+  return errors;
+}
+
+const checkerFile = devOnly => (devOnly ? 'writer-checks.json' : 'writer-checks-frozen.json');
+
+export function loadCheckerRows({ devOnly = false } = {}) {
+  const file = checkerFile(devOnly);
+  if (!existsSync(path.join(__dirname, file))) throw new Error(`${file} is missing.`);
+  const rows = readJson(file);
+  const errors = checkerRowErrors(rows);
+  if (errors.length > 0) throw new Error(`Bad checker rows:\n${errors.join('\n')}`);
+  return rows;
+}
+
+/** Each fixed draft through the real gates once, and through the checker `runs` times, rejected ones too. */
+export async function runWritingChecker({ rows, runs = 3, service = createEvalWorker({ guard: true }) }) {
+  const { redactorMod } = loadAppModules();
+  const { reviewDraft, writerInput, checkerInput, CHECKER_RULES } = loadHelpWrite();
+  const { CHECKER, isVerdict } = loadWorker();
+  const data = helpDataset();
+  const results = [];
+  const invalid = [];
+  for (const row of rows) {
+    const { redactedText } = redactorMod.redactPrompt(row.q, DEFAULT_CONTEXT);
+    const cards = row.cards.map(id => data.cards.find(card => card.id === id));
+    const input = writerInput(cards, data, redactedText, row.previousTopic);
+    const draft = reviewDraft(
+      { answerable: true, sentences: row.sentences },
+      input,
+      data,
+      redactedText,
+      row.previousTopic
+    );
+    const result = { id: row.id, class: row.class, priority: row.priority, gates: draft.kind === 'ok', runs: [] };
+    results.push(result);
+    for (let attempt = 0; attempt < runs; attempt++) {
+      let verdict;
+      let technicalAttempts = 0;
+      while (technicalAttempts <= TECHNICAL_RERUNS) {
+        verdict = await service.call({
+          model: data.writing.checker,
+          system: CHECKER_RULES,
+          user: checkerInput(row.sentences, input, data, redactedText, row.previousTopic),
+          name: CHECKER.name,
+          schema: CHECKER.schema,
+          maxTokens: CHECKER.maxTokens,
+          timeoutMs: CHECKER.timeoutMs
+        });
+        if (isVerdict(verdict)) break;
+        technicalAttempts += 1;
+      }
+      // A rate-limited checker would otherwise reject every bad answer.
+      if (!isVerdict(verdict)) invalid.push(row.id);
+      result.runs.push({
+        accepted: isVerdict(verdict) ? verdict.supported && verdict.answers : null,
+        technicalAttempts
+      });
+    }
+  }
+  return { results, invalid: [...new Set(invalid)] };
+}
+
+const share = (items, test) => (items.length === 0 ? null : items.filter(test).length / items.length);
+
+export function scoreWritingChecker(results) {
+  const bad = results.filter(row => row.class !== 'good');
+  const good = results.filter(row => row.class === 'good');
+  // A bad draft is accepted if any checker run accepts it, a faithful one rejected if any run rejects it.
+  const someAccept = row => row.runs.some(run => run.accepted === true);
+  const someReject = row => row.runs.some(run => run.accepted !== true);
+  return {
+    p0Accepted: bad.filter(row => row.priority === 'P0' && row.gates && someAccept(row)).map(row => row.id),
+    badAccepted: share(bad, row => row.gates && someAccept(row)),
+    badPassingGates: share(bad, row => row.gates),
+    badPassingChecker: share(bad, someAccept),
+    goodRejected: share(good, row => !row.gates || someReject(row)),
+    goodRejectedGates: share(good, row => !row.gates),
+    goodRejectedChecker: share(good, someReject)
+  };
+}
+
+export function checkerFailures(score) {
+  const failures = [];
+  if (score.p0Accepted.length > 0) failures.push(`P0 bad answers accepted: ${score.p0Accepted.join(', ')}`);
+  if (!(score.badAccepted !== null && score.badAccepted <= 0.02)) {
+    failures.push(`badAccepted ${score.badAccepted} is over 0.02`);
+  }
+  if (!(score.goodRejected !== null && score.goodRejected <= 0.15)) {
+    failures.push(`goodRejected ${score.goodRejected} is over 0.15`);
+  }
+  return failures;
+}
+
+export function wilsonLower(correct, total, z = 1.96) {
+  if (total === 0) return 0;
+  const p = correct / total;
+  const spread = z * Math.sqrt((p * (1 - p)) / total + (z * z) / (4 * total * total));
+  return (p + (z * z) / (2 * total) - spread) / (1 + (z * z) / total);
+}
+
+const MIN_WRITTEN_CLUSTERS = 150;
+const MIN_KNOCKOUT_CLUSTERS = 30;
+const MIN_CARD_CLUSTERS = 3;
+const MAX_TECHNICAL = 0.02;
+const MAX_FALLBACK = 0.15;
+
+const HASHED = [
+  'services/command-ai/src/help-cards.json',
+  'services/command-ai/src/index.ts',
+  'services/command-ai/src/help.ts',
+  'services/command-ai/src/help-write.ts',
+  'services/command-ai/src/help-safety.mjs',
+  'scripts/command-ai-eval/run-eval.mjs',
+  'scripts/command-ai-eval/eval-context.json',
+  'scripts/command-ai-eval/help-eval.json',
+  'scripts/command-ai-eval/help-holdout.json',
+  'scripts/command-ai-eval/help-writing-holdout.json',
+  'scripts/command-ai-eval/writer-checks.json',
+  'scripts/command-ai-eval/writer-checks-frozen.json'
+];
+
+/** What ties a summary to the code and questions that produced it. */
+export function evalMeta({ suite, devOnly = false }) {
+  const hash = file => {
+    const full = path.join(ROOT, file);
+    return existsSync(full) ? createHash('sha256').update(readFileSync(full)).digest('hex') : null;
+  };
+  const { writing } = helpDataset();
+  return {
+    suite,
+    devOnly,
+    gitSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(),
+    hashes: Object.fromEntries(HASHED.map(file => [file, hash(file)])),
+    models: { router: DEFAULT_EVAL_MODEL(), writer: writing.writer, checker: writing.checker }
+  };
+}
+
+const SCORED_SUITES = {
+  selection: 'selection',
+  checker: 'writing-checker',
+  writing: 'writing',
+  knockout: 'writing-knockout'
+};
+
+function complete(name, results, expected, runs = 3) {
+  const found = new Map(results.map(result => [result.id, result]));
+  const missing = expected.filter(item => found.get(item.id)?.runs.length !== runs);
+  if (missing.length > 0 || results.length !== expected.length) {
+    throw new Error(`${name} lacks full runs: ${missing.length} of ${expected.length} cases`);
+  }
+}
+
+function verdicts(name, rows, expected) {
+  const graded = new Map();
+  for (const row of rows) {
+    if (!['correct', 'wrong'].includes(row.verdict) || typeof row.serious !== 'boolean') {
+      throw new Error(`${name} has an ungraded row: ${row.cluster}`);
+    }
+    if (graded.has(rowKey(row))) throw new Error(`${name} grades a row twice: ${row.cluster}`);
+    graded.set(rowKey(row), row);
+  }
+  const wanted = expected.map(rowKey);
+  if (wanted.length !== graded.size || !wanted.every(key => graded.has(key))) {
+    throw new Error(`${name} does not match its summary: ${graded.size} rows, ${wanted.length} expected`);
+  }
+  return graded;
+}
+
+/**
+ * The enable decision, from four summaries of one commit and the two graded files. Throws on anything it cannot
+ * score; `failures` is empty only when every bar passes, and `allowlist` is then what `writing.cards` may list.
+ */
+export function scoreWriting({ summaries, grading, knockoutGrading, cases }) {
+  const metas = Object.entries(SCORED_SUITES).map(([key, suite]) => {
+    const meta = summaries[key]?.meta;
+    if (meta?.suite !== suite || meta.devOnly) throw new Error(`${key} is not a full ${suite} summary`);
+    if (summaries[key].invalid?.length > 0) throw new Error(`${key} is invalid: technical failures remain`);
+    return JSON.stringify([meta.gitSha, meta.hashes, meta.models]);
+  });
+  if (new Set(metas).size !== 1) throw new Error('The summaries come from different code, questions or models');
+  const knockedOut = knockoutCases(cases.writing);
+  complete('selection', summaries.selection.results, cases.selection);
+  complete('writing', summaries.writing.results, cases.writing);
+  complete('knockout', summaries.knockout.results, knockedOut);
+  complete('checker', summaries.checker.results, cases.checker);
+  for (const key of ['writing', 'knockout']) {
+    if (!summaries[key].results.every(result => result.runs.every(isScorable))) {
+      throw new Error(`${key} holds failed runs`);
+    }
+  }
+  const graded = verdicts('writing grading', grading, gradingRows(cases.writing, summaries.writing.results));
+  const gradedKnockout = verdicts(
+    'knockout grading',
+    knockoutGrading,
+    gradingRows(knockedOut, summaries.knockout.results, { knockout: true })
+  );
+
+  const failures = [
+    ...selectionFailures(scoreSelection(summaries.selection.results)).map(failure => `selection: ${failure}`),
+    ...checkerFailures(scoreWritingChecker(summaries.checker.results)).map(failure => `checker: ${failure}`)
+  ];
+  const serious = [...graded.values(), ...gradedKnockout.values()].filter(row => row.serious);
+  if (serious.length > 0) failures.push(`serious errors: ${serious.map(row => row.cluster).join(', ')}`);
+
+  const byId = new Map(cases.writing.map(item => [item.id, item]));
+  const runs = summaries.writing.results.flatMap(result =>
+    result.runs.map(run => {
+      const item = byId.get(result.id);
+      return { ...run, cluster: result.cluster, class: result.class, row: graded.get(rowKey(runRow(item, run))) };
+    })
+  );
+  const clusters = list => [...new Set(list.map(run => run.cluster))];
+  // A cluster counts once, and is right only if every run counted is.
+  const clusterRate = (list, test) => {
+    const names = clusters(list);
+    return share(names, name => list.filter(run => run.cluster === name).every(test));
+  };
+  const isRight = run => run.row.verdict === 'correct';
+  const bar = (name, value, minimum) => {
+    if (!(value !== null && value >= minimum)) failures.push(`${name} ${value} is under ${minimum}`);
+  };
+
+  const written = runs.filter(run => run.path === 'written');
+  const writtenClusters = clusters(written).length;
+  const writtenCorrect = clusterRate(written, isRight);
+  const writtenLower = wilsonLower(Math.round((writtenCorrect ?? 0) * writtenClusters), writtenClusters);
+  bar('written clusters', writtenClusters, MIN_WRITTEN_CLUSTERS);
+  bar('written precision', writtenCorrect, 0.95);
+  bar('written Wilson lower bound', writtenLower, 0.9);
+
+  const answerable = runs.filter(run => run.class === 'answerable');
+  const isAnsweredPath = run => run.path === 'written' || run.path === 'card';
+  const allPaths = clusterRate(answerable.filter(isAnsweredPath), isRight);
+  const answeredRate = clusterRate(answerable, isAnsweredPath);
+  const refused = name =>
+    clusterRate(
+      runs.filter(run => run.class === name),
+      run => run.path === 'unknown'
+    );
+  const nearMissRefused = refused('near_miss');
+  const outOfScopeRefused = refused('out_of_scope');
+  bar('all-paths precision', allPaths, 0.95);
+  bar('answeredRate', answeredRate, 0.8);
+  bar('nearMissRefused', nearMissRefused, 0.85);
+  bar('outOfScopeRefused', outOfScopeRefused, 0.9);
+
+  const knockoutById = new Map(knockedOut.map(item => [item.id, item]));
+  const counted = summaries.knockout.results.flatMap(result =>
+    result.runs
+      .filter(run => run.outcome !== null)
+      .map(run => ({
+        ...run,
+        cluster: result.cluster,
+        row: gradedKnockout.get(rowKey(runRow(knockoutById.get(result.id), run)))
+      }))
+  );
+  const knockoutPass = share(counted, run => run.path === 'unknown' || isRight(run));
+  if (clusters(counted).length < MIN_KNOCKOUT_CLUSTERS) {
+    failures.push(`knockout reached the writer in ${clusters(counted).length} clusters: no verdict`);
+  }
+  bar('knockout pass', knockoutPass, 0.95);
+
+  const eligible = runs.filter(run => run.outcome !== null);
+  const technical = {};
+  for (const [name, list] of [
+    ['writing', eligible],
+    ['knockout', counted]
+  ]) {
+    technical[name] = share(list, run => run.technicalAttempts > 0);
+    if (!(technical[name] !== null && technical[name] <= MAX_TECHNICAL)) {
+      failures.push(`void: ${name} technical failures on first attempts ${technical[name]}`);
+    }
+  }
+  const fallbacks = eligible.filter(run => run.path === 'card');
+  const fallbackShare = share(eligible, run => run.path === 'card');
+  if (!(fallbackShare !== null && fallbackShare <= MAX_FALLBACK)) {
+    failures.push(`checked-answer fallbacks ${fallbackShare} are over ${MAX_FALLBACK}`);
+  }
+  const rate = list => ({ runs: list.length, precision: clusterRate(list, isRight) });
+  const fallbackRows = Object.fromEntries(
+    [...new Set(fallbacks.map(run => run.outcome))].map(event => [
+      event,
+      rate(fallbacks.filter(run => run.outcome === event))
+    ])
+  );
+  for (const [event, row] of Object.entries(fallbackRows)) {
+    if (row.precision < 0.95) {
+      failures.push(`the ${event} fallback is ${row.precision} precise: it must say it does not know`);
+    }
+  }
+
+  const data = helpDataset();
+  const modeOf = new Map(data.cards.map(card => [card.id, card.mode]));
+  const checkedAnswers = mode =>
+    rate(runs.filter(run => run.path === 'card' && run.outcome === null && modeOf.get(run.served) === mode));
+  const cards = Object.fromEntries(
+    data.cards
+      .filter(card => card.mode === 'write')
+      .map(card => {
+        const own = written.filter(run => run.cards.includes(card.id));
+        const wrong = clusters(own.filter(run => !isRight(run))).length;
+        const row = { clusters: clusters(own).length, wrong, serious: own.some(run => run.row.serious) };
+        return [card.id, row];
+      })
+  );
+  const allowlist = Object.entries(cards)
+    .filter(([, row]) => row.clusters >= MIN_CARD_CLUSTERS && !row.serious && row.wrong < 2)
+    .map(([id]) => id);
+
+  return {
+    failures,
+    report: {
+      writtenClusters,
+      writtenCorrect,
+      writtenLower,
+      allPaths,
+      answeredRate,
+      nearMissRefused,
+      outOfScopeRefused,
+      knockoutPass,
+      knockoutClusters: clusters(counted).length,
+      technical,
+      fallbackShare,
+      fallbackRows,
+      fixed: checkedAnswers('fixed'),
+      checked: checkedAnswers('checked'),
+      written: rate(written),
+      cards
+    },
+    allowlist
+  };
+}
+
 const GATE_HELP_ACCURACY = 0.9;
 
 function matchesExpected(parsed, expected) {
@@ -421,7 +1006,8 @@ export async function runEval({
   commandsViaWorker = false,
   runs = commandsViaWorker || questions ? 3 : 1,
   model = DEFAULT_EVAL_MODEL(),
-  dataset
+  dataset,
+  guard = false
 } = {}) {
   const { schemaMod, redactorMod } = loadAppModules();
   const cases = readJson(questions ? 'questions.json' : 'cases.json');
@@ -442,7 +1028,7 @@ export async function runEval({
   const viaWorker = questions || commandsViaWorker;
   const proxyMod =
     offlineOnly || viaWorker ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
-  const worker = offlineOnly || !viaWorker ? null : createEvalWorker({ model, dataset });
+  const worker = offlineOnly || !viaWorker ? null : createEvalWorker({ model, dataset, guard });
 
   const retryCompile = compile => retryTransient(compile, worker ? retryBudget : undefined);
 
@@ -559,6 +1145,7 @@ export async function runEval({
             );
           }
         } catch (err) {
+          if (err?.quotaStop) throw err;
           if (result.ops.length === attempt) {
             result.ops.push('error');
             result.served?.push(null);
@@ -609,17 +1196,6 @@ export async function runEval({
   };
 }
 
-export const quotaStopReason = (_model, _headers) => undefined;
-export const selectionWorker = _data => createEvalWorker();
-export const loadWritingCases = () => [];
-export const runWriting = async () => ({ results: [], invalid: [] });
-export const runWritingChecker = async () => ({ results: [], invalid: [] });
-export const scoreWritingChecker = () => ({});
-export const checkerRowErrors = () => [];
-export const gradingRows = () => [];
-export const wilsonLower = () => 0;
-export const scoreWriting = () => ({ failures: [], report: { cards: {} }, allowlist: [] });
-
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--require-live') && !process.env.GROQ_API_KEY?.trim()) {
     throw new Error('The live evaluation requires its model credential.');
@@ -629,26 +1205,79 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const summaryPath = process.env.COMMAND_AI_EVAL_SUMMARY;
   // stdout also carries the Worker's log lines, so the artifact is written separately.
   const writeSummary = summary => summaryPath && writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+  const devOnly = process.argv.includes('--dev-only');
+  const writeGrading = rows =>
+    summaryPath && writeFileSync(path.join(path.dirname(summaryPath), 'grading.json'), JSON.stringify(rows, null, 2));
+  const live = () => {
+    if (offlineOnly) throw new Error('This run needs a model credential.');
+    return createEvalWorker({ guard: true });
+  };
   let failed;
-  if (process.argv.includes('--selection')) {
+  const scoreAt = process.argv.indexOf('--writing-score');
+  if (scoreAt > 0) {
+    const read = name => JSON.parse(readFileSync(path.join(process.argv[scoreAt + 1], `${name}.json`), 'utf8'));
+    const summaries = Object.fromEntries(Object.entries(SCORED_SUITES).map(([key, name]) => [key, read(name)]));
+    // A results commit changes no hashed file, so the summaries must still match this checkout.
+    const current = JSON.stringify(evalMeta({ suite: 'writing' }).hashes);
+    if (JSON.stringify(summaries.writing.meta?.hashes) !== current) {
+      throw new Error('The summaries do not match the checked-out code and questions.');
+    }
+    const score = scoreWriting({
+      summaries,
+      grading: read('writing-grading'),
+      knockoutGrading: read('writing-knockout-grading'),
+      cases: { selection: loadSelectionCases(), writing: loadWritingCases(), checker: loadCheckerRows() }
+    });
+    writeSummary(score);
+    console.log(JSON.stringify(score, null, 2));
+    failed = score.failures.length > 0;
+  } else if (process.argv.includes('--writing-checker')) {
+    const service = live();
+    const meta = evalMeta({ suite: 'writing-checker', devOnly });
+    const { results, invalid } = await runWritingChecker({ rows: loadCheckerRows({ devOnly }), service });
+    const score = scoreWritingChecker(results);
+    const failures = checkerFailures(score);
+    writeSummary({ meta, score, failures, invalid, usage: service.stats.models, results });
+    console.log(JSON.stringify({ score, failures, invalid }, null, 2));
+    failed = failures.length > 0 || invalid.length > 0;
+  } else if (process.argv.includes('--writing') || process.argv.includes('--writing-knockout')) {
+    const knockout = process.argv.includes('--writing-knockout');
+    const service = live();
+    const meta = evalMeta({ suite: knockout ? 'writing-knockout' : 'writing', devOnly });
+    const loaded = loadWritingCases({ devOnly });
+    const cases = knockout ? knockoutCases(loaded) : loaded;
+    const { results, invalid } = await runWriting({ cases, knockout, service });
+    const reached = results.filter(result => result.runs.some(run => run.outcome !== null));
+    const counted = new Set(reached.map(result => result.cluster)).size;
+    writeSummary({ meta, invalid, countedClusters: counted, usage: service.stats.models, results });
+    const grading = gradingRows(cases, results, { knockout });
+    writeGrading(grading);
+    console.log(JSON.stringify({ invalid, countedClusters: counted, gradingRows: grading.length }, null, 2));
+    if (knockout && counted < MIN_KNOCKOUT_CLUSTERS) {
+      console.error(`Only ${counted} clusters reached the writer: no verdict.`);
+    }
+    failed = invalid.length > 0 || (knockout && !devOnly && counted < MIN_KNOCKOUT_CLUSTERS);
+  } else if (process.argv.includes('--selection')) {
     if (offlineOnly) throw new Error('The selection run needs a model credential.');
-    const cases = loadSelectionCases({ devOnly: process.argv.includes('--dev-only') });
-    const service = createEvalWorker();
+    const meta = evalMeta({ suite: 'selection', devOnly });
+    const cases = loadSelectionCases({ devOnly });
+    const service = selectionWorker();
     const results = await runSelection({ cases, service });
     const score = scoreSelection(results);
     const failures = selectionFailures(score);
-    writeSummary({ score, failures, rateLimitHeaders: service.stats.rateLimitHeaders, results });
+    writeSummary({ meta, score, failures, rateLimitHeaders: service.stats.rateLimitHeaders, results });
     console.log(JSON.stringify({ score, failures }, null, 2));
     failed = failures.length > 0;
   } else {
     const commandsViaWorker = process.argv.includes('--commands');
-    const summary = await runEval({ offlineOnly, questions, commandsViaWorker });
+    // The deploy gate asks a few dozen questions; a whole suite also protects the account's quota.
+    const summary = await runEval({ offlineOnly, questions, commandsViaWorker, guard: commandsViaWorker });
     const compareAt = process.argv.indexOf('--compare');
     if (compareAt > 0) {
       const baseline = JSON.parse(readFileSync(process.argv[compareAt + 1], 'utf8'));
       summary.compareFailures = compareCommands(readJson('cases.json'), baseline, summary);
     }
-    writeSummary(summary);
+    writeSummary(commandsViaWorker ? { meta: evalMeta({ suite: 'commands' }), ...summary } : summary);
     for (const err of summary.errors) console.error(err);
     console.log(JSON.stringify({ ...summary, errors: undefined, results: undefined }, null, 2));
     // The deploy gate and the baseline comparison allow some model misses, and decide for themselves.

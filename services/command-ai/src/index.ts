@@ -29,7 +29,7 @@ const COMMAND_AI_TIMEOUT_MS = 15_000;
 // The app gives up at 12 s, so writing and checking end well before, counted from the request's start.
 const WRITING_DEADLINE_MS = 9_000;
 const WRITER = { name: 'bread_help_answer', schema: WRITER_SCHEMA, maxTokens: 800, timeoutMs: 4_000, minLeftMs: 2_000 };
-const CHECKER = {
+export const CHECKER = {
   name: 'bread_help_check',
   schema: CHECKER_SCHEMA,
   maxTokens: 600,
