@@ -156,6 +156,9 @@ const loadHelpWrite = () => loadTsModule('services/command-ai/src/help-write.ts'
  * The real Worker with paced provider calls. `compile` also returns the Worker's help trace, and `call` makes one
  * writer or checker call. Waits happen between requests, never inside one: the Worker gives writing 9 seconds.
  */
+// Confirmation run only.
+const providerErrors = [];
+
 export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard = false, paced = true } = {}) {
   const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0, models: {}, last: {} };
   const delays = new Map();
@@ -174,6 +177,18 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
     try {
       data = JSON.parse(body);
     } catch {}
+    if (response.status === 400) {
+      // The artifact of a public repository is downloadable: bounded, with account ids and keys masked.
+      const clean = value =>
+        typeof value === 'string'
+          ? value.replace(/\b(org|project|user|req)_[A-Za-z0-9]+|gsk_[A-Za-z0-9]+/g, '<masked>').slice(0, 1500)
+          : null;
+      const detail = Object.fromEntries(
+        ['type', 'code', 'param', 'message', 'failed_generation'].map(key => [key, clean(data?.error?.[key])])
+      );
+      providerErrors.push(detail);
+      console.error(`[PROVIDER 400] ${JSON.stringify(detail)}`);
+    }
     const promptTokens = data?.usage?.prompt_tokens ?? 0;
     if (requested === model) {
       stats.promptTokens = promptTokens;
@@ -1174,7 +1189,10 @@ export async function runEval({
   guard = false
 } = {}) {
   const { schemaMod, redactorMod } = loadAppModules();
-  const cases = readJson(questions ? 'questions.json' : 'cases.json');
+  const only = (process.env.COMMAND_AI_EVAL_ONLY ?? '').split(',').filter(Boolean);
+  const cases = readJson(questions ? 'questions.json' : 'cases.json').filter(
+    item => only.length === 0 || only.includes(item.id)
+  );
   const cards = new Map((dataset ?? helpDataset()).cards.map(card => [card.id, card]));
   const globalForbid = (dataset ?? helpDataset()).forbid;
   const gateFailures = new Set();
@@ -1284,6 +1302,7 @@ export async function runEval({
             if (res.trace?.path === 'written') writtenQuestions.add(testCase.id);
           }
           result.ops.push(parsed?.op ?? 'invalid');
+          console.error(`[RUN] ${testCase.id} #${attempt + 1} path=${res.trace?.path} output=${JSON.stringify(res.output)}`);
           if (questions) {
             result.served.push(served);
             // A written reply shows text of every card the writer was given, not only the first one it cites.

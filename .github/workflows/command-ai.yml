@@ -79,6 +79,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUITE: ${{ inputs.suite }}
+          COMMAND_AI_EVAL_ONLY: first_reply_note_type,first_reply_provider,first_reply_amount,first_reply_reset_amount,first_reply_yes,fragment_public,fragment_public_after_help,fragment_amount,fragment_provider,cmd_bare_cancel,send_partial_hex_0x02323
           COMMAND_AI_EVAL_RETRY_BUDGET_MS: '600000'
           COMMAND_AI_EVAL_SUMMARY: ${{ github.workspace }}/command-ai-eval.json
         run: |
