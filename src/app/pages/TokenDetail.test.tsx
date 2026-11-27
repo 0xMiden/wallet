@@ -19,6 +19,7 @@ import {
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
 import { _resetDisplayFeedForTest } from 'lib/prices/display-feed';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -138,11 +139,13 @@ jest.mock('app/templates/history/useActivityClaimList', () => ({
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
 // state object, matching the sibling KeysSettings.test.tsx pattern.
 let mockTokenPrices: Record<string, unknown> = {};
+let mockTokenPricesStatus: 'loading' | 'ready' | 'error' | undefined;
 let mockTokenMetadataOverrides: Record<string, unknown> = {};
 const mockSetTokenMetadataOverride = jest.fn();
 const mockClearTokenMetadataOverride = jest.fn();
 type MockStoreState = {
   tokenPrices: Record<string, unknown>;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
   tokenMetadataOverrides: Record<string, unknown>;
   setTokenMetadataOverride: typeof mockSetTokenMetadataOverride;
   clearTokenMetadataOverride: typeof mockClearTokenMetadataOverride;
@@ -151,6 +154,7 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (s: MockStoreState) => unknown) =>
     selector({
       tokenPrices: mockTokenPrices,
+      tokenPricesStatus: mockTokenPricesStatus,
       tokenMetadataOverrides: mockTokenMetadataOverrides,
       setTokenMetadataOverride: mockSetTokenMetadataOverride,
       clearTokenMetadataOverride: mockClearTokenMetadataOverride
@@ -198,6 +202,10 @@ jest.mock('lib/prices/feed', () => ({
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
+const mockUseQuoteClock = jest.fn();
+jest.mock('lib/prices/use-quote-clock', () => ({
+  useQuoteClock: (deadline?: number) => mockUseQuoteClock(deadline)
+}));
 
 // `useRetryableSWR(key, fetcher, opts)` — invoke the fetcher (so the inline
 // `() => fetchKlineData(symbol, timeframe)` closure is covered) then return the
@@ -427,15 +435,27 @@ type Overrides = {
   balances?: unknown;
   metadata?: Record<string, unknown>;
   network?: MIDEN_NETWORK_NAME;
-  priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
+  priceInfo?: {
+    price: number;
+    change24h: number;
+    percentageChange24h?: number;
+    observedAt?: number;
+    provider?: 'binance' | 'kraken';
+  };
   tokenPrices?: Record<string, unknown>;
+  tokenPricesStatus?: 'loading' | 'ready' | 'error';
   klineData?: unknown;
   /** The first kline load still in flight: SWR reports `data: undefined`. */
   klineLoading?: boolean;
   /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
   explorerUrl?: string | null;
   /** Fields `useAllBalances` reports beside the rows. */
-  balanceStatus?: { readFailed?: boolean; balanceReadInFlight?: boolean; isLoading?: boolean };
+  balanceStatus?: {
+    readFailed?: boolean;
+    balanceRefreshFailed?: boolean;
+    balanceReadInFlight?: boolean;
+    isLoading?: boolean;
+  };
 };
 
 function configure(o: Overrides = {}) {
@@ -448,10 +468,13 @@ function configure(o: Overrides = {}) {
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockWalletNetwork = o.network;
+  mockTokenPricesStatus = o.tokenPricesStatus;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
   mockTokenPrices = o.tokenPrices ?? {
     ETH: {
       percentageChange24h: 0,
+      observedAt: Date.now(),
+      provider: 'binance' as const,
       ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }),
       kind: 'market' as const
     }
@@ -506,6 +529,7 @@ beforeEach(() => {
   mockActivityItems = [];
   mockActivityLoading = false;
   mockTokenPrices = {};
+  mockTokenPricesStatus = undefined;
   mockTokenMetadataOverrides = {};
   mockSetTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
   mockClearTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
@@ -609,6 +633,26 @@ describe('TokenDetail', () => {
       expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
     });
 
+    it('warns when a balance refresh fails while keeping the last confirmed available amount', () => {
+      renderPage({ balanceStatus: { balanceRefreshFailed: true } });
+
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('12.50')).toBeInTheDocument();
+      const state = screen.getByTestId('token-detail-balance-state');
+      expect(state).toHaveTextContent('tokenDetailBalanceRefreshFailed');
+      expect(state).toHaveAttribute('role', 'status');
+      expect(state).toHaveClass('text-pending-tint-ink');
+    });
+
+    it('shows updating while a retry is in flight and settles cleanly once the refresh lands', () => {
+      configure({ balanceStatus: { balanceRefreshFailed: true, balanceReadInFlight: true } });
+      const { rerender } = render(<TokenDetail tokenId={TOKEN_ID} />);
+      expect(screen.getByTestId('token-detail-balance-state')).toHaveTextContent('tokenDetailBalanceUpdating');
+
+      configure({ balanceStatus: { balanceRefreshFailed: false, balanceReadInFlight: false } });
+      rerender(<TokenDetail tokenId={TOKEN_ID} />);
+      expect(screen.queryByTestId('token-detail-balance-state')).not.toBeInTheDocument();
+    });
+
     it('lists the latest five inline and links to the full activity', () => {
       renderPage();
 
@@ -647,7 +691,16 @@ describe('TokenDetail', () => {
   it('values IETH and charts it at ETH, the symbol the feed quotes it under', () => {
     configure({
       balances: [{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
-      tokenPrices: { ETH: { price: 3000, change24h: 45, percentageChange24h: 1.5, kind: 'market' as const } }
+      tokenPrices: {
+        ETH: {
+          price: 3000,
+          change24h: 45,
+          percentageChange24h: 1.5,
+          observedAt: Date.now(),
+          provider: 'binance' as const,
+          kind: 'market' as const
+        }
+      }
     });
     render(<TokenDetail tokenId={TEST_TOKEN_IETH.faucetId} />);
 
@@ -695,21 +748,36 @@ describe('TokenDetail', () => {
   });
 
   it('charts a basket from its tokens and shows the composition read from its vault', () => {
+    const now = Date.now();
     renderPage({
       tokenPrices: {
         ETH: {
           price: 2,
           change24h: 0,
           percentageChange24h: 0,
-          observedAt: Date.now(),
+          observedAt: now,
           kind: 'basket' as const,
           composition: [
             { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.6 },
             { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.4 }
           ]
         },
-        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
-        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
+        BTC: {
+          price: 60000,
+          change24h: 0,
+          percentageChange24h: 1,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market' as const
+        },
+        SOL: {
+          price: 90,
+          change24h: 0,
+          percentageChange24h: 1,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market' as const
+        }
       }
     });
 
@@ -729,20 +797,36 @@ describe('TokenDetail', () => {
   });
 
   it('keys the basket chart on its exact weights, so a change below a rounding step refetches the line', () => {
+    const now = Date.now();
     renderPage({
       tokenPrices: {
         ETH: {
           price: 2,
           change24h: 0,
           percentageChange24h: 0,
+          observedAt: now,
           kind: 'basket' as const,
           composition: [
             { faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 0.600004 },
             { faucetId: 'mtst1sol', symbol: 'SOL', priceSymbol: 'SOL', weight: 0.399996 }
           ]
         },
-        BTC: { price: 60000, change24h: 0, percentageChange24h: 1, kind: 'market' as const },
-        SOL: { price: 90, change24h: 0, percentageChange24h: 1, kind: 'market' as const }
+        BTC: {
+          price: 60000,
+          change24h: 0,
+          percentageChange24h: 1,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market' as const
+        },
+        SOL: {
+          price: 90,
+          change24h: 0,
+          percentageChange24h: 1,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market' as const
+        }
       }
     });
 
@@ -757,6 +841,7 @@ describe('TokenDetail', () => {
           price: 2,
           change24h: 0,
           percentageChange24h: 0,
+          observedAt: Date.now(),
           kind: 'basket' as const,
           composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
         }
@@ -771,7 +856,16 @@ describe('TokenDetail', () => {
   it('shows no fiat line and no price section for a token the feed does not quote', () => {
     // Prices have loaded, and ETH is not among them.
     renderPage({
-      tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+      tokenPrices: {
+        BTC: {
+          price: 60000,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: Date.now(),
+          provider: 'binance',
+          kind: 'market' as const
+        }
+      }
     });
 
     const hero = screen.getByTestId('token-detail-hero');
@@ -788,7 +882,16 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: unquotedId, balance: 12.5, metadata: { symbol: 'LOCAL', decimals: 2 } }],
-          tokenPrices: { BTC: { price: 60000, change24h: 0, percentageChange24h: 0, kind: 'market' } }
+          tokenPrices: {
+            BTC: {
+              price: 60000,
+              change24h: 0,
+              percentageChange24h: 0,
+              observedAt: Date.now(),
+              provider: 'binance',
+              kind: 'market'
+            }
+          }
         },
         unquotedId
       );
@@ -869,7 +972,16 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: 'mtst1fixture', balance: 12.5, metadata: { symbol: 'TST' } }],
-          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+          tokenPrices: {
+            ETH: {
+              price: 2000,
+              change24h: 0,
+              percentageChange24h: 0,
+              observedAt: Date.now(),
+              provider: 'binance',
+              kind: 'market' as const
+            }
+          }
         },
         'mtst1fixture'
       );
@@ -1109,7 +1221,16 @@ describe('TokenDetail', () => {
     it('omits the fiat line rather than pricing a quantity it does not have', () => {
       renderPage({
         balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
-        tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+        tokenPrices: {
+          ETH: {
+            price: 2000,
+            change24h: 0,
+            percentageChange24h: 0,
+            observedAt: Date.now(),
+            provider: 'binance',
+            kind: 'market' as const
+          }
+        }
       });
 
       // The market price elsewhere on the page is a price PER token and does not
@@ -1158,7 +1279,16 @@ describe('TokenDetail', () => {
       renderPage(
         {
           balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
-          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0, kind: 'market' as const } }
+          tokenPrices: {
+            USDC: {
+              price,
+              change24h: 0,
+              percentageChange24h: 0,
+              observedAt: Date.now(),
+              provider: 'binance',
+              kind: 'market' as const
+            }
+          }
         },
         MIDEN_USDC_FAUCET
       );
@@ -2049,5 +2179,227 @@ describe('TokenDetail testnet bridge USDC label', () => {
     });
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
+  });
+});
+
+describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7)', () => {
+  it('shows Binance and Kraken market provenance and schedules the 10-minute expiry clock', () => {
+    const observedAt = Date.now() - 1_000;
+    const { rerender } = renderPage({
+      priceInfo: { price: 2000, change24h: 3.2, percentageChange24h: 0.1, observedAt, provider: 'binance' }
+    });
+
+    let context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveTextContent('tokenDetailMarketQuoteContext');
+    expect(context).toHaveTextContent('ETH');
+    expect(context).toHaveTextContent('Binance');
+    expect(context).toHaveTextContent(new Date(observedAt).toLocaleString());
+    expect(mockUseQuoteClock).toHaveBeenCalledWith(observedAt + USD_QUOTE_MAX_AGE_MS + 1);
+
+    configure({
+      priceInfo: { price: 2005, change24h: 4.1, percentageChange24h: 0.2, observedAt, provider: 'kraken' }
+    });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveTextContent('Kraken');
+  });
+
+  it('shows fixed 1.00 USD provenance for native USDCX without scheduling clock expiry', () => {
+    const nativeId = 'mtst1native-usdcx';
+    mockNativeFaucetId = nativeId;
+    jest.mocked(getNativeAssetIdSync).mockReturnValue(nativeId);
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(nativeId);
+    renderPage(
+      {
+        balances: [{ tokenId: nativeId, balance: 1, metadata: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      nativeId
+    );
+
+    const context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveTextContent('tokenDetailFixedQuoteContext');
+    expect(context).toHaveTextContent('USDCX');
+    expect(mockUseQuoteClock).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('shows basket vault provenance and hides stale basket values past 10 minutes', () => {
+    const now = Date.now();
+    const { rerender } = renderPage({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: now,
+          kind: 'basket' as const,
+          composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
+        }
+      }
+    });
+
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailBasketQuoteContext');
+    expect(mockUseQuoteClock).toHaveBeenCalledWith(now + USD_QUOTE_MAX_AGE_MS + 1);
+    expect(screen.getByTestId('token-detail-composition')).toBeInTheDocument();
+
+    configure({
+      tokenPrices: {
+        ETH: {
+          price: 2,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: now - USD_QUOTE_MAX_AGE_MS - 1,
+          kind: 'basket' as const,
+          composition: [{ faucetId: 'mtst1btc', symbol: 'WBTC', priceSymbol: 'BTC', weight: 1 }]
+        }
+      }
+    });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$25.00')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-composition')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteStaleTitle');
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteStaleBasketBody');
+  });
+
+  it.each([
+    ['older than 10 minutes', Date.now() - USD_QUOTE_MAX_AGE_MS - 1],
+    ['timestamped in the future', Date.now() + 60_000]
+  ])('hides a market quote %s from totals and spot price chart, never showing $0.00', (_label, observedAt) => {
+    renderPage({
+      priceInfo: { price: 2000, change24h: 0, percentageChange24h: 0, observedAt, provider: 'binance' }
+    });
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toBeNull();
+    expect(within(hero).queryByText('$0.00')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    const context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveAttribute('data-tone', 'warning');
+    expect(context).toHaveTextContent('tokenDetailQuoteStaleTitle');
+    expect(context).toHaveTextContent('tokenDetailQuoteStaleMarketBody');
+  });
+
+  it('treats missing provider, non-finite timestamp, and error price status without live quote as unavailable', () => {
+    const { rerender } = renderPage({
+      tokenPrices: {
+        ETH: { price: 2000, change24h: 0, percentageChange24h: 0, observedAt: Date.now(), kind: 'market' as const }
+      }
+    });
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$0.00')).not.toBeInTheDocument();
+
+    configure({
+      tokenPrices: {
+        ETH: {
+          price: 2000,
+          change24h: 0,
+          percentageChange24h: 0,
+          observedAt: Number.NaN,
+          provider: 'binance',
+          kind: 'market' as const
+        }
+      }
+    });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+
+    configure({ tokenPrices: {}, tokenPricesStatus: 'error' });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    const errorContext = screen.getByTestId('token-detail-quote-context');
+    expect(errorContext).toHaveAttribute('data-tone', 'warning');
+    expect(errorContext).toHaveTextContent('tokenDetailQuoteLoadError');
+    expect(screen.getByTestId('token-detail-hero').querySelector('p')).toBeNull();
+  });
+
+  it('values a confirmed genuine zero balance as $0.00 when a fresh quote is ready and explains disabled Send', () => {
+    renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 0, metadata: { symbol: 'ETH', decimals: 8 } }] });
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$0.00')).toBeInTheDocument();
+    const send = screen.getByTestId('token-detail-send');
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute('aria-describedby', screen.getByTestId('token-detail-send-reason').id);
+    expect(screen.getByTestId('token-detail-send-reason')).toHaveTextContent('tokenDetailSendNoBalance');
+    expect(screen.getByTestId('token-detail-receive')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /swap|bridge/i })).toBeNull();
+  });
+
+  it('tells the user to accept pending transfers when Available is 0 and claim notes exist', () => {
+    mockActivityItems = [pendingItem('n1', TOKEN_ID, 'pending', '1000000')];
+    renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 0, metadata: { symbol: 'ETH', decimals: 8 } }] });
+
+    expect(screen.getByTestId('token-detail-send')).toBeDisabled();
+    expect(screen.getByTestId('token-detail-send-reason')).toHaveTextContent('tokenDetailSendPendingOnly');
+  });
+
+  it('disables Send with an explanation for retired Testnet tokens, unknown scale, and balance load failures', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const { rerender } = renderPage(
+      { balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 10, metadata: { symbol: 'USDC', decimals: 6 } }] },
+      MIDEN_USDC_FAUCET
+    );
+    expect(screen.getByTestId('token-detail-send')).toBeDisabled();
+    expect(screen.getByTestId('token-detail-send-reason')).toHaveTextContent('tokenDetailSendRetired');
+    expect(screen.getByTestId('token-detail-receive')).toBeEnabled();
+
+    mockBridgeSnapshot = undefined;
+    configure({
+      balances: [
+        { tokenId: PLAIN_ID, balance: 5, metadata: { name: 'U', symbol: 'U', decimals: 6, scaleIsUnknown: true } }
+      ]
+    });
+    rerender(<TokenDetail tokenId={PLAIN_ID} />);
+    expect(screen.getByTestId('token-detail-send')).toBeDisabled();
+    expect(screen.getByTestId('token-detail-send-reason')).toHaveTextContent('tokenDetailSendUnknownScale');
+
+    configure({ balances: null, metadata: {}, balanceStatus: { isLoading: true, readFailed: true } });
+    rerender(<TokenDetail tokenId={PLAIN_ID} />);
+    expect(screen.getByTestId('token-detail-send')).toBeDisabled();
+    expect(screen.getByTestId('token-detail-send-reason')).toHaveTextContent('tokenDetailSendBalanceUnavailable');
+  });
+
+  it('resets unverified sheet state and chart timeframe on account or token changes', () => {
+    mockVerifyToken.mockReturnValue('unverified');
+    const { rerender } = renderPage();
+
+    fireEvent.click(screen.getByTestId('token-detail-unverified-pill'));
+    expect(screen.getByTestId('unverified-token-sheet')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('token-detail-timeframe-1W'));
+    expect(screen.getByTestId('token-detail-timeframe-1W')).toHaveAttribute('aria-checked', 'true');
+
+    mockUseAccount.mockReturnValue({ publicKey: 'pk-next' });
+    rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    expect(screen.queryByTestId('unverified-token-sheet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-timeframe-1D')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('isolates multiple same-symbol assets across quotes and claim cards while preserving empty and long history forwarding', () => {
+    const fakeEthFaucet = 'mtst1same-symbol-unlisted';
+    mockActivityItems = [
+      pendingItem('official-claim', TOKEN_ID, 'failed', '1000000'),
+      pendingItem('unlisted-claim', fakeEthFaucet, 'pending', '2000000')
+    ];
+    renderPage(
+      {
+        balances: [
+          { tokenId: TOKEN_ID, balance: 2, metadata: { symbol: 'ETH', decimals: 8 } },
+          { tokenId: fakeEthFaucet, balance: 9, metadata: { symbol: 'ETH', decimals: 8 } }
+        ]
+      },
+      fakeEthFaucet
+    );
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('9.00')).toBeInTheDocument();
+    expect(within(screen.getByTestId('token-detail-hero')).queryByText('$18000.00')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-quote-context')).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+    expect(screen.getByTestId('token-detail-pending-claim')).toHaveTextContent('tokenDetailToClaim_2.00');
+    const history = screen.getByTestId('history');
+    expect(history).toHaveAttribute('data-drawn-pending-ids', 'unlisted-claim');
+    expect(history).toHaveAttribute('data-num-items', '5');
+    expect(screen.queryByText('official-claim')).not.toBeInTheDocument();
   });
 });

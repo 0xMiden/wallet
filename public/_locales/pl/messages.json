@@ -860,6 +860,127 @@
     "message": "Nie udało się zrównoważyć obciążenia.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Could not refresh balance. Showing last confirmed balance.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedAt": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Vault USD value on $network$, updated $retrievedAt$.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedAt": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "USD price is out of date",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedAt": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedAt": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "The last USD price is older than 10 minutes and hidden from totals.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "USD price unavailable",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "No verified USD price is available on $network$.",
+    "englishSource": "(untranslated)",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Could not load the USD price. Balance totals exclude USD value until it refreshes.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailSendRetired": {
+    "message": "This token is retired on Testnet and cannot be sent.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Set token decimals in Token info before sending.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "No available balance to send.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "No available balance to send yet. Accept pending transfers first.",
+    "englishSource": "(untranslated)"
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Could not load balance. Try again before sending.",
+    "englishSource": "(untranslated)"
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
