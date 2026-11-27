@@ -3,6 +3,15 @@
 ## 1.18.3 (TBD)
 
 - [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
+- [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
+- [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
+- [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
+- [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
+- [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
+- [FIX][all] Explain what Guardian can see and when the wallet shares transaction details for remote proving (#2361).
+- [FIX][all] Require a fresh verified price before Bread Command drafts a dollar-denominated send.
+- [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
+- [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).

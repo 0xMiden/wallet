@@ -9,7 +9,12 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
+import {
+  hiddenMsBetween,
+  hiddenSecondsSince,
+  isBackgroundTimeTrackingInstalled,
+  wasRecordingHiddenTimeAt
+} from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -464,13 +469,14 @@ const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
   return 'not_entered';
 };
 
-/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+/** Hidden time this process recorded across the full queue wait. */
 export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
   if (!isMobile()) return 'not_measured';
   if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageSec = nowMs / 1000 - row.initiatedAt;
   if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  if (!wasRecordingHiddenTimeAt(row.initiatedAt * 1000)) return 'unobserved';
   return hiddenShareBucket(hiddenSecondsSince(row.initiatedAt, nowMs), ageSec);
 };
 

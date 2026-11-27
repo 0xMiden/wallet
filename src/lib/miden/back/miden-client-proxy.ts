@@ -58,6 +58,7 @@ import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-cont
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
+import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
 import {
   annotateOffscreenDeadline,
   OFFSCREEN_DEADLINE_METHODS,
@@ -78,6 +79,7 @@ import {
   encodeArg,
   type GuardianPipelineArgs,
   type OffscreenDeadlineTimer,
+  type OffscreenTransportReason,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
   type OffscreenSendDto,
@@ -570,23 +572,32 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   }
 }
 
-/**
- * Settle an op that failed at the TRANSPORT layer (`sendMessage` rejected).
- *
- * This is the same physical event as {@link finishOp}'s `resp === undefined`
- * branch — the offscreen document went away before it could answer — so it
- * settles with the same error TYPE. The runtime picks between the two shapes
- * (an `undefined` resolution vs. a "message channel closed" rejection) for
- * reasons the SW cannot observe, and a bare `Error` here classified differently
- * from an `OperationAbortedError` everywhere downstream: `tryCompleteKilledConsume`
- * would skip its node check, and the offscreen-kill reason would not be
- * recognizable in the persisted `rawError`. The original message is preserved as
- * `cause` so nothing diagnostic is lost.
- */
+const TRANSPORT_MESSAGES: ReadonlyArray<readonly [string, OffscreenTransportReason]> = [
+  ['The message port closed before a response was received.', 'response_channel_closed'],
+  [
+    'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received.',
+    'response_channel_closed'
+  ],
+  ['Extension context invalidated.', 'context_invalidated'],
+  ['Could not establish connection. Receiving end does not exist.', 'no_receiver']
+];
+
+function transportReasonOf(error: unknown): OffscreenTransportReason {
+  const message = typeof error === 'string' ? error : safeOwnDiagnosticData(error, 'message');
+  if (typeof message !== 'string') return 'unknown';
+  return (
+    TRANSPORT_MESSAGES.find(([prefix]) => message === prefix || message.startsWith(`${prefix} `))?.[1] ?? 'unknown'
+  );
+}
+
+/** Preserve the abort class for settlement, whatever caused the browser messaging failure. */
 function finishOpError(op_id: string, err: unknown): void {
   const op = takeInFlight(op_id);
   if (!op) return;
-  const aborted = new OperationAbortedError(op_id, 'transport', { started: op.started });
+  const aborted = new OperationAbortedError(op_id, 'transport', {
+    started: op.started,
+    transportReason: transportReasonOf(err)
+  });
   aborted.cause = err;
   op.reject(aborted);
 }
@@ -783,13 +794,15 @@ async function dispatchOp(
       endpoints: getEndpointState(),
       ...(submitGated ? { submitGated: true } : {})
     };
-    // `sendMessage` may resolve with the response, resolve `undefined` (doc
-    // closed), or reject ("message port closed"). All three are handled: a
-    // late settle for an already-killed op no-ops via takeInFlight().
-    Promise.resolve(chrome.runtime.sendMessage(envelope)).then(
-      resp => finishOp(op_id, resp as OffscreenCallResponse | undefined),
-      err => finishOpError(op_id, err)
-    );
+    // Settle both rejected promises and synchronous messaging errors through the registered op.
+    try {
+      Promise.resolve(chrome.runtime.sendMessage(envelope)).then(
+        resp => finishOp(op_id, resp as OffscreenCallResponse | undefined),
+        err => finishOpError(op_id, err)
+      );
+    } catch (err) {
+      finishOpError(op_id, err);
+    }
   });
 }
 
