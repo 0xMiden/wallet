@@ -322,11 +322,7 @@ export interface SpawnSetupHooks {
  * until `hooks.onBeforeCommit()` fires at the commit boundary. Earlier `undo` on a
  * pre-commit failure is skipped so any existing wallet and its admission state survive.
  */
-async function spawnSetup(
-  marked: boolean,
-  spawn: (hooks: SpawnSetupHooks) => Promise<Vault>,
-  options: { deferCommit?: boolean } = {}
-): Promise<Vault> {
+async function spawnSetup(marked: boolean, spawn: (hooks: SpawnSetupHooks) => Promise<Vault>): Promise<Vault> {
   let committed = false;
   const onBeforeCommit = async () => {
     committed = true;
@@ -344,9 +340,6 @@ async function spawnSetup(
       throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
     }
   };
-  if (!options.deferCommit) {
-    await onBeforeCommit();
-  }
   let vault: Vault;
   try {
     vault = await spawn({ onBeforeCommit, checkAccountsAdmitted });
@@ -371,12 +364,11 @@ async function spawnSetup(
 async function getAccessSetupVault(
   inputs: string,
   accessCode: string | undefined,
-  spawn: (hooks: SpawnSetupHooks) => Promise<Vault>,
-  options: { deferCommit?: boolean } = {}
+  spawn: (hooks: SpawnSetupHooks) => Promise<Vault>
 ) {
   if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
   await discardPendingAccessVault();
-  const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn, options);
+  const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn);
   if (accessCode) pendingAccessVault = { inputs, vault };
   return vault;
 }
@@ -446,8 +438,7 @@ export function registerNewWallet(
                       admittedPrecheckedIds = new Set(accountIds);
                     }
                   : undefined
-            }),
-          { deferCommit: true }
+            })
         );
         console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
         const accounts = await vault.fetchAccounts();
@@ -496,17 +487,14 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
         await discardPendingAccessVault();
         let admittedPrecheckedIds: Set<string> | null = null;
-        vault = await spawnSetup(
-          inviteOnly,
-          ({ onBeforeCommit, checkAccountsAdmitted }) =>
-            Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint, {
-              onBeforeCommit,
-              checkAccountsAdmitted: async accountIds => {
-                await checkAccountsAdmitted(accountIds);
-                admittedPrecheckedIds = new Set(accountIds);
-              }
-            }),
-          { deferCommit: true }
+        vault = await spawnSetup(inviteOnly, ({ onBeforeCommit, checkAccountsAdmitted }) =>
+          Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint, {
+            onBeforeCommit,
+            checkAccountsAdmitted: async accountIds => {
+              await checkAccountsAdmitted(accountIds);
+              admittedPrecheckedIds = new Set(accountIds);
+            }
+          })
         );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
@@ -551,9 +539,10 @@ export function registerImportedWallet(
         await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await spawnSetup(inviteOnly, () =>
-          Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
-        );
+        vault = await spawnSetup(inviteOnly, async ({ onBeforeCommit }) => {
+          await onBeforeCommit();
+          return Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
+        });
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();

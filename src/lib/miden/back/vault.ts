@@ -1430,36 +1430,17 @@ export class Vault {
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+      // Validate and encrypt the protector payload in memory BEFORE touching storage or realm keystore.
+      const preparedProtector = await prepareVaultProtector(vaultKeyBytes, password);
+
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the restore below already inserts the derived secrets (#878).
       spawned = new Vault(vaultKey);
 
       // Keeps a mainnet setup's pending-admission marker, as `spawn`'s wipe does.
       await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
-
-      // Determine security model: hardware-only or password-based
-      // If password is provided (user opted out of biometrics), use password protection
-      // If no password (hardware-only mode), use hardware protection
-      const useHardwareOnly = !password;
-      const hardwareAvailable = await isHardwareSecurityAvailableForVault();
-
       protectorInstalled = true;
-
-      if (useHardwareOnly && hardwareAvailable) {
-        // Try hardware-only mode (user chose biometric authentication)
-        const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
-        if (!hardwareSetupSuccess) {
-          // Hardware setup failed - this shouldn't happen if user chose biometric
-          throw new PublicError('Hardware security setup failed. Please try again.');
-        }
-      } else {
-        if (!password) {
-          throw new PublicError('Password is required for password-based vault protection');
-        }
-        // Password-based protection (user opted out of biometrics or hardware not available)
-        const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
-        await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
-      }
+      await savePlain(preparedProtector.storageKey, preparedProtector.value);
 
       // A Guardian account's cold key comes back from the phrase and its state from the dump.
       // The everyday key never travels in a file, so each lands in the recovered shape.
@@ -3344,17 +3325,4 @@ async function prepareVaultProtector(
   }
   const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
   return { storageKey: VAULT_KEY_PASSWORD_STORAGE_KEY, value: passwordProtectedVaultKey };
-}
-
-/**
- * Set up hardware-backed protection for the vault key on desktop/mobile
- * Returns true if setup was successful, false otherwise
- */
-async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolean> {
-  const hardwareProtectedVaultKey = await prepareHardwareProtector(vaultKeyBytes);
-  if (!hardwareProtectedVaultKey) {
-    return false;
-  }
-  await savePlain(VAULT_KEY_HARDWARE_STORAGE_KEY, hardwareProtectedVaultKey);
-  return true;
 }

@@ -3870,7 +3870,7 @@ describe('Vault hardware branches', () => {
     expect(vault).toBeInstanceOf(Vault);
   });
 
-  it('setupHardwareProtector on desktop with hardware available generates key and encrypts', async () => {
+  it('prepareHardwareProtector on desktop with hardware available generates key and encrypts', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
@@ -3881,7 +3881,7 @@ describe('Vault hardware branches', () => {
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
   });
 
-  it('setupHardwareProtector on desktop skips key generation if key already exists', async () => {
+  it('prepareHardwareProtector on desktop skips key generation if key already exists', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
@@ -3906,12 +3906,58 @@ describe('Vault hardware branches', () => {
     expect(mockDesktopSecureStorage.deleteHardwareKey).not.toHaveBeenCalled();
   });
 
-  it('setupHardwareProtector on desktop catches errors and returns false', async () => {
+  it('prepareHardwareProtector on desktop catches errors and returns null', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
     mockDesktopSecureStorage.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-fail'));
     await expect(Vault.spawn(WalletType.OnChain, undefined as any)).rejects.toThrow(PublicError);
+  });
+
+  it('Vault.spawnFromMidenClient preserves existing wallet when password is missing and hardware is unavailable', async () => {
+    await seedVault('old-pw');
+    const snapshot = { ...memoryStore };
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    clearStorage.mockClear();
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+
+    await expect(
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
+    ).rejects.toThrow('Password is required for password-based vault protection');
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(memoryStore).toEqual(snapshot);
+    expect(await Vault.isExist()).toBe(true);
+  });
+
+  it('Vault.spawnFromMidenClient preserves existing wallet when hardware protector preparation fails', async () => {
+    await seedVault('old-pw');
+    const snapshot = { ...memoryStore };
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    clearStorage.mockClear();
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-fail'));
+
+    await expect(
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
+    ).rejects.toThrow('Hardware security setup failed. Please try again.');
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(memoryStore).toEqual(snapshot);
+    expect(await Vault.isExist()).toBe(true);
   });
 
   it('getMainDerivationPath throws for invalid wallet type', async () => {
