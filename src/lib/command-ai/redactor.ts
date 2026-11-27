@@ -181,6 +181,13 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
       const start = match.index ?? 0;
       const end = start + match[0].length;
       if (!isWordBoundaryChar(input[start - 1]) || !isWordBoundaryChar(input[end])) continue;
+      // Part of a longer dotted name: keep the whole of what was typed, never this contact.
+      const around = typedTokens.find(token => token.index <= start && token.index + token[0].length >= end);
+      if (around && around[0].length > match[0].length && around[0].includes('.')) {
+        const tokenEnd = around.index + around[0].length;
+        spans.push({ start: around.index, end: tokenEnd, priority: 2, kind: 'ADDR', raw: around[0] });
+        continue;
+      }
       spans.push({ start, end, priority: 2, kind: 'CONTACT', raw: match[0], contact });
     }
   }
