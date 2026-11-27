@@ -33,6 +33,11 @@ type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => bool
 const G = globalThis as any;
 const originalE2eFlag = process.env.MIDEN_E2E_TEST;
 const mockRestoreFetchFaults = jest.fn<Promise<void>, []>();
+jest.mock('lib/miden/guardian/history-storage', () => {
+  const actual = jest.requireActual('lib/miden/guardian/history-storage');
+  return { ...actual, withWalletRecoveryLifetime: jest.fn(actual.withWalletRecoveryLifetime) };
+});
+
 jest.mock('./e2e-fetch-faults', () => ({ restoreOffscreenFetchFaults: () => mockRestoreFetchFaults() }), {
   virtual: true
 });
@@ -6971,18 +6976,13 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
 
   it('takes one shared storage turn for a successful mocked recovery import', async () => {
     await loadModule();
-    const historyStorage = await import('lib/miden/guardian/history-storage');
-    const storageTurn = jest.spyOn(historyStorage, 'withWalletRecoveryLifetime');
-    try {
-      mockStartReply(() => Promise.resolve({ ok: true }));
-      const imported = askForRecoveryImport();
-      await flush();
+    const { withWalletRecoveryLifetime } = await import('lib/miden/guardian/history-storage');
+    mockStartReply(() => Promise.resolve({ ok: true }));
+    const imported = askForRecoveryImport();
+    await flush();
 
-      expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
-      expect(storageTurn).toHaveBeenCalledTimes(1);
-    } finally {
-      storageTurn.mockRestore();
-    }
+    expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(withWalletRecoveryLifetime).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes a synchronous recovery import start-signal throw', async () => {
