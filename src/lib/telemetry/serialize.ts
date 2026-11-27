@@ -103,7 +103,8 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
       Number.isFinite(event.order) &&
       event.order >= 1 &&
       Number.isFinite(event.visibleMs) &&
-      event.visibleMs >= 0
+      event.visibleMs >= 0 &&
+      typeof event.complete === 'boolean'
     ) {
       payload.flow = event.flow;
       payload.flowId = event.flowId;
@@ -111,7 +112,7 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
       payload.stepAction = event.stepAction;
       payload.order = Math.round(event.order);
       payload.durationMs = Math.round(event.visibleMs);
-      payload.complete = event.complete === true;
+      payload.complete = event.complete;
     }
     return payload;
   }

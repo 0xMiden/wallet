@@ -61,11 +61,19 @@ const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
  * is. Which is fine — as long as the search for one is confined to the tables
  * that actually feed a reporter, and not to every object literal in the tree.
  */
-const STEP_TABLES: readonly { path: string; accessor: string }[] = [
+const STEP_TABLES: readonly { path: string; accessor: string; consumer?: string }[] = [
   { path: WIRING_INSIDE_TELEMETRY, accessor: 'stepOfStage' },
   { path: 'app/pages/Welcome.tsx', accessor: 'ONBOARDING_TELEMETRY_STEPS' },
-  { path: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx', accessor: 'RECEIVE_STEP_TELEMETRY' },
-  { path: 'screens/send-flow/SendManager.tsx', accessor: 'SEND_STEP_TELEMETRY' }
+  {
+    path: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx',
+    accessor: 'RECEIVE_STEP_TELEMETRY',
+    consumer: 'stepForReceiveRoute'
+  },
+  {
+    path: 'screens/send-flow/SendManager.tsx',
+    accessor: 'SEND_STEP_TELEMETRY',
+    consumer: 'stepForNavigatorRoute'
+  }
 ];
 
 /** Non-test sources, excluding the telemetry module's own plumbing. */
@@ -261,12 +269,23 @@ const isConsumedByAReporter = (accessor: string): boolean =>
  * next line, and `stepOfStage` is called as the value of a `step:` key inside a
  * reporter's argument.
  */
-const isConsumedByAStepReporter = (accessor: string): boolean =>
-  CALL_SITES.some(
-    file =>
-      file.text.includes(accessor) &&
-      /(?:\.(?:step|enterStep|transitionStep)|(?:report|transition)SendStep)\(|\bstep:\s/.test(file.text)
+const isConsumedByAStepReporter = (table: { path: string; accessor: string; consumer?: string }): boolean => {
+  if (
+    table.consumer !== undefined &&
+    !new RegExp(String.raw`function\s+${table.consumer}\b[\s\S]{0,160}\b${table.accessor}\[`).test(textOf(table.path))
+  ) {
+    return false;
+  }
+  const lookup = table.consumer ?? table.accessor;
+  const directStepKey = new RegExp(String.raw`\bstep:\s*[^,\n}]*\b${lookup}\(`);
+  const directReporterArg = new RegExp(String.raw`(?:\.(?:step|enterStep)|reportSendStep)\([^)]*\b${lookup}\(`);
+  const localVarReporterArg = new RegExp(
+    String.raw`\bconst\s+(\w+)\s*=\s*${lookup}(?:\[[^\]]+\]|\([^)]*\));[\s\S]{0,120}(?:\.(?:step|enterStep)|reportSendStep)\(\1\)`
   );
+  return CALL_SITES.some(
+    file => directStepKey.test(file.text) || directReporterArg.test(file.text) || localVarReporterArg.test(file.text)
+  );
+};
 
 describe('every declared operation is actually reported somewhere', () => {
   const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
@@ -345,7 +364,7 @@ describe('every declared step is actually reported somewhere', () => {
     // exactly where they were.
     const inTable = new RegExp(String.raw`:\s*'${step}'`);
     const viaTable = STEP_TABLES.filter(
-      table => inTable.test(textOf(table.path)) && isConsumedByAStepReporter(table.accessor)
+      table => inTable.test(textOf(table.path)) && isConsumedByAStepReporter(table)
     ).map(table => table.path);
 
     expect([...reported, ...viaTable].length).toBeGreaterThan(0);

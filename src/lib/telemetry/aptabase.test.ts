@@ -468,12 +468,15 @@ describe('task step progression envelope', () => {
 
   it('accepts valid step payloads and rejects mismatched or incomplete ones at isNameableEvent', () => {
     expect(isNameableEvent(sendStepPayload)).toBe(true);
+    expect(isNameableEvent({ ...sendStepPayload, complete: false })).toBe(true);
     expect(isNameableEvent({ ...sendStepPayload, flow: 'fund', step: 'connect_wallet' })).toBe(true);
     expect(isNameableEvent({ ...sendStepPayload, flow: 'send', step: 'connect_wallet' })).toBe(false);
     expect(
       isNameableEvent({ ...sendStepPayload, flow: 'fund', step: 'select_recipient' } as TelemetryWirePayload)
     ).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, stepAction: undefined })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, complete: undefined } as unknown as TelemetryWirePayload)).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, complete: 'true' } as unknown as TelemetryWirePayload)).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, flowId: '' })).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, flowId: 'flow 1' })).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, flowId: 'f'.repeat(33) })).toBe(false);

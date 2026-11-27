@@ -3,7 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Dexie from 'dexie';
 
-import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import type { FundFlowTelemetry, ReportDeposit } from 'app/hooks/useFundTelemetry';
 import type { Erc20Holding } from 'lib/agglayer/token-holdings';
 import { readCompactLockState } from 'lib/epoch/bridge-in-lock-scan';
 import { cancelLockWithdrawal } from 'lib/epoch/bridge-in-recovery';
@@ -347,9 +347,24 @@ jest.mock('components/NetworkModeSheet', () => ({
   NetworkModeSheet: () => null
 }));
 
+const mockMobileBackHandlers = new Set<() => boolean | void>();
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: () => undefined
+  useMobileBackHandler: (handler: () => boolean | void, deps: React.DependencyList) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(() => {
+      mockMobileBackHandlers.add(handler);
+      return () => {
+        mockMobileBackHandlers.delete(handler);
+      };
+      // Match the production hook: re-register when the caller's declared dependencies change.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, deps);
+  }
 }));
+const pressMobileBack = () => {
+  for (const handler of [...mockMobileBackHandlers].reverse()) if (handler() === true) return true;
+  return false;
+};
 
 // The signer flavour: the wagmi one unless a case selects the native Reown one. The session-chain
 // check passes unless a case refuses the chain; the error class is the real one the screen maps.
@@ -497,6 +512,7 @@ jest.mock('./EvmBridgeDepositReview', () => {
       promptContract,
       epochResourceLockRequired,
       epochQuoteTransactions,
+      error,
       onConfirm
     }: {
       amount: string;
@@ -506,6 +522,7 @@ jest.mock('./EvmBridgeDepositReview', () => {
       promptContract?: string;
       epochResourceLockRequired?: boolean;
       epochQuoteTransactions?: Array<{ target: string }>;
+      error?: string | null;
       onConfirm: () => void;
     }) => {
       mockLastReviewConfirm = onConfirm;
@@ -518,6 +535,7 @@ jest.mock('./EvmBridgeDepositReview', () => {
           <span data-testid="review-contract">{promptContract}</span>
           <span data-testid="review-resource-lock">{String(epochResourceLockRequired)}</span>
           <span data-testid="review-quote-target">{epochQuoteTransactions?.[0]?.target}</span>
+          {error ? <span data-testid="review-error">{error}</span> : null}
           <button data-testid="confirm-deposit" onClick={onConfirm}>
             confirm
           </button>
@@ -545,8 +563,18 @@ jest.mock('./EvmBridgeDepositReview', () => {
 
 jest.mock('./EvmBridgeDepositStatus', () => {
   const legacy = (() => ({
-    EvmBridgeDepositStatus: ({ awaitingNextConfirmation }: { awaitingNextConfirmation?: boolean }) => (
-      <div data-testid="deposit-status" data-awaiting={String(Boolean(awaitingNextConfirmation))} />
+    EvmBridgeDepositStatus: ({
+      awaitingNextConfirmation,
+      onDone
+    }: {
+      awaitingNextConfirmation?: boolean;
+      onDone?: () => void;
+    }) => (
+      <div data-testid="deposit-status" data-awaiting={String(Boolean(awaitingNextConfirmation))}>
+        <button type="button" data-testid="status-done" onClick={onDone}>
+          done
+        </button>
+      </div>
     )
   }))();
   return {
@@ -854,17 +882,24 @@ const reachSlowUsdcReview = async (expectReview = true) => {
 const connectAnother = jest.fn();
 // A real address: the USDC balance read refuses anything else, and the form holds Continue until that read lands.
 const EVM_ADDRESS = '0x00000000000000000000000000000000000000e0';
-const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = EVM_ADDRESS) => (
+const depositScreen = (
+  reportDeposit?: ReportDeposit,
+  evmAddress = EVM_ADDRESS,
+  fundFlow?: FundFlowTelemetry,
+  onClose: () => void = jest.fn()
+) => (
   <EvmBridgeDepositScreen
     evmAddress={evmAddress}
     midenAccount={midenAccount as never}
     onConnectAnother={connectAnother}
-    onClose={jest.fn()}
+    onClose={onClose}
     reportDeposit={reportDeposit}
+    fundFlow={fundFlow}
   />
 );
 
-const renderScreen = (reportDeposit?: ReportDeposit) => render(depositScreen(reportDeposit));
+const renderScreen = (reportDeposit?: ReportDeposit, fundFlow?: FundFlowTelemetry, onClose?: () => void) =>
+  render(depositScreen(reportDeposit, EVM_ADDRESS, fundFlow, onClose));
 
 type ConfigMove = (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'];
 const CONFIG_MOVES: [string, ConfigMove, Record<string, unknown>][] = [
@@ -892,6 +927,7 @@ const quoteMovingTheStore = (rerender: () => void) =>
 describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockAvailability = {};
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
@@ -1776,6 +1812,177 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
     expect(epochState.quoteEVMToMiden()).toBeUndefined();
   });
+
+  it('wires fundFlow step transitions, blocked actions, retries, and closes through runtime routes', async () => {
+    const fundFlow: FundFlowTelemetry = {
+      reportDeposit: jest.fn(attempt => attempt()),
+      enterStep: jest.fn(),
+      transitionStep: jest.fn(),
+      recordActionWithoutProgress: jest.fn(),
+      recordRetry: jest.fn()
+    };
+    const onClose = jest.fn();
+    quoteFast();
+    const view = renderScreen(undefined, fundFlow, onClose);
+    await settle();
+
+    expect(fundFlow.enterStep).toHaveBeenCalledWith('select_amount');
+
+    // Blocked Continue on empty amount emits recordActionWithoutProgress instead of continuing.
+    fireEvent.click(screen.getByTestId('continue'));
+    expect(fundFlow.recordActionWithoutProgress).toHaveBeenCalledTimes(1);
+    expect(fundFlow.transitionStep).not.toHaveBeenCalled();
+
+    // Valid Continue advances to select_route, then Header Back and Mobile Back return cleanly.
+    fireEvent.click(screen.getByTestId('set-amount-padded'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await screen.findByTestId('confirm-route');
+    expect(fundFlow.transitionStep).toHaveBeenCalledWith('continue', 'select_route');
+    expect(fundFlow.enterStep).toHaveBeenCalledWith('select_route');
+
+    fireEvent.click(screen.getByTestId('page-back'));
+    await settle();
+    expect(fundFlow.transitionStep).toHaveBeenCalledWith('back', 'select_amount');
+
+    fireEvent.click(screen.getByTestId('continue'));
+    await screen.findByTestId('confirm-route');
+    act(() => {
+      pressMobileBack();
+    });
+    await settle();
+    expect(fundFlow.transitionStep).toHaveBeenLastCalledWith('back', 'select_amount');
+
+    // Advance to Review, trigger Fast retry tap, then succeed into Status and finish Done.
+    fireEvent.click(screen.getByTestId('continue'));
+    fireEvent.click(await screen.findByTestId('confirm-route'));
+    await screen.findByTestId('confirm-deposit');
+    expect(fundFlow.transitionStep).toHaveBeenCalledWith('continue', 'review');
+    expect(fundFlow.enterStep).toHaveBeenCalledWith('review');
+
+    Object.assign(epochState, { status: 'failed' });
+    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose));
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    expect(fundFlow.recordRetry).toHaveBeenCalledTimes(1);
+
+    quoteFast();
+    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose));
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
+    expect(fundFlow.enterStep).toHaveBeenCalledWith('status');
+
+    fireEvent.click(screen.getByTestId('status-done'));
+    expect(fundFlow.transitionStep).toHaveBeenLastCalledWith('close');
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    // Root Mobile Back on Amount emits close and invokes onClose.
+    const secondClose = jest.fn();
+    const rootView = renderScreen(undefined, fundFlow, secondClose);
+    await settle();
+    act(() => {
+      pressMobileBack();
+    });
+    expect(fundFlow.transitionStep).toHaveBeenLastCalledWith('close');
+    expect(secondClose).toHaveBeenCalledTimes(1);
+    rootView.unmount();
+  });
+
+  it.each([
+    ['Fast', 'epoch', 'header'],
+    ['Fast', 'epoch', 'mobile'],
+    ['Slow', 'agglayer', 'header'],
+    ['Slow', 'agglayer', 'mobile']
+  ] as const)(
+    'keeps %s %s Back out of Status and clean on late resolve while background submission finishes',
+    async (_label, targetRoute, backKind) => {
+      const fundFlow: FundFlowTelemetry = {
+        reportDeposit: jest.fn(attempt => attempt()),
+        enterStep: jest.fn(),
+        transitionStep: jest.fn(),
+        recordActionWithoutProgress: jest.fn(),
+        recordRetry: jest.fn()
+      };
+      if (targetRoute === 'epoch') quoteFast();
+      renderScreen(undefined, fundFlow);
+      if (targetRoute === 'epoch') await reachFastReview();
+      else await reachReview();
+
+      const row = holdRowCreation();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      if (backKind === 'header') {
+        fireEvent.click(screen.getByTestId('page-back'));
+      } else {
+        act(() => {
+          pressMobileBack();
+        });
+      }
+      await settle();
+      expect(screen.getByTestId('confirm-route')).toBeInTheDocument();
+      jest.mocked(fundFlow.enterStep).mockClear();
+
+      row.release();
+      await settle();
+
+      expect(screen.queryByTestId('deposit-status')).not.toBeInTheDocument();
+      expect(screen.getByTestId('confirm-route')).toBeInTheDocument();
+      expect(fundFlow.enterStep).not.toHaveBeenCalledWith('status');
+      expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(targetRoute === 'epoch' ? 1 : 0);
+      expect(mockMutateAsync).toHaveBeenCalledTimes(targetRoute === 'agglayer' ? 1 : 0);
+    }
+  );
+
+  it.each([
+    ['Fast', 'epoch', 'header'],
+    ['Fast', 'epoch', 'mobile'],
+    ['Slow', 'agglayer', 'header'],
+    ['Slow', 'agglayer', 'mobile']
+  ] as const)(
+    'ignores late %s %s rejection after Back without leaking error state and unlocks Confirm on re-entry',
+    async (_label, targetRoute, backKind) => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        if (targetRoute === 'epoch') quoteFast();
+        renderScreen();
+        if (targetRoute === 'epoch') await reachFastReview();
+        else await reachReview();
+
+        const row = holdRowCreation();
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await settle();
+
+        if (backKind === 'header') {
+          fireEvent.click(screen.getByTestId('page-back'));
+        } else {
+          act(() => {
+            pressMobileBack();
+          });
+        }
+        await settle();
+        expect(screen.getByTestId('confirm-route')).toBeInTheDocument();
+
+        row.fail();
+        await settle();
+
+        expect(screen.queryByTestId('deposit-status')).not.toBeInTheDocument();
+        expect(screen.getByTestId('confirm-route')).toBeInTheDocument();
+
+        // Re-entering Review after late reject shows no stale error and allows a clean fresh Confirm.
+        jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+        fireEvent.click(screen.getByTestId('confirm-route'));
+        await screen.findByTestId('confirm-deposit');
+        expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await settle();
+        expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    }
+  );
 });
 
 describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
@@ -1800,6 +2007,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockAvailability = {};
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
@@ -2208,6 +2416,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockAvailability = {};
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
@@ -2890,6 +3099,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockAvailability = {};
     mockAgglayerChainId = SEPOLIA;
     mockSnapshot = READY_SNAPSHOT;
@@ -3010,6 +3220,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
 describe('EvmBridgeDepositScreen names the network', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     answerBalance(FUNDED);
   });
 
@@ -3142,6 +3353,7 @@ const flushBridgePromises = () =>
 describe('user-visible bridge deposit producers', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockRealBridgeDisplays = true;
     mockGetChain = (_chainId: number) => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' });
     mockFormGuardFrames = [];
@@ -4565,6 +4777,7 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockMobileBackHandlers.clear();
     mockAvailability = {};
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;

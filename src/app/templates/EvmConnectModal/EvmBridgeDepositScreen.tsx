@@ -703,6 +703,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // deposit, nor change the amount, token or wallet it was confirmed with. Once the row exists the screen stays on the
   // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
+  const mountedRef = useRef(true);
+  const reviewSubmissionSeqRef = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      reviewSubmissionSeqRef.current += 1;
+    };
+  }, []);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
 
@@ -1079,6 +1088,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       fundFlow?.recordActionWithoutProgress();
       return true;
     }
+    reviewSubmissionSeqRef.current += 1;
     if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
       fundFlow?.transitionStep('close');
       onClose();
@@ -2309,6 +2319,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       fundFlow?.recordActionWithoutProgress();
       return;
     }
+    reviewSubmissionSeqRef.current += 1;
     if (cardStack.length > 1) {
       fundFlow?.transitionStep('back', stepForReceiveRoute(cardStack[cardStack.length - 2]?.name));
       goBack();
@@ -2331,6 +2342,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [canConfirmRoute, fundFlow, navigateTo]);
 
   const handleStatusDone = useCallback(() => {
+    reviewSubmissionSeqRef.current += 1;
     fundFlow?.transitionStep('close');
     onClose();
   }, [fundFlow, onClose]);
@@ -2355,6 +2367,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return;
     }
     confirming.current = true;
+    const submissionSeq = reviewSubmissionSeqRef.current + 1;
+    reviewSubmissionSeqRef.current = submissionSeq;
     setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
     setSwitchDrawerOpen(false);
@@ -2432,16 +2446,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
         drive
       );
+      if (!mountedRef.current || reviewSubmissionSeqRef.current !== submissionSeq) return;
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
-      setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
       confirming.current = false;
-      setUsdcxSubmissionPending(false);
+      if (mountedRef.current) setUsdcxSubmissionPending(false);
+      if (!mountedRef.current || reviewSubmissionSeqRef.current !== submissionSeq) return;
+      setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
       setConfirmSettled(count => count + 1);
     } finally {
-      setCreatingBridgeRow(false);
+      if (mountedRef.current) setCreatingBridgeRow(false);
     }
   }, [
     agglayerRecovery,

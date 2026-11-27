@@ -1054,7 +1054,7 @@ export const ReviewTransaction: React.FC = () => {
             } finally {
               if (isCurrentSubmission(attemptId)) setRequestingDepositAddress(false);
             }
-            if (isCurrentSubmission(attemptId)) recordAdmission(txId);
+            recordAdmission(txId);
             wakeWorker();
             break;
           }
@@ -1126,9 +1126,9 @@ export const ReviewTransaction: React.FC = () => {
             });
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
-              if (!isCurrentSubmission(attemptId)) return;
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
               restoreSendReviewIfSubmittingForSession(submitSessionToken);
+              if (!isCurrentSubmission(attemptId)) return;
               setIsSubmitting(false);
             }
           }

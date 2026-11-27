@@ -1056,6 +1056,72 @@ describe('Command Send review controller', () => {
     }
   );
 
+  it('aborts pending Command epoch admission when bridgeEpochSend returns without txId after Back and unmount', async () => {
+    mockDetectedChain = 'ethereum';
+    mockFullPage = true;
+    const amount = '5';
+    const to = '0x1111111111111111111111111111111111111111';
+    const reviewId = 'epoch-no-tx';
+    mockSearch = `amount=${amount}&to=${to}&tokenId=tok1&network=sepolia&route=epoch&commandReviewId=${reviewId}`;
+    mockBalanceData = [VALID_TOKEN];
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    const queued = deferred<{ txId?: string }>();
+    bridgeEpochSendMock.mockReturnValueOnce(queued.promise as any);
+    const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+    function Session({ reviewOpen }: { reviewOpen: boolean }) {
+      const drafts = useCommandDrafts();
+      const [prepared, setPrepared] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              drafts.writeDraft('send', {
+                amount,
+                recipientAddress: to,
+                tokenId: 'tok1',
+                bridgeNetwork: 'sepolia',
+                bridgeRoute: 'epoch',
+                reviewId
+              });
+              setPrepared(true);
+            }}
+          >
+            Prepare payment
+          </button>
+          {prepared && reviewOpen && <ReviewTransaction />}
+        </>
+      );
+    }
+    const shell = (reviewOpen: boolean) => (
+      <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+        <Session reviewOpen={reviewOpen} />
+      </CommandShell>
+    );
+    const view = render(shell(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare payment' }));
+    await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    view.rerender(shell(false));
+    view.rerender(shell(true));
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await act(async () => {
+      queued.resolve({});
+      await queued.promise;
+    });
+    await flush();
+    await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+  });
+
   function ReviewSession({ recall }: { recall?: CommandSendRecall }) {
     const drafts = useCommandDrafts();
     const [open, setOpen] = useState(false);
@@ -4781,5 +4847,65 @@ describe('ReviewTransaction — NEAR Intents', () => {
   it('maps every failure to a registered user-visible error id', () => {
     expect(nearIntentsSendFailureId(new Error('x'))).toBe('oneClickSubmitFailed');
     expect(nearIntentsSendFailureId(new OneClickHttpError(500))).toBe('oneClickSubmitFailed');
+  });
+
+  it('finishes Command near-intents admission across Back and unmount so returning to Review opens the admitted row', async () => {
+    mockFullPage = true;
+    const reviewId = 'near-handoff';
+    setNearIntentsRoute();
+    mockSearch = `amount=5&to=${RECIPIENT}&tokenId=tok1&network=solana&route=near-intents&commandReviewId=${reviewId}`;
+    const queued = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValueOnce(queued.promise);
+    const scope = { accountId: 'pubkey-1', network: 'devnet', rpcUrl: 'rpc' };
+    function NearSession({ reviewOpen }: { reviewOpen: boolean }) {
+      const drafts = useCommandDrafts();
+      const [prepared, setPrepared] = useState(false);
+      return (
+        <>
+          <button
+            onClick={() => {
+              drafts.writeDraft('send', {
+                amount: '5',
+                recipientAddress: RECIPIENT,
+                tokenId: 'tok1',
+                bridgeNetwork: 'solana',
+                bridgeRoute: 'near-intents',
+                reviewId
+              });
+              setPrepared(true);
+            }}
+          >
+            Prepare near payment
+          </button>
+          {prepared && reviewOpen && <ReviewTransaction />}
+        </>
+      );
+    }
+    const shell = (reviewOpen: boolean) => (
+      <CommandShell scope={scope} route={{ kind: 'flow', action: 'send' }}>
+        <NearSession reviewOpen={reviewOpen} />
+      </CommandShell>
+    );
+    const view = render(shell(true));
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare near payment' }));
+    await waitFor(() => expect(screen.getByTestId('send-review-submit')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(startNearIntentsSend).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    view.rerender(shell(false));
+    view.rerender(shell(true));
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    await act(async () => {
+      queued.resolve('near-admitted-tx');
+      await queued.promise;
+    });
+    await flush();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('redirect')).toHaveTextContent('/generating-transaction-full/near-admitted-tx')
+    );
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });

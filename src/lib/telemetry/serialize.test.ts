@@ -246,6 +246,7 @@ describe('serializeEvent', () => {
         platform: 'extension',
         network: 'mainnet'
       });
+      expect(serializeEvent({ ...stepEvent, complete: false }, context).complete).toBe(false);
     });
 
     it('emits only allowlisted wire keys and no extra caller fields', () => {
@@ -275,11 +276,15 @@ describe('serializeEvent', () => {
       ['overlong runId', { runId: 'r'.repeat(33) }],
       ['non-string runId', { runId: null }],
       ['non-finite order', { order: Number.NaN }],
-      ['negative visibleMs', { visibleMs: -1 }]
+      ['negative visibleMs', { visibleMs: -1 }],
+      ['missing complete', { complete: undefined }],
+      ['non-boolean complete string', { complete: 'true' }],
+      ['non-boolean complete number', { complete: 1 }]
     ])('withholds flow identity when %s is invalid', (_label, patch) => {
       const payload = serializeEvent({ ...stepEvent, ...patch } as unknown as TelemetryEvent, context);
       expect(payload.stepAction).toBeUndefined();
       expect(payload.flow).toBeUndefined();
+      expect(payload.complete).toBeUndefined();
     });
   });
 });
