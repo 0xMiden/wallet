@@ -7,11 +7,11 @@ import * as evaluation from './run-eval.mjs';
 
 const { runEval } = evaluation;
 
-function mockQuestionFixtures(context, select) {
+function mockQuestionFixtures(context, select, name = 'questions.json') {
   const read = readFileSync;
   context.mock.method(fs, 'readFileSync', (file, ...args) => {
     const contents = read(file, ...args);
-    return String(file).endsWith('/questions.json') ? JSON.stringify(select(JSON.parse(contents))) : contents;
+    return String(file).endsWith(`/${name}`) ? JSON.stringify(select(JSON.parse(contents))) : contents;
   });
   syncBuiltinESMExports();
   context.after(() => {
@@ -19,6 +19,8 @@ function mockQuestionFixtures(context, select) {
     syncBuiltinESMExports();
   });
 }
+
+const mockCaseFixtures = (context, select) => mockQuestionFixtures(context, select, 'cases.json');
 
 function mockProviderKey(context) {
   const previousKey = process.env.GROQ_API_KEY;
@@ -291,4 +293,150 @@ test('retries transient failures a bounded number of times', async () => {
   });
   assert.equal(timedOut, 'ok');
   assert.equal(attempts, 2);
+});
+
+test('parses provider reset times and falls back to a minute', () => {
+  assert.equal(typeof evaluation.parseResetMs, 'function');
+  for (const [value, ms] of [
+    ['7.66s', 7660],
+    ['2m59.5s', 179500],
+    ['1h2m3s', 3723000],
+    ['120ms', 120],
+    ['2m', 120000],
+    ['', 60000],
+    ['soon', 60000]
+  ]) {
+    assert.equal(evaluation.parseResetMs(value), ms, value);
+  }
+});
+
+test('paces only when the remaining tokens cannot cover another request', () => {
+  assert.equal(typeof evaluation.paceDelayMs, 'function');
+  const headers = (remaining, reset) =>
+    new Headers({
+      ...(remaining === undefined ? {} : { 'x-ratelimit-remaining-tokens': remaining }),
+      ...(reset === undefined ? {} : { 'x-ratelimit-reset-tokens': reset })
+    });
+  assert.equal(evaluation.paceDelayMs(headers('3800', '7.66s'), 3200), 0);
+  assert.equal(evaluation.paceDelayMs(headers('3799', '7.66s'), 3200), 7660);
+  assert.equal(evaluation.paceDelayMs(headers('0'), 3200), 60000);
+  assert.equal(evaluation.paceDelayMs(headers(undefined, '7.66s'), 3200), 0);
+});
+
+test('keeps at least 100 command cases', async () => {
+  const summary = await runEval({ offlineOnly: true, commandsViaWorker: true });
+  assert.ok(summary.totalCases >= 100, `Expected >=100 cases, got ${summary.totalCases}`);
+  assert.equal(summary.redactionFailures, 0, summary.errors.join('\n'));
+});
+
+function providerReply(result, headers) {
+  return Response.json(
+    { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ result }) } }] },
+    { headers }
+  );
+}
+
+test('sends every command case through the Worker and counts passing runs', async context => {
+  mockProviderKey(context);
+  const cases = JSON.parse(readFileSync(new URL('./cases.json', import.meta.url), 'utf8'));
+  const sent = [];
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    sent.push(JSON.parse(String(init.body)));
+    return providerReply({ op: 'cancel' });
+  });
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 2 });
+  assert.equal(sent.length, cases.length * 2);
+  const branches = body => body.response_format.json_schema.schema.properties.result.anyOf.length;
+  const commandBranches = branches(sent[cases.findIndex(item => item.snapshot) * 2]);
+  cases.forEach((item, index) => {
+    const body = sent[index * 2];
+    const user = body.messages[1].content;
+    if (item.snapshot) {
+      assert.equal(branches(body), commandBranches, item.id);
+      assert.deepEqual(JSON.parse(user).snapshot, item.snapshot, item.id);
+    } else {
+      assert.equal(branches(body), commandBranches + 1, item.id);
+      assert.equal(
+        user,
+        item.helpContext
+          ? JSON.stringify({ utterance: item.expectedRedacted, previousHelpTopic: item.helpContext })
+          : item.expectedRedacted,
+        item.id
+      );
+    }
+  });
+  const result = id => summary.results.find(item => item.id === id);
+  assert.deepEqual(result('cmd_bare_cancel'), {
+    id: 'cmd_bare_cancel',
+    passes: 2,
+    runs: 2,
+    ops: ['cancel', 'cancel']
+  });
+  assert.equal(result('cmd_bare_send').passes, 0);
+  assert.equal(summary.results.length, cases.length);
+});
+
+test('accepts any listed op, runs each command three times and reports failed requests', async context => {
+  mockProviderKey(context);
+  mockCaseFixtures(context, cases => cases.filter(({ id }) => id === 'fragment_public'));
+  let calls = 0;
+  context.mock.method(globalThis, 'fetch', async () => {
+    calls += 1;
+    if (calls === 3) return new Response(null, { status: 500 });
+    return providerReply({ op: 'unsupported', reason: '', suggested_route: null });
+  });
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true });
+  assert.deepEqual(summary.results, [
+    { id: 'fragment_public', passes: 2, runs: 3, ops: ['unsupported', 'unsupported', 'error'] }
+  ]);
+  assert.equal(summary.modelFailures, 1);
+});
+
+test('paces after a low-token reply and keeps the rate-limit headers', async context => {
+  mockProviderKey(context);
+  mockCaseFixtures(context, cases => cases.filter(({ id }) => id === 'cmd_bare_cancel'));
+  const delays = [];
+  const realSetTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay === 30000) delays.push(delay);
+    return realSetTimeout(callback, delay === 30000 ? 0 : delay, ...args);
+  });
+  context.mock.method(globalThis, 'fetch', async () =>
+    providerReply(
+      { op: 'cancel' },
+      { 'x-ratelimit-remaining-tokens': '10', 'x-ratelimit-reset-tokens': '30s', 'x-request-id': 'not-kept' }
+    )
+  );
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 2 });
+  assert.deepEqual(delays, [30000, 30000]);
+  assert.deepEqual(summary.rateLimitHeaders, {
+    'x-ratelimit-remaining-tokens': '10',
+    'x-ratelimit-reset-tokens': '30s'
+  });
+  assert.equal(summary.modelFailures, 0, summary.errors.join('\n'));
+});
+
+test('reads the retry budget from the environment', async context => {
+  mockProviderKey(context);
+  mockCaseFixtures(context, cases => cases.filter(({ id }) => id === 'cmd_bare_cancel'));
+  process.env.COMMAND_AI_EVAL_RETRY_BUDGET_MS = '0';
+  context.after(() => {
+    delete process.env.COMMAND_AI_EVAL_RETRY_BUDGET_MS;
+  });
+  const fetch = context.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 429 }));
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 1 });
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.deepEqual(summary.errors, ['[MODEL ERR] cmd_bare_cancel: Worker returned 429']);
+});
+
+test('runs the live model job only from a manual dispatch that picks a suite', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/command-ai.yml', import.meta.url), 'utf8');
+  const [before, live = ''] = workflow.split('\n  live:\n');
+  assert.ok(live.includes("if: github.event_name == 'workflow_dispatch' && inputs.suite != 'none'\n"));
+  assert.ok(live.includes('environment: command-ai-eval\n'));
+  assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY_EVAL }}\n'));
+  assert.ok(live.includes('--require-live'));
+  assert.ok(!before.includes('secrets.') && !before.includes('--require-live'));
+  assert.ok(/\n {6}suite:\n(?: {8}.*\n)*? {8}default: none\n/.test(before));
+  assert.ok(!workflow.includes('pull_request_target'));
 });

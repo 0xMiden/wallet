@@ -21,7 +21,13 @@
     "prompt": "send half my ETH to Alice",
     "expectedRedacted": "send half my ETH to <CONTACT_1>",
     "forbiddenSubstrings": ["Alice"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "ETH", "recipient_ref": "CONTACT_1", "amountKind": "fraction" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "ETH",
+      "recipient_ref": "CONTACT_1",
+      "amountKind": "fraction"
+    }
   },
   {
     "id": "send_miden_private_explicit",
@@ -29,7 +35,13 @@
     "prompt": "privately send 25 MIDEN to mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62",
     "expectedRedacted": "privately send <AMT_1> MIDEN to <ADDR_1>",
     "forbiddenSubstrings": ["25", "mtst1ap2t7"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "MIDEN", "note_type": "private", "recipient_ref": "ADDR_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "note_type": "private",
+      "recipient_ref": "ADDR_1"
+    }
   },
   {
     "id": "send_miden_public_explicit",
@@ -37,7 +49,13 @@
     "prompt": "send 100 MIDEN publicly to Alice",
     "expectedRedacted": "send <AMT_1> MIDEN publicly to <CONTACT_1>",
     "forbiddenSubstrings": ["100", "Alice"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "MIDEN", "note_type": "public", "recipient_ref": "CONTACT_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "note_type": "public",
+      "recipient_ref": "CONTACT_1"
+    }
   },
   {
     "id": "send_max_usdc_to_ens",
@@ -45,7 +63,13 @@
     "prompt": "transfer all my USDC to vitalik.eth",
     "expectedRedacted": "transfer all my USDC to <ADDR_1>",
     "forbiddenSubstrings": ["vitalik.eth"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "USDC", "amountKind": "max", "recipient_ref": "ADDR_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "USDC",
+      "amountKind": "max",
+      "recipient_ref": "ADDR_1"
+    }
   },
   {
     "id": "send_percent_quarter",
@@ -53,7 +77,13 @@
     "prompt": "pay Bob 25% of my MIDEN",
     "expectedRedacted": "pay <CONTACT_1> 25% of my MIDEN",
     "forbiddenSubstrings": ["Bob"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "MIDEN", "amountKind": "fraction", "recipient_ref": "CONTACT_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "amountKind": "fraction",
+      "recipient_ref": "CONTACT_1"
+    }
   },
   {
     "id": "send_fiat_amount",
@@ -61,7 +91,13 @@
     "prompt": "send $50 of USDCx to Alice",
     "expectedRedacted": "send <FIAT_AMT_1> of USDCx to <CONTACT_1>",
     "forbiddenSubstrings": ["50", "Alice"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "USDCX", "amountKind": "fiat_ref", "recipient_ref": "CONTACT_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "USDCX",
+      "amountKind": "fiat_ref",
+      "recipient_ref": "CONTACT_1"
+    }
   },
   {
     "id": "send_tiny_decimal",
@@ -93,7 +129,13 @@
     "prompt": "send MIDEN to Alice",
     "expectedRedacted": "send MIDEN to <CONTACT_1>",
     "forbiddenSubstrings": ["Alice"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "MIDEN", "recipient_ref": "CONTACT_1", "amountKind": null }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "recipient_ref": "CONTACT_1",
+      "amountKind": null
+    }
   },
   {
     "id": "send_missing_recipient",
@@ -117,7 +159,13 @@
     "prompt": "send 75% of my USDCx to Bob",
     "expectedRedacted": "send 75% of my USDCx to <CONTACT_1>",
     "forbiddenSubstrings": ["Bob"],
-    "expected": { "op": "set_intent", "action": "send", "asset": "USDCX", "amountKind": "fraction", "recipient_ref": "CONTACT_1" }
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "USDCX",
+      "amountKind": "fraction",
+      "recipient_ref": "CONTACT_1"
+    }
   },
   {
     "id": "swap_basic",
@@ -205,7 +253,14 @@
     "prompt": "bridge 400 ETH from base to miden using epoch",
     "expectedRedacted": "bridge <AMT_1> ETH from base to miden using epoch",
     "forbiddenSubstrings": ["400"],
-    "expected": { "op": "set_intent", "action": "bridge", "asset": "ETH", "from_chain": "base", "to_chain": "miden", "provider": "epoch" }
+    "expected": {
+      "op": "set_intent",
+      "action": "bridge",
+      "asset": "ETH",
+      "from_chain": "base",
+      "to_chain": "miden",
+      "provider": "epoch"
+    }
   },
   {
     "id": "bridge_max_eth",
@@ -229,7 +284,13 @@
     "prompt": "earn yield on half my USDCx",
     "expectedRedacted": "earn yield on half my USDCx",
     "forbiddenSubstrings": [],
-    "expected": { "op": "set_intent", "action": "earn", "earn_op": "deposit", "asset": "USDCX", "amountKind": "fraction" }
+    "expected": {
+      "op": "set_intent",
+      "action": "earn",
+      "earn_op": "deposit",
+      "asset": "USDCX",
+      "amountKind": "fraction"
+    }
   },
   {
     "id": "earn_withdraw",
@@ -309,7 +370,13 @@
     "prompt": "how much did I send Alice this month?",
     "expectedRedacted": "how much did I send <CONTACT_1> this month?",
     "forbiddenSubstrings": ["Alice"],
-    "expected": { "op": "query_ledger", "query": "tx_sum", "counterparty_ref": "CONTACT_1", "direction": "out", "window": "this_month" }
+    "expected": {
+      "op": "query_ledger",
+      "query": "tx_sum",
+      "counterparty_ref": "CONTACT_1",
+      "direction": "out",
+      "window": "this_month"
+    }
   },
   {
     "id": "query_tx_sum_prev_month",
@@ -550,5 +617,437 @@
     "expectedRedacted": "send <AMT_1> ETH and <AMT_2> USDC to <CONTACT_1>",
     "forbiddenSubstrings": ["0.000001", "99.999", "Bob"],
     "expected": { "op": "set_intent", "action": "send" }
+  },
+  {
+    "id": "help_how_send",
+    "category": "help",
+    "prompt": "how do I send",
+    "expectedRedacted": "how do I send",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "cmd_bare_send",
+    "category": "confusable",
+    "prompt": "send",
+    "expectedRedacted": "send",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "send"
+    }
+  },
+  {
+    "id": "help_how_swap",
+    "category": "help",
+    "prompt": "how do I swap?",
+    "expectedRedacted": "how do I swap?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "cmd_bare_swap",
+    "category": "confusable",
+    "prompt": "swap",
+    "expectedRedacted": "swap",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "swap"
+    }
+  },
+  {
+    "id": "help_how_receive",
+    "category": "help",
+    "prompt": "how do I receive money?",
+    "expectedRedacted": "how do I receive money?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "help_cancel_last_payment",
+    "category": "help",
+    "prompt": "cancel my last payment",
+    "expectedRedacted": "cancel my last payment",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    },
+    "intendedChange": true
+  },
+  {
+    "id": "cmd_bare_cancel",
+    "category": "confusable",
+    "prompt": "cancel",
+    "expectedRedacted": "cancel",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "cancel"
+    }
+  },
+  {
+    "id": "help_get_back_sent_payment",
+    "category": "help",
+    "prompt": "can I get back a payment I already sent?",
+    "expectedRedacted": "can I get back a payment I already sent?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "help_money_back_from_contact",
+    "category": "help",
+    "prompt": "I want my money back from Bob",
+    "expectedRedacted": "I want my money back from <CONTACT_1>",
+    "forbiddenSubstrings": ["Bob"],
+    "expected": {
+      "op": ["explain", "unsupported"]
+    },
+    "intendedChange": true
+  },
+  {
+    "id": "cmd_never_mind",
+    "category": "confusable",
+    "prompt": "never mind",
+    "expectedRedacted": "never mind",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "cancel"
+    }
+  },
+  {
+    "id": "cmd_reset_draft_amount",
+    "category": "confusable",
+    "prompt": "reset the amount to 20",
+    "expectedRedacted": "reset the amount to <AMT_1>",
+    "forbiddenSubstrings": ["20"],
+    "expected": {
+      "op": "patch_slots"
+    },
+    "snapshot": {
+      "missingSlot": "recipient",
+      "allowedOptionIds": [],
+      "draft": {
+        "action": "send",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": true,
+        "hasRecipient": false,
+        "provider": null,
+        "note_type": "private",
+        "earn_op": null
+      }
+    }
+  },
+  {
+    "id": "cmd_reset_then_send",
+    "category": "confusable",
+    "prompt": "reset that and send 3 MIDEN to Bob",
+    "expectedRedacted": "reset that and send <AMT_1> MIDEN to <CONTACT_1>",
+    "forbiddenSubstrings": ["Bob"],
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "recipient_ref": "CONTACT_1"
+    }
+  },
+  {
+    "id": "cmd_stuck_then_send",
+    "category": "confusable",
+    "prompt": "I'm stuck, just send 8 MIDEN to Alice",
+    "expectedRedacted": "I'm stuck, just send <AMT_1> MIDEN to <CONTACT_1>",
+    "forbiddenSubstrings": ["Alice"],
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "recipient_ref": "CONTACT_1"
+    }
+  },
+  {
+    "id": "help_payment_stuck",
+    "category": "help",
+    "prompt": "my payment is stuck, what do I do?",
+    "expectedRedacted": "my payment is stuck, what do I do?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "help_should_reset",
+    "category": "help",
+    "prompt": "should I reset the app?",
+    "expectedRedacted": "should I reset the app?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "help_how_bridge",
+    "category": "help",
+    "prompt": "how do I bridge USDC to Miden?",
+    "expectedRedacted": "how do I bridge USDC to Miden?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "cmd_bridge_history",
+    "category": "confusable",
+    "prompt": "show what I bridged this month",
+    "expectedRedacted": "show what I bridged this month",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "query_ledger",
+      "window": "this_month"
+    }
+  },
+  {
+    "id": "cmd_bridge_action",
+    "category": "confusable",
+    "prompt": "bridge my USDC to miden",
+    "expectedRedacted": "bridge my USDC to miden",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "bridge",
+      "asset": "USDC",
+      "to_chain": "miden"
+    }
+  },
+  {
+    "id": "help_mixed_send",
+    "category": "help",
+    "prompt": "send 5 MIDEN to Alice and tell me what a private note is",
+    "expectedRedacted": "send <AMT_1> MIDEN to <CONTACT_1> and tell me what a private note is",
+    "forbiddenSubstrings": ["Alice"],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "help_mixed_bridge",
+    "category": "help",
+    "prompt": "how long does bridging take? also bridge 40 USDC to miden",
+    "expectedRedacted": "how long does bridging take? also bridge <AMT_1> USDC to miden",
+    "forbiddenSubstrings": ["40"],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "cmd_spanish_send",
+    "category": "confusable",
+    "prompt": "envía 5 MIDEN a Alice",
+    "expectedRedacted": "envía <AMT_1> MIDEN a <CONTACT_1>",
+    "forbiddenSubstrings": ["Alice"],
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "asset": "MIDEN",
+      "recipient_ref": "CONTACT_1"
+    }
+  },
+  {
+    "id": "help_show_phrase",
+    "category": "help",
+    "prompt": "how do I export my recovery phrase?",
+    "expectedRedacted": "how do I export my recovery phrase?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    },
+    "intendedChange": true
+  },
+  {
+    "id": "help_what_guardian",
+    "category": "help",
+    "prompt": "what is a guardian?",
+    "expectedRedacted": "what is a guardian?",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    }
+  },
+  {
+    "id": "fragment_name",
+    "category": "fragment",
+    "prompt": "Alice",
+    "expectedRedacted": "<CONTACT_1>",
+    "forbiddenSubstrings": ["Alice"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_name_after_help",
+    "category": "fragment",
+    "prompt": "Alice",
+    "expectedRedacted": "<CONTACT_1>",
+    "forbiddenSubstrings": ["Alice"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_address",
+    "category": "fragment",
+    "prompt": "mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62",
+    "expectedRedacted": "<ADDR_1>",
+    "forbiddenSubstrings": ["mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_address_after_help",
+    "category": "fragment",
+    "prompt": "mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62",
+    "expectedRedacted": "<ADDR_1>",
+    "forbiddenSubstrings": ["mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_amount",
+    "category": "fragment",
+    "prompt": "25",
+    "expectedRedacted": "<AMT_1>",
+    "forbiddenSubstrings": ["25"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_amount_after_help",
+    "category": "fragment",
+    "prompt": "25",
+    "expectedRedacted": "<AMT_1>",
+    "forbiddenSubstrings": ["25"],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_public",
+    "category": "fragment",
+    "prompt": "public",
+    "expectedRedacted": "public",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_public_after_help",
+    "category": "fragment",
+    "prompt": "public",
+    "expectedRedacted": "public",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_private",
+    "category": "fragment",
+    "prompt": "private",
+    "expectedRedacted": "private",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_private_after_help",
+    "category": "fragment",
+    "prompt": "private",
+    "expectedRedacted": "private",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_first_one",
+    "category": "fragment",
+    "prompt": "the first one",
+    "expectedRedacted": "the first one",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_first_one_after_help",
+    "category": "fragment",
+    "prompt": "the first one",
+    "expectedRedacted": "the first one",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_network",
+    "category": "fragment",
+    "prompt": "ethereum",
+    "expectedRedacted": "ethereum",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_network_after_help",
+    "category": "fragment",
+    "prompt": "ethereum",
+    "expectedRedacted": "ethereum",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
+  },
+  {
+    "id": "fragment_provider",
+    "category": "fragment",
+    "prompt": "epoch",
+    "expectedRedacted": "epoch",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "fragment_provider_after_help",
+    "category": "fragment",
+    "prompt": "epoch",
+    "expectedRedacted": "epoch",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    },
+    "helpContext": "Wallet"
   }
 ]
