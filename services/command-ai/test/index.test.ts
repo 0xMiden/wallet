@@ -149,7 +149,13 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
     expect(systemPrompt).toContain('It hides it on this device. You can restore it from Activity.');
     expect(systemPrompt).toContain('Do not guess who holds the funds');
-    expect(systemPrompt).toContain('A private account also needs its account data restored.');
+    expect(systemPrompt).toContain("The recovery phrase alone does not restore a private account's data.");
+    expect(systemPrompt).toContain(
+      "get it back either with the phrase plus a Guardian's current copy, or with a current Encrypted Wallet File and its password. Only one way is needed."
+    );
+    expect(systemPrompt).toContain('Paying again may need more.');
+    expect(systemPrompt).toContain('Never turn either-or into both.');
+    expect(systemPrompt).toContain('Say nothing else about what backups hold or restore.');
     expect(systemPrompt).not.toContain('Guardian receives encrypted account state');
     expect(systemPrompt).toContain('Choose Assistant for what the AI can see.');
     expect(systemPrompt).toContain('Help sends no chat or wallet history.');
