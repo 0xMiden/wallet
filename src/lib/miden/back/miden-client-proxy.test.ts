@@ -2192,6 +2192,91 @@ describe('MidenClientProxy — deadline kill', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  it('lets a running sync finish when a queued delivery check reaches its deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, markOpStarted } = await loadProxy(true);
+      let finishSync!: () => void;
+      const syncWork = new Promise<void>(resolve => {
+        finishSync = resolve;
+      });
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { method: string; op_id: string }) => {
+        if (env.method === 'syncState') {
+          markOpStarted(env.op_id);
+          await syncWork;
+          return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 20_000 };
+        }
+        return new Promise(() => {});
+      });
+
+      const sync = midenClientProxy.syncState();
+      void sync.catch(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ method: 'syncState' }));
+
+      const delivery = midenClientProxy.isOutputNoteConsumed('mock-note').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'isOutputNoteConsumed', deadline_ms: 15_000 })
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      fireReady();
+      await expect(delivery).resolves.toMatchObject({ reason: 'deadline-no-kill', facts: { started: false } });
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+
+      finishSync();
+      await expect(sync).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    { scenario: 'without an observed started sync', started: false, timer: 'dispatch' },
+    { scenario: 'after its start is observed', started: true, timer: 'started' }
+  ])('recovers the offscreen document when a delivery check times out $scenario', async ({ started, timer }) => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, markOpStarted, __test } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      fakeChrome.runtime.sendMessage.mockImplementation((env: { op_id: string }) => {
+        if (started) markOpStarted(env.op_id);
+        return new Promise(() => {});
+      });
+
+      // The service worker may still be waiting for a previous sync response.
+      const sync = started ? midenClientProxy.syncState().catch((error: unknown) => error) : undefined;
+      const delivery = midenClientProxy.isOutputNoteConsumed('mock-note').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'isOutputNoteConsumed', deadline_ms: 15_000 })
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      fireReady();
+
+      const error = await delivery;
+      expect(error).toBeInstanceOf(OperationAbortedError);
+      expect(error).toMatchObject({
+        reason: 'deadline',
+        facts: { started, deadline: { owner: 'own', timer, killer: 'read' } }
+      });
+      expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+      expect(fakeChrome.offscreen.createDocument).toHaveBeenCalledTimes(2);
+      expect(__test.inFlightSize()).toBe(0);
+      const syncError = (await sync) as InstanceType<typeof OperationAbortedError> | undefined;
+      expect(syncError?.reason).toBe(started ? 'deadline' : undefined);
+      expect(syncError?.facts?.deadline?.owner).toBe(started ? 'collateral' : undefined);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a single kill rejects EVERY in-flight op (closing the doc kills all realms)', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');

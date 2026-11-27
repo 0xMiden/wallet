@@ -623,11 +623,19 @@ function rejectDeadlineNoKill(op_id: string, op: InFlightOp): void {
   );
 }
 
+function shouldDowngradeReadDeadline(op: InFlightOp): boolean {
+  if (op.critical) return false;
+  if (isCriticalOpInFlight()) return true;
+  return (
+    !op.started &&
+    op.method === 'isOutputNoteConsumed' &&
+    Array.from(inFlight.values()).some(active => active.started && active.method === 'syncState')
+  );
+}
+
 function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
-  if (op.critical || !isCriticalOpInFlight()) return false;
-  // A cheap read's deadline while a value-moving critical op owns the doc.
-  // Fail only this read - never tear down the realm running the write
-  // (design §3.3). The offscreen op keeps running; its result is dropped.
+  if (!shouldDowngradeReadDeadline(op)) return false;
+  // The read can expire while the worker finishes a critical operation or an observed sync.
   rejectDeadlineNoKill(op_id, op);
   return true;
 }
@@ -638,7 +646,8 @@ function downgradeReadDeadline(op_id: string, op: InFlightOp): boolean {
  *     DOWNGRADE to a reject-without-kill of just this op; the realm (and the live
  *     write / prove) survives. This is the whole point of `criticalOpCount`.
  *   - a critical op's OWN deadline (the wedge case #260 targets) → MAY kill.
- *   - a read deadline with no critical op in flight → kill + reopen as before.
+ *   - a queued delivery check's deadline during an observed sync → fail only that check.
+ *   - other read deadlines with no critical op in flight → kill + reopen as before.
  */
 async function onDeadline(op_id: string): Promise<void> {
   const op = inFlight.get(op_id);
@@ -653,14 +662,14 @@ async function onDeadline(op_id: string): Promise<void> {
   if (downgradeReadDeadline(op_id, op)) return;
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
-  // a read deadline with no critical op in flight (kill + reopen).
+  // a read deadline with no active operation to preserve (kill + reopen).
   // Read before the close: a start signal or sign resume during it re-arms this op's timer.
   const deadline = { timer: op.timerPhase, killer: op.critical ? 'write' : 'read' } as const;
   // A deadline on a browser whose IndexedDB is not answering is that stall, not a wedged realm: the reopened document
   // would open the same database and hang again, an endless close/reopen loop (#2148). A read just fails; a write
   // still tears down the realm it may be wedging, but nothing is reopened.
   const storageStalled = await checkStorage();
-  // The probe can take seconds: the op may have settled or paused, or a write may have started, meanwhile.
+  // The probe can take seconds: the op may settle or pause, or a write or sync may start.
   // A re-armed op has a fresh deadline of its own and a newer firing; this one is superseded.
   if (!isCurrent()) return;
   if (storageStalled && !op.critical) {
@@ -669,12 +678,12 @@ async function onDeadline(op_id: string): Promise<void> {
   }
   if (downgradeReadDeadline(op_id, op)) return;
   // The close waits on the lifecycle lock and on hasOffscreenDocument, so it asks again just before closeDocument: a
-  // start signal or sign resume may have superseded this firing, and a write can take the document without the lock.
-  const closeResult = await forceCloseOffscreenDocument(() => isCurrent() && (op.critical || !isCriticalOpInFlight()));
+  // start signal or sign resume may have superseded this firing, or an operation to preserve may have started.
+  const closeResult = await forceCloseOffscreenDocument(() => isCurrent() && !shouldDowngradeReadDeadline(op));
   // Not closed, and no longer the current firing: leave the replacement timer or the paused sign.
   if (closeResult !== 'closed' && !isCurrent()) return;
   if (closeResult === 'blocked') {
-    // A write held the document: only this read fails, even if that write has ended since, as its timer is spent.
+    // Only this read fails, even if the operation that blocked the close has already finished.
     rejectDeadlineNoKill(op_id, op);
     return;
   }
