@@ -77,22 +77,22 @@ export const isPlaceholderOnly = (text: string): boolean =>
 
 const UNKNOWN = new Set(['not_covered', 'cannot_diagnose']);
 
-export function selectCards(_ids: unknown, _data: HelpDataset): HelpCard[] {
-  return [];
-}
-
-export function selectCard(ids: unknown, data: HelpDataset): HelpCard {
+/** The cards a router pick may be answered from, best first: one that wins alone, or up to two. */
+export function selectCards(ids: unknown, data: HelpDataset): HelpCard[] {
   const byId = new Map(data.cards.map(card => [card.id, card]));
   const known = [...new Set<unknown>(Array.isArray(ids) ? ids : [])]
     .flatMap(id => byId.get(id as string) ?? [])
     .slice(0, 2);
-  return (
+  const alone =
     known.find(card => card.urgent) ??
     known.find(card => card.mode === 'fixed' && !UNKNOWN.has(card.id)) ??
-    known[0] ??
-    byId.get('not_covered')!
-  );
+    (known[0] && UNKNOWN.has(known[0].id) ? known[0] : undefined);
+  if (alone) return [alone];
+  const kept = known.filter(card => !UNKNOWN.has(card.id));
+  return kept.length > 0 ? kept : [byId.get('not_covered')!];
 }
+
+export const selectCard = (ids: unknown, data: HelpDataset): HelpCard => selectCards(ids, data)[0]!;
 
 export function explainReply(card: HelpCard): { op: 'explain'; topic: string; answer: string } {
   return { op: 'explain', topic: card.topic, answer: card.answer };

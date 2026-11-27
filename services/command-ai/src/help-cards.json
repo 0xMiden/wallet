@@ -1,4 +1,9 @@
 {
+  "writing": {
+    "writer": "openai/gpt-oss-20b",
+    "checker": "openai/gpt-oss-20b",
+    "cards": []
+  },
   "forbid": [
     "\\b(is|are|stays?|remains?|fully|completely) (anonymous|untraceable|unlinkable)\\b",
     "\\bend[- ]to[- ]end\\b",
