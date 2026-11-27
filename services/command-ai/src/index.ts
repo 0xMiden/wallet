@@ -235,6 +235,9 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+// Diagnosis only: checks a candidate instruction for clarification follow-ups.
+const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
+
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
   ...COMMAND_AI_JSON_SCHEMA,
@@ -476,7 +479,14 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : HELP_PROMPT },
+          {
+            role: 'system',
+            content: snapshot
+              ? `${SYSTEM_PROMPT}\n\n${SNAPSHOT_RULES}`
+              : helpContext === undefined
+                ? SYSTEM_PROMPT
+                : HELP_PROMPT
+          },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
