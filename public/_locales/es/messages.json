@@ -3705,10 +3705,6 @@
     "message": "Red Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Cambiar de red",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Proveedor",
     "englishSource": "Provider"
@@ -3732,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "A",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "vía $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "No se han encontrado tokens",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Activos, redes y proveedores",

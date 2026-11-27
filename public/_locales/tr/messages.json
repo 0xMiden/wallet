@@ -3705,10 +3705,6 @@
     "message": "Miden ağı",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Ağ değişikliği",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Sağlayıcı",
     "englishSource": "Provider"
@@ -3732,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "To",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "$provider$ aracılığıyla",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Hiçbir token bulunamadı",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Varlık, ağ ve sağlayıcı",

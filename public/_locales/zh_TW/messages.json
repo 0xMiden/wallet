@@ -3705,10 +3705,6 @@
     "message": "Miden 網路",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "變更網路",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "提供者",
     "englishSource": "Provider"
@@ -3732,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "至",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "來源：$provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "未找到任何代幣",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "資產、網路與服務提供者",
