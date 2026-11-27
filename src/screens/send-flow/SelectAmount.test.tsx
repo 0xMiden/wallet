@@ -681,6 +681,23 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 12.5 USDC');
     });
 
+    it('shows a spendable balance and its fiat estimate without changing Max at the precision limit', () => {
+      const onAmountChange = jest.fn();
+      renderComponent({
+        showAmountShortcuts: true,
+        token: baseToken({ balance: 10000.3, decimals: 12, fiatPrice: 0.05 }),
+        onAmountChange
+      });
+
+      fireEvent.click(screen.getByTestId('amount-shortcut-max'));
+      expect(onAmountChange).toHaveBeenCalledWith('10000.29999999999');
+
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available 10000.2999 USDC');
+      expect(screen.getByTitle('available 10000.29999999999 USDC')).toBeVisible();
+      expect(helper).toHaveTextContent('approxFiatValue:$500.01');
+    });
+
     it('expands past 4dp rather than rounding a dust balance to zero', () => {
       renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
