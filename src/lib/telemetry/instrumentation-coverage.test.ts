@@ -63,7 +63,8 @@ const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
  */
 const STEP_TABLES: readonly { path: string; accessor: string }[] = [
   { path: WIRING_INSIDE_TELEMETRY, accessor: 'stepOfStage' },
-  { path: 'app/pages/Welcome.tsx', accessor: 'ONBOARDING_TELEMETRY_STEPS' }
+  { path: 'app/pages/Welcome.tsx', accessor: 'ONBOARDING_TELEMETRY_STEPS' },
+  { path: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx', accessor: 'RECEIVE_STEP_TELEMETRY' }
 ];
 
 /** Non-test sources, excluding the telemetry module's own plumbing. */
@@ -95,7 +96,7 @@ const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
  * would have satisfied `review` again. That file is allowed by path instead,
  * which is exact.
  */
-const REPORTS_TELEMETRY = /from 'lib\/telemetry/;
+const REPORTS_TELEMETRY = /from '(?:lib\/telemetry|app\/hooks\/useFundTelemetry)/;
 
 /** Files that report telemetry without importing it, because they ARE it. */
 const INSIDE_TELEMETRY: readonly string[] = [WIRING_INSIDE_TELEMETRY];
@@ -137,6 +138,8 @@ const EVERY_STEP: Record<TelemetryStep, TelemetryStep> = {
   select_amount: 'select_amount',
   select_route: 'select_route',
   review: 'review',
+  connect_wallet: 'connect_wallet',
+  status: 'status',
   submitting: 'submitting',
   swap_amounts: 'swap_amounts',
   choose_protection: 'choose_protection',
@@ -258,7 +261,9 @@ const isConsumedByAReporter = (accessor: string): boolean =>
  * reporter's argument.
  */
 const isConsumedByAStepReporter = (accessor: string): boolean =>
-  CALL_SITES.some(file => file.text.includes(accessor) && /\.step\(|\bstep:\s/.test(file.text));
+  CALL_SITES.some(
+    file => file.text.includes(accessor) && /\.(?:step|enterStep|transitionStep)\(|\bstep:\s/.test(file.text)
+  );
 
 describe('every declared operation is actually reported somewhere', () => {
   const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(

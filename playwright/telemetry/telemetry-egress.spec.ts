@@ -285,6 +285,17 @@ test.describe('Usage analytics egress', () => {
       for (const envelope of sendEnded) {
         expect((envelope.props as Record<string, unknown>).step).toBe('select_recipient');
       }
+      const sendSteps = sink.requests
+        .slice(beforeSend)
+        .map(request => JSON.parse(request.body) as Record<string, unknown>)
+        .filter(envelope => envelope.eventName === 'send_step');
+      expect(sendSteps).not.toEqual([]);
+      expect(sendSteps[0]?.props).toMatchObject({
+        step: 'select_recipient',
+        stepAction: 'leave',
+        order: 1,
+        complete: true
+      });
     });
 
     await test.step('everything one run of the app did shares a session, and the flows inside it stay separate', async () => {
@@ -316,7 +327,7 @@ test.describe('Usage analytics egress', () => {
         ...new Set(
           sinceReload
             .filter(e => !String(e.eventName).endsWith('_visit'))
-            .map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, ''))
+            .map(envelope => String(envelope.eventName).replace(/_(started|ended|step)$/, ''))
         )
       ];
       expect(sessions.size).toBe(1);
@@ -332,7 +343,7 @@ test.describe('Usage analytics egress', () => {
       const namesByFlowId = new Map<string, Set<string>>();
       for (const envelope of sinceReload.filter(e => !/_(settled|visit|discovery)$/.test(String(e.eventName)))) {
         const id = String(propsOf(envelope).flowId);
-        const name = String(envelope.eventName).replace(/_(started|ended)$/, '');
+        const name = String(envelope.eventName).replace(/_(started|ended|step)$/, '');
         namesByFlowId.set(id, (namesByFlowId.get(id) ?? new Set()).add(name));
       }
       expect([...namesByFlowId].filter(([, names]) => names.size > 1)).toEqual([]);
@@ -507,6 +518,7 @@ const PROPS_KEYS = [
   'errorKind',
   'durationMs',
   'step',
+  'stepAction',
   'screen',
   'navSource',
   'surface',
@@ -542,7 +554,7 @@ function assertEnvelopeShape(request: SinkRequest): void {
 
   // Every part comes from a closed literal union in `types.ts`, so anything
   // outside this shape means a free-form string reached the event name.
-  expect(String(envelope.eventName)).toMatch(/^(?:[a-z_]+_(?:started|ended|settled|visit)|feature_discovery)$/);
+  expect(String(envelope.eventName)).toMatch(/^(?:[a-z_]+_(?:started|ended|settled|visit|step)|feature_discovery)$/);
   // The session id is an ephemeral per-run nanoid. Asserting its shape is what
   // keeps a persistent or device-derived identifier from being introduced
   // without a test noticing: anything derived from a device would not be 21
@@ -575,9 +587,34 @@ function assertEnvelopeShape(request: SinkRequest): void {
   expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(isVisit ? visitProps.navSource : 'initial');
   expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit || isDiscovery ? visitProps.surface : 'popup');
   if (isDiscovery) assertFeatureDiscoveryProps(visitProps);
+  if (String(envelope.eventName).endsWith('_step')) assertTaskStepProps(String(envelope.eventName), visitProps);
   // Holds either way: an absent flow id stringifies to something no 21-character
   // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));
+}
+
+function assertTaskStepProps(eventName: string, props: Record<string, unknown>): void {
+  const stepsByEvent = {
+    send_step: ['select_recipient', 'select_amount', 'select_route', 'review', 'submitting'],
+    fund_step: ['connect_wallet', 'select_amount', 'select_route', 'review', 'submitting', 'status']
+  };
+  expect(Object.keys(stepsByEvent)).toContain(eventName);
+  expect(Object.keys(props).sort()).toEqual([
+    'complete',
+    'durationMs',
+    'flowId',
+    'network',
+    'order',
+    'step',
+    'stepAction'
+  ]);
+  expect(stepsByEvent[eventName as keyof typeof stepsByEvent]).toContain(props.step);
+  expect(['continue', 'back', 'close', 'submit', 'retry', 'repeat', 'leave']).toContain(props.stepAction);
+  expect(typeof props.order).toBe('number');
+  expect(Number.isFinite(props.order) && (props.order as number) >= 1).toBe(true);
+  expect(typeof props.durationMs).toBe('number');
+  expect(Number.isFinite(props.durationMs) && (props.durationMs as number) >= 0).toBe(true);
+  expect(typeof props.complete).toBe('boolean');
 }
 
 function assertFeatureDiscoveryProps(visitProps: Record<string, unknown>): void {

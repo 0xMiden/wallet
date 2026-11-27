@@ -217,4 +217,62 @@ describe('serializeEvent', () => {
       }
     });
   });
+
+  describe('task step progression', () => {
+    const stepEvent: TelemetryEvent = {
+      phase: 'step',
+      flow: 'send',
+      flowId: 'f1',
+      runId: 'r1',
+      step: 'select_amount',
+      stepAction: 'continue',
+      order: 2,
+      visibleMs: 1450.6,
+      complete: true
+    };
+
+    it('serializes allowed step fields with rounded visible duration', () => {
+      expect(serializeEvent(stepEvent, context)).toEqual({
+        phase: 'step',
+        flow: 'send',
+        flowId: 'f1',
+        runId: 'r1',
+        step: 'select_amount',
+        stepAction: 'continue',
+        order: 2,
+        durationMs: 1451,
+        complete: true,
+        appVersion: '1.15.21',
+        platform: 'extension',
+        network: 'mainnet'
+      });
+    });
+
+    it('emits only allowlisted wire keys and no extra caller fields', () => {
+      const poisoned = {
+        ...stepEvent,
+        address: 'mid1qq...',
+        amount: '100',
+        clipboard: 'secret'
+      } as unknown as TelemetryEvent;
+      const payload = serializeEvent(poisoned, context);
+      for (const key of Object.keys(payload)) expect(WIRE_KEYS).toContain(key);
+      expect('address' in payload).toBe(false);
+      expect('amount' in payload).toBe(false);
+      expect('clipboard' in payload).toBe(false);
+    });
+
+    it.each([
+      ['send step borrowed from fund', { flow: 'send', step: 'connect_wallet' }],
+      ['fund step borrowed from send', { flow: 'fund', step: 'select_recipient' }],
+      ['unknown step action', { stepAction: 'hack' }],
+      ['empty flowId', { flowId: '' }],
+      ['non-finite order', { order: Number.NaN }],
+      ['negative visibleMs', { visibleMs: -1 }]
+    ])('withholds flow identity when %s is invalid', (_label, patch) => {
+      const payload = serializeEvent({ ...stepEvent, ...patch } as unknown as TelemetryEvent, context);
+      expect(payload.stepAction).toBeUndefined();
+      expect(payload.flow).toBeUndefined();
+    });
+  });
 });

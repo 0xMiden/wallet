@@ -569,7 +569,7 @@ Added for #1969. Read before drawing a conclusion from `*_visit` events.
 - **Visits under 600 ms are dropped**, matching the carousel dwell, so a very fast deliberate visit is also invisible.
 - **`order` is per window.** It orders one run in one window and says nothing across a popup, a side panel and a worker.
 - **The first reported visit is not always the first screen.** If the landing screen was passed through in under 600 ms, the first event carries `push`.
-- **Not covered yet:** feature exposure versus selection, Send and Funding step progression with backtracking, and the aggregate transfer report (chain pair, route, amount band). Tracked as follow-ups of #1969.
+- **Not covered yet:** the aggregate transfer report (chain pair, route, amount band) and finer nav source or approval surfaces. Tracked as follow-ups of #1969.
 
 ### Example report (synthetic)
 
@@ -585,3 +585,12 @@ The report orders and times screens only. It says nothing about whether a send w
 ## Feature exposure and selection
 
 The bottom navigation, Home actions and Receive funding tile report exposure when enabled and fully visible in a foreground wallet for 600 ms. A feature and entry point count at most once in each foreground opportunity, even if the control remounts. This is a count of opportunities to notice a control, not proof that anyone read it. A deliberate selection before the dwell still reports as a selection. Do not infer a missing exposure or divide selections by exposures as though they were paired. These events have no per-event order or flow identifier, and never report what a person entered. Without viewport observation the App records eligible selections only.
+
+## Send and Funding step progression
+
+Added for #1969 (Slice 3). `send_step` and `fund_step` trace closed steps inside Send (`select_recipient`, `select_amount`, `select_route`, `review`, `submitting`) and Funding (`connect_wallet`, `select_amount`, `select_route`, `review`, `submitting`, `status`):
+
+- **Dwell pauses while hidden.** `durationMs` counts active foreground time only (`document.visibilityState !== 'hidden'`), not background idle intervals.
+- **Abrupt closes are incomplete or missing.** A `pagehide` teardown emits the active step with `stepAction: 'leave'` and `complete: false`, while a hard process kill before listeners flush loses the in-flight step.
+- **Repeated blocked presses start at two and cap per visit.** `recordActionWithoutProgress()` ignores the first non-progressing trigger on a step visit, emits `repeat` from the second onward without resetting visible dwell time, and caps repeats at 3 per step visit (and 40 total step events per attempt). Disabled native HTML buttons prevent DOM click dispatch unless keyboard submit or validation guards are reached.
+- **Retries and follow-up attempts isolate `flowId`.** Cancelling or failing one attempt ends that `flowId`; retrying submission or starting another attempt mints a fresh `flowId` while sharing the run's ephemeral `runId`.

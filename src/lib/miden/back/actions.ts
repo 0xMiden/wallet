@@ -1321,7 +1321,7 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
   });
 }
 
-const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled', 'visit', 'discovery'];
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled', 'visit', 'discovery', 'step'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {

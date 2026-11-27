@@ -16,14 +16,37 @@
  * never persists, and needs no reactivity.
  */
 import { beginFlow, FlowHandle } from 'lib/telemetry';
-import { TelemetryStep } from 'lib/telemetry/types';
+import { reportTelemetryEvent } from 'lib/telemetry/report-flow';
+import { attachStepProgressionLifecycle, isDocumentHidden } from 'lib/telemetry/step-lifecycle';
+import { createStepProgressionTracker, StepProgressionTracker } from 'lib/telemetry/step-progression';
+import { TelemetryStep, TelemetryStepAction } from 'lib/telemetry/types';
 
 let handle: FlowHandle | null = null;
+let tracker: StepProgressionTracker | null = null;
+let detachLifecycle: (() => void) | null = null;
 
 /** Begin the send flow, or adopt the one already in progress. */
 export function enterSendFlow(): void {
   if (handle) return;
-  handle = beginFlow('send');
+  const nextHandle = beginFlow('send');
+  if (!nextHandle) return;
+  handle = nextHandle;
+  if (
+    typeof nextHandle.flowId === 'string' &&
+    nextHandle.flowId.length > 0 &&
+    typeof nextHandle.runId === 'string' &&
+    nextHandle.runId.length > 0
+  ) {
+    const nextTracker = createStepProgressionTracker({
+      flow: 'send',
+      flowId: nextHandle.flowId,
+      runId: nextHandle.runId,
+      initiallyVisible: !isDocumentHidden(),
+      emit: reportTelemetryEvent
+    });
+    tracker = nextTracker;
+    detachLifecycle = attachStepProgressionLifecycle(nextTracker);
+  }
 }
 
 /**
@@ -33,9 +56,37 @@ export function enterSendFlow(): void {
  */
 export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
   const current = handle;
+  const currentTracker = tracker;
+  const detach = detachLifecycle;
   if (!current) return;
   handle = null;
-  settle(current);
+  tracker = null;
+  detachLifecycle = null;
+  let settled = false;
+  const finishTracker = (action: TelemetryStepAction) => {
+    if (settled) return;
+    settled = true;
+    detach?.();
+    currentTracker?.finish(action);
+  };
+  settle({
+    flowId: current.flowId,
+    runId: current.runId,
+    complete: () => {
+      finishTracker('continue');
+      current.complete();
+    },
+    cancel: () => {
+      finishTracker('leave');
+      current.cancel();
+    },
+    fail: kind => {
+      finishTracker('leave');
+      current.fail(kind);
+    },
+    step: step => current.step?.(step)
+  });
+  finishTracker('leave');
 }
 
 export function hasOpenSendFlow(): boolean {
@@ -44,5 +95,32 @@ export function hasOpenSendFlow(): boolean {
 
 /** Record the furthest step the open flow reached. No-op when none is open. */
 export function reportSendStep(step: TelemetryStep): void {
-  handle?.step(step);
+  handle?.step?.(step);
+  tracker?.enter(step);
+}
+
+/** Record a transition action within the open send flow attempt. */
+export function transitionSendStep(action: TelemetryStepAction, nextStep?: TelemetryStep): void {
+  if (nextStep !== undefined) handle?.step?.(nextStep);
+  tracker?.transition(action, nextStep);
+}
+
+/** Record a non-progressing trigger on the active Send step. */
+export function recordSendActionWithoutProgress(): void {
+  tracker?.recordActionWithoutProgress();
+}
+
+/** Record a retry trigger on the active Send step. */
+export function recordSendRetry(): void {
+  tracker?.recordRetry();
+}
+
+/**
+ * Transitions the active `review` step to `submitting`, starting a fresh attempt
+ * cleanly on retry after an earlier submit failure settled the prior handle.
+ */
+export function beginSendSubmitting(isRetry: boolean): void {
+  enterSendFlow();
+  reportSendStep('review');
+  transitionSendStep(isRetry ? 'retry' : 'submit', 'submitting');
 }

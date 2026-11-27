@@ -79,7 +79,13 @@ import { SelectRecipient, type SelectRecipientProps } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, setSendDraft } from './send-draft';
 import { sendNetworkKind } from './send-network-kind';
-import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
+import {
+  enterSendFlow,
+  recordSendActionWithoutProgress,
+  reportSendStep,
+  settleSendFlow,
+  transitionSendStep
+} from './send-telemetry';
 import { canSendTokenToNetwork, sendTokenRoutes } from './send-token-routes';
 import { SendAmount, type SendAmountProps } from './SendAmount';
 import { SendRoute, type SendRouteProps } from './SendRoute';
@@ -196,6 +202,19 @@ const validations = {
 
 const validationSchema = yup.object().shape(validations).required();
 
+function stepForNavigatorRoute(routeName: unknown) {
+  switch (routeName) {
+    case SendFlowStep.SelectRecipient:
+      return 'select_recipient' as const;
+    case SendFlowStep.SelectAmount:
+      return 'select_amount' as const;
+    case SendFlowStep.Route:
+      return 'select_route' as const;
+    default:
+      return undefined;
+  }
+}
+
 export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
@@ -282,6 +301,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   }, [allAccounts, addressBookContacts, publicKey]);
 
   const onClose = useCallback(() => {
+    transitionSendStep('close');
     navigate('/');
   }, []);
 
@@ -292,11 +312,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // back below: pop a step, or close the flow if a step somehow is the root.
   const onStepBack = useCallback(() => {
     if (cardStack.length > 1) {
+      transitionSendStep('back', stepForNavigatorRoute(cardStack[cardStack.length - 2]?.name));
       goBack();
       return;
     }
     onClose();
-  }, [cardStack.length, goBack, onClose]);
+  }, [cardStack, goBack, onClose]);
 
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
@@ -317,6 +338,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       return true;
     }
     if (cardStack.length > 1) {
+      transitionSendStep('back', stepForNavigatorRoute(cardStack[cardStack.length - 2]?.name));
       goBack(); // Go to previous step
       return true;
     }
@@ -325,7 +347,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     return true;
     // `addContactSaving` must stay in this list: the hook registers only when a dep changes, so a
     // handler reading it without it here keeps the closure captured while the save had not started.
-  }, [showAddContactDrawer, addContactSaving, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, addContactSaving, showContactsDrawer, showTokenDrawer, cardStack, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -1075,17 +1097,25 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // the name (`name`). The raw name is never the `to` value, because review
   // signs `to`. An unresolved name cannot go to review.
   const goToReview = useCallback(() => {
-    if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) return;
+    if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) {
+      recordSendActionWithoutProgress();
+      return;
+    }
     if (reviewHandoffRef.current) return;
     const admission = commandDrafts?.readSendAdmission();
     if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
+      transitionSendStep('continue');
       reviewHandoffRef.current = true;
       navigate(`/generating-transaction-full/${encodeURIComponent(admission.txId)}`);
       return;
     }
     if (commandDrafts && admission?.status === 'pending') {
       const original = commandDrafts.readDraft('send');
-      if (!original?.reviewId) return;
+      if (!original?.reviewId) {
+        recordSendActionWithoutProgress();
+        return;
+      }
+      transitionSendStep('continue');
       reviewHandoffRef.current = true;
       const params = new URLSearchParams({
         amount: original.amount,
@@ -1123,15 +1153,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
       !canSendTokenToNetwork(bridgeConfig, token.id, selectedNetwork) ||
       (isBridge && routeEligibility.blocked)
-    )
+    ) {
+      recordSendActionWithoutProgress();
       return;
+    }
     if (isBridge && destinationChainId !== undefined && bridgeRoute !== 'near-intents') {
       const routes = sendTokenRoutes(bridgeConfig, token.id, destinationChainId);
-      if (!routes[bridgeRoute ?? 'epoch']) return;
+      if (!routes[bridgeRoute ?? 'epoch']) {
+        recordSendActionWithoutProgress();
+        return;
+      }
     }
     // Precision is decided before the balance comparison, and the typed string is left unchanged.
     if (amountExceedsTokenDecimals(amount, token.decimals)) {
       setError('amount', { type: 'manual', message: 'amountExceedsTokenDecimals' });
+      recordSendActionWithoutProgress();
       return;
     }
     // The one way into review, so the burn's cap is checked here too: an amount accepted on the Amount step
@@ -1140,9 +1176,15 @@ export const SendManager: React.FC<SendManagerProps> = ({
       const reserveHoldsWholeBalance = spendableBalance <= 0 && token.balance > 0;
       const overCapMessage = reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance';
       setError('amount', { type: 'manual', message: burnFeeUnmeasured ? burnFeeMessage : overCapMessage });
-      if (currentStep === SendFlowStep.Route) goBack();
+      if (currentStep === SendFlowStep.Route) {
+        transitionSendStep('back', 'select_amount');
+        goBack();
+      } else {
+        recordSendActionWithoutProgress();
+      }
       return;
     }
+    transitionSendStep('continue');
     reviewHandoffRef.current = true;
     // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
     routeMovedOffEpochRef.current = false;
@@ -1199,6 +1241,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Miden send goes straight to review.
   const onConfirmAmount = useCallback(() => {
     if (isBridge) {
+      transitionSendStep('continue', 'select_route');
       navigateTo(SendFlowStep.Route);
       return;
     }
@@ -1619,7 +1662,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onScan: isScanAvailable() ? onScan : undefined,
     onPaste: isMobile() ? onPaste : undefined,
     onConfirm: () => {
-      if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) return;
+      if (isSelfNameResolution(nameResolutionRef.current, recipientAddress, publicKey)) {
+        recordSendActionWithoutProgress();
+        return;
+      }
+      transitionSendStep('continue', 'select_amount');
       goToStep(SendFlowStep.SelectAmount);
     }
   };

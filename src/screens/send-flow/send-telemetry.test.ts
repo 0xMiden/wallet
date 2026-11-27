@@ -1,16 +1,44 @@
-import { enterSendFlow, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
+import {
+  enterSendFlow,
+  hasOpenSendFlow,
+  recordSendActionWithoutProgress,
+  reportSendStep,
+  settleSendFlow,
+  transitionSendStep
+} from './send-telemetry';
 
-type Handle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+type Handle = {
+  flowId: string;
+  runId: string;
+  complete: jest.Mock;
+  cancel: jest.Mock;
+  fail: jest.Mock;
+  step: jest.Mock;
+};
 
+const RUN_ID = 'run-test-1234567890123';
 const begun: Handle[] = [];
+const emittedEvents: unknown[] = [];
 const mockBeginFlow = jest.fn((_flow: string) => {
-  const handle: Handle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  const handle: Handle = {
+    flowId: `flow-send-${begun.length + 1}`,
+    runId: RUN_ID,
+    complete: jest.fn(),
+    cancel: jest.fn(),
+    fail: jest.fn(),
+    step: jest.fn()
+  };
   begun.push(handle);
   return handle;
 });
 
 jest.mock('lib/telemetry', () => ({
   beginFlow: (flow: string) => mockBeginFlow(flow)
+}));
+jest.mock('lib/telemetry/report-flow', () => ({
+  reportTelemetryEvent: (event: unknown) => {
+    emittedEvents.push(event);
+  }
 }));
 
 /** Throwing accessor so a missing handle names how many flows were begun. */
@@ -23,10 +51,12 @@ function handleAt(index: number): Handle {
 beforeEach(() => {
   jest.clearAllMocks();
   begun.length = 0;
+  emittedEvents.length = 0;
   // Module state survives between tests, exactly as it survives between routes.
   settleSendFlow(flow => flow.cancel());
   jest.clearAllMocks();
   begun.length = 0;
+  emittedEvents.length = 0;
 });
 
 describe('send-telemetry', () => {
@@ -82,5 +112,139 @@ describe('send-telemetry', () => {
     enterSendFlow();
 
     expect(mockBeginFlow.mock.calls).toEqual([['send']]);
+  });
+
+  it('tracks ordered forward, back, submit, and retry progression sharing flowId across routes', () => {
+    enterSendFlow();
+    reportSendStep('select_recipient');
+    transitionSendStep('continue', 'select_amount');
+    reportSendStep('select_amount');
+    transitionSendStep('back', 'select_recipient');
+    transitionSendStep('continue', 'select_amount');
+    transitionSendStep('continue');
+    // Second route enters review under the same open attempt.
+    reportSendStep('review');
+    recordSendActionWithoutProgress();
+    recordSendActionWithoutProgress();
+    transitionSendStep('submit', 'submitting');
+    transitionSendStep('continue');
+    settleSendFlow(flow => flow.complete());
+
+    expect(begun).toHaveLength(1);
+    expect(emittedEvents).toMatchObject([
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'select_recipient',
+        stepAction: 'continue',
+        order: 1,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'select_amount',
+        stepAction: 'back',
+        order: 2,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'select_recipient',
+        stepAction: 'continue',
+        order: 3,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'select_amount',
+        stepAction: 'continue',
+        order: 4,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'review',
+        stepAction: 'repeat',
+        order: 5,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'review',
+        stepAction: 'submit',
+        order: 6,
+        complete: true
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'submitting',
+        stepAction: 'continue',
+        order: 7,
+        complete: true
+      }
+    ]);
+  });
+
+  it('separates a cancelled attempt from a completed follow-up attempt while sharing runId', () => {
+    enterSendFlow();
+    reportSendStep('select_recipient');
+    transitionSendStep('close');
+    settleSendFlow(flow => flow.cancel());
+
+    enterSendFlow();
+    reportSendStep('select_recipient');
+    transitionSendStep('continue', 'select_amount');
+    settleSendFlow(flow => flow.complete());
+
+    expect(begun).toHaveLength(2);
+    expect(emittedEvents).toMatchObject([
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-1',
+        runId: RUN_ID,
+        step: 'select_recipient',
+        stepAction: 'close',
+        order: 1
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-2',
+        runId: RUN_ID,
+        step: 'select_recipient',
+        stepAction: 'continue',
+        order: 1
+      },
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-send-2',
+        runId: RUN_ID,
+        step: 'select_amount',
+        stepAction: 'continue',
+        order: 2
+      }
+    ]);
   });
 });

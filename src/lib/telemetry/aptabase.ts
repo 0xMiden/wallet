@@ -1,4 +1,6 @@
 import {
+  isProgressionStep,
+  TELEMETRY_STEP_ACTIONS,
   TelemetryDiscoveryAction,
   TelemetryEntryPoint,
   TelemetryErrorKind,
@@ -8,9 +10,11 @@ import {
   TelemetryNetwork,
   TelemetryOperation,
   TelemetryPlatform,
+  TelemetryProgressionFlow,
   TelemetryResult,
   TelemetryScreen,
   TelemetryStep,
+  TelemetryStepAction,
   TelemetrySurface,
   TelemetryWirePayload
 } from './types';
@@ -78,7 +82,8 @@ export type AptabaseEventName =
   | `${TelemetryFlow}_ended`
   | `${TelemetryOperation}_settled`
   | `${TelemetryScreen}_visit`
-  | 'feature_discovery';
+  | 'feature_discovery'
+  | `${TelemetryProgressionFlow}_step`;
 
 /**
  * Aptabase's `props` is an open object, so the type system cannot do here what
@@ -101,6 +106,7 @@ export interface AptabaseProps {
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
   step?: TelemetryStep;
+  stepAction?: TelemetryStepAction;
   /** `visit` events only. `durationMs` is then the visible time. */
   screen?: TelemetryScreen;
   navSource?: TelemetryNavSource;
@@ -154,6 +160,7 @@ export const APTABASE_PROP_KEYS: readonly string[] = [
   'errorKind',
   'durationMs',
   'step',
+  'stepAction',
   'screen',
   'navSource',
   'surface',
@@ -190,7 +197,7 @@ export const APTABASE_PROP_KEYS: readonly string[] = [
  * The longest real words are `guardian` and `activity` at eight, so 24 is
  * generous.
  */
-const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled|visit)$/;
+const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled|visit|step)$/;
 
 /** The event name this payload would be posted under. */
 function eventNameOf(payload: TelemetryWirePayload): string {
@@ -212,6 +219,23 @@ function eventNameOf(payload: TelemetryWirePayload): string {
  */
 export function isNameableEvent(payload: TelemetryWirePayload): boolean {
   if (payload.phase === 'discovery') return payload.feature !== undefined;
+  if (payload.phase === 'step') {
+    return (
+      isProgressionStep(payload.flow, payload.step) &&
+      payload.stepAction !== undefined &&
+      TELEMETRY_STEP_ACTIONS.includes(payload.stepAction) &&
+      typeof payload.flowId === 'string' &&
+      payload.flowId.length > 0 &&
+      typeof payload.order === 'number' &&
+      Number.isFinite(payload.order) &&
+      payload.order >= 1 &&
+      typeof payload.durationMs === 'number' &&
+      Number.isFinite(payload.durationMs) &&
+      payload.durationMs >= 0 &&
+      typeof payload.complete === 'boolean' &&
+      EVENT_NAME_PATTERN.test(eventNameOf(payload))
+    );
+  }
   // The subject is checked for presence separately, because a missing one
   // stringifies to `undefined` — which is lower-case letters and would sail
   // through the pattern as a perfectly well-formed `undefined_settled`.
@@ -242,6 +266,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
   if (payload.step !== undefined) props.step = payload.step;
+  if (payload.stepAction !== undefined) props.stepAction = payload.stepAction;
   if (payload.screen !== undefined) props.screen = payload.screen;
   if (payload.navSource !== undefined) props.navSource = payload.navSource;
   if (payload.surface !== undefined) props.surface = payload.surface;

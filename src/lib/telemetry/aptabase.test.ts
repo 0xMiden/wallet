@@ -4,6 +4,7 @@ import {
   APTABASE_SDK_VERSION,
   APTABASE_SYSTEM_PROP_KEYS,
   buildEnvelope,
+  isNameableEvent,
   resolveAptabaseEndpoint
 } from './aptabase';
 import { TelemetryErrorKind, TelemetryFlow, TelemetryResult, TelemetryWirePayload } from './types';
@@ -422,5 +423,57 @@ describe('resolving the endpoint from the app key', () => {
         expect(() => resolveAptabaseEndpoint(appKey, host)).not.toThrow();
       }
     }
+  });
+});
+
+describe('task step progression envelope', () => {
+  const sendStepPayload: TelemetryWirePayload = {
+    phase: 'step',
+    flow: 'send',
+    flowId: 'flow-step-1',
+    runId: 'run-step-1',
+    step: 'select_amount',
+    stepAction: 'back',
+    order: 2,
+    durationMs: 920,
+    complete: true,
+    appVersion: '1.18.3',
+    platform: 'extension',
+    network: 'mainnet'
+  };
+
+  it('names send_step and fund_step and maps only allowlisted step props', () => {
+    const sendEnvelope = buildEnvelope(sendStepPayload, NOW);
+    expect(sendEnvelope.eventName).toBe('send_step');
+    expect(sendEnvelope.sessionId).toBe('run-step-1');
+    expect(sendEnvelope.props).toEqual({
+      flowId: 'flow-step-1',
+      step: 'select_amount',
+      stepAction: 'back',
+      order: 2,
+      durationMs: 920,
+      complete: true,
+      network: 'mainnet'
+    });
+    for (const key of Object.keys(sendEnvelope.props)) expect(APTABASE_PROP_KEYS).toContain(key);
+
+    const fundEnvelope = buildEnvelope(
+      { ...sendStepPayload, flow: 'fund', step: 'connect_wallet', stepAction: 'continue' },
+      NOW
+    );
+    expect(fundEnvelope.eventName).toBe('fund_step');
+    expect(fundEnvelope.props.step).toBe('connect_wallet');
+    expect(fundEnvelope.props.stepAction).toBe('continue');
+  });
+
+  it('accepts valid step payloads and rejects mismatched or incomplete ones at isNameableEvent', () => {
+    expect(isNameableEvent(sendStepPayload)).toBe(true);
+    expect(isNameableEvent({ ...sendStepPayload, flow: 'fund', step: 'connect_wallet' })).toBe(true);
+    expect(isNameableEvent({ ...sendStepPayload, flow: 'send', step: 'connect_wallet' })).toBe(false);
+    expect(
+      isNameableEvent({ ...sendStepPayload, flow: 'fund', step: 'select_recipient' } as TelemetryWirePayload)
+    ).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, stepAction: undefined })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, flowId: '' })).toBe(false);
   });
 });

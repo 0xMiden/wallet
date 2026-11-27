@@ -1,10 +1,10 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { useFundFlow } from 'app/hooks/useFundTelemetry';
 import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
@@ -63,27 +63,42 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // This surface owns the `fund` flow, which starts here rather than at the
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
-  const reportDeposit = useFundTelemetry();
+  const fundFlow = useFundFlow();
   const walletReady = connected && address && currentMidenAccount;
+  const wasWaitingConnectRef = useRef(!walletReady);
+
+  useEffect(() => {
+    if (!walletReady) {
+      wasWaitingConnectRef.current = true;
+      fundFlow.enterStep('connect_wallet');
+      return;
+    }
+    if (wasWaitingConnectRef.current) {
+      wasWaitingConnectRef.current = false;
+      fundFlow.transitionStep('continue', 'select_amount');
+    }
+  }, [fundFlow, walletReady]);
   // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
   const bridgeIn = useBridgeInAvailability({ hold: !walletReady });
 
   const handleClose = useCallback(() => {
+    fundFlow.transitionStep('close');
     if (onClose) {
       onClose();
       return;
     }
     goBack();
-  }, [goBack, onClose]);
+  }, [fundFlow, goBack, onClose]);
 
   // The X leaves the flow altogether: back returns to the previous screen, close returns Home.
   const handleExit = useCallback(() => {
+    fundFlow.transitionStep('close');
     if (onClose) {
       onClose();
       return;
     }
     navigate('/');
-  }, [onClose]);
+  }, [fundFlow, onClose]);
 
   // The web picker's own failure (chain preparation or the modal refusing to open), shown instead of a dead button.
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -133,7 +148,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         midenAccount={currentMidenAccount}
         onConnectAnother={handleSwitchWallet}
         onClose={handleClose}
-        reportDeposit={reportDeposit}
+        reportDeposit={fundFlow.reportDeposit}
+        fundFlow={fundFlow}
       />
     );
   }

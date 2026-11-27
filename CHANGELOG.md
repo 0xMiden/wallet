@@ -2,6 +2,8 @@
 
 ## 1.18.3 (TBD)
 
+- [FEATURE][all] With usage sharing enabled, report closed-list Send and Funding step progression (steps reached, transition actions, active visible time, repeats, and retries) without transaction or wallet details, and update consent copy and telemetry docs (#1969).
+
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
 - [FIX][all] Show the spendable Available balance in Swap and Earn when a large balance exceeds the number precision limit.
 - [FIX][all] Show USD price source and 10-minute freshness on Token detail (hiding stale and unavailable values instead of showing zero), warn when a balance refresh fails while keeping the last confirmed balance, display Failed/Not confirmed status badges beside Retry on claim cards, reset page state on token switches, and explain disabled Send actions (#2028).

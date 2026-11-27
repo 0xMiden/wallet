@@ -18,7 +18,7 @@ import {
 } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
-import { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import { FundFlowTelemetry, ReportDeposit } from 'app/hooks/useFundTelemetry';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
@@ -55,6 +55,7 @@ import {
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { TelemetryStep } from 'lib/telemetry';
 import {
   type BridgeBalanceCheck,
   type BridgeReceiveRequestClient,
@@ -175,6 +176,19 @@ interface EvmBridgeDepositScreenProps {
   onClose: () => void;
   /** Supplied by the hosting page to report the outcome of a deposit attempt. */
   reportDeposit?: ReportDeposit;
+  /** Optional step-progression reporter shared with the hosting funding flow. */
+  fundFlow?: FundFlowTelemetry;
+}
+
+const RECEIVE_STEP_TELEMETRY: Readonly<Partial<Record<ReceiveStep, TelemetryStep>>> = {
+  [ReceiveStep.ShowBridgePageTakeAmount]: 'select_amount',
+  [ReceiveStep.ShowBridgePageRoute]: 'select_route',
+  [ReceiveStep.ShowBridgePageReview]: 'review',
+  [ReceiveStep.ShowBridgePageStatus]: 'status'
+};
+
+function stepForReceiveRoute(routeName: unknown): TelemetryStep | undefined {
+  return RECEIVE_STEP_TELEMETRY[routeName as ReceiveStep];
 }
 
 interface RpcResponse {
@@ -666,7 +680,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   midenAccount,
   onConnectAnother,
   onClose,
-  reportDeposit
+  reportDeposit,
+  fundFlow
 }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
@@ -1054,19 +1069,30 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     500
   );
 
+  useEffect(() => {
+    const step = stepForReceiveRoute(activeRoute?.name);
+    if (step) fundFlow?.enterStep(step);
+  }, [activeRoute?.name, fundFlow]);
+
   useMobileBackHandler(() => {
-    if (usdcxSubmissionPending) return true;
+    if (usdcxSubmissionPending) {
+      fundFlow?.recordActionWithoutProgress();
+      return true;
+    }
     if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
+      fundFlow?.transitionStep('close');
       onClose();
       return true;
     }
     if (cardStack.length > 1) {
+      fundFlow?.transitionStep('back', stepForReceiveRoute(cardStack[cardStack.length - 2]?.name));
       goBack();
       return true;
     }
+    fundFlow?.transitionStep('close');
     onClose();
     return true;
-  }, [activeRoute?.name, cardStack.length, goBack, onClose, usdcxSubmissionPending]);
+  }, [activeRoute?.name, cardStack, fundFlow, goBack, onClose, usdcxSubmissionPending]);
 
   useEffect(() => {
     resetEpoch();
@@ -2269,40 +2295,65 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
 
   const handleContinue = useCallback(() => {
-    if (!setupReady) return;
+    if (!setupReady) {
+      fundFlow?.recordActionWithoutProgress();
+      return;
+    }
     hapticMedium();
+    fundFlow?.transitionStep('continue', 'select_route');
     navigateTo(ReceiveStep.ShowBridgePageRoute);
-  }, [navigateTo, setupReady]);
+  }, [fundFlow, navigateTo, setupReady]);
 
   const handleHeaderBack = useCallback(() => {
-    if (usdcxSubmissionPending) return;
+    if (usdcxSubmissionPending) {
+      fundFlow?.recordActionWithoutProgress();
+      return;
+    }
     if (cardStack.length > 1) {
+      fundFlow?.transitionStep('back', stepForReceiveRoute(cardStack[cardStack.length - 2]?.name));
       goBack();
       return;
     }
+    fundFlow?.transitionStep('close');
     onClose();
-  }, [cardStack.length, goBack, onClose, usdcxSubmissionPending]);
+  }, [cardStack, fundFlow, goBack, onClose, usdcxSubmissionPending]);
 
   // From the Route step: proceed to Review (once the route is confirmable) rather
   // than submitting directly. The Review step's Confirm runs handleConfirm.
   const handleContinueToReview = useCallback(() => {
-    if (!canConfirmRoute) return;
+    if (!canConfirmRoute) {
+      fundFlow?.recordActionWithoutProgress();
+      return;
+    }
     hapticMedium();
+    fundFlow?.transitionStep('continue', 'review');
     navigateTo(ReceiveStep.ShowBridgePageReview);
-  }, [canConfirmRoute, navigateTo]);
+  }, [canConfirmRoute, fundFlow, navigateTo]);
+
+  const handleStatusDone = useCallback(() => {
+    fundFlow?.transitionStep('close');
+    onClose();
+  }, [fundFlow, onClose]);
 
   const handleConfirm = useCallback(async () => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
-    if (confirming.current) return;
+    if (confirming.current) {
+      fundFlow?.recordActionWithoutProgress();
+      return;
+    }
     // Fast (Epoch): after a failed attempt the store is 'failed' and
     // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
     // dead-ending until the amount changes. Once re-quoted, the next tap submits.
     if (route === 'epoch' && epochStatus === 'failed') {
       hapticMedium();
+      fundFlow?.recordRetry();
       void requote();
       return;
     }
-    if (!canConfirmRoute || creatingBridgeRow) return;
+    if (!canConfirmRoute || creatingBridgeRow) {
+      fundFlow?.recordActionWithoutProgress();
+      return;
+    }
     confirming.current = true;
     setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
@@ -2411,6 +2462,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     midenUsdc,
     navigateTo,
     outputAmount,
+    fundFlow,
     reportDeposit,
     requote,
     route,
@@ -2428,7 +2480,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             <EvmBridgeDepositStatus
               txId={bridgeTxId}
               newSubmissionTxId={bridgeTxId}
-              onDone={onClose}
+              onDone={handleStatusDone}
               submissionPending={usdcxSubmissionPending}
               awaitingNextConfirmation={awaitingNextConfirmation}
             />
@@ -2621,9 +2673,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       submitting,
       usdcxSubmissionPending,
       handleHeaderBack,
+      handleStatusDone,
       reviewCanConfirm,
       reviewConfirmLabel,
-      onClose,
       setupToken,
       balanceUnreadable,
       selectedBalance.error,

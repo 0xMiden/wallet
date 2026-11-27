@@ -28,22 +28,23 @@ belong to the two flow phases, `operation` to `settled`:
 
 | Field | Values |
 |---|---|
-| `phase` | `started`, `ended` (flow), `settled` (wallet operation), `visit` (screen), `discovery` (feature control) |
-| `flow` | One of 16: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `swap`, `earn`, `dapp_connect`, `dapp_tx`, `guardian_rotate`, `note_handle`, `activity_view` |
+| `phase` | `started`, `ended` (flow), `step` (Send/Funding progression), `settled` (wallet operation), `visit` (screen), `discovery` (feature control) |
+| `flow` | One of 16: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `swap`, `earn`, `dapp_connect`, `dapp_tx`, `guardian_rotate`, `note_handle`, `activity_view` (`step` uses `send` and `fund`) |
 | `operation` | One of 12, `settled` only: `tx_send`, `tx_receive`, `tx_swap`, `tx_earn`, `tx_bridge`, `tx_guardian`, `tx_dapp`, `tx_other`, `prove`, `service_prover`, `service_node`, `service_network`. A category of work, never a recipient, amount, asset, dApp, or endpoint |
-| `flowId` | Ephemeral per-flow random id, in memory only, never persisted or reused. Flow phases only |
+| `flowId` | Ephemeral per-flow random id, in memory only, never persisted or reused. Flow phases only (`started`, `ended`, `step`) |
 | `runId` | Ephemeral per-app-run random id, in memory only, never persisted. Groups the flows of one run so a session describes a visit; rotates after 30 minutes idle, and a relaunch mints a new one |
 | `result` | `completed`, `cancelled`, `errored` (`ended` and `settled` only; an operation is never `cancelled`) |
 | `errorKind` | `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout`, `unknown` (only when it failed). Derived by inspecting an error message and returning one of these eight — the message itself never leaves the device |
 | `durationMs` | Rounded integer milliseconds |
-| `step` | Where it got to, from a closed list of 23 names. For a flow, the furthest screen reached, such as `select_amount` or `review` — never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `sending`, `submitting`) or which prover ran (`prove_fallback`) |
+| `step` | Where it got to, from a closed list of 25 names. For `ended` or `step`, closed flow screens (`select_recipient`, `select_amount`, `select_route`, `review`, `connect_wallet`, `status`, `submitting`, etc.) - never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `sending`, `submitting`) or which prover ran (`prove_fallback`) |
+| `stepAction` | `step` only: `continue`, `back`, `close`, `submit`, `retry`, `repeat`, or `leave` |
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
 | `screen` | `visit` events only: one of 11 route-derived names (`overview`, `send`, `receive`, `funding`, `swap`, `earn`, `explore`, `activity`, `me`, `tx_status`, `other`). Never a path, id or address |
 | `navSource` | `visit` only: `initial`, `push`, `back`, `replace`, `resume` |
 | `surface` | `visit` and `discovery`: `popup`, `side_panel`, `full_page`, `app` |
-| `order` | `visit` only: in-memory counter ordering one run's visits |
-| `complete` | `visit` only: false when the window closed mid-visit. `durationMs` is then the visible milliseconds |
+| `order` | `visit` and `step` only: in-memory counter ordering one run's visits or one attempt's step events |
+| `complete` | `visit` and `step` only: false when the window closed abruptly mid-visit or on `pagehide`. `durationMs` is then the visible milliseconds |
 | `feature` | `discovery` only: `overview`, `explore`, `activity`, `me`, `send`, `receive`, `earn`, `swap`, `funding` |
 | `entryPoint` | `discovery` only: `bottom_nav`, `home_actions`, `receive_tile`, each restricted to its own features |
 | `discoveryAction` | `discovery` only: `exposed` or `selected` |
@@ -56,9 +57,9 @@ Aptabase's `props` is an open object and the type system stops helping there:
 
 | Envelope field | Holds |
 |---|---|
-| `eventName` | `<flow>_started`, `<flow>_ended`, or `<operation>_settled` — e.g. `send_started`, `tx_send_settled`. 44 possible names, every part a closed union |
-| `sessionId` | `runId`. One run of the app, not a durable session — see below |
-| `props` | `flowId` (flow phases only), `result`, `errorKind`, `durationMs`, `step` |
+| `eventName` | `<flow>_started`, `<flow>_ended`, `<flow>_step` (`send_step`, `fund_step`), `<operation>_settled`, `<screen>_visit`, or `feature_discovery` - every part a closed union |
+| `sessionId` | `runId`. One run of the app, not a durable session - see below |
+| `props` | `flowId` (`started`, `ended`, `step`), `result`, `errorKind`, `durationMs`, `step`, `stepAction`, `order`, `complete`, `network` (plus `visit` / `discovery` props) |
 | `systemProps.osName` | `platform` |
 | `systemProps.appVersion` | `appVersion` |
 | `systemProps.isDebug` | `NODE_ENV !== 'production'` |

@@ -92,7 +92,10 @@ describe('beginFlow', () => {
   });
 
   it('pairs started and ended by flowId', () => {
-    beginFlow('send').complete();
+    const flow = beginFlow('send');
+    flow.complete();
+    expect(flow.flowId).toBe(eventAt(0).flowId);
+    expect(flow.runId).toBe(eventAt(0).runId);
     expect(eventAt(0).flowId).toBe(eventAt(1).flowId);
     expect(eventAt(0).flowId.length).toBeGreaterThan(0);
   });

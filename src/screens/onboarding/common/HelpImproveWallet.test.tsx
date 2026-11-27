@@ -178,6 +178,7 @@ describe('HelpImproveWalletScreen', () => {
 
     expect(body).toHaveTextContent(/which screens you open and how long each is visible/i);
     expect(body).toHaveTextContent(/which feature controls you see or select/i);
+    expect(body).toHaveTextContent(/which send and funding steps you reach and how long each stays visible/i);
     expect(body).toHaveTextContent(/where you get stuck/i);
     expect(body).toHaveTextContent(/broad error categories/i);
     expect(body).toHaveTextContent(/the app version/i);

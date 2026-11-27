@@ -4,9 +4,11 @@ import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { touchRun } from './run';
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryStep } from './types';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryRunId, TelemetryStep } from './types';
 
 export interface FlowHandle {
+  readonly flowId: string;
+  readonly runId: TelemetryRunId;
   complete(): void;
   cancel(): void;
   fail(kind: TelemetryErrorKind): void;
@@ -79,6 +81,8 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
   };
 
   return {
+    flowId,
+    runId: flowRunId,
     complete: () => end('completed'),
     cancel: () => end('cancelled'),
     fail: (kind: TelemetryErrorKind) => end('errored', kind),

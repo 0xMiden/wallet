@@ -106,7 +106,13 @@ import {
 } from './RecallCalendarDrawer';
 import { NearIntentsQuoteMessage } from './Route';
 import { clearSendDraft } from './send-draft';
-import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
+import {
+  beginSendSubmitting,
+  recordSendActionWithoutProgress,
+  reportSendStep,
+  settleSendFlow,
+  transitionSendStep
+} from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { TransferType, TransferTypeDrawer } from './TransferTypeDrawer';
 import { BridgeRoute, UIToken } from './types';
@@ -657,6 +663,7 @@ export const ReviewTransaction: React.FC = () => {
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
+  const hasFailedAttemptRef = useRef(false);
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
@@ -695,6 +702,7 @@ export const ReviewTransaction: React.FC = () => {
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
       if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
+      transitionSendStep('continue');
       settleSendFlow(flow => flow.complete());
       if (!isCurrentSubmission()) return;
       if (!command) clearSendDraft();
@@ -779,8 +787,7 @@ export const ReviewTransaction: React.FC = () => {
       setSpendingLimitChallenge(undefined);
       // Biometrics already passed, or this is the spending-limit authorization
       // that actually submits. Re-open a flow a previous error already settled.
-      enterSendFlow();
-      reportSendStep('submitting');
+      beginSendSubmitting(hasFailedAttemptRef.current);
       let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -827,6 +834,7 @@ export const ReviewTransaction: React.FC = () => {
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
+          transitionSendStep('back', 'review');
           setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: approvedCalendarTarget });
           setIsSubmitting(false);
           return;
@@ -841,9 +849,11 @@ export const ReviewTransaction: React.FC = () => {
           console.error(challengeError);
         }
         if (opened) {
+          transitionSendStep('back', 'review');
           setIsSubmitting(false);
           return;
         }
+        hasFailedAttemptRef.current = true;
         settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(
           error instanceof CalendarRecallReviewRequiredError
@@ -908,8 +918,7 @@ export const ReviewTransaction: React.FC = () => {
           }
         }
       };
-      enterSendFlow();
-      reportSendStep('submitting');
+      beginSendSubmitting(hasFailedAttemptRef.current);
       let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -1035,6 +1044,7 @@ export const ReviewTransaction: React.FC = () => {
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
+          transitionSendStep('back', 'review');
           setSpendingLimitChallenge({ assessment, spends });
           setIsSubmitting(false);
           return;
@@ -1048,9 +1058,11 @@ export const ReviewTransaction: React.FC = () => {
           console.error(challengeError);
         }
         if (opened) {
+          transitionSendStep('back', 'review');
           setIsSubmitting(false);
           return;
         }
+        hasFailedAttemptRef.current = true;
         settleSendFlow(flow => flow.fail(classifyError(error)));
         if (route === 'near-intents') {
           // A NEAR Intents failure has a known message; the raw text of a 1Click error is not for the user.
@@ -1136,12 +1148,18 @@ export const ReviewTransaction: React.FC = () => {
       epochQuoteUnavailable ||
       recallInvalid ||
       (command && sendAdmission?.status === 'pending')
-    )
+    ) {
+      recordSendActionWithoutProgress();
       return;
-    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
+    }
+    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) {
+      recordSendActionWithoutProgress();
+      return;
+    }
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
       setSubmitErrorId('unknownTokenScale');
+      recordSendActionWithoutProgress();
       return;
     }
     const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
@@ -1183,6 +1201,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
+      hasFailedAttemptRef.current = true;
       setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
@@ -1427,13 +1446,21 @@ export const ReviewTransaction: React.FC = () => {
         <NetworkModeBanner />
         <ReviewLayout
           title={t('reviewDetails')}
-          onBack={command ? backToComposer : goBack}
+          onBack={() => {
+            transitionSendStep('back');
+            (command ? backToComposer : goBack)();
+          }}
           formId={command ? formId : undefined}
           onFormSubmit={() => {
-            if (!submitDisabled) void onSubmit();
+            if (submitDisabled) {
+              recordSendActionWithoutProgress();
+              return;
+            }
+            void onSubmit();
           }}
           // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
           onClose={() => {
+            transitionSendStep('close');
             if (!command) clearSendDraft();
             else commandDrafts?.clearDraft('send');
             navigate('/');

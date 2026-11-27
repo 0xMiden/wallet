@@ -55,6 +55,7 @@ When the setting is on, the App reports the start and the end of a small set of 
 | A short random number for that one activity             | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 | A short random number for that run of the App           | Explained under "Identifiers" below                                                                                                                                                                                                                                                                          |
 | Feature controls visible or selected                    | For the bottom navigation, Home actions and the Receive funding tile: a fixed feature name, where the control appears, whether it was visible or selected, and which wallet surface showed it. See "Feature discovery" below.                                                                          |
+| Task progression steps, for Send and Funding            | The closed step name (`select_recipient`, `select_amount`, `select_route`, `review`, `connect_wallet`, `status`, or `submitting`), step action (`continue`, `back`, `close`, `submit`, `retry`, `repeat`, or `leave`), active visible milliseconds, per-attempt order, and completeness (`true` on normal step exit, `false` only on abrupt page teardown). See "Task progression" below |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above - the underlying error message is read to pick a category and is never sent.
 
@@ -67,6 +68,10 @@ A screen visit never carries a page address, account, contact, token, balance, a
 #### Feature discovery
 
 With usage sharing on, the App reports when an enabled control for a wallet feature has been fully visible for 600 milliseconds, at most once per feature and entry point each time the window is in the foreground. It also reports when you select one of these controls to open a feature. These events name the feature, the bottom navigation, Home actions or Receive funding tile where it appeared, and the wallet surface. They share the temporary run number used by other usage events. They carry no routes, addresses, payment details, identifiers for you or your device, or anything you type.
+
+#### Task progression
+
+With usage sharing on, the App reports step progression events (`send_step` and `fund_step`) as you move through Send and Funding steps. Each event carries only fixed labels from closed lists: the step (`select_recipient`, `select_amount`, `select_route`, `review`, `submitting` for Send; `connect_wallet`, `select_amount`, `select_route`, `review`, `submitting`, `status` for Funding), the action (`continue`, `back`, `close`, `submit`, `retry`, `repeat`, or `leave`), active visible milliseconds spent on that step (paused when hidden), an in-memory per-attempt order counter, and whether the step ended normally or on abrupt page teardown (`complete`). Repeated blocked or non-progressing triggers emit `repeat` starting on the second trigger without resetting dwell time, capped at 3 per step visit and 40 total step events per attempt. Cancelled or failed attempts close their ephemeral `flowId`, while retries or follow-up attempts receive a fresh `flowId` under the run's ephemeral `runId`. Step events never carry recipients, Miden Names, contacts, tokens, balances, entered amounts, clipboard contents, or error text.
 
 #### Work the App does on your behalf
 

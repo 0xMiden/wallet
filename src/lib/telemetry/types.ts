@@ -87,6 +87,8 @@ export type TelemetryStep =
   | 'select_route'
   // send / swap / earn / bridge shared terminal step
   | 'review'
+  | 'connect_wallet'
+  | 'status'
   | 'submitting'
   // swap
   | 'swap_amounts'
@@ -316,12 +318,43 @@ export interface FeatureDiscoveryEvent {
   runId: TelemetryRunId;
 }
 
+export const TELEMETRY_PROGRESSION_FLOWS = ['send', 'fund'] as const;
+
+export type TelemetryProgressionFlow = (typeof TELEMETRY_PROGRESSION_FLOWS)[number];
+
+export const TELEMETRY_PROGRESSION_STEPS: Readonly<Record<TelemetryProgressionFlow, readonly TelemetryStep[]>> = {
+  send: ['select_recipient', 'select_amount', 'select_route', 'review', 'submitting'],
+  fund: ['connect_wallet', 'select_amount', 'select_route', 'review', 'submitting', 'status']
+};
+
+export function isProgressionStep(flow: TelemetryFlow | undefined, step: TelemetryStep | undefined): boolean {
+  if (flow !== 'send' && flow !== 'fund') return false;
+  return step !== undefined && TELEMETRY_PROGRESSION_STEPS[flow].includes(step);
+}
+
+export const TELEMETRY_STEP_ACTIONS = ['continue', 'back', 'close', 'submit', 'retry', 'repeat', 'leave'] as const;
+
+export type TelemetryStepAction = (typeof TELEMETRY_STEP_ACTIONS)[number];
+
+export interface TaskStepEvent {
+  phase: 'step';
+  flow: TelemetryProgressionFlow;
+  flowId: string;
+  runId: TelemetryRunId;
+  step: TelemetryStep;
+  stepAction: TelemetryStepAction;
+  order: number;
+  visibleMs: number;
+  complete: boolean;
+}
+
 export type TelemetryEvent =
   | FlowStartedEvent
   | FlowEndedEvent
   | OperationSettledEvent
   | ScreenVisitEvent
-  | FeatureDiscoveryEvent;
+  | FeatureDiscoveryEvent
+  | TaskStepEvent;
 
 /** Derived in the background. Callers cannot supply these. */
 export interface TelemetryContext {
@@ -343,6 +376,7 @@ export interface TelemetryWirePayload {
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
   step?: TelemetryStep;
+  stepAction?: TelemetryStepAction;
   /** Present on `visit` only, with `navSource`, `surface`, `order` and `complete`. */
   screen?: TelemetryScreen;
   navSource?: TelemetryNavSource;

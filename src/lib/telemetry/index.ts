@@ -6,4 +6,10 @@ export type { FlowHandle } from './report-flow';
 // a hook reached through it would be mocked away with everything else — the
 // dwell gate would silently stop existing in exactly the tests written to prove
 // a swiped-past pane reports nothing.
-export type { TelemetryErrorKind, TelemetryFlow } from './types';
+export {
+  createStepProgressionTracker,
+  MAX_REPEAT_EVENTS_PER_STEP_VISIT,
+  MAX_STEP_EVENTS_PER_FLOW
+} from './step-progression';
+export type { StepProgressionTracker, StepProgressionTrackerOptions } from './step-progression';
+export type { TelemetryErrorKind, TelemetryFlow, TelemetryStep, TelemetryStepAction } from './types';

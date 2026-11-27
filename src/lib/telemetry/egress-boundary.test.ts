@@ -9,7 +9,7 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import { englishWordlist } from '@miden/hd-key';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
-import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { useFundFlow } from 'app/hooks/useFundTelemetry';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { deserializeInternalError } from 'lib/intercom/helpers';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
@@ -23,7 +23,13 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isCrashReportingEnabledAsync, isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { NativeReown, type ReownPlugin } from 'lib/walletconnect/native';
-import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
+import {
+  enterSendFlow,
+  recordSendActionWithoutProgress,
+  reportSendStep,
+  settleSendFlow,
+  transitionSendStep
+} from 'screens/send-flow/send-telemetry';
 
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
@@ -39,6 +45,9 @@ import { sendEvent } from './sink';
 import { annotateTransactionExecution } from './transaction-execution-diagnostics';
 import { reportTransactionFailure, type TransactionFailure } from './transaction-failure';
 import {
+  TELEMETRY_PROGRESSION_FLOWS,
+  TELEMETRY_PROGRESSION_STEPS,
+  TELEMETRY_STEP_ACTIONS,
   TelemetryErrorKind,
   TelemetryEvent,
   TelemetryFlow,
@@ -633,6 +642,8 @@ const EVERY_STEP: Record<TelemetryStep, TelemetryStep> = {
   select_amount: 'select_amount',
   select_route: 'select_route',
   review: 'review',
+  connect_wallet: 'connect_wallet',
+  status: 'status',
   submitting: 'submitting',
   swap_amounts: 'swap_amounts',
   choose_protection: 'choose_protection',
@@ -766,13 +777,30 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   });
   abandonedReturn.unmount();
 
-  // `fund`: completed, errored on a poisoned rejection, then abandoned.
-  const fund = renderHook(() => useFundTelemetry());
-  await act(async () => {
-    await fund.result.current(() => Promise.resolve('deposit accepted'));
+  // `fund`: step progression, completed, errored on a poisoned rejection, retried, then abandoned.
+  const fund = renderHook(() => useFundFlow());
+  act(() => {
+    fund.result.current.enterStep('connect_wallet');
+    fund.result.current.transitionStep('continue', 'select_amount');
+    fund.result.current.transitionStep('continue', 'select_route');
+    fund.result.current.transitionStep('continue', 'review');
+    fund.result.current.recordActionWithoutProgress();
+    fund.result.current.recordActionWithoutProgress();
   });
   await act(async () => {
-    await swallowRejection(() => fund.result.current(() => Promise.reject(poisonedError('rpc deposit failed'))));
+    await fund.result.current.reportDeposit(() => Promise.resolve('deposit accepted'));
+  });
+  act(() => {
+    fund.result.current.enterStep('status');
+    fund.result.current.transitionStep('close');
+  });
+  await act(async () => {
+    await swallowRejection(() =>
+      fund.result.current.reportDeposit(() => Promise.reject(poisonedError('rpc deposit failed')))
+    );
+  });
+  await act(async () => {
+    await fund.result.current.reportDeposit(() => Promise.resolve('deposit retried'));
   });
   fund.unmount();
 
@@ -780,12 +808,26 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   await reportNoteClaim(() => Promise.resolve('claim queued'));
   await swallowRejection(() => reportNoteClaim(() => Promise.reject(poisonedError('network claim failed'))));
 
-  // `send`: the module-scoped handle, settled three ways.
+  // `send`: the module-scoped handle, with step progression and three settled outcomes.
   enterSendFlow();
+  reportSendStep('select_recipient');
+  transitionSendStep('continue', 'select_amount');
+  transitionSendStep('back', 'select_recipient');
+  transitionSendStep('continue', 'select_amount');
+  transitionSendStep('continue');
+  reportSendStep('review');
+  recordSendActionWithoutProgress();
+  recordSendActionWithoutProgress();
+  transitionSendStep('submit', 'submitting');
+  transitionSendStep('continue');
   settleSendFlow(handle => handle.complete());
   enterSendFlow();
+  reportSendStep('select_recipient');
+  transitionSendStep('close');
   settleSendFlow(handle => handle.cancel());
   enterSendFlow();
+  reportSendStep('review');
+  transitionSendStep('submit', 'submitting');
   settleSendFlow(handle => handle.fail(classifyError(poisonedError('proving failed'))));
 
   // The page-level flows, driven exactly as their call sites drive them.
@@ -962,7 +1004,17 @@ describe('product-event egress', () => {
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
     const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'props'))));
-    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'network', 'result']);
+    expect([...observed].sort()).toEqual([
+      'complete',
+      'durationMs',
+      'errorKind',
+      'flowId',
+      'network',
+      'order',
+      'result',
+      'step',
+      'stepAction'
+    ]);
   });
 
   it('names the effective network on every event, flows and settled operations alike', async () => {
@@ -1041,9 +1093,10 @@ describe('product-event egress', () => {
 
     const eventNames = new Set([
       ...FLOWS.flatMap(flow => [`${flow}_started`, `${flow}_ended`]),
+      ...TELEMETRY_PROGRESSION_FLOWS.map(flow => `${flow}_step`),
       ...OPERATIONS.map(operation => `${operation}_settled`)
     ]);
-    const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS, ...STEPS]);
+    const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS, ...STEPS, ...TELEMETRY_STEP_ACTIONS]);
     const platforms = new Set<string>(['extension', 'ios', 'android']);
     // Restated rather than read from the network enum: the closed set is the claim this checks.
     const networks = new Set<string>(['mainnet', 'testnet', 'devnet', 'localnet']);
@@ -1071,7 +1124,7 @@ describe('product-event egress', () => {
       }
 
       for (const [key, value] of Object.entries(objectAt(envelope, 'props'))) {
-        if (typeof value === 'number') continue;
+        if (typeof value === 'number' || typeof value === 'boolean') continue;
         // The one prop that is an opaque id rather than a member of a closed
         // union, so it gets the shape check the session id gets instead of
         // being looked up. Same alphabet, same bound: no phrase, no blob.
@@ -1118,9 +1171,10 @@ describe('product-event egress', () => {
       perFlow.set(id, [...(perFlow.get(id) ?? []), stringAt(envelope, 'eventName')]);
     }
     const overlinked = [...perFlow].flatMap(([id, names]) => {
-      const flows = new Set(names.map(name => name.replace(/_(started|ended)$/, '')));
+      const flows = new Set(names.map(name => name.replace(/_(started|ended|step)$/, '')));
       if (flows.size > 1) return [`flow ${id} spans flows ${[...flows].sort().join(', ')}`];
-      return names.length > 2 ? [`flow ${id} carries ${names.length} events`] : [];
+      const lifecycleCount = names.filter(name => /_(started|ended)$/.test(name)).length;
+      return lifecycleCount > 2 ? [`flow ${id} carries ${lifecycleCount} lifecycle events`] : [];
     });
     expect(overlinked).toEqual([]);
 
@@ -1181,6 +1235,25 @@ describe('product-event egress', () => {
     ]);
 
     events.push(...everySettledShape());
+    events.push(
+      ...TELEMETRY_PROGRESSION_FLOWS.flatMap(flow =>
+        TELEMETRY_PROGRESSION_STEPS[flow].flatMap(step =>
+          TELEMETRY_STEP_ACTIONS.map(
+            (stepAction, index): TelemetryEvent => ({
+              phase: 'step',
+              flow,
+              flowId: 'sweep-step',
+              runId: 'sweep-run',
+              step,
+              stepAction,
+              order: index + 1,
+              visibleMs: 42.6,
+              complete: stepAction !== 'leave'
+            })
+          )
+        )
+      )
+    );
 
     for (const event of events) await sendEvent(event, context);
     await flushEgress();
@@ -1200,6 +1273,43 @@ describe('product-event egress', () => {
     ]);
     expect(outside).toEqual([]);
     expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('drops mismatched cross-flow step events before wire egress', async () => {
+    consentOn();
+    const context = resolveTelemetryContext();
+
+    await sendEvent(
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'bad-send-step',
+        runId: 'run-step-guard',
+        step: 'connect_wallet',
+        stepAction: 'continue',
+        order: 1,
+        visibleMs: 100,
+        complete: true
+      },
+      context
+    );
+    await sendEvent(
+      {
+        phase: 'step',
+        flow: 'fund',
+        flowId: 'bad-fund-step',
+        runId: 'run-step-guard',
+        step: 'select_recipient',
+        stepAction: 'continue',
+        order: 1,
+        visibleMs: 100,
+        complete: true
+      },
+      context
+    );
+    await flushEgress();
+
+    expect(envelopes()).toEqual([]);
   });
 });
 
