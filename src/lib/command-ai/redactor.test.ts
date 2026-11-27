@@ -138,6 +138,29 @@ describe('command-ai privacy redactor', () => {
     expect(res.map.addrs).toEqual({ ADDR_1: 'friend.near' });
   });
 
+  it.each([
+    ['eth', 'what is my ETH balance?', 'what is my ETH balance?'],
+    ['eth', 'send 1 eth to bob', 'send <AMT_1> eth to bob'],
+    ['eth', 'send ethereum to bob', 'send ethereum to bob'],
+    ['eth', 'the method works', 'the method works'],
+    ['eth', 'send 1eth to alice', 'send <AMT_1>eth to alice'],
+    ['near', 'send 1 usdc to friend.near.', 'send <AMT_1> usdc to friend.near.'],
+    ['a1', 'send a1token to bob', 'send a1token to bob']
+  ])('does not let the short saved address %s take over words in: %s', (address, prompt, expected) => {
+    const res = redactPrompt(prompt, { contacts: [{ id: 'c-word', name: 'Legacy', address }] });
+    expect(res.redactedText).toBe(expected);
+    expect(res.map.addrs).toEqual({});
+  });
+
+  it.each([
+    ['a1', 'send 1 usdc to a1.', 'send <AMT_1> usdc to <ADDR_1>.', 'a1'],
+    ['eth', 'swap $125.50 of usdc to vitalik.eth', 'swap <FIAT_AMT_1> of usdc to <ADDR_1>', 'vitalik.eth']
+  ])('with saved address %s still redacts an address in: %s', (address, prompt, expected, raw) => {
+    const res = redactPrompt(prompt, { contacts: [{ id: 'c-word', name: 'Legacy', address }] });
+    expect(res.redactedText).toBe(expected);
+    expect(res.map.addrs).toEqual({ ADDR_1: raw });
+  });
+
   it('redacts an upper-case Miden address that is not saved', () => {
     const res = redactPrompt('send to MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62', { contacts: [] });
     expect(res.redactedText).toBe('send to <ADDR_1>');

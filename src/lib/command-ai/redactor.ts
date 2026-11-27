@@ -146,14 +146,17 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
 
   // Saved addresses and own account ids, matched literally: no pattern above covers every format
   // (a NEAR account name, for one). The placeholder covers the whole typed token around a hit, so a
-  // longer name such as `sub.name.near` never resolves to the saved one. `raw` stays as typed, since
-  // some formats are case-sensitive.
+  // longer name such as `sub.name.near` never resolves to the saved one. A saved value of letters only
+  // is skipped, and one without a dot must be hit as a whole word, so neither takes over ordinary
+  // words. `raw` stays as typed, since some formats are case-sensitive.
   const typedTokens = [...input.matchAll(/[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?/g)];
   for (const { address } of ctx.contacts) {
-    if (!address) continue;
+    if (!address || /^[A-Za-z]+$/.test(address.trim())) continue;
+    const dotted = address.trim().includes('.');
     for (const match of input.matchAll(new RegExp(escapeRegExp(address), 'gi'))) {
       let start = match.index ?? 0;
       let end = start + match[0].length;
+      if (!dotted && !(isWordBoundaryChar(input[start - 1]) && isWordBoundaryChar(input[end]))) continue;
       for (const token of typedTokens) {
         const tokenEnd = token.index + token[0].length;
         if (token.index >= end || tokenEnd <= start) continue;
