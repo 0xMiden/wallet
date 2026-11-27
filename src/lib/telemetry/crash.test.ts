@@ -1237,6 +1237,31 @@ it('retains the current UI producer root through both final scrubs without enric
   expect(wire).not.toContain(ADDRESS);
 });
 
+it('keeps only the observed Guardian outage reason after both final scrubs', async () => {
+  _resetUserVisibleErrorLimitsForTest();
+  initCrashReporting();
+  Reflect.apply(reportUserVisibleError, undefined, [
+    'connectivityGuardianBody',
+    'inline',
+    { kind: 'guardian_outage', guardianOutageReason: 'consecutive_unreachable' }
+  ]);
+  await flushMicrotasks();
+  expect(captured).toHaveLength(1);
+  const event: Record<string, unknown> = {};
+  const originalException = captured[0];
+  for (const guardianOutageReason of ['request_timeout_fuse', 'private failure from https://private.example/rpc']) {
+    event.extra = { walletDiagnostics: { guardianOutageReason, accountId: ADDRESS } };
+    scrubEvent(event, { originalException });
+    expect(event.extra).toEqual({
+      walletDiagnostics: expect.objectContaining({ guardianOutageReason: 'consecutive_unreachable' })
+    });
+    const wire = JSON.stringify(event);
+    expect(wire).not.toContain(guardianOutageReason);
+    expect(wire).not.toContain(ADDRESS);
+    expect(wire).not.toContain('accountId');
+  }
+});
+
 it.each(['off', 'not-configured', 'not-deployed', 'service-down'] as const)(
   'emits the actual displayed feature reason %s through the final wire',
   async reason => {
