@@ -14,7 +14,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { cn } from 'lib/ui/util';
 
-type Phase = 'prompt' | 'success';
+type Phase = 'prompt' | 'ready' | 'success';
 
 export interface SetupBiometricScreenProps {
   onSwitchToPasscode?: () => void;
@@ -123,6 +123,11 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
         setBlocked(setup);
         return;
       }
+      // iOS asks once, when wallet creation makes the Secure Enclave key; a prompt here would be a second one.
+      if (isIOS()) {
+        setPhase('ready');
+        return;
+      }
       const ok = await authenticate(t('biometricSetupReason'));
       if (ok) {
         setPhase('success');
@@ -165,9 +170,14 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-setup-biometric">
       <div className="min-h-full flex flex-col items-center px-6 pb-[calc(1.5rem+var(--wallet-control-safe-bottom,0px))]">
         <div className="flex-1 flex flex-col items-center justify-center w-full">
-          {phase === 'prompt' ? (
+          {phase !== 'success' ? (
             <>
-              <button type="button" aria-label={promptTitle} onClick={handleRetry} className="outline-none">
+              <button
+                type="button"
+                aria-label={promptTitle}
+                onClick={phase === 'ready' ? onContinue : handleRetry}
+                className="outline-none"
+              >
                 <ScanFrame color="primary">
                   <InnerIcon className="w-16 h-16 text-ink" />
                 </ScanFrame>
@@ -193,8 +203,9 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
         </div>
 
         <div className="w-full flex flex-col items-center gap-2 shrink-0">
-          {phase === 'prompt' ? (
+          {phase !== 'success' ? (
             <>
+              {phase === 'ready' && <Button title={t('continue')} onClick={onContinue} />}
               {showOpenSettings && <Button title={t('openSettings')} onClick={() => void openBiometricSettings()} />}
               <Button title={t('usePasscodeInstead')} variant={ButtonVariant.Ghost} onClick={onSwitchToPasscode} />
             </>
