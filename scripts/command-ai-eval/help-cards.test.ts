@@ -207,7 +207,7 @@ describe('wording', () => {
   });
 
   it('has no en or em dash', () => {
-    const dash = /[–—]/;
+    const dash = /[\u2013\u2014]/;
     expect(offenders(card => dash.test(`${card.pick} ${card.answer}`))).toEqual([]);
     expect(Object.keys(data.facts).filter(id => dash.test(text(id)))).toEqual([]);
   });
