@@ -19,7 +19,11 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
-import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
+import {
+  readExistingGuardianHistoryGeneration,
+  readGuardianHistoryGeneration,
+  withWalletRecoveryLifetime
+} from 'lib/miden/guardian/history-storage';
 import { ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
@@ -252,7 +256,7 @@ function bindRecoveryContext(generation: string, expected?: RecoveryBoundContext
   return { generation, endpoints: getEndpointState() };
 }
 
-function assertRecoveryContext(bound: RecoveryBoundContext, generation: string): void {
+function assertRecoveryContext(bound: RecoveryBoundContext, generation: string | null): void {
   if (generation !== bound.generation || !sameEndpointState(bound.endpoints, getEndpointState())) {
     throw new RecoveryContextReplacedError();
   }
@@ -931,7 +935,8 @@ export function acknowledgeRecoveryImportStart(opId: string): Promise<{ ok: bool
   const bound = op?.boundContext;
   if (op?.method !== 'importRecoveryNoteFiles' || !bound) return undefined;
 
-  return readGuardianHistoryGeneration()
+  // The receiver holds the shared turn while waiting for this reply.
+  return readExistingGuardianHistoryGeneration()
     .then(generation => {
       const current = inFlight.get(opId);
       if (current !== op || current.method !== 'importRecoveryNoteFiles' || current.boundContext !== bound) {
@@ -1933,11 +1938,11 @@ export const midenClientProxy = {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async hold => {
         const client = await getMidenClient();
-        if (boundContext) {
-          const generation = await readGuardianHistoryGeneration();
-          assertRecoveryContext(boundContext, generation);
-        }
-        return client.importRecoveryNoteFiles(noteFiles, hold);
+        if (!boundContext) return client.importRecoveryNoteFiles(noteFiles, hold);
+        return withWalletRecoveryLifetime(async () => {
+          assertRecoveryContext(boundContext, await readExistingGuardianHistoryGeneration());
+          return client.importRecoveryNoteFiles(noteFiles, hold);
+        });
       });
     }
     const resultB64 = await this.call('importRecoveryNoteFiles', [noteFiles.map(bytesToB64)], {

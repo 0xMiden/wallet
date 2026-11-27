@@ -40,6 +40,7 @@
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
 import { isExtensionPageSender, isExtensionServiceWorkerSender } from 'lib/intercom/sender';
+import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
   clearConnectivityIssue,
@@ -1709,6 +1710,9 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await stepBeforeSubmit(getOrCreateClient);
+      return recoveryImport ? withWalletRecoveryLifetime(() => executeReady(hold, client)) : executeReady(hold, client);
+    };
+    const executeReady = async (hold: WasmLockHold, client: MidenClientInterface) => {
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons

@@ -69,6 +69,11 @@ jest.mock('lib/miden/guardian/history-storage', () => {
   const g = globalThis as any;
   return {
     ...actual,
+    readExistingGuardianHistoryGeneration: () => {
+      const hook = g.__px?.readExistingGuardianHistoryGeneration;
+      if (typeof hook === 'function') return hook(actual.readExistingGuardianHistoryGeneration);
+      return actual.readExistingGuardianHistoryGeneration();
+    },
     readGuardianHistoryGeneration: () => {
       const hook = g.__px?.readGuardianHistoryGeneration;
       if (typeof hook === 'function') return hook(actual.readGuardianHistoryGeneration);
@@ -846,7 +851,7 @@ describe('MidenClientProxy — flag routing', () => {
         expect(env).not.toHaveProperty('boundContext');
         expect(JSON.stringify(env)).not.toContain(bound.generation);
 
-        G.__px.readGuardianHistoryGeneration = async (real: () => Promise<string>) => {
+        G.__px.readExistingGuardianHistoryGeneration = async (real: () => Promise<string | null>) => {
           await readGate;
           if (change === 'failed generation read') throw new Error('history store unavailable');
           return real();
