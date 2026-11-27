@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.
 - [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
 - [FIX][all] Show the specific reason Command swap review is blocked by insufficient fees, invalid amounts, or an unavailable pair.
 - [FIX][all] Identify which amount screen showed an unknown token precision warning in opt-in diagnostics.
