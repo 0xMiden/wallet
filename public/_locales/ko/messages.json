@@ -7489,8 +7489,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "월렛의 어떤 부분을 사용하는지, 어디서 문제가 발생하는지, 대략적인 오류 유형, 앱 버전, 사용 중인 플랫폼을 공유해 주시면 문제를 해결할 수 있습니다. 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 절대 공유하지 마십시오. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 중개업체에 판매되거나 공유되는 정보도 없습니다. 충돌 보고서는 오류 내용과 코드 내 발생 위치만 포함되어 전송되며, 민감한 데이터는 제거되고 귀하 또는 귀하의 기기를 식별할 수 있는 정보는 포함되지 않습니다. 이 설정은 언제든지 변경할 수 있습니다.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "어떤 화면을 열었는지, 각 화면이 얼마나 오래 표시되었는지, 해당 화면으로 어떻게 이동했는지, 어떤 창을 사용했는지, 어디서 막혔는지, 광범위한 오류 범주, 앱 버전 및 사용 중인 플랫폼 등의 정보를 수집하여 문제를 해결할 수 있도록 합니다. 절대 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 수집하지 않습니다. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 중개업체에 판매되거나 공유되는 정보도 없습니다. 충돌 보고서는 오류 내용과 코드 내 발생 위치만 포함되어 전송되며, 민감한 데이터는 제거되고 사용자나 기기를 식별할 수 있는 정보는 포함되지 않습니다. 이 설정은 언제든지 변경할 수 있습니다.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "사용 현황 데이터 공유",
@@ -7509,8 +7509,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "지갑의 어떤 부분을 사용하는지, 어디서 막히는지, 대략적인 오류 유형, 앱 버전, 그리고 사용 중인 플랫폼을 알려주세요.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "어떤 화면을 열었는지, 각 화면이 얼마나 오래 표시되었는지, 해당 화면으로 어떻게 이동했는지, 어떤 창을 사용했는지, 어디서 막혔는지, 광범위한 오류 범주, 앱 버전, 그리고 사용 중인 플랫폼.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
