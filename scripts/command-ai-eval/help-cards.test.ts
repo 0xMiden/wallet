@@ -213,6 +213,45 @@ describe('wording', () => {
   });
 });
 
+describe('owner decisions', () => {
+  const answer = (id: string) => data.cards.find(card => card.id === id)?.answer ?? '';
+
+  it('explains a Guardian in the approved words and leaves its outage limit to the outage card', () => {
+    expect(answer('guardian_what')).toBe(
+      'In Bread, a Guardian is an online service, usually run by a company. It keeps a copy of your account data, so while it is online, you can get your account back on a new device with your recovery phrase. It is not a friend, relative or contact of yours. It must approve your payments along with your own key. It never receives your 12-word recovery phrase or private keys. It cannot move your money on its own. Assume the company running it can see your account and payments.'
+    );
+    for (const limit of [
+      'your payments stop',
+      'If you cannot switch, you may have to wait.',
+      'A restore with only your 12 words cannot switch away from a Guardian that is down or refuses.'
+    ])
+      expect(answer('guardian_down')).toContain(limit);
+  });
+
+  it('never leaves open that support could recover funds', () => {
+    const open = (value: string) =>
+      value
+        .split(/(?<=\.) /)
+        .some(
+          s =>
+            /support\b.*\bcannot\b.*\brecover\b.*\b(funds|money)\b/i.test(s) &&
+            !s.includes('recover funds on your behalf')
+        );
+    expect(offenders(card => open(card.answer))).toEqual([]);
+  });
+
+  it('never allows a repeat after only a look at Activity', () => {
+    expect(offenders(card => /before (sending|placing)( it)? again/i.test(card.answer))).toEqual([]);
+  });
+
+  it('says on recovery cards that not everything may come back', () => {
+    const honest =
+      /(payments?|history)[^.]*\b(may not come back|may not bring back)\b|\bmay not bring back\b[^.]*\bhistory\b/;
+    const cards = ['lost_device', 'recovery_phrase', 'forgot_password', 'reset_reinstall', 'restore_missing'];
+    expect(cards.filter(id => !honest.test(answer(id)))).toEqual([]);
+  });
+});
+
 it('answers unknown questions with the fixed text', () => {
   const answers = Object.fromEntries(
     Object.keys(UNKNOWN_ANSWERS).map(id => [id, data.cards.find(card => card.id === id)?.answer])
