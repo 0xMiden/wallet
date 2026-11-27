@@ -1049,5 +1049,94 @@
       "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
     },
     "helpContext": "Wallet"
+  },
+  {
+    "id": "cmd_send_usdcx_to_contact",
+    "category": "confusable",
+    "prompt": "send 5 USDCx to Bob",
+    "expectedRedacted": "send <AMT_1> USDCx to <CONTACT_1>",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "recipient_ref": "CONTACT_1"
+    }
+  },
+  {
+    "id": "cmd_sent_last_week",
+    "category": "confusable",
+    "prompt": "how much did I send last week",
+    "expectedRedacted": "how much did I send last week",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "query_ledger"
+    }
+  },
+  {
+    "id": "cmd_bridge_to_base",
+    "category": "confusable",
+    "prompt": "bridge 10 USDC to Base",
+    "expectedRedacted": "bridge <AMT_1> USDC to Base",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "bridge",
+      "asset": "USDC"
+    }
+  },
+  {
+    "id": "cmd_bridged_this_month_question",
+    "category": "confusable",
+    "prompt": "what did I bridge this month",
+    "expectedRedacted": "what did I bridge this month",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "query_ledger",
+      "window": "this_month"
+    }
+  },
+  {
+    "id": "cmd_never_mind_cancel",
+    "category": "confusable",
+    "prompt": "never mind cancel",
+    "expectedRedacted": "never mind cancel",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "cancel"
+    }
+  },
+  {
+    "id": "cmd_spanish_send_usdcx",
+    "category": "confusable",
+    "prompt": "envía 5 USDCx a Bob",
+    "expectedRedacted": "envía <AMT_1> USDCx a <CONTACT_1>",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "set_intent",
+      "action": "send",
+      "recipient_ref": "CONTACT_1"
+    }
+  },
+  {
+    "id": "help_phrase_lost_wording",
+    "category": "help",
+    "prompt": "my recovery phrase is lost",
+    "expectedRedacted": "my recovery phrase is lost",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    },
+    "helpContext": null
+  },
+  {
+    "id": "help_password_not_working",
+    "category": "help",
+    "prompt": "my password is not working",
+    "expectedRedacted": "my password is not working",
+    "forbiddenSubstrings": [],
+    "expected": {
+      "op": "explain"
+    },
+    "helpContext": null
   }
 ]
