@@ -16,7 +16,7 @@ import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
-import { CommandAiPlanBanner, CommandAiPlanProvider } from './command-ai-plan';
+import { CommandAiPlanBanner, CommandAiPlanProvider, stepDisplayLabels } from './command-ai-plan';
 import { CommandDraftProvider, useCommandDrafts } from './command-drafts';
 import type { CommandRoute } from './command-routes';
 import { CommandAiBar } from './CommandAiBar';
@@ -100,7 +100,11 @@ jest.mock('lib/miden/portfolio-observations', () => ({
   readPortfolioObservations: jest.fn().mockResolvedValue([])
 }));
 
-jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="true" /> }));
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ faucetId }: { faucetId?: string }) => (
+    <span aria-hidden="true" data-testid="token-logo" data-faucet={faucetId} />
+  )
+}));
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: () => [true, jest.fn()]
 }));
@@ -911,7 +915,18 @@ describe('CommandAiBar', () => {
     expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('command-ai-chip-testnet:epoch:usdc:faucet-usdcx:receive')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'USDC → USDCx · agglayer (sepolia → miden-testnet)' }));
+    const chip = screen.getByRole('button', {
+      name: 'commandBridgeFrom: USDC, Sepolia. commandBridgeTo: USDCx, miden. commandBridgeVia commandBridgeProvider_agglayer'
+    });
+    expect(chip).toHaveTextContent('commandBridgeFromUSDCSepoliacommandBridgeToUSDCxmiden');
+    expect(chip.textContent).not.toMatch(/miden-testnet|sepolia|· agglayer/);
+    // Both sides take the logo of the carried Miden token, keyed by its faucet id.
+    expect(
+      within(chip)
+        .getAllByTestId('token-logo')
+        .map(logo => logo.getAttribute('data-faucet'))
+    ).toEqual(['faucet-usdcx', 'faucet-usdcx']);
+    fireEvent.click(chip);
     expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
     expect(readDraft()('bridge')).toMatchObject({
@@ -970,11 +985,12 @@ describe('CommandAiBar', () => {
     fireEvent.submit(input.closest('form')!);
 
     const chips = within(await screen.findByTestId('command-ai-clarification'));
-    const direction = mode === 'receive' ? 'sepolia → miden-testnet' : 'miden-testnet → sepolia';
-    const label = `ETH → ETH · ${provider} (${direction})`;
-    const firstChip = chips.getByRole('button', { name: `${label} ${first}` });
-    expect(chips.getByRole('button', { name: `${label} ${second}` })).toBeInTheDocument();
-    expect(chips.getByRole('button', { name: `${label} 0xccccc…dddd` })).toBeInTheDocument();
+    const [from, to] = mode === 'receive' ? ['Sepolia', 'miden'] : ['miden', 'Sepolia'];
+    const label = `commandBridgeFrom: ETH, ${from}. commandBridgeTo: ETH, ${to}. commandBridgeVia commandBridgeProvider_${provider}`;
+    const firstChip = chips.getByRole('button', { name: `${label}. ${first}` });
+    expect(firstChip).toHaveTextContent(first);
+    expect(chips.getByRole('button', { name: `${label}. ${second}` })).toBeInTheDocument();
+    expect(chips.getByRole('button', { name: `${label}. 0xccccc…dddd` })).toBeInTheDocument();
     expect(chips.getByRole('button', { name: label })).toBeInTheDocument();
 
     fireEvent.click(firstChip);
@@ -1167,6 +1183,25 @@ describe('CommandAiBar', () => {
       expect(screen.getByTestId('command-ai-plan-step-0')).toBeInTheDocument();
       expect(screen.getByTestId('command-ai-plan-step-1')).toBeInTheDocument();
 
+      const routeName = /^commandBridgeFrom: USDC, Sepolia\. commandBridgeTo: USDCx, miden\./;
+      expect(
+        within(screen.getByTestId('command-ai-plan-card')).getAllByRole('button', { name: routeName })
+      ).toHaveLength(2);
+      const bannerView = render(
+        <CommandDraftProvider scope={scope}>
+          <CommandAiPlanProvider scope={scope}>
+            <CommandAiBar scope={scope} assets={assets} tokenPrices={{}} />
+            <CommandAiPlanBanner scope={scope} route={{ kind: 'flow', action: 'bridge' }} />
+          </CommandAiPlanProvider>
+        </CommandDraftProvider>
+      );
+      const second = within(bannerView.container);
+      fireEvent.change(second.getByTestId('command-ai-input'), { target: { value: 'bridge 50 usdc in, then swap' } });
+      fireEvent.submit(second.getByTestId('command-ai-input').closest('form')!);
+      const banner = await second.findByTestId('command-ai-plan-banner');
+      expect(within(banner).getAllByRole('button', { name: routeName })).toHaveLength(2);
+      bannerView.unmount();
+
       // Click bridge route chip -> navigates to Step 1 workbench and updates draft.
       fireEvent.click(screen.getByTestId('command-ai-chip-testnet:agglayer:usdc:faucet-usdcx:receive'));
       expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
@@ -1201,6 +1236,28 @@ describe('CommandAiBar', () => {
     } finally {
       _setSwapTokensForTest(undefined);
     }
+  });
+
+  it('names networks and providers in bridge plan steps', () => {
+    const t = (key: string) => key;
+    const detail = (draft: Parameters<typeof stepDisplayLabels>[0]) => stepDisplayLabels(draft, t).summary;
+    expect(
+      detail({ action: 'bridge', amount: '5', assetQuery: 'usdc', toChain: 'base-sepolia', provider: 'epoch' })
+    ).toBe('5 USDC (→ Base Sepolia · commandBridgeProvider_epoch)');
+    expect(detail({ action: 'bridge', amount: '5', fromChain: 'ethereum-mainnet', provider: 'xreserve' })).toBe(
+      '5 (Ethereum → Miden · commandBridgeProvider_xreserve)'
+    );
+    const translated = (key: string) => (key === 'miden' ? '米登' : key);
+    expect(
+      stepDisplayLabels(
+        { action: 'bridge', amount: '5', fromChain: 'miden-testnet', toChain: 'sepolia', provider: 'near-intents' },
+        translated
+      ).summary
+    ).toBe('5 (→ Sepolia · bridgeRouteNearIntents)');
+    // A name the wallet does not know stays as the user stated it.
+    expect(detail({ action: 'bridge', amount: '5', toChain: 'elsewhere', provider: 'someone' })).toBe(
+      '5 (→ elsewhere · someone)'
+    );
   });
 
   it('cycles animated sample prompt placeholders while empty and stops when typing', () => {

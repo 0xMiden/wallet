@@ -50,6 +50,7 @@ export function useCommandAiWalletData(
         .filter(r => !(r.provider === 'epoch' && r.mode === 'receive'))
         .map(r => {
           const evmSide = r.mode === 'receive' ? r.source : r.destination;
+          const midenSide = r.mode === 'receive' ? r.destination : r.source;
           return {
             id: r.id,
             provider: r.provider,
@@ -58,7 +59,8 @@ export function useCommandAiWalletData(
             sourceNetwork: r.source.network,
             destinationSymbol: r.destination.symbol,
             destinationNetwork: r.destination.network,
-            ...(evmSide.kind === 'erc20' ? { contractAddress: evmSide.address } : {})
+            ...(evmSide.kind === 'erc20' ? { contractAddress: evmSide.address } : {}),
+            ...(midenSide.kind === 'miden' ? { midenFaucetId: midenSide.faucetId } : {})
           };
         });
       const catalog = selectEarnVaultCatalog(bridgeConfig);

@@ -36,6 +36,7 @@ import { useCommandAiWalletData } from './command-ai-context';
 import { stepDisplayLabels, useOptionalCommandAiPlan } from './command-ai-plan';
 import { useOptionalCommandDrafts } from './command-drafts';
 import type { CommandAction } from './command-routes';
+import { CommandAiChip } from './CommandAiChip';
 import { COMMAND_DESTINATIONS } from './CommandDock';
 
 type BarTurn = {
@@ -779,7 +780,7 @@ export function CommandAiBar({
                       {step.index + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-body-sm font-semibold text-ink">{labels.summary}</p>
+                      <p className="break-words text-body-sm font-semibold text-ink">{labels.summary}</p>
                       {labels.detail && <p className="truncate text-caption text-muted">{labels.detail}</p>}
                     </div>
                   </div>
@@ -804,17 +805,15 @@ export function CommandAiBar({
           {activePlan.status === 'clarifying' && activePlan.clarifying && (
             <div className="flex flex-wrap gap-2">
               {activePlan.clarifying.chips.map(chip => (
-                <button
+                <CommandAiChip
                   key={chip.id}
-                  type="button"
+                  chip={chip}
+                  labelClassName="font-semibold"
                   data-testid={`command-ai-chip-${chip.id}`}
                   disabled={busy}
                   onClick={() => planCtx.selectPlanChip(chip, getWalletContext())}
                   className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
-                >
-                  <span className="font-semibold">{chip.label}</span>
-                  {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
-                </button>
+                />
               ))}
             </div>
           )}
@@ -867,17 +866,15 @@ export function CommandAiBar({
         >
           <div className="flex flex-wrap gap-2">
             {state.chips.map(chip => (
-              <button
+              <CommandAiChip
                 key={chip.id}
-                type="button"
+                chip={chip}
+                labelClassName="font-semibold"
                 data-testid={`command-ai-chip-${chip.id}`}
                 disabled={busy}
                 onClick={() => handleChipClick(chip)}
                 className="inline-flex items-center gap-2 rounded-2xl border border-hairline bg-page/85 px-4 py-2.5 text-body-sm text-ink shadow-xs transition-all hover:border-accent-primary/70 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
-              >
-                <span className="font-semibold">{chip.label}</span>
-                {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
-              </button>
+              />
             ))}
           </div>
         </AnswerCardShell>

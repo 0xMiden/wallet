@@ -287,7 +287,9 @@ describe('command-ai orchestrator', () => {
     const labels = clarifying.chips.map(chip => chip.label);
     expect(labels).toHaveLength(6);
     expect(new Set(labels).size).toBe(6);
-    expect(labels[1]).toBe('USDC → USDC · agglayer (ethereum → miden-mainnet)');
+    expect(labels[1]).toBe('USDC → USDC');
+    expect(clarifying.chips[1]?.route).toBe(ctx.bridgeRoutes[1]);
+    expect(clarifying.chips[1]?.addressHint).toBeUndefined();
   });
 
   it('answers a one-option clarification with that option instead of asking', () => {
