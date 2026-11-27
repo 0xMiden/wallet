@@ -77,6 +77,15 @@ export function paceDelayMs(headers, lastPromptTokens) {
   return parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
 }
 
+/** A 429 may be waited out only when it names a per-minute limit and asks for at most 5 minutes. Never echoes the body. */
+export function hardLimitReason(headers, body) {
+  const header = headers.get('retry-after');
+  const waitMs = header === null ? parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '') : Number(header) * 1000;
+  if (/per day|\((?:TPD|RPD)\)|daily|quota/i.test(body)) return 'a daily or quota limit (429)';
+  if (!/per minute|\((?:TPM|RPM)\)/i.test(body)) return 'a 429 that names no per-minute limit';
+  return waitMs <= 300000 ? null : `a 429 asks to wait ${waitMs / 1000} s`;
+}
+
 function retryAfterSecondsOf(error) {
   const seconds = error instanceof Error ? error.retryAfterSeconds : undefined;
   return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= 0 ? seconds : undefined;
@@ -127,6 +136,7 @@ export async function runEval({
   let maxPromptTokens = 0;
   let providerFailureDetail;
   let rateLimitHeaders = null;
+  const usage = { calls: 0, promptTokens: 0, completionTokens: 0 };
   let pacedMs = 0;
   const results = [];
   const retryBudget = freshRetryBudget();
@@ -143,11 +153,20 @@ export async function runEval({
             providerFailureDetail = undefined;
             const response = await fetch(...args);
             const body = await response.text();
+            const stop = response.status === 429 ? hardLimitReason(response.headers, body) : null;
+            if (stop) {
+              console.error(`Quota stop: ${stop}. No further provider calls.`);
+              process.exit(3);
+            }
+            if (response.status === 429) console.error('Waiting out a per-minute 429.');
             let data = null;
             try {
               data = JSON.parse(body);
             } catch {}
             const promptTokens = data?.usage?.prompt_tokens ?? 0;
+            usage.calls += 1;
+            usage.promptTokens += promptTokens;
+            usage.completionTokens += data?.usage?.completion_tokens ?? 0;
             maxPromptTokens = Math.max(maxPromptTokens, promptTokens);
             const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
             if (limits.length > 0) rateLimitHeaders = Object.fromEntries(limits);
@@ -331,6 +350,7 @@ export async function runEval({
     modelFailures,
     maxPromptTokens: maxPromptTokens || null,
     rateLimitHeaders,
+    usage,
     errors,
     p95LatencyMs:
       latencies.length > 0

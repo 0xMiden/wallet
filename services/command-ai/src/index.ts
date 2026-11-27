@@ -235,6 +235,12 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+// A clarification follow-up gets bare or partial patches without this, and the provider refuses them. Sent only with
+// a snapshot, so every other request stays as it was.
+const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
+
+const NO_COMMAND = { op: 'unsupported', reason: '', suggested_route: null };
+
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
   ...COMMAND_AI_JSON_SCHEMA,
@@ -284,6 +290,13 @@ class HttpError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The provider's refusal of a reply its model could not fit to the schema. */
+async function isUnshapedReply(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false;
+  const data: unknown = await res.json().catch(() => null);
+  return isRecord(data) && isRecord(data.error) && data.error.code === 'json_validate_failed';
 }
 
 function jsonResponse(body: object, status = 200, headers: Record<string, string> = {}): Response {
@@ -476,7 +489,14 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : HELP_PROMPT },
+          {
+            role: 'system',
+            content: snapshot
+              ? `${SYSTEM_PROMPT}\n\n${SNAPSHOT_RULES}`
+              : helpContext === undefined
+                ? SYSTEM_PROMPT
+                : HELP_PROMPT
+          },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
@@ -502,6 +522,10 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       });
     }
     if (!res.ok) {
+      if (!snapshot && (await isUnshapedReply(res))) {
+        console.warn(JSON.stringify({ event: 'compile_refused', model }));
+        return jsonResponse({ output: NO_COMMAND }, 200);
+      }
       throw compilationFailed();
     }
 
