@@ -829,7 +829,7 @@ describe('command-ai orchestrator', () => {
           redactPrompt('bridge', { contacts: [] }).map,
           { ...createContext(), bridgeRoutes: [miden, eth] }
         )
-      ).toMatchObject({ draft: { routeId: 'main-miden' } });
+      ).toMatchObject({ handoff: { draft: { route: 'main-miden' } } });
     });
 
     it('names a send network without the mainnet suffix', () => {

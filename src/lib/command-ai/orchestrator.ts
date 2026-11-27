@@ -199,15 +199,14 @@ function normalizeProvider(value: string | null | undefined): string | undefined
 
 function normalizeChain(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
-  // Route networks are slugs ("base-sepolia", "ethereum"), people write them with spaces and "mainnet".
-  const lower = value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/-mainnet$/, '');
-  if (lower === 'eth' || lower === 'mainnet') return 'ethereum';
-  if (lower === 'arb') return 'arbitrum';
-  if (lower === 'poly') return 'polygon';
+  // Route networks are slugs ("base-sepolia"), people write them with spaces.
+  const lower = value.trim().toLowerCase().replace(/\s+/g, '-');
+  // A stated "mainnet" stays on the name: matching must not let a testnet stand in for it.
+  const name = lower.replace(/-mainnet$/, '');
+  const suffix = lower.slice(name.length);
+  if (name === 'eth' || name === 'mainnet') return `ethereum${suffix}`;
+  if (name === 'arb') return `arbitrum${suffix}`;
+  if (name === 'poly') return `polygon${suffix}`;
   return lower;
 }
 
@@ -712,7 +711,7 @@ function resolveSendFlow(
   });
   const isCrossChain = addrChain !== 'miden';
   const crossChainNetwork = isCrossChain
-    ? (draft.toChain ??
+    ? (draft.toChain?.replace(/-mainnet$/, '') ??
       draft.recipientNetwork ??
       (addrChain === 'ethereum' ? (ctx.networkName === 'mainnet' ? 'ethereum' : 'sepolia') : addrChain))
     : undefined;
@@ -820,8 +819,13 @@ function resolveBridgeFlow(
         : undefined;
   const inDirection = ctx.bridgeRoutes.filter(r => !direction || r.mode === (direction === 'in' ? 'receive' : 'send'));
   // "base" also names "base-sepolia", but "sepolia" is another chain than "base-sepolia".
-  const onChain = (network: string, wanted: string | undefined) =>
-    !wanted || isMidenChain(wanted) || `${network.toLowerCase()}-`.startsWith(`${wanted}-`);
+  const onChain = (network: string, wanted: string | undefined) => {
+    if (!wanted) return true;
+    const slug = network.toLowerCase();
+    const mainnet = wanted.replace(/-mainnet$/, '');
+    if (mainnet !== wanted) return slug === wanted || slug === mainnet;
+    return `${slug}-`.startsWith(`${wanted}-`);
+  };
   // Every stated term must hold: dropping one would swap in a route the user did not ask for.
   const candidates = draft.routeId
     ? ctx.bridgeRoutes.filter(r => r.id === draft.routeId)
