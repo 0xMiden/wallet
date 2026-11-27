@@ -36,6 +36,19 @@ async function captureCommand(page: Page, info: TestInfo, name: string): Promise
   await info.attach(name, { path: screenshot, contentType: 'image/png' });
 }
 
+async function captureCompactSend(page: Page, info: TestInfo, name: string): Promise<void> {
+  const actions = page.locator('[data-home-actions="true"]');
+  await actions.getByRole('tab', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-home-page="send"]:not([inert])')).toBeInViewport({ ratio: 0.95 });
+  await expect(page.locator('[data-home-page="overview"]')).toHaveAttribute('inert', '');
+  const launcherOutsideHome = page
+    .getByRole('button', { name: 'Open fullscreen' })
+    .and(page.locator('button:not([data-home-page="overview"][inert] button)'));
+  await expect(launcherOutsideHome).toHaveCount(0);
+  await captureCommand(page, info, name);
+  await actions.getByRole('tab', { name: 'Home', exact: true }).click();
+}
+
 async function assertWorkbenchFrames(page: Page, act: () => Promise<void>, dialogCounts: number[]): Promise<void> {
   const recorder = await page.evaluateHandle(() => {
     const dashboard = document.querySelector(
@@ -333,6 +346,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(1);
   await expect(popup.getByTestId('command-shell')).toHaveCount(0);
   await captureCommand(popup, info, 'command-compact-launcher-360x600');
+  await captureCompactSend(popup, info, 'command-popup-send-360x600');
   await launcher.hover();
   await expect(launcher).toHaveCSS('translate', /-2px/);
   await captureCommand(popup, info, 'command-compact-launcher-hover-360x600');
@@ -564,6 +578,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await sidebar.mouse.move(0, 0);
   await expect(sidebar.locator('html')).toHaveClass(/dark/);
   await captureCommand(sidebar, info, 'command-sidebar-dark-reduced-motion-360x800');
+  await captureCompactSend(sidebar, info, 'command-sidebar-send-dark-360x800');
   await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
   await sidebar.evaluate(() => localStorage.setItem('theme_setting', 'light'));
   await sidebar.reload({ waitUntil: 'domcontentloaded' });
