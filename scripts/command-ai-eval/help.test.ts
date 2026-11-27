@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 
+import { redactPrompt } from '../../src/lib/command-ai/redactor';
 import {
   HELP_RULES,
   type CardMode,
@@ -11,10 +12,15 @@ import {
   buildHelpPrompt,
   explainReply,
   isPlaceholderOnly,
+  isTypedReply,
   matchTopicButton,
   selectCard,
   selectCards
 } from '../../services/command-ai/src/help';
+import context from './eval-context.json';
+import helpEval from './help-eval.json';
+import shippedTitles from './help-titles-1.18.2.json';
+import questions from './questions.json';
 
 const card = (id: string, mode: CardMode, urgent = false): HelpCard => ({
   id,
@@ -139,6 +145,17 @@ it.each<[string, boolean]>([
   ['?', false],
   ['no', false]
 ])('reads %s as placeholders only: %s', (text, expected) => expect(isPlaceholderOnly(text)).toBe(expected));
+
+// A help question read as a typed reply would be answered "unsupported" instead of its card.
+it('reads no help question in the eval sets, and no topic button title, as a typed reply', () => {
+  const asked = [...helpEval, ...questions].flatMap(item =>
+    'cards' in item ? [String('q' in item ? item.q : item.prompt)] : []
+  );
+  const titles = Object.values(shippedTitles).flat();
+  expect(asked.length).toBeGreaterThan(300);
+  expect(titles.length).toBeGreaterThan(100);
+  expect([...asked, ...titles].filter(text => isTypedReply(redactPrompt(text, context).redactedText))).toEqual([]);
+});
 
 describe('buildHelpPrompt', () => {
   it('appends the rules and one pick line per card to the system prompt', () => {

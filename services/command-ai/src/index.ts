@@ -6,7 +6,7 @@ import {
   type HelpDataset,
   buildHelpPrompt,
   explainReply,
-  isPlaceholderOnly,
+  isTypedReply,
   type HelpCard,
   matchTopicButton,
   selectCards
@@ -478,8 +478,8 @@ function answerHelp(
   const ids = result.op === 'help' && Array.isArray(result.cards) ? result.cards : [];
   trace.picked = ids.filter((id): id is string => typeof id === 'string');
   trace.unknownIds = trace.picked.filter(id => !dataset.cards.some(card => card.id === id));
-  // A number-only reply may answer a pending clarification, which an explain reply would drop.
-  if (isPlaceholderOnly(text)) {
+  // A typed reply may answer a pending clarification, which an explain reply would drop.
+  if (isTypedReply(text)) {
     return {
       output: NO_COMMAND,
       trace: { ...trace, path: 'placeholder' },
