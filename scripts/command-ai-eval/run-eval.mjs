@@ -189,21 +189,23 @@ export function createLimiter({
 
 /** Runs `work` on every item, `limit` at a time. The first runs alone: its headers show the real limits. */
 export async function forEachConcurrent(items, work, limit = evalConcurrency()) {
-  let next = 0;
   let failure;
-  const lane = async () => {
-    while (failure === undefined && next < items.length) {
-      const index = next++;
-      try {
-        await work(items[index], index);
-      } catch (error) {
-        failure ??= { error };
-      }
+  const run = async index => {
+    try {
+      await work(items[index], index);
+    } catch (error) {
+      failure ??= { error };
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane).slice(0, 1));
+  if (items.length === 0) return;
+  await run(0);
   if (failure) throw failure.error;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  let next = 1;
+  const lane = async () => {
+    while (failure === undefined && next < items.length) await run(next++);
+  };
+  // Every lane is awaited: a summary written before the last cases finish counts their missing runs as misses.
+  await Promise.all(Array.from({ length: Math.min(limit, items.length - 1) }, () => lane()));
   if (failure) throw failure.error;
 }
 

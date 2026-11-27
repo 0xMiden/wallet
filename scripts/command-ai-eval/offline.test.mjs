@@ -1876,3 +1876,23 @@ test('runs only the named cases', () => {
   assert.deepEqual(evaluation.onlyCases(items, ' a, c '), [{ id: 'a' }, { id: 'c' }]);
   assert.deepEqual(evaluation.onlyCases(items, ''), items);
 });
+
+test('finishes every case before it returns, and runs the first one alone', async () => {
+  const done = [];
+  let running = 0;
+  let firstAlone = true;
+  await evaluation.forEachConcurrent(
+    Array.from({ length: 9 }, (_, index) => index),
+    async index => {
+      running += 1;
+      if (index === 0 && running > 1) firstAlone = false;
+      await new Promise(resolve => setTimeout(resolve, index === 0 ? 20 : 5 + (index % 3) * 10));
+      if (index === 0 && running > 1) firstAlone = false;
+      running -= 1;
+      done.push(index);
+    },
+    3
+  );
+  assert.equal(firstAlone, true);
+  assert.deepEqual([...done].sort(), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+});
