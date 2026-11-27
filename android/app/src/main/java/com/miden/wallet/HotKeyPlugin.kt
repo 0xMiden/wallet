@@ -341,8 +341,11 @@ class HotKeyPlugin : Plugin() {
         when (HotKeyLogic.classify(e)) {
             HotKeyLogic.RejectCode.BAD_CIPHERTEXT ->
                 call.reject("$prefix: ${describeThrowable(e)}", "BAD_CIPHERTEXT")
-            HotKeyLogic.RejectCode.UNWRAP_FAILED ->
-                call.reject("$prefix: ${describeThrowable(e)}", "UNWRAP_FAILED")
+            HotKeyLogic.RejectCode.UNWRAP_FAILED -> {
+                val data = JSObject()
+                data.put("unwrapFailure", (e as UnwrapFailedException).failure.wireValue)
+                call.reject("$prefix: ${describeThrowable(e)}", "UNWRAP_FAILED", data)
+            }
             HotKeyLogic.RejectCode.KEY_INVALIDATED ->
                 call.reject("$prefix: hot key was invalidated by the OS", "KEY_INVALIDATED")
             HotKeyLogic.RejectCode.HARDWARE_UNAVAILABLE ->
@@ -753,6 +756,7 @@ class HotKeyPlugin : Plugin() {
     /// BiometricPrompt / KEY_INVALIDATED respectively.
     private fun unwrapSecret(privateKey: PrivateKey, payload: ByteArray): ByteArray {
         var lastError: Exception? = null
+        var observedFailure: HotKeyLogic.UnwrapFailure? = null
         for (mgf1 in listOf(MGF1ParameterSpec.SHA1, MGF1ParameterSpec.SHA256)) {
             try {
                 val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
@@ -764,9 +768,18 @@ class HotKeyPlugin : Plugin() {
                 throw e
             } catch (e: Exception) {
                 lastError = e
+                val failure = HotKeyLogic.unwrapFailureFor(e)
+                observedFailure = when (observedFailure) {
+                    null, failure -> failure
+                    else -> HotKeyLogic.UnwrapFailure.MIXED
+                }
             }
         }
-        throw UnwrapFailedException("hot-key unwrap failed: ${describeThrowable(lastError)}", lastError)
+        throw UnwrapFailedException(
+            "hot-key unwrap failed: ${describeThrowable(lastError)}",
+            lastError,
+            observedFailure ?: HotKeyLogic.UnwrapFailure.UNKNOWN
+        )
     }
 
     // Pure helpers delegated to HotKeyLogic (JUnit-covered there).

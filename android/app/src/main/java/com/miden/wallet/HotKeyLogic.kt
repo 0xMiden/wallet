@@ -4,6 +4,8 @@ import android.os.Build
 import android.security.keystore.StrongBoxUnavailableException
 import androidx.biometric.BiometricManager
 import java.math.BigInteger
+import java.security.InvalidAlgorithmParameterException
+import javax.crypto.BadPaddingException
 
 /// Raised when the wrapped blob cannot be decrypted under ANY OAEP
 /// parameter set the current OS/key authorization allows — a blob/key
@@ -11,7 +13,11 @@ import java.math.BigInteger
 /// in an OS upgrade), NOT a hardware failure. Surfaced to JS as
 /// UNWRAP_FAILED so it reads as "rotate the hot key", never as defective
 /// secure hardware.
-class UnwrapFailedException(message: String, cause: Throwable?) : Exception(message, cause)
+class UnwrapFailedException(
+    message: String,
+    cause: Throwable?,
+    val failure: HotKeyLogic.UnwrapFailure = HotKeyLogic.unwrapFailureFor(cause)
+) : Exception(message, cause)
 
 /// Pure logic split out of HotKeyPlugin so it is coverable by plain JUnit
 /// tests (no Android Keystore, emulator, or Robolectric): wire-format
@@ -58,6 +64,19 @@ object HotKeyLogic {
     ///   HARDWARE_UNAVAILABLE — Keystore/StrongBox genuinely unusable
     ///   GENERIC          — everything else (no stable code attached)
     enum class RejectCode { BAD_CIPHERTEXT, UNWRAP_FAILED, KEY_INVALIDATED, HARDWARE_UNAVAILABLE, GENERIC }
+
+    enum class UnwrapFailure(val wireValue: String) {
+        PARAMETERS_REFUSED("parameters_refused"),
+        DECRYPT_REJECTED("decrypt_rejected"),
+        MIXED("mixed"),
+        UNKNOWN("unknown")
+    }
+
+    fun unwrapFailureFor(error: Throwable?): UnwrapFailure = when (error) {
+        is InvalidAlgorithmParameterException -> UnwrapFailure.PARAMETERS_REFUSED
+        is BadPaddingException -> UnwrapFailure.DECRYPT_REJECTED
+        else -> UnwrapFailure.UNKNOWN
+    }
 
     /// Strict wire-format parse: "<24-char b64 of 16-byte tag>:<b64 of exactly
     /// 256-byte RSA-2048 payload>", bounded before any decode. Throws
