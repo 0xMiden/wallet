@@ -173,4 +173,16 @@ describe('command-ai privacy redactor', () => {
     });
     expect(res.redactedText).toBe('send <AMT_1> <TOKEN_1> now');
   });
+
+  it('does not resolve a saved contact name that is only part of a longer dotted name', () => {
+    const saved = [{ id: 'c-friend', name: 'Friend', address: 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62' }];
+
+    const longer = redactPrompt('send 1 usdc to friend.near.testnet', { contacts: saved });
+    expect(longer.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>');
+    expect(longer.map.addrs).toEqual({ ADDR_1: 'friend.near.testnet' });
+    expect(longer.map.contacts).toEqual({});
+
+    const sentenceEnd = redactPrompt('send 1 usdc to Friend.', { contacts: saved });
+    expect(sentenceEnd.redactedText).toBe('send <AMT_1> usdc to <CONTACT_1>.');
+  });
 });

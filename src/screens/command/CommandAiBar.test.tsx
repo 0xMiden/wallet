@@ -232,6 +232,22 @@ function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
 }
 
 describe('CommandAiBar', () => {
+  it('cancels a pending request when the command view closes', async () => {
+    jest.mocked(compileCommandPrompt).mockReset();
+    jest.mocked(compileCommandPrompt).mockReturnValue(new Promise(() => undefined));
+    const view = renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    fireEvent.change(input, { target: { value: 'send 1 MIDEN' } });
+    fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(compileCommandPrompt).toHaveBeenCalled());
+    const { signal } = jest.mocked(compileCommandPrompt).mock.calls[0]![0];
+    expect(signal!.aborted).toBe(false);
+
+    view.unmount();
+
+    expect(signal!.aborted).toBe(true);
+  });
+
   describe('what a clarification follow-up sends', () => {
     it('uses a placeholder for a held symbol the action rows leave out', async () => {
       useWalletStore.setState({
