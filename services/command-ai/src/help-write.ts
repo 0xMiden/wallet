@@ -142,11 +142,11 @@ function parseDraft(raw: unknown): { answerable: boolean; sentences: Sentence[] 
 // A byte order mark is not a space: removed as one, it would split a forbidden word in two.
 const normalizeText = (text: string) =>
   text
-    .replace(/(?:(?!﻿)\s)+/g, ' ')
+    .replace(/(?:(?!\uFEFF)\s)+/g, ' ')
     .trim()
-    .replace(/[–—]/g, '-')
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"');
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"');
 const normalizeSentences = (sentences: Sentence[]) =>
   sentences.map(({ facts, text }) => ({ facts, text: normalizeText(text) }));
 

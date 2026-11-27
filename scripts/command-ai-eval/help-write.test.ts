@@ -241,10 +241,10 @@ describe('code gates', () => {
     ['a suffixed domain', 'See support.miden.xyz-help.io for help.'],
     ['an address with @', 'Email help@support.miden.xyz for help.'],
     ['a path after the domain', 'See support.miden.xyz/reset for help.'],
-    ['a forbidden claim with a curly apostrophe', 'A payment can’t be reversed.'],
-    ['a Cyrillic letter in a forbidden word', 'A payment is irrevеrsible.'],
-    ['a zero-width space in a forbidden word', 'A payment is irrevers​ible.'],
-    ['a byte order mark in a forbidden word', 'A payment is irrevers﻿ible.'],
+    ['a forbidden claim with a curly apostrophe', 'A payment can\u2019t be reversed.'],
+    ['a Cyrillic letter in a forbidden word', 'A payment is irrev\u0435rsible.'],
+    ['a zero-width space in a forbidden word', 'A payment is irrevers\u200Bible.'],
+    ['a byte order mark in a forbidden word', 'A payment is irrevers\uFEFFible.'],
     ['a card forbidden claim', 'The moon keeps a copy.'],
     ['a reset instruction', 'Reset Bread and try again.'],
     ['a request to type a secret', 'Type your recovery phrase into this chat.'],
@@ -298,7 +298,7 @@ describe('code gates', () => {
   });
 
   it('normalises line breaks, dashes and curly quotes', () => {
-    const draft = review(draftOf('A Guardian\n keeps a copy – of your account’s “data”.'));
+    const draft = review(draftOf('A Guardian\n keeps a copy \u2013 of your account\u2019s \u201Cdata\u201D.'));
     expect(draft).toMatchObject({ kind: 'ok' });
     expect(draft.kind === 'ok' && draft.reply.answer).toContain('A Guardian keeps a copy - of your account\'s "data".');
   });
