@@ -237,6 +237,43 @@ describe('help replies', () => {
     }
   );
 
+  // The router answered a bare "epoch" with a help card in 3 of 3 live runs, and the app stops at a help card.
+  it.each([
+    'public',
+    'Private.',
+    'epoch',
+    'ethereum',
+    'agglayer',
+    'the first one',
+    'usdcx',
+    'use epoch and make it <AMT_1>',
+    'actually change the amount to <AMT_1>'
+  ])('leaves a pending question alone for the typed reply %j', async text => {
+    const { response, traces } = await ask({ result: { op: 'help', cards: ['bridge_what'] } }, text);
+    expect(response.body).toEqual({ output: { op: 'unsupported', reason: '', suggested_route: null } });
+    expect(traces[0]).toMatchObject({ path: 'placeholder', served: null });
+  });
+
+  it.each([
+    'epoch?',
+    'is it public',
+    'what is epoch',
+    'change my password',
+    'reset my wallet',
+    'make it',
+    'change the amount',
+    'the first payment'
+  ])('still answers %j with its card', async text => {
+    const { response } = await ask({ result: { op: 'help', cards: ['bridge_what'] } }, text);
+    expect(response.body).toEqual({ output: explainReply(card('bridge_what')) });
+  });
+
+  it('passes a command for a typed reply through', async () => {
+    const result = { op: 'cancel' };
+    const { response } = await ask({ result }, 'epoch');
+    expect(response.body).toEqual({ output: { result } });
+  });
+
   it.each([{ op: 'help', cards: ['usdcx'] }, freeText])(
     'leaves a pending question alone for a placeholder-only message %j',
     async result => {

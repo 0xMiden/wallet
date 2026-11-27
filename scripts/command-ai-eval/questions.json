@@ -541,7 +541,7 @@
     "expectedRedacted": "yes",
     "helpContext": null,
     "expected": {
-      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported", "cancel"]
     }
   },
   {
@@ -569,6 +569,24 @@
     "helpContext": null,
     "expected": {
       "op": "cancel"
+    }
+  },
+  {
+    "id": "first-reply-private",
+    "prompt": "private",
+    "expectedRedacted": "private",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
+    }
+  },
+  {
+    "id": "first-reply-network",
+    "prompt": "ethereum",
+    "expectedRedacted": "ethereum",
+    "helpContext": null,
+    "expected": {
+      "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
     }
   }
 ]
