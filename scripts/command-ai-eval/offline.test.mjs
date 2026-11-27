@@ -386,7 +386,8 @@ test('paces after a low-token reply and keeps the rate-limit headers', async con
     )
   );
   const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 2 });
-  assert.deepEqual(delays, [30000, 30000]);
+  // One wait, before the second request: a sleep inside a request would spend the Worker's writing deadline.
+  assert.deepEqual(delays, [30000]);
   assert.deepEqual(summary.rateLimitHeaders, {
     'x-ratelimit-remaining-tokens': '10',
     'x-ratelimit-reset-tokens': '30s'
@@ -437,7 +438,20 @@ test('runs the live model job only from a manual dispatch that picks a suite', (
   const [before, live = ''] = workflow.split('\n  live:\n');
   assert.ok(live.includes("if: github.event_name == 'workflow_dispatch' && inputs.suite != 'none'\n"));
   assert.ok(live.includes('environment: command-ai-eval\n'));
-  assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY_EVAL }}\n'));
+  assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}\n'));
+  assert.ok(!workflow.includes('GROQ_API_KEY_EVAL'));
+  for (const [suite, flags] of [
+    ['writing-checker-dev', '--writing-checker --dev-only --require-live'],
+    ['writing-checker', '--writing-checker --require-live'],
+    ['writing-dev', '--writing --dev-only --require-live'],
+    ['writing', '--writing --require-live'],
+    ['writing-knockout', '--writing-knockout --require-live'],
+    ['writing-score', '--writing-score scripts/command-ai-eval/results']
+  ]) {
+    assert.match(before, new RegExp(`\n {10}- ${suite}\n`));
+    assert.ok(live.includes(`${suite}) node scripts/command-ai-eval/run-eval.mjs ${flags} ;;`), suite);
+  }
+  assert.ok(live.includes('path: |\n            command-ai-eval.json\n            grading.json\n'));
   assert.ok(live.includes('--require-live'));
   assert.ok(!before.includes('secrets.') && !before.includes('--require-live'));
   assert.ok(/\n {6}suite:\n(?: {8}.*\n)*? {8}default: none\n/.test(before));
@@ -823,3 +837,468 @@ test('runs a sized deploy gate before the deploy step and selection from the liv
   );
   assert.ok(live.includes('--compare scripts/command-ai-eval/baseline.json'));
 });
+
+const cardData = () =>
+  JSON.parse(readFileSync(new URL('../../services/command-ai/src/help-cards.json', import.meta.url), 'utf8'));
+const writeCardIds = () =>
+  cardData()
+    .cards.filter(card => card.mode === 'write')
+    .map(card => card.id);
+const writingOn = (...cards) => {
+  const data = cardData();
+  return { ...data, writing: { ...data.writing, cards } };
+};
+const ROUTER = 'openai/gpt-oss-120b';
+const SMALL = 'openai/gpt-oss-20b';
+
+const completion = (value, { headers, usage } = {}) =>
+  Response.json(
+    { usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] },
+    { headers }
+  );
+
+/** A provider that routes to `cards`, writes the first supplied fact and answers checks with `verdict`. */
+function mockWriting(context, { cards = ['guardian_what'], writer, verdict, headers } = {}) {
+  const sent = [];
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    sent.push(body);
+    const options = { headers: headers?.(body, sent.length) };
+    const name = body.response_format.json_schema.name;
+    if (name === 'bread_command_intent') return completion({ result: { op: 'help', cards } }, options);
+    if (name === 'bread_help_answer') {
+      const fact = JSON.parse(body.messages[1].content).cards[0].FACTS[0];
+      const draft = { answerable: true, sentences: [{ facts: [fact.id], text: fact.text }] };
+      return writer?.(sent.length) ?? completion(draft, options);
+    }
+    return verdict?.(sent.length) ?? completion({ supported: true, answers: true }, options);
+  });
+  return sent;
+}
+
+const ask = { redactedText: 'what is it', helpContext: null };
+const lowTokens = {
+  'x-ratelimit-limit-tokens': '250000',
+  'x-ratelimit-remaining-tokens': '100000',
+  'x-ratelimit-reset-tokens': '1m'
+};
+
+test('waits while a model has less than half of its token bucket left', () => {
+  const delay = remaining =>
+    evaluation.paceDelayMs(new Headers({ ...lowTokens, 'x-ratelimit-remaining-tokens': String(remaining) }), 3000);
+  assert.equal(delay(125000), 0);
+  assert.equal(delay(124999), 60000);
+});
+
+test('waits between requests only, so a slow bucket never costs a written answer', async context => {
+  mockProviderKey(context);
+  const events = [];
+  const realSetTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay !== 60000) return realSetTimeout(callback, delay, ...args);
+    events.push('wait');
+    return realSetTimeout(callback, 0, ...args);
+  });
+  mockWriting(context, {
+    headers: body => {
+      events.push(body.model);
+      return body.model === SMALL ? lowTokens : {};
+    }
+  });
+  const worker = evaluation.createEvalWorker({ dataset: writingOn('guardian_what') });
+  const first = await worker.compile(ask);
+  const second = await worker.compile(ask);
+  assert.deepEqual([first.trace?.path, second.trace?.path], ['written', 'written']);
+  assert.deepEqual(events, [ROUTER, SMALL, SMALL, 'wait', ROUTER, SMALL, SMALL]);
+  assert.equal(worker.stats.models[SMALL]?.calls, 4);
+});
+
+test('stops a suite on a limit too low to share with production', () => {
+  const reason = headers => evaluation.quotaStopReason('m', new Headers(headers));
+  assert.equal(reason({}), null);
+  const limits = (tokens, requests, left) => ({
+    'x-ratelimit-limit-tokens': String(tokens),
+    'x-ratelimit-limit-requests': String(requests),
+    'x-ratelimit-remaining-requests': String(left)
+  });
+  assert.equal(reason(limits(250000, 500000, 250000)), null);
+  assert.match(reason(limits(8000, 500000, 500000)), /8000 tokens a minute/);
+  assert.match(reason(limits(250000, 1000, 1000)), /1000 requests a day/);
+  assert.match(reason(limits(250000, 500000, 249999)), /249999 of 500000 requests left/);
+});
+
+test('ends a guarded suite with no verdict on a low daily request limit', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context, { headers: () => ({ 'x-ratelimit-limit-requests': '1000' }) });
+  const cases = [selectionCase('a'), selectionCase('b')];
+  await assert.rejects(
+    async () => evaluation.runSelection({ cases, service: evaluation.createEvalWorker({ guard: true }) }),
+    /Quota stop/
+  );
+  assert.equal(sent.length, 1);
+  const unguarded = await evaluation.runSelection({ cases, runs: 1, service: evaluation.createEvalWorker() });
+  assert.equal(unguarded.length, 2);
+});
+
+test('measures selection with writing off, even once cards are listed', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context);
+  const worker = evaluation.selectionWorker(writingOn('guardian_what'));
+  const reply = await worker.compile(ask);
+  assert.equal(reply.trace?.path, 'card');
+  assert.equal(sent.length, 1);
+});
+
+const writingCase = (id, fields = {}) => selectionCase(id, { cards: ['guardian_what'], ...fields });
+
+test('runs every write card on and reruns only a technical failure', async context => {
+  mockProviderKey(context);
+  let failures = 1;
+  const sent = mockWriting(context, { writer: () => (failures-- > 0 ? new Response(null, { status: 429 }) : null) });
+  const worker = evaluation.createEvalWorker();
+  const { results, invalid } = await evaluation.runWriting({ cases: [writingCase('a')], runs: 2, service: worker });
+  assert.deepEqual(invalid, []);
+  assert.deepEqual(
+    results[0]?.runs.map(({ path, outcome, technicalAttempts }) => [path, outcome, technicalAttempts]),
+    [
+      ['written', 'written', 1],
+      ['written', 'written', 0]
+    ]
+  );
+  assert.equal(sent.length, 2 + 3 + 3);
+});
+
+test('does not count a knockout run whose writer keeps failing', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context, {
+    cards: ['guardian_what', 'guardian_why'],
+    writer: () => new Response(null, { status: 429 })
+  });
+  const { results, invalid } = await evaluation.runWriting({
+    cases: [writingCase('a')],
+    runs: 1,
+    knockout: true,
+    service: evaluation.createEvalWorker()
+  });
+  assert.deepEqual(invalid, ['a']);
+  assert.equal(results[0]?.runs[0]?.technicalAttempts, 4);
+  assert.equal(sent.length, 8);
+  // The accepted card is gone from the router's index, so only the other one reaches the writer.
+  assert.ok(!sent[0].messages[0].content.includes('\nguardian_what: '));
+  assert.ok(sent[0].messages[0].content.includes('\nguardian_why: '));
+});
+
+const checkerRow = (id, fields = {}) => ({
+  id,
+  split: 'dev',
+  class: 'flipped_not',
+  priority: 'P0',
+  cards: ['guardian_what'],
+  sentences: [{ facts: ['g.service'], text: cardData().facts['g.service'].text }],
+  q: 'what is a guardian',
+  previousTopic: null,
+  ...fields
+});
+
+test('never counts a failed checker call as a rejection', async context => {
+  mockProviderKey(context);
+  mockWriting(context, { verdict: () => new Response(null, { status: 429 }) });
+  const run = await evaluation.runWritingChecker({
+    rows: [checkerRow('a')],
+    runs: 1,
+    service: evaluation.createEvalWorker()
+  });
+  assert.deepEqual(run.invalid, ['a']);
+  assert.deepEqual(run.results[0]?.runs, [{ accepted: null, technicalAttempts: 4 }]);
+});
+
+test('asks the checker about every row, gate rejects included, and scores each side', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context);
+  const rows = [
+    checkerRow('gated', { sentences: [{ facts: ['g.service'], text: 'Ask Acme about it.' }] }),
+    checkerRow('passes', { priority: 'P1' }),
+    checkerRow('faithful', { class: 'good', q: 'do 5 people run it' })
+  ];
+  const { results, invalid } = await evaluation.runWritingChecker({ rows, service: evaluation.createEvalWorker() });
+  assert.deepEqual(invalid, []);
+  assert.equal(sent.length, 9);
+  assert.equal(JSON.parse(sent[6].messages[1].content).QUESTION, 'do [a number] people run it');
+  assert.deepEqual(
+    results.map(row => row.gates),
+    [false, true, true]
+  );
+  assert.deepEqual(evaluation.scoreWritingChecker(results), {
+    p0Accepted: [],
+    badAccepted: 0.5,
+    badPassingGates: 0.5,
+    badPassingChecker: 1,
+    goodRejected: 0,
+    goodRejectedGates: 0,
+    goodRejectedChecker: 0
+  });
+});
+
+const BAD = [
+  'flipped_not',
+  'swapped_actor',
+  'dropped_condition',
+  'added_detail',
+  'joined_facts',
+  'neighbour_question',
+  'forbidden_or_injected'
+];
+const checkerRows = () => [
+  ...Array.from({ length: 150 }, (_, index) => checkerRow(`bad-${index}`, { class: BAD[index % BAD.length] })),
+  ...Array.from({ length: 75 }, (_, index) => checkerRow(`good-${index}`, { class: 'good' }))
+];
+
+test('requires the full counts of each checker file', () => {
+  assert.deepEqual(evaluation.checkerRowErrors(checkerRows()), []);
+  assert.deepEqual(evaluation.checkerRowErrors(checkerRows().slice(1)), ['149 bad rows, needs 150']);
+  assert.deepEqual(evaluation.checkerRowErrors(checkerRows().slice(0, -1)), ['74 good rows, needs 75']);
+  const rows = checkerRows();
+  rows[0] = { ...rows[0], id: 'bad-1', cards: ['lost_phrase'] };
+  assert.deepEqual(evaluation.checkerRowErrors(rows).slice(0, 2), [
+    'bad-1: needs one or two write cards',
+    'bad-1: missing or repeated id'
+  ]);
+});
+
+test('checks both holdouts together and refuses a writing run without its own', context => {
+  const holdoutPath = holdoutFile(context, holdoutCases());
+  const written = fields => holdoutFile(context, [selectionCase('written-1', fields)]);
+  const load = writingHoldoutPath => evaluation.loadWritingCases({ holdoutPath, writingHoldoutPath });
+  assert.equal(load(written({})).length, 141);
+  assert.ok(load(written({})).every(item => item.set === 'holdout'));
+  assert.throws(
+    () => load(path.join(tmpdir(), 'no-such-writing-holdout.json')),
+    /help-writing-holdout\.json is missing/
+  );
+  assert.throws(() => load(written({ cluster: 'held-answerable-0' })), /reuses selection holdout cluster/);
+  assert.throws(() => load(written({ id: 'held-near_miss-0' })), /repeated id/);
+  assert.throws(() => load(written({ cluster: 'recover-forgot-password', cards: ['forgot_password'] })), /dev cluster/);
+});
+
+test('gives the Wilson 90 percent bar to 143 of 150 and not to 142', () => {
+  assert.equal(evaluation.wilsonLower(143, 150).toFixed(3), '0.907');
+  assert.equal(evaluation.wilsonLower(142, 150).toFixed(3), '0.898');
+});
+
+/** Four summaries and two graded files that pass every bar: 150 written clusters, 3 on each of 50 cards. */
+function scoreWorld({ written = 150, knockout = 40 } = {}) {
+  const ids = writeCardIds();
+  const make = (prefix, count, fields) =>
+    Array.from({ length: count }, (_, index) =>
+      writingCase(`${prefix}-${index}`, { set: 'holdout', ...fields(index) })
+    );
+  const cardOf = index => ids[Math.floor(index / 3) % ids.length];
+  const writing = [
+    ...make('w', written, index => ({ cards: [cardOf(index)] })),
+    ...make('near', 20, () => ({ class: 'near_miss', cards: [] })),
+    ...make('out', 20, () => ({ class: 'out_of_scope', cards: [] }))
+  ];
+  const runOf = (path, outcome, served, text, cards = served ? [served] : []) => ({
+    op: 'explain',
+    path,
+    served,
+    outcome,
+    cards,
+    text,
+    technicalAttempts: 0
+  });
+  const thrice = (item, run) => ({
+    id: item.id,
+    cluster: item.cluster,
+    class: item.class,
+    set: 'holdout',
+    runs: [{ ...run }, { ...run }, { ...run }]
+  });
+  const refusal = runOf('unknown', 'unanswerable', 'not_covered', 'I do not know.', ['guardian_what']);
+  const writingResults = writing.map(item =>
+    thrice(
+      item,
+      item.class === 'answerable' ? runOf('written', 'written', item.cards[0], `Written for ${item.id}.`) : refusal
+    )
+  );
+  const knockoutCases = writing.filter(item => item.class === 'answerable');
+  const knockoutResults = knockoutCases.map((item, index) =>
+    thrice(item, index < knockout ? refusal : runOf('unknown', null, 'not_covered', 'I do not know.'))
+  );
+  const meta = suite => ({
+    suite,
+    devOnly: false,
+    gitSha: 'abc',
+    hashes: { dataset: '1' },
+    models: { router: ROUTER }
+  });
+  const selection = [...writing, writingCase('dev-0', { set: 'dev' })];
+  const selectionResults = selection.map(item => ({
+    ...item,
+    runs: Array(3).fill(run(item.cards[0] ?? 'not_covered'))
+  }));
+  const rows = checkerRows();
+  const checkerResults = rows.map(row => ({
+    id: row.id,
+    class: row.class,
+    priority: row.priority,
+    gates: true,
+    runs: Array(3).fill({ accepted: row.class === 'good', technicalAttempts: 0 })
+  }));
+  const grade = list => list.map(row => ({ ...row, verdict: 'correct', serious: false }));
+  const world = {
+    summaries: {
+      selection: { meta: meta('selection'), results: selectionResults },
+      checker: { meta: meta('writing-checker'), invalid: [], results: checkerResults },
+      writing: { meta: meta('writing'), invalid: [], results: writingResults },
+      knockout: { meta: meta('writing-knockout'), invalid: [], results: knockoutResults }
+    },
+    cases: { selection, writing, checker: rows }
+  };
+  world.regrade = () => {
+    world.grading = grade(evaluation.gradingRows(writing, world.summaries.writing.results));
+    world.knockoutGrading = grade(
+      evaluation.gradingRows(knockoutCases, world.summaries.knockout.results, { knockout: true })
+    );
+    return world;
+  };
+  return world.regrade();
+}
+
+const failuresOf = world => evaluation.scoreWriting(world).failures;
+const mark = (world, count, fields, from = 0, step = 3) => {
+  for (let index = 0; index < count; index++) {
+    const row = world.grading.find(item => item.cluster === `w-${from + index * step}`);
+    Object.assign(row, fields);
+  }
+};
+
+test('writes one grading row for each distinct shown text, with the facts behind it', () => {
+  const cases = [writingCase('a', { q: 'send 5 to Bob, how' })];
+  const shown = text => ({
+    path: 'written',
+    outcome: 'written',
+    served: 'guardian_what',
+    cards: ['guardian_what'],
+    text
+  });
+  const rows = evaluation.gradingRows(cases, [{ id: 'a', runs: [shown('One.'), shown('One.'), shown('Two.')] }]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    [rows[0].q, rows[0].previousTopic, rows[0].text, rows[0].path, rows[0].verdict, rows[0].serious],
+    ['send 5 to Bob, how', null, 'One.', 'written', null, null]
+  );
+  assert.ok(rows[0].facts.includes(cardData().facts['g.service'].text));
+});
+
+test('passes a run that meets every bar and lists the cards to enable', () => {
+  const score = evaluation.scoreWriting(scoreWorld());
+  assert.deepEqual(score.failures, []);
+  assert.equal(score.report.writtenClusters, 150);
+  assert.deepEqual(score.allowlist, writeCardIds().slice(0, 50));
+});
+
+test('holds written precision to 143 of 150 clusters', () => {
+  const passing = scoreWorld();
+  mark(passing, 7, { verdict: 'wrong' });
+  assert.deepEqual(failuresOf(passing), []);
+  const failing = scoreWorld();
+  mark(failing, 8, { verdict: 'wrong' });
+  assert.ok(failuresOf(failing).some(failure => failure.startsWith('written Wilson lower bound')));
+});
+
+test('calls a cluster wrong when one run of it is wrong, and counts only written answers', () => {
+  const world = scoreWorld();
+  Object.assign(world.summaries.writing.results[0].runs[2], { text: 'Another answer.' });
+  world.regrade();
+  Object.assign(
+    world.grading.find(row => row.text === 'Another answer.'),
+    { verdict: 'wrong' }
+  );
+  assert.equal(evaluation.scoreWriting(world).report.writtenCorrect, 149 / 150);
+
+  const short = scoreWorld();
+  for (const one of short.summaries.writing.results[0].runs) Object.assign(one, { path: 'card', outcome: 'format' });
+  assert.ok(failuresOf(short.regrade()).includes('written clusters 149 is under 150'));
+});
+
+test('fails on one serious error and drops the card that made it', () => {
+  const world = scoreWorld();
+  mark(world, 1, { serious: true });
+  const score = evaluation.scoreWriting(world);
+  assert.deepEqual(score.failures, ['serious errors: w-0']);
+  assert.ok(!score.allowlist.includes(writeCardIds()[0]));
+});
+
+test('enables a card only with three written clusters and fewer than two wrong', () => {
+  const world = scoreWorld({ written: 149 });
+  const [first, second] = writeCardIds();
+  mark(world, 2, { verdict: 'wrong' }, 0, 1);
+  mark(world, 1, { verdict: 'wrong' }, 3);
+  const { allowlist, report } = evaluation.scoreWriting(world);
+  assert.ok(!allowlist.includes(first) && allowlist.includes(second));
+  assert.deepEqual(report.cards[writeCardIds()[49]], { clusters: 2, wrong: 0, serious: false });
+  assert.ok(!allowlist.includes(writeCardIds()[49]));
+});
+
+test('voids on technical failures and fails on too many or imprecise fallbacks', () => {
+  const flaky = scoreWorld();
+  for (const result of flaky.summaries.writing.results.slice(0, 12)) result.runs[0].technicalAttempts = 1;
+  assert.ok(failuresOf(flaky).some(failure => failure.startsWith('void: writing technical failures')));
+
+  const fallbacks = scoreWorld({ written: 190 });
+  for (const result of fallbacks.summaries.writing.results.slice(0, 40)) {
+    for (const one of result.runs) Object.assign(one, { path: 'card', outcome: 'format' });
+  }
+  fallbacks.regrade();
+  Object.assign(
+    fallbacks.grading.find(row => row.cluster === 'w-0'),
+    { verdict: 'wrong' }
+  );
+  Object.assign(
+    fallbacks.grading.find(row => row.cluster === 'w-1'),
+    { verdict: 'wrong' }
+  );
+  Object.assign(
+    fallbacks.grading.find(row => row.cluster === 'w-2'),
+    { verdict: 'wrong' }
+  );
+  const failures = failuresOf(fallbacks);
+  assert.ok(failures.some(failure => failure.startsWith('checked-answer fallbacks')));
+  assert.ok(failures.some(failure => failure.startsWith('the format fallback is 0.925 precise')));
+});
+
+test('fails an empty knockout, a short one and a failed selection run', () => {
+  const empty = failuresOf(scoreWorld({ knockout: 0 }));
+  assert.ok(empty.includes('knockout reached the writer in 0 clusters: no verdict'));
+  assert.ok(empty.includes('knockout pass null is under 0.95'));
+  assert.ok(failuresOf(scoreWorld({ knockout: 29 })).some(failure => failure.includes('no verdict')));
+  const world = scoreWorld();
+  for (const one of world.summaries.selection.results) one.runs = Array(3).fill(run('not_covered'));
+  assert.ok(failuresOf(world).some(failure => failure.startsWith('selection: answeredRate')));
+});
+
+for (const [name, spoil, message] of [
+  ['an ungraded row', world => (world.grading[0].verdict = null), /ungraded row/],
+  ['a row with no serious flag', world => (world.grading[1].serious = null), /ungraded row/],
+  ['a missing row', world => world.grading.pop(), /does not match its summary/],
+  ['an edited row', world => (world.grading[0].text = 'Edited.'), /does not match its summary/],
+  ['a missing case', world => world.summaries.writing.results.pop(), /writing lacks full runs/],
+  ['a missing run', world => world.summaries.selection.results[0].runs.pop(), /selection lacks full runs/],
+  ['a missing checker row', world => world.summaries.checker.results.pop(), /checker lacks full runs/],
+  ['another commit', world => (world.summaries.knockout.meta.gitSha = 'def'), /different code/],
+  ['other hashes', world => (world.summaries.checker.meta.hashes = { dataset: '2' }), /different code/],
+  ['a dev run', world => (world.summaries.writing.meta.devOnly = true), /not a full writing summary/],
+  ['an invalid suite', world => (world.summaries.checker.invalid = ['x']), /technical failures remain/],
+  [
+    'a technical run',
+    world => (world.summaries.writing.results[0].runs[0].outcome = 'writer_technical'),
+    /holds failed runs/
+  ]
+]) {
+  test(`refuses to score ${name}`, () => {
+    const world = scoreWorld();
+    spoil(world);
+    assert.throws(() => evaluation.scoreWriting(world), message);
+  });
+}

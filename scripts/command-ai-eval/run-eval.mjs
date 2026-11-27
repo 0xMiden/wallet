@@ -609,6 +609,17 @@ export async function runEval({
   };
 }
 
+export const quotaStopReason = (_model, _headers) => undefined;
+export const selectionWorker = _data => createEvalWorker();
+export const loadWritingCases = () => [];
+export const runWriting = async () => ({ results: [], invalid: [] });
+export const runWritingChecker = async () => ({ results: [], invalid: [] });
+export const scoreWritingChecker = () => ({});
+export const checkerRowErrors = () => [];
+export const gradingRows = () => [];
+export const wilsonLower = () => 0;
+export const scoreWriting = () => ({ failures: [], report: { cards: {} }, allowlist: [] });
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--require-live') && !process.env.GROQ_API_KEY?.trim()) {
     throw new Error('The live evaluation requires its model credential.');
