@@ -596,7 +596,7 @@ async function writeAnswer(cards: HelpCard[], first: HelpCard, trace: HelpTrace,
       ...trace,
       path: 'written' as const,
       served: draft.cited[0]!,
-      writing: { cards: draft.cited, outcome: 'written' as const }
+      writing: { cards: draft.cited, given, outcome: 'written' as const }
     }
   };
 }
@@ -770,7 +770,12 @@ export interface HelpTrace {
   /** The card the user got: the first cited one for written text. */
   served: string | null;
   /** Set when the writer was eligible. `cards` are the cited ones when written, else the ones it was given. */
-  writing?: { cards: string[]; outcome: WritingOutcome };
+  writing?: {
+    cards: string[];
+    /** On a written reply, every card whose lead and limit it carries. */
+    given?: string[];
+    outcome: WritingOutcome;
+  };
 }
 
 export type WritingOutcome =

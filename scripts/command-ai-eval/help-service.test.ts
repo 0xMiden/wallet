@@ -379,7 +379,7 @@ describe('written answers', () => {
       picked: ['guardian_what'],
       unknownIds: [],
       served: 'guardian_what',
-      writing: { cards: ['guardian_what'], outcome: 'written' }
+      writing: { cards: ['guardian_what'], given: ['guardian_what'], outcome: 'written' }
     });
   });
 

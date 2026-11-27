@@ -15,7 +15,8 @@ export const WRITER_RULES = `- Use only the FACTS. The CHECKED ANSWER shows scop
 - ADDED sentences are attached by the app. Do not repeat or contradict them.
 - [a number] in the question hides any number, including how many words a recovery phrase has, days or
   a time. Never write a bracketed placeholder.
-- Copy word for word any instruction to reset, delete, send again or type a secret.`;
+- Copy word for word any instruction to reset, remove, delete, sign out or send again, and any sentence
+  that names a phrase, words, a key, password, passcode or wallet file.`;
 
 export const CHECKER_RULES = `- supported: every claim in ANSWER is stated by FACTS or ADDED, with each actor, condition and "not"
   intact, and nothing added.
@@ -169,17 +170,26 @@ const NUMBER_WORDS = new Set(
 );
 
 const DESTRUCTIVE =
-  /\b(reset|reinstall|uninstall|delet\w*|resend|clear\b.*\bdata)|\b(send|pay|place|try)\b.*\b(again|twice)\b/;
-const SECRET_WORD = /recovery phrase|\bwords\b|private keys?|password|passcode|wallet file/;
-const HAND_OVER = /\b(type|enter|send|share|give|paste|tell|upload)\b/;
-const NEGATED = /\b(not|never|cannot|nobody)\b|n't/;
+  /\b(reset|reinstall|uninstall|delet|resend|resent|eras)\w*|\b(retry|retries|retried|retrying|remov(e|es|ed|ing|al)|wip(e|es|ed|ing))\b|\b(sign|log)(s|ed|ing|ged|ging)? (you )?out\b|\bclear\w*\b.*\bdata\b/;
+const REPEATED =
+  /\b(send\w*|sent|pay\w*|plac\w*|try\w*|tries|tried|mak\w*|made|submit\w*|repeat\w*|transfer\w*|do|doing)\b.*\b(again|twice|second time|another time)\b|\bsecond payment\b/;
+const SECRET_WORD = /\b(phrases?|words?|keys?|passwords?|passcodes?|mnemonics?|wallet files?)\b/;
+// The one rewording that may stay: a warning whose negation governs its only action.
+const WARNING =
+  /^(never|do not|don't)( ever)? (type|enter|send|share|give|paste|tell|upload|submit|provide|export|reveal|reset|reinstall|uninstall|delete|remove|erase|wipe|clear|sign out|log out|resend|retry|repeat|pay|make|place|try)\b/;
+const SECOND_ACTION =
+  /\b(typ|enter|send|shar|giv|past|tell|upload|submit|provid|export|reveal)\w*|\b(make|pay|place|try|repeat|but|unless|except|instead|then|only)\b/;
 const comparable = (text: string) => normalizeText(text).toLowerCase();
 
 // A backstop, not a meaning check: only the checker reads what a sentence says.
 function isRisky(sentence: string, checked: Set<string>): boolean {
   const lower = sentence.toLowerCase();
-  if (!DESTRUCTIVE.test(lower) && !(SECRET_WORD.test(lower) && HAND_OVER.test(lower))) return false;
-  return !NEGATED.test(lower) && !checked.has(comparable(sentence));
+  if (![DESTRUCTIVE, REPEATED, SECRET_WORD].some(pattern => pattern.test(lower))) return false;
+  if (checked.has(comparable(sentence))) return false;
+  const warning = WARNING.exec(lower);
+  if (!warning) return true;
+  const rest = lower.slice(warning[0].length);
+  return SECOND_ACTION.test(rest) || DESTRUCTIVE.test(rest);
 }
 
 /** Whether a sentence says something the supplied text does not, or tells the user to take a risk. */
@@ -207,7 +217,7 @@ function reachesPast(texts: string[], supplied: string[]): boolean {
   );
 }
 
-/** Joins the app's lead and limit sentences around the written ones, for the cards those cite. */
+/** Joins every given card's lead and limit around the written sentences: citations never drop one. */
 function assemble(sentences: Sentence[], cards: HelpCard[], data: HelpDataset) {
   const first = cards[0]!;
   const cites = unique(sentences.flatMap(sentence => sentence.facts)).filter(id =>
@@ -218,9 +228,8 @@ function assemble(sentences: Sentence[], cards: HelpCard[], data: HelpDataset) {
   const citedByOwnFact = cards.filter(card => uniqueCites(card).length > 0);
   // Shared facts are listed by both cards, so alone they cite the first and add nothing of the second.
   const cited = citedByOwnFact.length > 0 ? citedByOwnFact : [first];
-  const attached = cards.filter(card => card === first || cited.includes(card));
-  const lead = unique(attached.flatMap(card => card.lead));
-  const limit = unique(attached.flatMap(card => card.limit)).filter(id => !lead.includes(id));
+  const lead = unique(cards.flatMap(card => card.lead));
+  const limit = unique(cards.flatMap(card => card.limit)).filter(id => !lead.includes(id));
   const answer = [
     ...lead.map(id => factText(data, id)),
     ...sentences.map(sentence => sentence.text),
@@ -271,7 +280,9 @@ export function reviewDraft(
   const { reply, cited, fallback } = assemble(sentences, input.cards, data);
   const forbidden = [...data.forbid, ...input.cards.flatMap(card => card.forbid)];
 
+  // A draft that cites no fact has no card to fall back to, so it says it does not know.
   const content =
+    sentences.length === 0 ||
     sentences.some(({ facts }) => facts.length === 0 || !facts.every(id => supplied.has(id))) ||
     reachesPast(
       texts,
@@ -282,7 +293,6 @@ export function reviewDraft(
   if (content) return { kind: 'unknown', why: 'content' };
 
   const format =
-    sentences.length < 1 ||
     sentences.length > 5 ||
     texts.some(text => !text) ||
     texts.join(' ').length > input.budget ||

@@ -12,7 +12,10 @@
     "\\bsafe to (retry|resend|send (it )?again|try again)\\b",
     "\\birreversible\\b|\\b(cannot|can't) be (reversed|undone)\\b",
     "\\btrusted (person|friend|contact|family)\\b",
-    "\\bmove (all )?(your )?(money|funds) to (a new|another) account\\b"
+    "\\bmove (all )?(your )?(money|funds) to (a new|another) account\\b",
+    "\\bfinal(ity|i[sz]ed)?\\b",
+    "\\b(nobody|no[- ]one)\\b[^.!?]*\\b(block|freez|froz|stop|seiz)\\w*",
+    "\\b(cannot|can't|never) (ever )?be (blocked|frozen|stopped|seized)\\b"
   ],
   "buttons": {
     "Miden": {
