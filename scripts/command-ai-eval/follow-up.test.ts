@@ -233,6 +233,14 @@ describe('a follow-up that would leave app 1.18.2 on the old token or route', ()
       { amount: { kind: 'fiat_ref', ref: 'FIAT_AMT_1', currency: 'USD' } },
       'faucet-miden'
     ],
+    [
+      'the receive token as the new pay token, ignored',
+      swapAmountQuestion,
+      'swap 10 USDCx instead',
+      { amount },
+      'faucet-miden'
+    ],
+    ['a patch that changes nothing, no token named', amountQuestion, 'the other one', {}, 'faucet-miden'],
     ['S1: new pay token', swapAmountQuestion, 'swap 10 ETH instead', { amount, asset: 'ETH' }, 'faucet-miden'],
     ['S2: new receive token', swapAmountQuestion, '10, and receive ETH', { amount, to_asset: 'ETH' }, 'faucet-usdcx'],
     [
