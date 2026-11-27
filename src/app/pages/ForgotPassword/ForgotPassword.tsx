@@ -6,16 +6,14 @@ import { englishWordlist as wordsList, generateMnemonic } from '@miden/hd-key';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
-import { useMidenContext, request } from 'lib/miden/front';
+import { useMidenContext } from 'lib/miden/front';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
-import { prepareMainnet } from 'lib/miden/prepare-mainnet';
+import { prepareMainnet, revertMainnetOverride } from 'lib/miden/prepare-mainnet';
 import { clearClientStorageAfterRestore } from 'lib/miden/reset';
 import {
-  applyEndpointOverride,
-  clearEndpointOverride,
   ENDPOINT_OVERRIDE_STORAGE_KEY,
   EndpointOverride,
   getEffectiveNetworkName,
@@ -23,24 +21,14 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
-import { followEffectiveNetwork } from 'lib/remote-config/runtime';
+import { isMobile } from 'lib/platform';
 import { isInviteOnlyRequired, useMainnetLaunched } from 'lib/remote-config/use-mainnet-launch';
-import { WalletMessageType } from 'lib/shared/types';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { isUserErrorId, UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { navigate } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
-
-async function refreshRealmEndpointOverrides(): Promise<void> {
-  if (isExtension()) {
-    await request({ type: WalletMessageType.ReloadEndpointOverridesRequest });
-  } else {
-    await followEffectiveNetwork();
-  }
-}
 
 const ForgotPassword: FC = () => {
   const { t } = useTranslation();
@@ -186,8 +174,8 @@ const ForgotPassword: FC = () => {
           if (switchingFromOtherNetwork) {
             previousOverride = await fetchFromStorage<EndpointOverride | null>(ENDPOINT_OVERRIDE_STORAGE_KEY);
           }
-          await prepareMainnet();
           switchedMainnet = switchingFromOtherNetwork;
+          await prepareMainnet();
         }
         const guardianEndpoint =
           onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
@@ -216,12 +204,7 @@ const ForgotPassword: FC = () => {
       } catch (e) {
         if (switchedMainnet && !registrationCommitted) {
           try {
-            if (previousOverride) {
-              await applyEndpointOverride(previousOverride);
-            } else {
-              await clearEndpointOverride();
-            }
-            await refreshRealmEndpointOverrides();
+            await revertMainnetOverride(previousOverride);
           } catch (rollbackError) {
             console.error('Failed to revert mainnet endpoint switch:', rollbackError);
           }

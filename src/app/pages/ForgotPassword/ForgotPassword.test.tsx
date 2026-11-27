@@ -112,10 +112,16 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 
 // False (the extension and desktop path) unless a case sets it.
 const mockIsMobile = jest.fn(() => false);
+const mockIsExtension = jest.fn(() => true);
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isMobile: () => mockIsMobile(),
-  isExtension: () => true
+  isExtension: () => mockIsExtension()
+}));
+
+const mockResetMidenClient = jest.fn<Promise<void>, []>(async () => {});
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  resetMidenClient: () => mockResetMidenClient()
 }));
 
 // A countdown whose moment has passed: mainnet has launched, so onboarding is invite-only.
@@ -271,8 +277,9 @@ beforeEach(() => {
   mockRegisterWalletFromHotKey.mockResolvedValue(undefined);
   mockClearClientStorageAfterRestore.mockReset();
   mockClearClientStorageAfterRestore.mockResolvedValue(undefined);
-  mockClearEndpointOverride.mockReset();
-  mockClearEndpointOverride.mockResolvedValue(undefined);
+  mockClearEndpointOverride.mockReset().mockImplementation(async () => {
+    mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  });
   mockProbeStartWithKey.mockReset();
   mockPutToStorage.mockReset();
   mockNavigate.mockReset();
@@ -281,6 +288,9 @@ beforeEach(() => {
   mockFetchFromStorage.mockResolvedValue(null);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockIsMobile.mockReturnValue(false);
+  mockIsExtension.mockReturnValue(true);
+  mockResetMidenClient.mockReset().mockResolvedValue(undefined);
+  mockFollow.mockReset();
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -1155,20 +1165,23 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a failed switch with nothing wiped, and a retry finishes the switch before recovering', async () => {
+  it('shows a failed switch with nothing wiped, rolls back the override, and a retry finishes the switch before recovering', async () => {
     mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
     const { container } = renderPage();
     await recover();
 
     expect(captured.props?.recoveryError).toBe('Worker unavailable');
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    expect(mockClearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(mockNetwork).toBe(MIDEN_NETWORK_NAME.TESTNET);
     expect(mockClearClientStorage).not.toHaveBeenCalled();
     expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
     expect(mockRegisterWallet).not.toHaveBeenCalled();
 
     await dispatch({ id: 'confirmation' });
-    expect(mockApply).toHaveBeenCalledTimes(1);
-    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockApply).toHaveBeenCalledTimes(2);
+    expect(mockRequest).toHaveBeenCalledTimes(3);
+    expect(mockFollow).toHaveBeenCalledTimes(2);
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
     expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
   });
@@ -1392,6 +1405,62 @@ describe('ForgotPassword non-destructive restore, hot-key recovery, and confirma
     expect(mockClearEndpointOverride).not.toHaveBeenCalled();
     expect(mockApply).toHaveBeenLastCalledWith(previousOverride);
     expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('rolls back a partial prepareMainnet failure restoring a prior override and succeeds on retry', async () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    const previousOverride = { rpcUrl: 'https://custom-testnet.example', networkName: MIDEN_NETWORK_NAME.TESTNET };
+    mockFetchFromStorage.mockResolvedValue(previousOverride);
+    mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.recoveryError).toBe('Worker unavailable');
+    expect(mockClearEndpointOverride).not.toHaveBeenCalled();
+    expect(mockApply).toHaveBeenLastCalledWith(previousOverride);
+    expect(mockNetwork).toBe(MIDEN_NETWORK_NAME.TESTNET);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockFollow).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).toHaveBeenCalledTimes(3);
+    expect(mockApply).toHaveBeenLastCalledWith(expect.objectContaining({ networkName: MIDEN_NETWORK_NAME.MAINNET }));
+    expect(mockRequest).toHaveBeenCalledTimes(3);
+    expect(mockFollow).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back non-extension recoverOnly pre-commit failure via resetMidenClient and followEffectiveNetwork', async () => {
+    mockIsExtension.mockReturnValue(false);
+    mockSnapshot = readySnapshot(LAUNCHED);
+    mockFetchFromStorage.mockResolvedValueOnce(null);
+    mockRegisterWallet.mockRejectedValueOnce(new Error('Pre-commit lookup failed'));
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.recoveryError).toBe('Pre-commit lookup failed');
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockClearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(mockResetMidenClient).toHaveBeenCalledTimes(2);
+    expect(mockFollow).toHaveBeenCalledTimes(2);
+    expect(mockNetwork).toBe(MIDEN_NETWORK_NAME.TESTNET);
+    expect(mockClearEndpointOverride.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockResetMidenClient.mock.invocationCallOrder[1]!
+    );
+    expect(mockResetMidenClient.mock.invocationCallOrder[1]!).toBeLessThan(mockFollow.mock.invocationCallOrder[1]!);
   });
 
   it('handles retry-guardian-probe by re-running the probe with current seed/key and clearing recoveryError', async () => {
