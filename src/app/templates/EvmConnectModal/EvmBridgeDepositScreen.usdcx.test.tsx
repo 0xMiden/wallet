@@ -456,7 +456,8 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     payout,
     notice,
     sourceChainId,
-    fast
+    fast,
+    onSelectCircle
   }: {
     confirmDisabled?: boolean;
     onConfirm: () => void;
@@ -464,7 +465,8 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     payout?: { amount: string };
     notice?: string;
     sourceChainId: number;
-    fast?: { onSelect: () => void };
+    fast?: { onSelect: () => void; selected: boolean };
+    onSelectCircle?: () => void;
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
@@ -472,9 +474,14 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
       <span data-testid="usdcx-route-notice">{notice}</span>
       <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       {fast && (
-        <button data-testid="circle-fast" onClick={fast.onSelect}>
-          fast
-        </button>
+        <>
+          <button data-testid="circle-fast" aria-pressed={fast.selected} onClick={fast.onSelect}>
+            fast
+          </button>
+          <button data-testid="circle-direct" aria-pressed={!fast.selected} onClick={onSelectCircle}>
+            Circle
+          </button>
+        </>
       )}
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
@@ -1895,6 +1902,42 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await backToAmount();
     await pickToken('pick-usdc');
     expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+  });
+
+  it('preselects Fast for a current Receive quote and preserves a manual Circle choice', async () => {
+    mockBridgeSnapshot = withSepoliaEpochUsdc('0x1c7d4b196cb0c7b01d743fbc6116a902379c7238');
+    const previousQuote = { status: epochState.status, flow: epochState.flow, quote: epochState.quote };
+    const view = renderScreen();
+    try {
+      await settle();
+      await pickNetwork('sepolia');
+      await reachRouteStep();
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+
+      const params = epochState.quoteEVMToMiden.mock.lastCall?.[0];
+      expect(params).toBeDefined();
+      const publishQuote = async (scope: object, tokenIn = '1000000') => {
+        Object.assign(epochState, {
+          status: 'quoted',
+          flow: 'evm-to-miden',
+          quote: { params: scope, quoteResult: { tokenIn, tokenOut: '1000000' } }
+        });
+        view.rerender(depositScreen());
+        await settle();
+      };
+
+      await publishQuote({ ...params, minTokenOut: '2000000' });
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+
+      await publishQuote(params);
+      expect(screen.getByTestId('circle-fast')).toHaveAttribute('aria-pressed', 'true');
+
+      fireEvent.click(screen.getByTestId('circle-direct'));
+      await publishQuote(params, '1050000');
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      Object.assign(epochState, previousQuote);
+    }
   });
 
   // An Epoch token keyed ETH at another contract is its own row. Native ETH then has no Fast route.
