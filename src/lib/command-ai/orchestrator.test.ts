@@ -1,7 +1,9 @@
 import {
   applyChipSelection,
+  applyPatchToDraft,
   carryForwardAmount,
   compileOutputToResolution,
+  createClarificationSnapshot,
   resolveDraftToAction,
   type OrchestratorWalletContext
 } from './orchestrator';
@@ -647,5 +649,72 @@ describe('command-ai orchestrator', () => {
     expect(step2Handoff.handoff.draft.payAmount).toBe('0.005');
     expect(step2Handoff.handoff.draft.payTokenId).toBe('faucet-eth');
     expect(step2Handoff.handoff.draft.receiveTokenId).toBe('faucet-usdcx');
+  });
+});
+
+describe('createClarificationSnapshot', () => {
+  const ids = [
+    `contact:${VALID_MIDEN_ALICE}`,
+    `account:${VALID_EVM_ALICE_WORK}`,
+    'faucet-of-a-held-token',
+    'mtst1owner-1-lender-market'
+  ];
+
+  it('sends numbered option ids and only common-ticker symbols', () => {
+    const snapshot = createClarificationSnapshot(
+      { action: 'swap', assetQuery: 'PEPE', tokenId: 'faucet-of-a-held-token', toAssetQuery: 'usdcx' },
+      'amount',
+      ids
+    );
+
+    expect(snapshot.allowedOptionIds).toEqual(['option_1', 'option_2', 'option_3', 'option_4']);
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: 'usdcx' });
+    const sent = JSON.stringify(snapshot);
+    for (const localValue of [...ids, 'PEPE']) expect(sent).not.toContain(localValue);
+  });
+
+  it('applies the same rule to the target symbol', () => {
+    const snapshot = createClarificationSnapshot({ action: 'swap', toAssetQuery: 'PEPE' }, 'amount', []);
+
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: null });
+  });
+});
+
+describe('a follow-up that names an asset', () => {
+  const noPatch = {
+    action: null,
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const base = {
+    action: 'swap' as const,
+    assetQuery: 'PEPE',
+    tokenId: 'faucet-pepe',
+    toAssetQuery: 'ZORK',
+    toTokenId: 'faucet-zork'
+  };
+  const empty = redactPrompt('', { contacts: [] }).map;
+
+  it('drops the old token ids when the assets change', () => {
+    const next = applyPatchToDraft(base, { ...noPatch, asset: 'USDC', to_asset: 'MIDEN' }, empty);
+
+    expect(next).toMatchObject({ assetQuery: 'USDC', toAssetQuery: 'MIDEN' });
+    expect(next.tokenId).toBeUndefined();
+    expect(next.toTokenId).toBeUndefined();
+  });
+
+  it('keeps the token id when the same symbol is repeated or no asset is named', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: 'pepe' }, empty)).toMatchObject({
+      tokenId: 'faucet-pepe',
+      toTokenId: 'faucet-zork'
+    });
+    expect(applyPatchToDraft(base, noPatch, empty)).toMatchObject({ tokenId: 'faucet-pepe' });
   });
 });

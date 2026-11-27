@@ -102,4 +102,29 @@ describe('command-ai privacy redactor', () => {
     expect(niche.map.amounts.AMT_1).toBe('10');
     expect(niche.map.tokens.TOKEN_1?.tokenId).toBe('faucet-zork');
   });
+
+  it.each([
+    ['a NEAR account name', 'friend.near', 'friend.near'],
+    ['an upper-case Miden address', 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62', 'MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62'],
+    ['an upper-case address no pattern covers', 'tb1qexampleaddress0000000000', 'TB1QEXAMPLEADDRESS0000000000']
+  ])('redacts a saved address typed as %s', (_label, saved, typed) => {
+    const res = redactPrompt(`send 1 usdc to ${typed}.`, {
+      contacts: [{ id: 'c-saved', name: 'Zed', address: saved }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>.');
+    expect(res.map.addrs.ADDR_1).toBe(typed);
+  });
+
+  it('redacts an upper-case Miden address that is not saved', () => {
+    const res = redactPrompt('send to MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62', { contacts: [] });
+    expect(res.redactedText).toBe('send to <ADDR_1>');
+  });
+
+  it('redacts a held symbol that ends in punctuation', () => {
+    const res = redactPrompt('send 5 WIF$ now', {
+      contacts,
+      heldNicheTickers: [{ symbol: 'WIF$', tokenId: 'faucet-wif' }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> <TOKEN_1> now');
+  });
 });
