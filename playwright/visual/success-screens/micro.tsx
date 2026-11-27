@@ -60,7 +60,7 @@ export const MicroTab: FC = () => {
   return (
     <>
       <div style={{ font: "400 14px 'Nunito'", color: '#6b6b6b', marginBottom: 20, maxWidth: 820 }}>
-        The six microinteractions in the app code on this branch, uncommitted. Each one is the real component; press its orange button
+        The six microinteractions in the app code on this branch. Each one is the real component; press its orange button
         to play it.
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32 }}>
