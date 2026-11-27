@@ -2,7 +2,9 @@
 
 ## 1.18.3 (TBD)
 
-- [FIX][all] Use the asset you change to while answering a Bread assistant question about a send or a swap, instead of keeping the first one and opening its review (with amount buttons and dollar amounts based on it). A token you do not hold now says it was not found, and an unlisted token to receive is no longer replaced with the only available pair.
+- [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
+- [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
+- [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
 - [FIX][all] Distinguish a still-active retry attempt from a missing acknowledgement in opt-in reports.
 - [FIX][all] Identify whether standard Send or Command Send showed an invalid amount warning in opt-in reports.
 - [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.

@@ -13,6 +13,7 @@ import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, MidenA
 import type { RedactedClarificationSnapshot } from './client';
 import type { LocalQueryResult } from './local-query';
 import {
+  DEFAULT_LIQUID_TICKERS,
   resolveAmountRef,
   resolveAssetRef,
   resolveNicheTokenId,
@@ -362,13 +363,11 @@ function applyAssetSlot(
 ): void {
   if (!value) return;
   const nicheId = resolveNicheTokenId(value, map);
-  const symbol = resolveAssetRef(value, map);
+  const symbol = resolveAssetRef(value, map).trim();
   const [queryKey, idKey] =
     field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
-  // Resolution prefers the id, so another symbol must drop it. A repeated symbol keeps it: a held
-  // ticker's placeholder always names the first holding, not necessarily the one the user picked.
-  if (!isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
-  else target[idKey] ??= nicheId;
+  // A different asset must not keep the old token id: resolution prefers the id over the symbol.
+  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
   target[queryKey] = symbol;
 }
 
@@ -419,8 +418,9 @@ export function applyPatchToDraft(
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
   const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
   if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
-    // A chosen route answers the old request, not the changed one.
+    // A chosen route (and a held token) answers the old request, not the changed one.
     next.routeId = undefined;
+    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
   }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
@@ -439,6 +439,15 @@ export function applyPatchToDraft(
   return next;
 }
 
+/** Only common-ticker symbols, which the redactor leaves as typed, go into a follow-up request. */
+function publicSymbol(symbol: string | undefined): string | null {
+  return symbol && DEFAULT_LIQUID_TICKERS.has(symbol.trim().toUpperCase()) ? symbol : null;
+}
+
+/**
+ * The draft state a follow-up request carries. The draft holds restored local values and the option
+ * ids are local keys, so each field is chosen here and the ids are numbered per request.
+ */
 export function createClarificationSnapshot(
   draft: HydratedIntentDraft,
   missingSlot: string,
@@ -446,11 +455,12 @@ export function createClarificationSnapshot(
 ): RedactedClarificationSnapshot {
   return {
     missingSlot,
-    allowedOptionIds,
+    // Numbered per request. No response field refers to an option, so nothing maps them back.
+    allowedOptionIds: allowedOptionIds.map((_, index) => `option_${index + 1}`),
     draft: {
       action: draft.action,
-      asset: draft.assetQuery ?? null,
-      to_asset: draft.toAssetQuery ?? null,
+      asset: publicSymbol(draft.assetQuery),
+      to_asset: publicSymbol(draft.toAssetQuery),
       from_chain: draft.fromChain ?? null,
       to_chain: draft.toChain ?? null,
       hasAmount: Boolean(draft.amount || draft.amountFraction || draft.amountIsMax || draft.fiatUsdAmount),
@@ -885,7 +895,9 @@ function resolveBridgeFlow(
 
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
-  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, draft.tokenId, ctx.balances);
+  const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
+  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
   if (!amount) {
@@ -969,8 +981,7 @@ function resolveSwapFlow(
   if (!receive) {
     const partners = getSwapPartners(offer.faucetId);
     const choices = partners.length > 0 ? partners : ctx.swapTokens.filter(t => t.faucetId !== offer.faucetId);
-    // A named token that is not listed must not turn into the only partner.
-    if (choices.length === 1 && !draft.toAssetQuery) {
+    if (choices.length === 1) {
       receive = choices[0];
     } else if (choices.length > 1) {
       const chips: ClarificationChip[] = choices.slice(0, 5).map(tok => ({

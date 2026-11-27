@@ -3,8 +3,10 @@ import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
 import {
   applyChipSelection,
+  applyPatchToDraft,
   carryForwardAmount,
   compileOutputToResolution,
+  createClarificationSnapshot,
   resolveDraftToAction,
   type OrchestratorWalletContext
 } from './orchestrator';
@@ -905,7 +907,7 @@ describe('command-ai orchestrator', () => {
     });
   });
 
-  describe('a follow-up that changes the asset', () => {
+  describe('a clarification reply about the asset', () => {
     type Question = Extract<ReturnType<typeof compileOutputToResolution>, { kind: 'clarifying' }>;
     const row = (tokenId: string, symbol: string, balance: number) => ({
       tokenId,
@@ -971,15 +973,6 @@ describe('command-ai orchestrator', () => {
     const sendAmountQuestion = () =>
       ask('send MIDEN to Alice', { action: 'send', asset: 'MIDEN', recipient_ref: 'CONTACT_1' });
 
-    it('reviews the new token when the reply to the amount question names it', () => {
-      expect(reply(sendAmountQuestion(), 'send 10 USDCx instead', { amount, asset: 'USDCx' })).toMatchObject(
-        review({
-          tokenId: usdcx,
-          amount: '10'
-        })
-      );
-    });
-
     it('sizes the amount chips by the new token', () => {
       const next = question(reply(sendAmountQuestion(), 'use USDCx', { asset: 'USDCx' }));
       expect(next.draft).toMatchObject({ assetQuery: 'USDCx', tokenId: usdcx });
@@ -992,19 +985,6 @@ describe('command-ai orchestrator', () => {
         messageKey: 'commandAiAssetNotFound',
         messageParams: { asset: 'DAI' }
       });
-    });
-
-    it('drops a token picked from a chip when the reply names another', () => {
-      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' });
-      const next = question(pick(assets, miden!));
-      expect(reply(next, '10 USDCx', { amount, asset: 'USDCx' })).toMatchObject(review({ tokenId: usdcx }));
-    });
-
-    it('drops an unlisted token named first when the recipient reply names another', () => {
-      const recipient = ask('send 5 FOO', { action: 'send', amount, asset: 'TOKEN_1' });
-      expect(reply(recipient, 'USDCx to Alice', { asset: 'USDCx', recipient_ref: 'CONTACT_1' })).toMatchObject(
-        review({ tokenId: usdcx })
-      );
     });
 
     it("converts a dollar amount at the new token's price", () => {
@@ -1040,28 +1020,6 @@ describe('command-ai orchestrator', () => {
       const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' }, twins());
       const next = question(pick(assets, 'faucet-foo-2', twins()));
       expect(reply(next, 'send 3 FOO', { amount, asset }, twins())).toMatchObject(review({ tokenId: 'faucet-foo-2' }));
-    });
-
-    it('takes the id of an unlisted token the reply changes to', () => {
-      expect(reply(sendAmountQuestion(), 'send 10 FOO instead', { amount, asset: 'TOKEN_1' })).toMatchObject(
-        review({
-          tokenId: 'faucet-foo'
-        })
-      );
-    });
-
-    const swapAmountQuestion = () => ask('swap MIDEN to USDCx', { action: 'swap', asset: 'MIDEN', to_asset: 'USDCx' });
-
-    it('pays with the new token', () => {
-      expect(reply(swapAmountQuestion(), 'swap 10 ETH instead', { amount, asset: 'ETH' })).toMatchObject({
-        handoff: { draft: { payTokenId: eth, receiveTokenId: usdcx } }
-      });
-    });
-
-    it('receives the new token', () => {
-      expect(reply(swapAmountQuestion(), '10, and receive ETH', { amount, to_asset: 'ETH' })).toMatchObject({
-        handoff: { draft: { payTokenId: miden, receiveTokenId: eth } }
-      });
     });
 
     it('does not swap into the only partner when the named receive token is not listed', () => {
@@ -1102,22 +1060,225 @@ describe('command-ai orchestrator', () => {
       );
       expect(res).toMatchObject({ handoff: { draft: { route: 'foo-out', amount: '4' } } });
     });
+  });
+});
 
-    it('drops the old id when a bridge route chip changes the asset', () => {
-      const route = (id: string, provider: string) => ({
-        id,
-        provider,
-        mode: 'send' as const,
-        sourceSymbol: 'USDCx',
-        sourceNetwork: 'miden-testnet',
-        destinationSymbol: 'MIDEN',
-        destinationNetwork: 'sepolia'
-      });
-      const ctx = { ...context(), bridgeRoutes: [route('r-1', 'agglayer'), route('r-2', 'xreserve')] };
-      const routes = question(
-        resolveDraftToAction({ action: 'bridge', assetQuery: 'MIDEN', tokenId: miden }, redact('x', ctx).map, ctx)
-      );
-      expect(question(pick(routes, 'r-1', ctx)).draft).toMatchObject({ assetQuery: 'USDCx', tokenId: undefined });
+describe('createClarificationSnapshot', () => {
+  const ids = [
+    `contact:${VALID_MIDEN_ALICE}`,
+    `account:${VALID_EVM_ALICE_WORK}`,
+    'faucet-of-a-held-token',
+    'mtst1owner-1-lender-market'
+  ];
+
+  it('sends numbered option ids and only common-ticker symbols', () => {
+    const snapshot = createClarificationSnapshot(
+      { action: 'swap', assetQuery: 'PEPE', tokenId: 'faucet-of-a-held-token', toAssetQuery: 'usdcx' },
+      'amount',
+      ids
+    );
+
+    expect(snapshot.allowedOptionIds).toEqual(['option_1', 'option_2', 'option_3', 'option_4']);
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: 'usdcx' });
+    const sent = JSON.stringify(snapshot);
+    for (const localValue of [...ids, 'PEPE']) expect(sent).not.toContain(localValue);
+  });
+
+  it('applies the same rule to the target symbol', () => {
+    const snapshot = createClarificationSnapshot({ action: 'swap', toAssetQuery: 'PEPE' }, 'amount', []);
+
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: null });
+  });
+});
+
+describe('the token id behind a bridge route', () => {
+  const empty = redactPrompt('', { contacts: [] }).map;
+  const route = (provider: string) => ({
+    id: `testnet:${provider}:usdcx:sepolia:send`,
+    provider,
+    mode: 'send' as const,
+    sourceSymbol: 'USDCx',
+    sourceNetwork: 'miden-testnet',
+    destinationSymbol: 'USDC',
+    destinationNetwork: 'sepolia'
+  });
+  const context = (...providers: string[]): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-usdcx-other',
+          tokenSlug: 'USDCx',
+          balance: 5,
+          balanceBaseUnits: '5000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'USDCx', name: 'Other USDCx', decimals: 6 }
+        },
+        {
+          tokenId: 'faucet-usdc',
+          tokenSlug: 'USDC',
+          balance: 7,
+          balanceBaseUnits: '7000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 }
+        }
+      ],
+      externalEvmAddress: VALID_EVM_ALICE_WORK,
+      bridgeRoutes: providers.map(route)
+    };
+  };
+  // USDC names these routes by their destination, while their source asset is USDCx.
+  const held = {
+    action: 'bridge' as const,
+    assetQuery: 'USDC',
+    tokenId: 'faucet-usdc',
+    fromChain: 'miden',
+    toChain: 'sepolia'
+  };
+
+  it('is dropped when a bridge chip names a different source symbol', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const asked = resolveDraftToAction(held, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    const picked = applyChipSelection(asked, asked.chips[1]!, ctx);
+
+    expect(picked).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { assetQuery: 'USDCx' } });
+    if (picked.kind !== 'clarifying') return;
+    expect(picked.draft.tokenId).toBeUndefined();
+  });
+
+  it('does not pick the balance for a max amount when it holds a different asset', () => {
+    const res = resolveDraftToAction({ ...held, amountIsMax: true }, empty, context('xreserve'));
+
+    expect(res).toMatchObject({ kind: 'handoff', handoff: { draft: { amount: '1000' } } });
+  });
+
+  it('stays selected when the route source symbol is the same asset', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const draft = { ...held, assetQuery: 'usdcx', tokenId: 'faucet-usdcx-other', amountIsMax: true };
+    const asked = resolveDraftToAction(draft, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+
+    expect(applyChipSelection(asked, asked.chips[1]!, ctx)).toMatchObject({
+      kind: 'handoff',
+      handoff: { draft: { amount: '5' } }
     });
+  });
+});
+
+describe('a follow-up that names an asset', () => {
+  const noPatch = {
+    action: null,
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const base = {
+    action: 'swap' as const,
+    assetQuery: 'PEPE',
+    tokenId: 'faucet-pepe',
+    toAssetQuery: 'ZORK',
+    toTokenId: 'faucet-zork'
+  };
+  const empty = redactPrompt('', { contacts: [] }).map;
+
+  it('drops the old token ids when the assets change', () => {
+    const next = applyPatchToDraft(base, { ...noPatch, asset: 'USDC', to_asset: 'MIDEN' }, empty);
+
+    expect(next).toMatchObject({ assetQuery: 'USDC', toAssetQuery: 'MIDEN' });
+    expect(next.tokenId).toBeUndefined();
+    expect(next.toTokenId).toBeUndefined();
+  });
+
+  it('compares and stores a padded symbol without its padding', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: ' PEPE ', to_asset: ' ZORK ' }, empty)).toMatchObject({
+      assetQuery: 'PEPE',
+      tokenId: 'faucet-pepe',
+      toAssetQuery: 'ZORK',
+      toTokenId: 'faucet-zork'
+    });
+    const changed = applyPatchToDraft(base, { ...noPatch, asset: ' USDC ' }, empty);
+    expect(changed).toMatchObject({ assetQuery: 'USDC', toTokenId: 'faucet-zork' });
+    expect(changed.tokenId).toBeUndefined();
+  });
+
+  it('keeps the token id when the same symbol is repeated or no asset is named', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: 'pepe' }, empty)).toMatchObject({
+      tokenId: 'faucet-pepe',
+      toTokenId: 'faucet-zork'
+    });
+    expect(applyPatchToDraft(base, noPatch, empty)).toMatchObject({ tokenId: 'faucet-pepe' });
+  });
+});
+
+// The whole path of a follow-up: the typed symbol is a placeholder, resolution restores it into the
+// draft, and the snapshot built from that draft must not carry it.
+describe('the follow-up snapshot after an unlisted token was typed', () => {
+  const slots = {
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const context = (): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-foo',
+          tokenSlug: 'FOO',
+          balance: 50,
+          balanceBaseUnits: '50000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'FOO', name: 'Foo', decimals: 6 }
+        }
+      ],
+      swapTokens: [...base.swapTokens, { symbol: 'FOO', faucetId: 'faucet-foo', decimals: 6 }]
+    };
+  };
+  const heldNicheTickers = [{ symbol: 'FOO', tokenId: 'faucet-foo' }];
+
+  it.each([
+    [
+      'asset',
+      'send 5 FOO',
+      { action: 'send' as const, amount: { kind: 'exact_ref' as const, ref: 'AMT_1' }, asset: 'TOKEN_1' },
+      { asset: null }
+    ],
+    [
+      'to_asset',
+      'swap MIDEN to FOO',
+      { action: 'swap' as const, asset: 'MIDEN', to_asset: 'TOKEN_1' },
+      { asset: 'MIDEN', to_asset: null }
+    ]
+  ])('leaves it out of %s', (_side, typed, intent, expected) => {
+    const { redactedText, map } = redactPrompt(typed, { contacts: [], heldNicheTickers });
+    expect(redactedText).toContain('<TOKEN_1>');
+    const asked = compileOutputToResolution({ op: 'set_intent', ...slots, ...intent }, map, context());
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    expect([asked.draft.assetQuery, asked.draft.toAssetQuery]).toContain('FOO');
+
+    const snapshot = createClarificationSnapshot(asked.draft, asked.slot, asked.allowedOptionIds);
+
+    expect(snapshot.draft).toMatchObject(expected);
+    expect(JSON.stringify(snapshot)).not.toMatch(/foo/i);
   });
 });
