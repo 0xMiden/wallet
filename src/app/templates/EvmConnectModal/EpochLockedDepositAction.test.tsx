@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import {
   finishLockedDepositWithdrawal,
+  LockedDepositError,
   retryLockedDeposit,
   startLockedDepositWithdrawal
 } from 'lib/epoch/bridge-in-recovery';
@@ -31,7 +32,14 @@ jest.mock('lib/walletconnect/useEvmWalletPicker', () => ({
   useEvmWalletPicker: () => ({ openWalletPicker: mockOpenPicker, error: undefined })
 }));
 jest.mock('lib/epoch/bridge-in-recovery', () => ({
-  LockedDepositError: class extends Error {},
+  LockedDepositError: class extends Error {
+    constructor(
+      readonly reason: string,
+      message: string
+    ) {
+      super(message);
+    }
+  },
   sponsorWalletRefusal: (connected: string | undefined, sponsor: string) => {
     if (!connected) return 'walletDisconnected';
     return connected.toLowerCase() === sponsor.toLowerCase() ? undefined : 'wrongAccount';
@@ -162,24 +170,44 @@ describe('EpochLockedDepositAction', () => {
       expect(screen.queryByTestId('epoch-deposit-withdraw')).not.toBeInTheDocument();
     });
 
-    it('shows the error line when an action is rejected', async () => {
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-      try {
-        jest.mocked(retryLockedDeposit).mockRejectedValueOnce(new Error('Wallet refused'));
-        render(sponsorRow(LOCK));
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-        expect(mockReportError).not.toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline');
+    it.each([
+      ['retry', retryLockedDeposit, 'epoch-deposit-retry', 'unclassified', 'failed'],
+      ['start_withdrawal', startLockedDepositWithdrawal, 'epoch-deposit-withdraw', 'unclassified', 'failed'],
+      [
+        'finish_withdrawal',
+        finishLockedDepositWithdrawal,
+        'epoch-deposit-withdraw',
+        'withdrawalNotDue',
+        'epochDepositErrorNotDue'
+      ]
+    ] as const)(
+      'reports the closed operation %s on the generic inline failure',
+      async (operation, action, button, reason, copy) => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          const details = 'synthetic recovery failure details';
+          const cause = reason === 'unclassified' ? new Error(details) : new LockedDepositError(reason, details);
+          jest.mocked(action).mockRejectedValueOnce(cause);
+          const lock = operation === 'finish_withdrawal' ? { ...LOCK, withdrawEnabledAt: 2, withdrawableAt: 3 } : LOCK;
+          render(sponsorRow(lock));
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+          expect(mockReportError.mock.calls.some(([id]) => id === 'raw_bridge_deposit_failed')).toBe(false);
 
-        fireEvent.click(screen.getByTestId('epoch-deposit-retry'));
+          fireEvent.click(screen.getByTestId(button));
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('failed');
-        // The alert paragraph is reported under the id of a failed bridge deposit recovery.
-        expect(mockReportError).toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline');
-        expect(screen.getByTestId('epoch-deposit-retry')).toBeEnabled();
-      } finally {
-        consoleError.mockRestore();
+          expect(await screen.findByRole('alert')).toHaveTextContent(copy);
+          expect(action).toHaveBeenCalledTimes(1);
+          expect(screen.getByTestId(button)).toBeEnabled();
+          expect(mockReportError).toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline', undefined, {
+            kind: 'locked_deposit_recovery',
+            lockedDepositRecoveryOperation: operation,
+            lockedDepositRecoveryReason: reason
+          });
+        } finally {
+          consoleError.mockRestore();
+        }
       }
-    });
+    );
   });
 
   it('keeps the countdown moving when a render lands between the deadline and the next tick', () => {

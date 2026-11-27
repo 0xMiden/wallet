@@ -21,10 +21,18 @@ jest.mock('lib/epoch/bridge-in-lock-scan', () => ({
   readCompactLockConfig: jest.fn(),
   readCompactLockState: jest.fn()
 }));
-jest.mock('lib/epoch/bridge-in-recovery', () => ({ cancelLockWithdrawal: jest.fn() }));
+jest.mock('lib/epoch/bridge-in-recovery', () => ({
+  LockedDepositError: class extends Error {},
+  cancelLockWithdrawal: jest.fn()
+}));
 jest.mock('lib/epoch/lock-scan-refresh', () => ({ requestLockRescan: jest.fn() }));
-jest.mock('./locked-deposit-error-text', () => ({
-  lockedDepositErrorDisplay: (cause: Error) => ({ text: cause.message, id: 'raw_bridge_deposit_failed' })
+jest.mock('lib/walletconnect/signing-error', () => ({
+  nativeSigningErrorMessage: (cause: Error) => cause.message,
+  nativeSigningErrorId: () => undefined
+}));
+const mockReportError = jest.fn();
+jest.mock('lib/telemetry/use-user-visible-error', () => ({
+  useUserVisibleError: (...args: unknown[]) => mockReportError(...args)
 }));
 
 const SPONSOR = '0x00000000000000000000000000000000000000AA';
@@ -126,6 +134,27 @@ it('waits for wallet confirmation and a fresh quote before it opens the bridge',
   expect(screen.queryByRole('button', { name: 'Continue bridge' })).not.toBeInTheDocument();
   await act(async () => quote());
   expect(screen.getByRole('button', { name: 'Continue bridge' })).toBeInTheDocument();
+});
+
+it('reports the closed operation cancel_withdrawal on the generic inline failure', async () => {
+  jest.mocked(readCompactLockState).mockResolvedValue({ withdrawal: { status: 'Pending' } });
+  const details = 'synthetic recovery failure details';
+  jest.mocked(cancelLockWithdrawal).mockRejectedValueOnce(new Error(details));
+  renderGate();
+  const disable = await screen.findByRole('button', { name: 'bridgeWithdrawalDisable' });
+  expect(screen.queryByTestId('bridge-withdrawal-error')).not.toBeInTheDocument();
+  expect(mockReportError.mock.calls.some(([id]) => id === 'raw_bridge_deposit_failed')).toBe(false);
+
+  fireEvent.click(disable);
+
+  expect(await screen.findByTestId('bridge-withdrawal-error')).toHaveTextContent(details);
+  expect(cancelLockWithdrawal).toHaveBeenCalledTimes(1);
+  expect(mockOnDisabled).not.toHaveBeenCalled();
+  expect(mockReportError).toHaveBeenCalledWith('raw_bridge_deposit_failed', 'inline', undefined, {
+    kind: 'locked_deposit_recovery',
+    lockedDepositRecoveryOperation: 'cancel_withdrawal',
+    lockedDepositRecoveryReason: 'unclassified'
+  });
 });
 
 it('keeps the action available after the wallet rejects the transaction', async () => {
