@@ -81,6 +81,7 @@ import { consumeSendDraft, setSendDraft } from './send-draft';
 import { sendNetworkKind } from './send-network-kind';
 import {
   enterSendFlow,
+  hasActiveSendSession,
   recordSendActionWithoutProgress,
   reportSendStep,
   settleSendFlow,
@@ -386,7 +387,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
   //
   // Dwelled on rather than merely current, because a swipe from Overview to Swap
   // commits /send on the way past — see `useRouteDwell`.
-  const onSendRoute = useRouteDwell(pathname === '/send' || pathname.startsWith('/send/'));
+  const onSendSurface = pathname === '/send' || pathname.startsWith('/send/');
+  const onSendForm = pathname === '/send';
+  const dwelledOnSend = useRouteDwell(onSendSurface);
+  const [adoptingReturn, setAdoptingReturn] = useState(() => onSendForm && hasActiveSendSession());
+  const onSendRoute = onSendSurface && (dwelledOnSend || adoptingReturn);
+  useEffect(() => {
+    if (adoptingReturn && (!onSendSurface || dwelledOnSend)) {
+      setAdoptingReturn(false);
+    }
+  }, [adoptingReturn, dwelledOnSend, onSendSurface]);
   // Set when this screen navigates to review. That unmount is the handoff, not
   // the user leaving, so the review page still owns the terminal call.
   const reviewHandoffRef = useRef(false);
@@ -398,6 +408,21 @@ export const SendManager: React.FC<SendManagerProps> = ({
       settleSendFlow(flow => flow.cancel());
     };
   }, [onSendRoute]);
+
+  // Returning from `/send/review` on a retained layer (mobile slide) flips
+  // `onSendForm` false -> true without remounting `SendManager`: clear the
+  // handoff guard (so leaving `/send` later cancels cleanly) and adopt/reopen
+  // the flow if returning after a failed submit.
+  const wasOnSendFormRef = useRef(onSendForm);
+  useEffect(() => {
+    const returnedToForm = onSendForm && !wasOnSendFormRef.current;
+    wasOnSendFormRef.current = onSendForm;
+    if (!returnedToForm) return;
+    reviewHandoffRef.current = false;
+    if (onSendRoute) {
+      enterSendFlow();
+    }
+  }, [onSendForm, onSendRoute]);
 
   // Report the step the user reached, so an abandoned send says WHERE it was
   // abandoned. Without it every drop-out arrives as one bare `send_started` and
@@ -411,7 +436,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // carousel. Without `onSendRoute` here, the first step would be reported into
   // a flow that did not exist yet and every send would arrive stepless.
   useEffect(() => {
-    if (!onSendRoute) return;
+    if (!onSendRoute || !onSendForm) return;
     switch (currentStep) {
       case SendFlowStep.SelectRecipient:
         reportSendStep('select_recipient');
@@ -423,7 +448,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         reportSendStep('select_route');
         break;
     }
-  }, [currentStep, onSendRoute]);
+  }, [currentStep, onSendForm, onSendRoute]);
 
   const registryScope = useSyncExternalStore(subscribeEffectiveEndpoints, getNameRegistryScope);
   const draftName = draft?.midenName;

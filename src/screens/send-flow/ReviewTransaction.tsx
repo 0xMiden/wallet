@@ -84,7 +84,7 @@ import { isCurrentUsdcxFeeBudget } from 'lib/usdcx/sponsorship';
 import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { useBurnMinimum } from 'lib/usdcx/use-burn-minimum';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError, usdcxMinimumBurnShortfall } from 'lib/usdcx/withdrawal';
-import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { createLocationState, goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 import { EvmUsdValue } from 'screens/generating-transaction/EvmUsdValue';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
@@ -111,6 +111,7 @@ import {
   beginSendSubmitting,
   recordSendActionWithoutProgress,
   reportSendStep,
+  restoreSendReviewIfSubmitting,
   settleSendFlow,
   transitionSendStep
 } from './send-telemetry';
@@ -131,6 +132,11 @@ const ReviewErrorMessage: React.FC<{ message?: string; errorId?: UserErrorId }> 
     </p>
   );
 };
+
+function isReturningToSendRoute(): boolean {
+  const loc = createLocationState();
+  return typeof loc.pathname === 'string' && loc.pathname === '/send';
+}
 
 /** The route of the review URL, or undefined for a value that is not a route. */
 function parseBridgeRoute(value: string | null): BridgeRoute | undefined {
@@ -265,6 +271,7 @@ export const ReviewTransaction: React.FC = () => {
   const submissionAbort = useRef<AbortController | undefined>(undefined);
   const submittingRef = useRef(false);
   useEffect(() => {
+    restoreSendReviewIfSubmitting();
     submittingRef.current = false;
     setIsSubmitting(false);
     setRequestingDepositAddress(false);
@@ -660,6 +667,10 @@ export const ReviewTransaction: React.FC = () => {
     reportSendStep('review');
     return () => {
       if (backToSendRef.current) return;
+      if (isReturningToSendRoute()) {
+        transitionSendStep('back');
+        return;
+      }
       settleSendFlow(flow => flow.cancel());
     };
   }, []);
@@ -1020,6 +1031,7 @@ export const ReviewTransaction: React.FC = () => {
           default: {
             if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
+              restoreSendReviewIfSubmitting();
               setIsSubmitting(false);
               return;
             }
@@ -1042,6 +1054,7 @@ export const ReviewTransaction: React.FC = () => {
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
+              if (isCurrentSubmission()) restoreSendReviewIfSubmitting();
               setIsSubmitting(false);
             }
           }

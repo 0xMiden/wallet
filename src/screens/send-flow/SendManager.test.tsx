@@ -23,7 +23,15 @@ import { MidenAddressError } from 'utils/miden';
 
 import type { SendNetwork } from './bridge-networks';
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
-import { hasOpenSendFlow, settleSendFlow } from './send-telemetry';
+import {
+  beginSendSubmitting,
+  enterSendFlow,
+  hasActiveSendSession,
+  hasOpenSendFlow,
+  reportSendStep,
+  settleSendFlow,
+  transitionSendStep
+} from './send-telemetry';
 import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
@@ -146,14 +154,29 @@ jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardRea
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+type TelemetryHandle = {
+  flowId?: string;
+  runId?: string;
+  complete: jest.Mock;
+  cancel: jest.Mock;
+  fail: jest.Mock;
+  step: jest.Mock;
+};
 const telemetryHandles: TelemetryHandle[] = [];
 const beginFlowMock = jest.fn((_flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  const handle: TelemetryHandle = {
+    flowId: `flow-sm-${telemetryHandles.length + 1}`,
+    runId: 'run-sm-123456789012',
+    complete: jest.fn(),
+    cancel: jest.fn(),
+    fail: jest.fn(),
+    step: jest.fn()
+  };
   telemetryHandles.push(handle);
   return handle;
 });
 const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
+const reportTelemetryEventMock = jest.fn();
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -621,6 +644,9 @@ jest.mock('lib/miden/name/resolver', () => ({
 jest.mock('lib/telemetry', () => ({
   beginFlow: (flow: string) => beginFlowMock(flow),
   classifyError: (error: unknown) => classifyErrorMock(error)
+}));
+jest.mock('lib/telemetry/report-flow', () => ({
+  reportTelemetryEvent: (event: unknown) => reportTelemetryEventMock(event)
 }));
 
 // ---------------------------------------------------------------------------
@@ -2656,6 +2682,7 @@ describe('send telemetry', () => {
     settleSendFlow(flow => flow.cancel());
     beginFlowMock.mockClear();
     classifyErrorMock.mockClear();
+    reportTelemetryEventMock.mockClear();
     telemetryHandles.length = 0;
   });
 
@@ -2851,6 +2878,90 @@ describe('send telemetry', () => {
 
     renderSend();
     expect(beginFlowMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('adopts returning active send session immediately on remount and cancels if left before 600ms while preserving dwell gate for fresh swipes', () => {
+    enterSendFlow();
+    reportSendStep('review');
+    transitionSendStep('back');
+    expect(hasActiveSendSession()).toBe(true);
+
+    mockPathname = '/send';
+    const returning = renderFlow();
+    act(() => void jest.advanceTimersByTime(100));
+    returning.unmount();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    expect(hasActiveSendSession()).toBe(false);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-sm-1',
+        step: 'select_recipient',
+        stepAction: 'leave',
+        complete: true
+      })
+    );
+
+    // Fresh swipe past /send without an active session still enforces the 600ms dwell gate.
+    mockPathname = '/';
+    const swipe = renderFlow();
+    mockPathname = '/send';
+    swipe.rerender(<SendFlow isLoading={false} />);
+    act(() => void jest.advanceTimersByTime(100));
+    swipe.unmount();
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears handoff guard and re-enters step on retained mobile slide return, including after submit failure', () => {
+    const first = reachReview('5', 'mtst1recipient');
+    mockPathname = '/send/review';
+    first.rerender(<SendFlow isLoading={false} />);
+    act(() => {
+      reportSendStep('review');
+      transitionSendStep('back');
+    });
+
+    mockPathname = '/send';
+    first.rerender(<SendFlow isLoading={false} />);
+    expect(hasOpenSendFlow()).toBe(true);
+
+    mockPathname = '/';
+    first.rerender(<SendFlow isLoading={false} />);
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-sm-1',
+        step: 'select_amount',
+        stepAction: 'leave',
+        complete: true
+      })
+    );
+    first.unmount();
+
+    // Returning to retained SendManager after a failed Review submit opens a fresh flow.
+    mockPathname = '/send';
+    const second = reachReview('5', 'mtst1recipient');
+    mockPathname = '/send/review';
+    second.rerender(<SendFlow isLoading={false} />);
+    act(() => {
+      beginSendSubmitting(false);
+      settleSendFlow(flow => flow.fail('rpc'));
+      transitionSendStep('back');
+    });
+
+    mockPathname = '/send';
+    second.rerender(<SendFlow isLoading={false} />);
+    expect(beginFlowMock).toHaveBeenCalledTimes(3);
+    expect(hasOpenSendFlow()).toBe(true);
+
+    mockPathname = '/';
+    second.rerender(<SendFlow isLoading={false} />);
+    expect(handleAt(2).cancel).toHaveBeenCalledTimes(1);
   });
 });
 

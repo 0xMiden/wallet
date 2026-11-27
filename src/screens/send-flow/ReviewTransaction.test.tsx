@@ -42,7 +42,7 @@ import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from 'lib/usdcx/burn';
 import { useBurnFeeReserve, type BurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
-import { goBack, navigate } from 'lib/woozie';
+import { createLocationState, goBack, navigate } from 'lib/woozie';
 import { CommandDraftProvider, type CommandSendRecall, useCommandDrafts } from 'screens/command/command-drafts';
 import { CommandShell } from 'screens/command/CommandShell';
 import { isValidMidenAddress } from 'utils/miden';
@@ -79,6 +79,7 @@ let mockReviewNetwork = 'devnet';
 let mockReviewRpcUrl = 'https://rpc.review.example';
 let mockFullPage = false;
 let mockHistoryPosition = 1;
+let mockLocationPathname: string | undefined;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
@@ -519,7 +520,11 @@ jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null })
 jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
 jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
 jest.mock('lib/woozie', () => ({
-  createLocationState: () => ({ href: `/#/send/review?${mockSearch}`, historyPosition: mockHistoryPosition }),
+  createLocationState: () => ({
+    href: `/#/send/review?${mockSearch}`,
+    historyPosition: mockHistoryPosition,
+    ...(mockLocationPathname !== undefined ? { pathname: mockLocationPathname } : {})
+  }),
   listen: () => () => undefined,
   goBack: jest.fn(),
   navigate: jest.fn(),
@@ -783,6 +788,7 @@ beforeEach(() => {
   mockReviewRpcUrl = 'https://rpc.review.example';
   mockFullPage = false;
   mockHistoryPosition = 1;
+  mockLocationPathname = undefined;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
@@ -3530,6 +3536,136 @@ describe('ReviewTransaction — send telemetry', () => {
       consoleSpy.mockRestore();
       nowSpy.mockRestore();
     }
+  });
+
+  it('keeps the open flow alive and emits review back on history popstate unmount to /send', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    mockLocationPathname = '/send';
+    unmount();
+
+    expect(createLocationState().pathname).toBe('/send');
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-review-1',
+        step: 'review',
+        stepAction: 'back',
+        complete: true
+      })
+    );
+  });
+
+  it('restores review step when bridgeEpochSend resolves without txId', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    bridgeEpochSendMock.mockResolvedValueOnce({} as any);
+    enterSendFlow();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    fireEvent.click(screen.getByTestId('close-btn'));
+
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'submitting', stepAction: 'back', complete: true })
+    );
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
+    );
+  });
+
+  it('keeps review step intact when Epoch quote becomes incomplete before post-challenge submit', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    enterSendFlow();
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    mockEpochQuote = {
+      amount: '4.8',
+      loading: false,
+      error: null,
+      symbol: 'USDC',
+      address: undefined,
+      decimals: undefined,
+      validity: undefined
+    };
+    rerender(<ReviewTransaction />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+    fireEvent.click(screen.getByTestId('close-btn'));
+
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(reportTelemetryEventMock).not.toHaveBeenCalledWith(expect.objectContaining({ step: 'submitting' }));
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
+    );
+  });
+
+  it('restores review step when an in-flight post-challenge bridge submit is superseded by account change', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    const pendingBridge = deferred<{ txId?: string }>();
+    bridgeEpochSendMock.mockReturnValueOnce(pendingBridge.promise as any);
+    enterSendFlow();
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    pendingBridge.resolve({});
+    await flush();
+    fireEvent.click(screen.getByTestId('close-btn'));
+
+    const submittingBackCalls = reportTelemetryEventMock.mock.calls.filter(
+      ([event]) => event?.step === 'submitting' && event?.stepAction === 'back' && event?.complete === true
+    );
+    expect(submittingBackCalls).toHaveLength(1);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'review', stepAction: 'close', complete: true })
+    );
   });
 });
 

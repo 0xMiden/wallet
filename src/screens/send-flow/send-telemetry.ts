@@ -117,6 +117,10 @@ export function hasOpenSendFlow(): boolean {
   return handle !== null;
 }
 
+export function hasActiveSendSession(): boolean {
+  return handle !== null || tracker !== null;
+}
+
 /** Record the furthest step the open flow reached. No-op when none is open. */
 export function reportSendStep(step: TelemetryStep): void {
   handle?.step?.(step);
@@ -127,6 +131,13 @@ export function reportSendStep(step: TelemetryStep): void {
 export function transitionSendStep(action: TelemetryStepAction, nextStep?: TelemetryStep): void {
   if (nextStep !== undefined) handle?.step?.(nextStep);
   tracker?.transition(action, nextStep);
+}
+
+/** Restores `review` when an in-flight submit returns or is superseded without settling. */
+export function restoreSendReviewIfSubmitting(): void {
+  if (tracker?.currentStep() === 'submitting') {
+    transitionSendStep('back', 'review');
+  }
 }
 
 /** Record a non-progressing trigger on the active Send step. */
