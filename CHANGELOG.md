@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
 - [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.

@@ -2546,7 +2546,8 @@ describe('MidenClientProxy — settlement paths', () => {
 
   it.each([
     {
-      title: 'settles a synchronous sendMessage throw with no deadline as a transport abort and drops the in-flight entry',
+      title:
+        'settles a synchronous sendMessage throw with no deadline as a transport abort and drops the in-flight entry',
       deadlineMs: null
     },
     {
@@ -2573,7 +2574,10 @@ describe('MidenClientProxy — settlement paths', () => {
       expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
       expect(inFlightAtDispatch).toBe(1);
       expect(error).toBeInstanceOf(OperationAbortedError);
-      expect(error).toMatchObject({ reason: 'transport', facts: { started: false, transportReason: 'context_invalidated' } });
+      expect(error).toMatchObject({
+        reason: 'transport',
+        facts: { started: false, transportReason: 'context_invalidated' }
+      });
       expect((error as Error).cause).toBe(transportError);
       expect(__test.inFlightSize()).toBe(0);
 

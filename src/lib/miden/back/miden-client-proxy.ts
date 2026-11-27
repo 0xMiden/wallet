@@ -794,13 +794,15 @@ async function dispatchOp(
       endpoints: getEndpointState(),
       ...(submitGated ? { submitGated: true } : {})
     };
-    // `sendMessage` may resolve with the response, resolve `undefined` (doc
-    // closed), or reject ("message port closed"). All three are handled: a
-    // late settle for an already-killed op no-ops via takeInFlight().
-    Promise.resolve(chrome.runtime.sendMessage(envelope)).then(
-      resp => finishOp(op_id, resp as OffscreenCallResponse | undefined),
-      err => finishOpError(op_id, err)
-    );
+    // Settle both rejected promises and synchronous messaging errors through the registered op.
+    try {
+      Promise.resolve(chrome.runtime.sendMessage(envelope)).then(
+        resp => finishOp(op_id, resp as OffscreenCallResponse | undefined),
+        err => finishOpError(op_id, err)
+      );
+    } catch (err) {
+      finishOpError(op_id, err);
+    }
   });
 }
 
