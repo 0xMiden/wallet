@@ -267,6 +267,13 @@ describe('serializeEvent', () => {
       ['fund step borrowed from send', { flow: 'fund', step: 'select_recipient' }],
       ['unknown step action', { stepAction: 'hack' }],
       ['empty flowId', { flowId: '' }],
+      ['malformed flowId with space', { flowId: 'flow 1' }],
+      ['overlong flowId', { flowId: 'f'.repeat(33) }],
+      ['non-string flowId', { flowId: 123 }],
+      ['empty runId', { runId: '' }],
+      ['malformed runId with punctuation', { runId: 'run:1' }],
+      ['overlong runId', { runId: 'r'.repeat(33) }],
+      ['non-string runId', { runId: null }],
       ['non-finite order', { order: Number.NaN }],
       ['negative visibleMs', { visibleMs: -1 }]
     ])('withholds flow identity when %s is invalid', (_label, patch) => {

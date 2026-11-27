@@ -59,6 +59,7 @@ import {
   getEffectiveRpcUrl,
   subscribeEffectiveEndpoints
 } from 'lib/miden-chain/effective-endpoints';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isValidNearIntentsAddress, normalizeNearIntentsAddress } from 'lib/one-click/address';
 import { useNearIntentsConfig } from 'lib/one-click/config';
 import { isOneClickDeadlineError } from 'lib/one-click/deadline';
@@ -650,6 +651,7 @@ export const ReviewTransaction: React.FC = () => {
   // next send would adopt it, inheriting a duration that is not its own.
   // Already-settled flows are untouched, so a completed submit is not
   // re-reported by the navigation away from this page.
+  const backToSendRef = useRef(false);
   useEffect(() => {
     // Reaching review is the most informative single fact about an abandoned
     // send: the user had chosen a recipient, a token and an amount, and stopped
@@ -657,6 +659,7 @@ export const ReviewTransaction: React.FC = () => {
     // from giving up on the amount field, and only `step` distinguishes them.
     reportSendStep('review');
     return () => {
+      if (backToSendRef.current) return;
       settleSendFlow(flow => flow.cancel());
     };
   }, []);
@@ -667,6 +670,16 @@ export const ReviewTransaction: React.FC = () => {
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
+  const handleBack = useCallback(() => {
+    backToSendRef.current = true;
+    transitionSendStep('back');
+    (command ? backToComposer : goBack)();
+  }, [backToComposer, command]);
+  useMobileBackHandler(() => {
+    if (showTransferType || showCalendar || spendingLimitChallenge !== undefined) return false;
+    handleBack();
+    return true;
+  }, [handleBack, showCalendar, showTransferType, spendingLimitChallenge]);
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
@@ -787,7 +800,9 @@ export const ReviewTransaction: React.FC = () => {
       setSpendingLimitChallenge(undefined);
       // Biometrics already passed, or this is the spending-limit authorization
       // that actually submits. Re-open a flow a previous error already settled.
-      beginSendSubmitting(hasFailedAttemptRef.current);
+      const isRetry = hasFailedAttemptRef.current;
+      hasFailedAttemptRef.current = false;
+      beginSendSubmitting(isRetry);
       let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -918,7 +933,9 @@ export const ReviewTransaction: React.FC = () => {
           }
         }
       };
-      beginSendSubmitting(hasFailedAttemptRef.current);
+      const isRetry = hasFailedAttemptRef.current;
+      hasFailedAttemptRef.current = false;
+      beginSendSubmitting(isRetry);
       let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -1201,7 +1218,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      hasFailedAttemptRef.current = true;
+      recordSendActionWithoutProgress();
       setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
@@ -1446,10 +1463,7 @@ export const ReviewTransaction: React.FC = () => {
         <NetworkModeBanner />
         <ReviewLayout
           title={t('reviewDetails')}
-          onBack={() => {
-            transitionSendStep('back');
-            (command ? backToComposer : goBack)();
-          }}
+          onBack={handleBack}
           formId={command ? formId : undefined}
           onFormSubmit={() => {
             if (submitDisabled) {

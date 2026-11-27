@@ -1,5 +1,6 @@
 import {
   isProgressionStep,
+  TELEMETRY_ID_PATTERN,
   TELEMETRY_STEP_ACTIONS,
   TelemetryDiscoveryAction,
   TelemetryEntryPoint,
@@ -225,7 +226,9 @@ export function isNameableEvent(payload: TelemetryWirePayload): boolean {
       payload.stepAction !== undefined &&
       TELEMETRY_STEP_ACTIONS.includes(payload.stepAction) &&
       typeof payload.flowId === 'string' &&
-      payload.flowId.length > 0 &&
+      TELEMETRY_ID_PATTERN.test(payload.flowId) &&
+      typeof payload.runId === 'string' &&
+      TELEMETRY_ID_PATTERN.test(payload.runId) &&
       typeof payload.order === 'number' &&
       Number.isFinite(payload.order) &&
       payload.order >= 1 &&

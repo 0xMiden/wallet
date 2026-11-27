@@ -475,5 +475,10 @@ describe('task step progression envelope', () => {
     ).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, stepAction: undefined })).toBe(false);
     expect(isNameableEvent({ ...sendStepPayload, flowId: '' })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, flowId: 'flow 1' })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, flowId: 'f'.repeat(33) })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, runId: '' })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, runId: 'bad:run' })).toBe(false);
+    expect(isNameableEvent({ ...sendStepPayload, runId: 'r'.repeat(33) })).toBe(false);
   });
 });

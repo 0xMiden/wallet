@@ -829,6 +829,7 @@ async function driveEveryInstrumentedFlow(): Promise<void> {
   reportSendStep('review');
   transitionSendStep('submit', 'submitting');
   settleSendFlow(handle => handle.fail(classifyError(poisonedError('proving failed'))));
+  settleSendFlow(handle => handle.cancel());
 
   // The page-level flows, driven exactly as their call sites drive them.
   for (const flow of FLOWS) {

@@ -1,7 +1,9 @@
 import {
+  beginSendSubmitting,
   enterSendFlow,
   hasOpenSendFlow,
   recordSendActionWithoutProgress,
+  recordSendRetry,
   reportSendStep,
   settleSendFlow,
   transitionSendStep
@@ -246,5 +248,55 @@ describe('send-telemetry', () => {
         order: 2
       }
     ]);
+  });
+
+  it('keeps the step tracker alive on review after failure, records post-error actions, and carries dwell into retry', () => {
+    let clock = 1_000;
+    const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    try {
+      enterSendFlow();
+      reportSendStep('review');
+      clock += 200;
+      beginSendSubmitting(false);
+      clock += 100;
+      settleSendFlow(flow => flow.fail('rpc'));
+
+      // Handle settled as failed, while step tracker remains alive on `review`.
+      expect(hasOpenSendFlow()).toBe(false);
+      clock += 450;
+      recordSendActionWithoutProgress();
+      recordSendActionWithoutProgress();
+      recordSendRetry();
+      clock += 300;
+      beginSendSubmitting(true);
+      transitionSendStep('continue');
+      settleSendFlow(flow => flow.complete());
+
+      // Post-failure teardown without retry also finishes tracker cleanly without cancelling handle.
+      enterSendFlow();
+      beginSendSubmitting(false);
+      settleSendFlow(flow => flow.fail('rpc'));
+      clock += 120;
+      settleSendFlow(flow => flow.cancel());
+
+      expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+      expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
+      expect(handleAt(2).cancel).not.toHaveBeenCalled();
+      expect(emittedEvents).toMatchObject([
+        { flowId: 'flow-send-1', step: 'review', stepAction: 'submit', order: 1, visibleMs: 200 },
+        { flowId: 'flow-send-1', step: 'submitting', stepAction: 'leave', order: 2, visibleMs: 100 },
+        { flowId: 'flow-send-1', step: 'review', stepAction: 'repeat', order: 3, visibleMs: 450 },
+        { flowId: 'flow-send-1', step: 'review', stepAction: 'retry', order: 4, visibleMs: 450 },
+        { flowId: 'flow-send-2', step: 'review', stepAction: 'retry', order: 1, visibleMs: 300 },
+        { flowId: 'flow-send-2', step: 'submitting', stepAction: 'continue', order: 2 },
+        { flowId: 'flow-send-3', step: 'review', stepAction: 'submit', order: 1 },
+        { flowId: 'flow-send-3', step: 'submitting', stepAction: 'leave', order: 2 },
+        { flowId: 'flow-send-3', step: 'review', stepAction: 'leave', order: 3, visibleMs: 120, complete: true }
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

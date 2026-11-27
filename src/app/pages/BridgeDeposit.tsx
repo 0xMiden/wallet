@@ -66,17 +66,27 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const fundFlow = useFundFlow();
   const walletReady = connected && address && currentMidenAccount;
   const wasWaitingConnectRef = useRef(!walletReady);
+  const wasReadyRef = useRef(Boolean(walletReady));
 
   useEffect(() => {
     if (!walletReady) {
+      if (wasReadyRef.current) {
+        wasReadyRef.current = false;
+        wasWaitingConnectRef.current = true;
+        fundFlow.transitionStep('back', 'connect_wallet');
+        return;
+      }
       wasWaitingConnectRef.current = true;
       fundFlow.enterStep('connect_wallet');
       return;
     }
+    wasReadyRef.current = true;
     if (wasWaitingConnectRef.current) {
       wasWaitingConnectRef.current = false;
       fundFlow.transitionStep('continue', 'select_amount');
+      return;
     }
+    fundFlow.enterStep('select_amount');
   }, [fundFlow, walletReady]);
   // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
   const bridgeIn = useBridgeInAvailability({ hold: !walletReady });

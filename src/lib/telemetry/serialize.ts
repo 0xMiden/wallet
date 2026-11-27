@@ -2,6 +2,7 @@ import {
   isDiscoveryFeature,
   isProgressionStep,
   TELEMETRY_DISCOVERY_ACTIONS,
+  TELEMETRY_ID_PATTERN,
   TELEMETRY_NAV_SOURCES,
   TELEMETRY_SCREENS,
   TELEMETRY_STEP_ACTIONS,
@@ -96,7 +97,9 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
       isProgressionStep(event.flow, event.step) &&
       TELEMETRY_STEP_ACTIONS.includes(event.stepAction) &&
       typeof event.flowId === 'string' &&
-      event.flowId.length > 0 &&
+      TELEMETRY_ID_PATTERN.test(event.flowId) &&
+      typeof event.runId === 'string' &&
+      TELEMETRY_ID_PATTERN.test(event.runId) &&
       Number.isFinite(event.order) &&
       event.order >= 1 &&
       Number.isFinite(event.visibleMs) &&

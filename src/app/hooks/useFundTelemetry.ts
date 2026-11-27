@@ -61,6 +61,8 @@ export function useFundFlow(): FundFlowTelemetry {
   const flowRef = useRef<FlowHandle | null>(null);
   const trackerRef = useRef<StepProgressionTracker | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
+  const hasFailedAttemptRef = useRef(false);
+  const pendingStepRef = useRef<TelemetryStep | null>(null);
 
   useEffect(() => {
     const initialFlow = beginFlow('fund');
@@ -68,7 +70,15 @@ export function useFundFlow(): FundFlowTelemetry {
     const { tracker, detach } = attachTrackerForFlow(initialFlow);
     trackerRef.current = tracker;
     detachRef.current = detach;
+    if (pendingStepRef.current !== null) {
+      const step = pendingStepRef.current;
+      pendingStepRef.current = null;
+      flowRef.current?.step?.(step);
+      tracker?.enter(step);
+    }
     return () => {
+      pendingStepRef.current = null;
+      hasFailedAttemptRef.current = false;
       detachRef.current?.();
       detachRef.current = null;
       trackerRef.current?.finish('leave');
@@ -79,8 +89,15 @@ export function useFundFlow(): FundFlowTelemetry {
   }, []);
 
   const enterStep = useCallback((step: TelemetryStep) => {
+    if (!trackerRef.current) {
+      pendingStepRef.current = step;
+      flowRef.current?.step?.(step);
+      return;
+    }
+    pendingStepRef.current = null;
+    if (trackerRef.current.currentStep() !== null) return;
     flowRef.current?.step?.(step);
-    trackerRef.current?.enter(step);
+    trackerRef.current.enter(step);
   }, []);
 
   const transitionStep = useCallback((action: TelemetryStepAction, nextStep?: TelemetryStep) => {
@@ -97,24 +114,29 @@ export function useFundFlow(): FundFlowTelemetry {
   }, []);
 
   const reportDeposit = useCallback(async <T>(attempt: () => Promise<T>): Promise<T> => {
-    const wasRetry = flowRef.current === null;
+    const wasRetry = hasFailedAttemptRef.current;
     let flow = flowRef.current;
     let activeTracker = trackerRef.current;
     if (!flow) {
+      const carriedVisibleMs =
+        trackerRef.current?.currentStep() === 'review' ? trackerRef.current.disposeSilently() : 0;
       detachRef.current?.();
+      detachRef.current = null;
+      trackerRef.current = null;
       flow = beginFlow('fund') ?? null;
       flowRef.current = flow;
       const next = attachTrackerForFlow(flow);
       activeTracker = next.tracker;
       trackerRef.current = next.tracker;
       detachRef.current = next.detach;
+      if (activeTracker) {
+        activeTracker.enter('review', carriedVisibleMs);
+      }
     }
 
+    hasFailedAttemptRef.current = false;
     flow?.step?.('submitting');
     if (activeTracker) {
-      if (wasRetry && activeTracker.currentStep() === null) {
-        activeTracker.enter('review');
-      }
       activeTracker.transition(wasRetry ? 'retry' : 'submit', 'submitting');
     }
 
@@ -133,12 +155,10 @@ export function useFundFlow(): FundFlowTelemetry {
     } catch (err) {
       if (flowRef.current === flow) {
         flowRef.current = null;
+        hasFailedAttemptRef.current = true;
         flow.fail(classifyError(err));
         if (trackerRef.current === activeTracker) {
-          detachRef.current?.();
-          detachRef.current = null;
-          activeTracker?.finish('leave');
-          trackerRef.current = null;
+          activeTracker?.transition('leave', 'review');
         }
       }
       throw err;

@@ -358,4 +358,92 @@ describe('useFundFlow step progression', () => {
       }
     ]);
   });
+
+  it('keeps tracker alive on review after failure, records post-error events, and carries dwell to retry', async () => {
+    let clock = 500;
+    const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    try {
+      const { result, unmount } = renderHook(() => useFundFlow());
+      act(() => {
+        result.current.enterStep('review');
+        clock += 200;
+      });
+
+      await act(async () => {
+        await expect(result.current.reportDeposit(() => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
+      });
+
+      act(() => {
+        clock += 400;
+        result.current.recordActionWithoutProgress();
+        result.current.recordActionWithoutProgress();
+        result.current.recordRetry();
+        clock += 250;
+      });
+
+      await act(async () => {
+        await result.current.reportDeposit(() => Promise.resolve('bridge-tx-ok'));
+      });
+      expect(emittedSteps).toMatchObject([
+        { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1, visibleMs: 200 },
+        { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'leave', order: 2 },
+        { flowId: 'flow-fund-1', step: 'review', stepAction: 'repeat', order: 3, visibleMs: 400 },
+        { flowId: 'flow-fund-1', step: 'review', stepAction: 'retry', order: 4, visibleMs: 400 },
+        { flowId: 'flow-fund-2', step: 'review', stepAction: 'retry', order: 1, visibleMs: 250 },
+        { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 2 }
+      ]);
+
+      // Post-failure close/unmount without retry also emits review exit without calling cancel on failed handle.
+      emittedSteps.length = 0;
+      const { result: second, unmount: unmountSecond } = renderHook(() => useFundFlow());
+      act(() => {
+        second.current.enterStep('review');
+      });
+      await act(async () => {
+        await expect(second.current.reportDeposit(() => Promise.reject(new Error('fail-2')))).rejects.toThrow('fail-2');
+      });
+      act(() => {
+        clock += 150;
+      });
+      unmountSecond();
+      unmount();
+
+      expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
+      expect(handleAt(2).cancel).not.toHaveBeenCalled();
+      expect(emittedSteps).toMatchObject([
+        { flowId: 'flow-fund-3', step: 'review', stepAction: 'submit', order: 1 },
+        { flowId: 'flow-fund-3', step: 'submitting', stepAction: 'leave', order: 2 },
+        { flowId: 'flow-fund-3', step: 'review', stepAction: 'leave', order: 3, visibleMs: 150, complete: true }
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('does not misclassify the first deposit as a retry when beginFlow returned undefined on mount', async () => {
+    beginFlowMock.mockReturnValueOnce(undefined as any);
+    const { result } = renderHook(() => useFundFlow());
+
+    await act(async () => {
+      await result.current.reportDeposit(() => Promise.resolve('bridge-tx'));
+    });
+
+    expect(emittedSteps).toMatchObject([
+      { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'continue', order: 2 }
+    ]);
+  });
+
+  it('consumes a child enterStep registered before mount effect runs and ignores overwriting active parent steps', () => {
+    const { result } = renderHook(() => useFundFlow());
+
+    // Emulate child setting connect_wallet before subsequent enterStep('select_amount'): active step must hold.
+    act(() => {
+      result.current.enterStep('connect_wallet');
+      result.current.enterStep('select_amount');
+      result.current.transitionStep('close');
+    });
+
+    expect(emittedSteps).toMatchObject([{ step: 'connect_wallet', stepAction: 'close', order: 1 }]);
+  });
 });

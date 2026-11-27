@@ -50,7 +50,7 @@ import { isValidMidenAddress } from 'utils/miden';
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { nearIntentsSendFailureId, ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
-import { enterSendFlow, settleSendFlow } from './send-telemetry';
+import { enterSendFlow, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 import type { NearIntentsSendQuote, NearIntentsSendQuoteParams } from './useNearIntentsSendQuote';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
@@ -141,14 +141,30 @@ const mockWalletStoreState = {
   readSpendingLimit: jest.fn()
 };
 
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+type TelemetryHandle = {
+  flowId?: string;
+  runId?: string;
+  complete: jest.Mock;
+  cancel: jest.Mock;
+  fail: jest.Mock;
+  step: jest.Mock;
+};
 const telemetryHandles: TelemetryHandle[] = [];
 const beginFlowMock = jest.fn((_flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  const handle: TelemetryHandle = {
+    flowId: `flow-review-${telemetryHandles.length + 1}`,
+    runId: 'run-review-12345678901',
+    complete: jest.fn(),
+    cancel: jest.fn(),
+    fail: jest.fn(),
+    step: jest.fn()
+  };
   telemetryHandles.push(handle);
   return handle;
 });
 const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
+const reportTelemetryEventMock = jest.fn();
+let mockMobileBackHandler: (() => boolean | void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -468,6 +484,11 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (cb: () => boolean | void) => {
+    mockMobileBackHandler = cb;
+  }
+}));
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false),
   isMobile: () => false,
@@ -602,6 +623,9 @@ jest.mock('lib/miden/name/resolver', () => ({
 jest.mock('lib/telemetry', () => ({
   beginFlow: (flow: string) => beginFlowMock(flow),
   classifyError: (error: unknown) => classifyErrorMock(error)
+}));
+jest.mock('lib/telemetry/report-flow', () => ({
+  reportTelemetryEvent: (event: unknown) => reportTelemetryEventMock(event)
 }));
 
 jest.mock('./useIsNewRecipient', () => ({
@@ -3160,7 +3184,14 @@ describe('ReviewTransaction — send telemetry', () => {
   beforeEach(() => {
     // The outer beforeEach resets every mock, implementations included.
     beginFlowMock.mockImplementation((_flow: string) => {
-      const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+      const handle: TelemetryHandle = {
+        flowId: `flow-review-${telemetryHandles.length + 1}`,
+        runId: 'run-review-12345678901',
+        complete: jest.fn(),
+        cancel: jest.fn(),
+        fail: jest.fn(),
+        step: jest.fn()
+      };
       telemetryHandles.push(handle);
       return handle;
     });
@@ -3169,6 +3200,8 @@ describe('ReviewTransaction — send telemetry', () => {
     settleSendFlow(flow => flow.cancel());
     beginFlowMock.mockClear();
     classifyErrorMock.mockClear();
+    reportTelemetryEventMock.mockClear();
+    mockMobileBackHandler = null;
     telemetryHandles.length = 0;
   });
 
@@ -3357,6 +3390,146 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(handleAt(0).complete).not.toHaveBeenCalled();
     expect(handleAt(0).fail).not.toHaveBeenCalled();
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('keeps the open flow alive on back button click and emits review back instead of cancelling', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('back-btn'));
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(true);
+
+    unmount();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-review-1',
+        step: 'review',
+        stepAction: 'back',
+        complete: true
+      })
+    );
+  });
+
+  it('handles mobile hardware back on review by emitting back and keeping the flow open', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockMobileBackHandler?.()).toBe(true);
+    expect(goBack).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(true);
+
+    unmount();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: 'step',
+        flow: 'send',
+        step: 'review',
+        stepAction: 'back',
+        complete: true
+      })
+    );
+  });
+
+  it('does not misclassify a submit following a pre-submit assessSpendingLimit error as a retry', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      enterSendFlow();
+      setValidRoute();
+      mockWalletStoreState.assessSpendingLimit
+        .mockRejectedValueOnce(new Error('limit read failed'))
+        .mockResolvedValueOnce(undefined as any);
+      render(<ReviewTransaction />);
+      await flush();
+
+      await clickSubmit();
+      await clickSubmit();
+
+      expect(initiateMock).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'step',
+          flow: 'send',
+          step: 'review',
+          stepAction: 'submit'
+        })
+      );
+      expect(reportTelemetryEventMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          stepAction: 'retry'
+        })
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it('carries real post-failure review dwell into retry and exits tracker cleanly on post-failure unmount', async () => {
+    let clock = 2_000;
+    const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => clock);
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      enterSendFlow();
+      setValidRoute();
+      initiateMock.mockRejectedValueOnce(new Error('rpc down')).mockResolvedValueOnce('tx-ok');
+      const firstView = render(<ReviewTransaction />);
+      await flush();
+
+      await clickSubmit();
+      clock += 350;
+      await clickSubmit();
+
+      expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+      expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'step',
+          flow: 'send',
+          flowId: 'flow-review-2',
+          step: 'review',
+          stepAction: 'retry',
+          visibleMs: 350,
+          complete: true
+        })
+      );
+      firstView.unmount();
+
+      // Failed submit followed by navigation unmount finishes review tracker without cancelling handle.
+      reportTelemetryEventMock.mockClear();
+      initiateMock.mockRejectedValueOnce(new Error('rpc down again'));
+      enterSendFlow();
+      const secondView = render(<ReviewTransaction />);
+      await flush();
+      await clickSubmit();
+      clock += 180;
+      secondView.unmount();
+
+      expect(handleAt(2).fail).toHaveBeenCalledWith('rpc');
+      expect(handleAt(2).cancel).not.toHaveBeenCalled();
+      expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'step',
+          flow: 'send',
+          flowId: 'flow-review-3',
+          step: 'review',
+          stepAction: 'leave',
+          visibleMs: 180,
+          complete: true
+        })
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
   });
 });
 

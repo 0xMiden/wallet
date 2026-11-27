@@ -28,6 +28,14 @@ let detachLifecycle: (() => void) | null = null;
 /** Begin the send flow, or adopt the one already in progress. */
 export function enterSendFlow(): void {
   if (handle) return;
+  if (tracker || detachLifecycle) {
+    const staleTracker = tracker;
+    const staleDetach = detachLifecycle;
+    tracker = null;
+    detachLifecycle = null;
+    staleDetach?.();
+    staleTracker?.finish('leave');
+  }
   const nextHandle = beginFlow('send');
   if (!nextHandle) return;
   handle = nextHandle;
@@ -58,7 +66,15 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
   const current = handle;
   const currentTracker = tracker;
   const detach = detachLifecycle;
-  if (!current) return;
+  if (!current) {
+    if (currentTracker || detach) {
+      tracker = null;
+      detachLifecycle = null;
+      detach?.();
+      currentTracker?.finish('leave');
+    }
+    return;
+  }
   handle = null;
   tracker = null;
   detachLifecycle = null;
@@ -81,8 +97,16 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
       current.cancel();
     },
     fail: kind => {
-      finishTracker('leave');
+      settled = true;
       current.fail(kind);
+      if (currentTracker && currentTracker.currentStep() === 'submitting') {
+        currentTracker.transition('leave', 'review');
+        tracker = currentTracker;
+        detachLifecycle = detach;
+      } else {
+        detach?.();
+        currentTracker?.finish('leave');
+      }
     },
     step: step => current.step?.(step)
   });
@@ -120,7 +144,18 @@ export function recordSendRetry(): void {
  * cleanly on retry after an earlier submit failure settled the prior handle.
  */
 export function beginSendSubmitting(isRetry: boolean): void {
+  let carriedVisibleMs = 0;
+  if (!handle && tracker) {
+    carriedVisibleMs = tracker.currentStep() === 'review' ? tracker.disposeSilently() : 0;
+    const staleDetach = detachLifecycle;
+    tracker = null;
+    detachLifecycle = null;
+    staleDetach?.();
+  }
   enterSendFlow();
-  reportSendStep('review');
+  handle?.step?.('review');
+  if (tracker && tracker.currentStep() === null) {
+    tracker.enter('review', carriedVisibleMs);
+  }
   transitionSendStep(isRetry ? 'retry' : 'submit', 'submitting');
 }

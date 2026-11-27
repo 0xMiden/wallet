@@ -318,6 +318,8 @@ export interface FeatureDiscoveryEvent {
   runId: TelemetryRunId;
 }
 
+export const TELEMETRY_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
 export const TELEMETRY_PROGRESSION_FLOWS = ['send', 'fund'] as const;
 
 export type TelemetryProgressionFlow = (typeof TELEMETRY_PROGRESSION_FLOWS)[number];

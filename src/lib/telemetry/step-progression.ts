@@ -24,12 +24,13 @@ export interface StepProgressionTrackerOptions {
 }
 
 export interface StepProgressionTracker {
-  enter(step: TelemetryStep): void;
+  enter(step: TelemetryStep, initialVisibleMs?: number): void;
   transition(action: TelemetryStepAction, nextStep?: TelemetryStep): void;
   recordActionWithoutProgress(): void;
   recordRetry(): void;
   finish(action: TelemetryStepAction): void;
   teardown(): void;
+  disposeSilently(): number;
   visible(isVisible: boolean): void;
   currentStep(): TelemetryStep | null;
   isDisposed(): boolean;
@@ -103,9 +104,12 @@ export function createStepProgressionTracker(options: StepProgressionTrackerOpti
     resetVisit(null, null);
   }
 
-  function enter(step: TelemetryStep): void {
+  function enter(step: TelemetryStep, initialVisibleMs?: number): void {
     if (disposed || !isProgressionStep(flow, step) || activeStep === step) return;
     resetVisit(step, now());
+    if (typeof initialVisibleMs === 'number' && Number.isFinite(initialVisibleMs) && initialVisibleMs > 0) {
+      visibleMsAccumulated = Math.round(initialVisibleMs);
+    }
   }
 
   return {
@@ -152,6 +156,16 @@ export function createStepProgressionTracker(options: StepProgressionTrackerOpti
 
     teardown(): void {
       endFlow('leave', false);
+    },
+
+    disposeSilently(): number {
+      if (disposed) return 0;
+      const at = now();
+      flushVisibleTime(at);
+      const carried = activeStep !== null ? Math.max(0, Math.round(visibleMsAccumulated)) : 0;
+      disposed = true;
+      resetVisit(null, null);
+      return carried;
     },
 
     visible(nextVisible: boolean): void {

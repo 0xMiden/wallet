@@ -9,6 +9,22 @@ import { createLocationState, HistoryAction, navigate, resetHistoryPosition } fr
 import { BridgeDeposit } from './BridgeDeposit';
 
 jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: jest.fn() }));
+const mockBridgeEmittedSteps: unknown[] = [];
+const mockBeginFlow = jest.fn((_flow: string) => ({
+  flowId: 'flow-bridge-1',
+  runId: 'run-bridge-123456789012',
+  complete: jest.fn(),
+  cancel: jest.fn(),
+  fail: jest.fn(),
+  step: jest.fn()
+}));
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: () => 'rpc'
+}));
+jest.mock('lib/telemetry/report-flow', () => ({
+  reportTelemetryEvent: (event: unknown) => mockBridgeEmittedSteps.push(event)
+}));
 
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
@@ -87,17 +103,31 @@ jest.mock('components/ui/Button', () => ({
   )
 }));
 
+let mockSimulateChildEnterAmount = false;
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: ({ onClose, onConnectAnother }: { onClose: () => void; onConnectAnother: () => void }) => (
-    <div data-testid="bridge-deposit-screen">
-      <button type="button" onClick={onConnectAnother}>
-        switch
-      </button>
-      <button type="button" onClick={onClose}>
-        back
-      </button>
-    </div>
-  )
+  EvmBridgeDepositScreen: ({
+    onClose,
+    onConnectAnother,
+    fundFlow
+  }: {
+    onClose: () => void;
+    onConnectAnother: () => void;
+    fundFlow?: { enterStep?: (step: string) => void };
+  }) => {
+    React.useEffect(() => {
+      if (mockSimulateChildEnterAmount) fundFlow?.enterStep?.('select_amount');
+    }, [fundFlow]);
+    return (
+      <div data-testid="bridge-deposit-screen">
+        <button type="button" onClick={onConnectAnother}>
+          switch
+        </button>
+        <button type="button" onClick={onClose}>
+          back
+        </button>
+      </div>
+    );
+  }
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -108,6 +138,9 @@ jest.mock('app/icons/v2', () => ({
 describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
+    mockSimulateChildEnterAmount = false;
+    mockBridgeEmittedSteps.length = 0;
+    mockBeginFlow.mockClear();
     mockBridgeIn = { state: 'available' };
     mockUsdcxDepositAvailable = false;
     mockEffectiveNetwork = 'testnet';
@@ -270,6 +303,9 @@ it('reports a displayed wallet connection failure after 1000 ms without its text
 describe('BridgeDeposit web connect failure (#2109)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
+    mockSimulateChildEnterAmount = false;
+    mockBridgeEmittedSteps.length = 0;
+    mockBeginFlow.mockClear();
     mockBridgeIn = { state: 'available' };
     mockOpenConnectModal = jest.fn();
     mockDisconnect = jest.fn();
@@ -318,5 +354,40 @@ describe('BridgeDeposit web connect failure (#2109)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'switch' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('picker refused');
+  });
+});
+
+describe('BridgeDeposit fund step progression', () => {
+  beforeEach(() => {
+    mockBridgeEmittedSteps.length = 0;
+    mockBeginFlow.mockClear();
+  });
+
+  it('records select_amount on initial entry when an EVM wallet is already connected before child effect runs', () => {
+    mockSimulateChildEnterAmount = true;
+    mockConnection = { address: '0xabc', connected: true };
+    const view = render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    view.unmount();
+
+    expect(mockBridgeEmittedSteps).toMatchObject([
+      { phase: 'step', flow: 'fund', step: 'select_amount', stepAction: 'close', order: 1 }
+    ]);
+  });
+
+  it('preserves connect_wallet -> select_amount transition when child mounts during walletReady false -> true', () => {
+    mockSimulateChildEnterAmount = true;
+    mockConnection = { address: undefined, connected: false };
+    const view = render(<BridgeDeposit />);
+
+    mockConnection = { address: '0xabc', connected: true };
+    view.rerender(<BridgeDeposit />);
+    view.unmount();
+
+    expect(mockBridgeEmittedSteps).toMatchObject([
+      { phase: 'step', flow: 'fund', step: 'connect_wallet', stepAction: 'continue', order: 1 },
+      { phase: 'step', flow: 'fund', step: 'select_amount', stepAction: 'leave', order: 2 }
+    ]);
   });
 });

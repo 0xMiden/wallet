@@ -328,4 +328,52 @@ describe('step-progression', () => {
       detach();
     }
   });
+
+  it('carries carried visible time via enter(step, initialVisibleMs) and disposeSilently()', () => {
+    let clock = 100;
+    const firstEmitted: TaskStepEvent[] = [];
+    const first = createStepProgressionTracker({
+      flow: 'send',
+      flowId: 'flow-carry-1',
+      runId: 'run-1',
+      now: () => clock,
+      emit: event => firstEmitted.push(event)
+    });
+
+    first.enter('review');
+    clock += 650;
+    const carriedMs = first.disposeSilently();
+
+    expect(carriedMs).toBe(650);
+    expect(firstEmitted).toEqual([]);
+    expect(first.isDisposed()).toBe(true);
+    expect(first.disposeSilently()).toBe(0);
+
+    const secondEmitted: TaskStepEvent[] = [];
+    const second = createStepProgressionTracker({
+      flow: 'send',
+      flowId: 'flow-carry-2',
+      runId: 'run-1',
+      now: () => clock,
+      emit: event => secondEmitted.push(event)
+    });
+
+    second.enter('review', carriedMs);
+    clock += 100;
+    second.transition('retry', 'submitting');
+
+    expect(secondEmitted).toEqual([
+      {
+        phase: 'step',
+        flow: 'send',
+        flowId: 'flow-carry-2',
+        runId: 'run-1',
+        step: 'review',
+        stepAction: 'retry',
+        order: 1,
+        visibleMs: 750,
+        complete: true
+      }
+    ]);
+  });
 });
