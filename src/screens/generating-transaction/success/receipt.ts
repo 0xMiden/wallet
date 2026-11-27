@@ -59,7 +59,8 @@ export const buildReceiptRows = (
       label: destinationLabel ?? t('to'),
       // In full: the receipt is where the user confirms where the funds went.
       value: destinationAddress,
-      stacked: true
+      // A step smaller than the other values, so an account address keeps to one line.
+      valueClassName: 'text-[14px] leading-5'
     });
   }
 

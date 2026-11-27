@@ -6,7 +6,6 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
-import { TxStory } from 'components/tx-stage/TxStory';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
@@ -75,34 +74,6 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       }}
       onClose={onDoneClick}
     >
-      <TxStory
-        hops={
-          isConsume
-            ? amountText
-              ? [{ from: { role: 'sender', name: '' }, to: { role: 'you', name: '' }, amount: amountText }]
-              : []
-            : [
-                ...(amountText
-                  ? [
-                      {
-                        from: { role: 'you' as const, name: '' },
-                        to: { role: 'recipient' as const, name: destinationAddress ?? '' },
-                        amount: amountText
-                      }
-                    ]
-                  : []),
-                ...(feeText
-                  ? [
-                      {
-                        from: { role: 'you' as const, name: '' },
-                        to: { role: 'network' as const, name: '' },
-                        amount: feeText
-                      }
-                    ]
-                  : [])
-              ]
-        }
-      />
       <SuccessSummaryPill
         lhs={amountText}
         rhs={isConsume ? t('accepted', { defaultValue: 'Accepted' }) : recipient}
@@ -111,7 +82,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
         // faucet's dusty rose when the note was minted by the faucet.
         fillForArrow={isConsume ? claimAccentColor(transaction, nativeFaucetId) : undefined}
       />
-      <ReceiptRows rows={rows} className="mt-6" />
+      <ReceiptRows rows={rows} surface="outline" className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

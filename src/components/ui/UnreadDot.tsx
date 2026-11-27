@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { cva } from 'class-variance-authority';
+import { motion } from 'framer-motion';
 
+import { springs, useMotion, usePreset } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 /**
@@ -63,11 +65,28 @@ export const UnreadDot: React.FC<UnreadDotProps> = ({
   className,
   'data-testid': dataTestId
 }) => {
+  const pop = usePreset('pop');
+  const transition = useMotion(springs.snappy);
+
+  // A dot that is there on mount is simply there; one that arrives afterwards pops in, and one
+  // that is read is gone at once. The scale starts lower than the preset's, which on an 8px mark
+  // is too small a change to see.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+  }, []);
   if (!unread) return null;
 
   return (
-    <span data-testid={dataTestId} data-placement={placement} className={cn(dotVariants({ placement }), className)}>
+    <motion.span
+      data-testid={dataTestId}
+      data-placement={placement}
+      className={cn(dotVariants({ placement }), className)}
+      initial={mounted.current ? { ...pop.initial, scale: 0.5 } : false}
+      animate={pop.animate}
+      transition={transition}
+    >
       <span className="sr-only">{label}</span>
-    </span>
+    </motion.span>
   );
 };

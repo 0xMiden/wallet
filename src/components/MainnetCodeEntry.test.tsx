@@ -9,7 +9,7 @@ import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { MainnetCodeEntryFields, useMainnetCodeEntry } from './MainnetCodeEntry';
 
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticError: jest.fn() }));
 let mockMobile = true;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
