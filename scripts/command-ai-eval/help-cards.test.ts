@@ -313,6 +313,13 @@ describe('writing switch', () => {
     for (const model of [data.writing?.writer, data.writing?.checker]) expect(model).not.toBe(DEFAULT_MODEL);
   });
 
+  // Safety and who-can-see cards stay word for word until the owner rules on these three.
+  it('lists none of the safety and who-can-see cards that are held back', () => {
+    for (const id of ['assistant_sees', 'stay_safe', 'unexpected_tokens']) {
+      expect(data.writing?.cards).not.toContain(id);
+    }
+  });
+
   it('lists only distinct write cards', () => {
     const write = data.cards.filter(card => card.mode === 'write').map(card => card.id);
     const listed = data.writing?.cards;

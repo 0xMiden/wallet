@@ -624,6 +624,7 @@ test('scores selection by cluster, with unsupported refusing only actions and fr
   assert.deepEqual(score, {
     devAccepted: 0.5,
     holdoutAccepted: null,
+    devAnsweredRate: 2 / 3,
     answeredRate: 2 / 3,
     nearMissRefused: 0.5,
     outOfScopeRefused: 0.5,
@@ -637,11 +638,24 @@ test('scores selection by cluster, with unsupported refusing only actions and fr
   });
 });
 
+test('fails a selection run that leaves the dev help questions unanswered', () => {
+  const dev = ['a', 'b', 'c', 'd', 'e'].map(id => result(id, {}, [run(id === 'a' ? 'usdcx' : null, 'cancel')]));
+  const held = ['answerable', 'near_miss', 'out_of_scope'].map(name => {
+    const answered = name === 'answerable';
+    const fields = { set: 'holdout', class: name, cards: answered ? ['usdcx'] : [] };
+    return result(`held-${name}`, fields, [run(answered ? 'usdcx' : 'not_covered')]);
+  });
+  assert.deepEqual(evaluation.selectionFailures(evaluation.scoreSelection([...dev, ...held])), [
+    'devAnsweredRate 0.2 is under 0.8'
+  ]);
+});
+
 test('names every missed selection bar and gates near misses only on a holdout', () => {
   assert.equal(typeof evaluation.selectionFailures, 'function');
   const clean = {
     devAccepted: 0.95,
     holdoutAccepted: 0.9,
+    devAnsweredRate: 0.8,
     answeredRate: 0.8,
     nearMissRefused: 0.85,
     outOfScopeRefused: 0.9,
@@ -658,6 +672,7 @@ test('names every missed selection bar and gates near misses only on a holdout',
   const failing = {
     devAccepted: 0.949,
     holdoutAccepted: 0.89,
+    devAnsweredRate: 0.79,
     answeredRate: 0.79,
     nearMissRefused: 0.84,
     outOfScopeRefused: null,
@@ -707,6 +722,10 @@ test('compares a command run with the baseline', () => {
   ]);
   assert.deepEqual(evaluation.compareCommands(cases, baseline, current), [
     'regressed: passed 3 of 3 on the baseline, now 1 of 3',
+    'regressed: requests failed',
+    'flaky: requests failed',
+    'intended: an intended change, now 0 of 3',
+    'bad-before: requests failed',
     'help: a help question produced set_plan',
     'command: a command was answered as help',
     'fragment: a clarification reply was answered as help'
@@ -727,8 +746,24 @@ test('requires two passes of three from a case the baseline never ran', () => {
   ];
   const current = { results: rows.map(([id, passes]) => ({ id, passes, runs: 3, ops: ['unsupported'] })) };
   assert.deepEqual(evaluation.compareCommands(cases, { results: [] }, current), [
-    'broken: not on the baseline, now 1 of 3'
+    'broken: not on the baseline, now 1 of 3',
+    'intended: an intended change, now 0 of 3'
   ]);
+});
+
+test('refuses a baseline with failed requests, and failed requests that were never compared', () => {
+  const cases = [{ id: 'a', expected: { op: 'cancel' } }];
+  const summary = (passes, ...ops) => ({ results: [{ id: 'a', passes, runs: 3, ops }] });
+  const broken = summary(2, 'error', 'cancel', 'cancel');
+  const clean = summary(3, 'cancel', 'cancel', 'cancel');
+  assert.deepEqual(evaluation.compareCommands(cases, broken, clean), [
+    'a: the baseline has failed requests, record it again'
+  ]);
+  assert.deepEqual(evaluation.compareCommands(cases, broken, summary(0, 'error', 'error', 'error')), [
+    'a: the baseline has failed requests, record it again',
+    'a: requests failed'
+  ]);
+  assert.deepEqual(evaluation.compareCommands(cases, clean, broken), ['a: requests failed']);
 });
 
 const holdoutCases = (counts = { answerable: 80, near_miss: 30, out_of_scope: 30 }) =>
@@ -877,6 +912,22 @@ function mockWriting(context, { cards = ['guardian_what'], writer, verdict, head
   return sent;
 }
 
+const limited = seconds => new Response(null, { status: 429, headers: { 'retry-after': String(seconds) } });
+
+/** Runs waits of a second or more at once, and records them. */
+function skipWaits(context) {
+  const waits = [];
+  const realSetTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay < 1000 || delay === 3000 || delay === 4000 || delay === 15000) {
+      return realSetTimeout(callback, delay, ...args);
+    }
+    waits.push(delay);
+    return realSetTimeout(callback, 0, ...args);
+  });
+  return waits;
+}
+
 const ask = { redactedText: 'what is it', helpContext: null };
 const lowTokens = {
   'x-ratelimit-limit-tokens': '250000',
@@ -955,7 +1006,7 @@ const writingCase = (id, fields = {}) => selectionCase(id, { cards: ['guardian_w
 test('runs every write card on and reruns only a technical failure', async context => {
   mockProviderKey(context);
   let failures = 1;
-  const sent = mockWriting(context, { writer: () => (failures-- > 0 ? new Response(null, { status: 429 }) : null) });
+  const sent = mockWriting(context, { writer: () => (failures-- > 0 ? limited(0) : null) });
   const worker = evaluation.createEvalWorker();
   const { results, invalid } = await evaluation.runWriting({ cases: [writingCase('a')], runs: 2, service: worker });
   assert.deepEqual(invalid, []);
@@ -969,11 +1020,25 @@ test('runs every write card on and reruns only a technical failure', async conte
   assert.equal(sent.length, 2 + 3 + 3);
 });
 
+const HELD = ['assistant_sees', 'stay_safe', 'unexpected_tokens'];
+
+test('never writes a held-back safety card, even with every write card on', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context, { cards: ['stay_safe'] });
+  const { results } = await evaluation.runWriting({
+    cases: [writingCase('a', { cards: ['stay_safe'] })],
+    runs: 1,
+    service: evaluation.createEvalWorker()
+  });
+  assert.equal(results[0]?.runs[0]?.path, 'card');
+  assert.equal(sent.length, 1);
+});
+
 test('does not count a knockout run whose writer keeps failing', async context => {
   mockProviderKey(context);
   const sent = mockWriting(context, {
     cards: ['guardian_what', 'guardian_why'],
-    writer: () => new Response(null, { status: 429 })
+    writer: () => limited(0)
   });
   const { results, invalid } = await evaluation.runWriting({
     cases: [writingCase('a')],
@@ -1003,7 +1068,7 @@ const checkerRow = (id, fields = {}) => ({
 
 test('never counts a failed checker call as a rejection', async context => {
   mockProviderKey(context);
-  mockWriting(context, { verdict: () => new Response(null, { status: 429 }) });
+  mockWriting(context, { verdict: () => limited(0) });
   const run = await evaluation.runWritingChecker({
     rows: [checkerRow('a')],
     runs: 1,
@@ -1011,6 +1076,55 @@ test('never counts a failed checker call as a rejection', async context => {
   });
   assert.deepEqual(run.invalid, ['a']);
   assert.deepEqual(run.results[0]?.runs, [{ accepted: null, technicalAttempts: 4 }]);
+});
+
+test('waits for a checker 429 reset before it asks again', async context => {
+  mockProviderKey(context);
+  const waits = skipWaits(context);
+  let failures = 2;
+  mockWriting(context, { verdict: () => (failures-- > 0 ? limited(20) : null) });
+  const run = await evaluation.runWritingChecker({
+    rows: [checkerRow('a')],
+    runs: 1,
+    service: evaluation.createEvalWorker()
+  });
+  assert.deepEqual(run.invalid, []);
+  assert.deepEqual(waits, [20000, 20000]);
+});
+
+test('stops a suite after three runs in a row stay technical failures', async context => {
+  mockProviderKey(context);
+  const sent = mockWriting(context, { writer: () => limited(0), verdict: () => limited(0) });
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+  await assert.rejects(
+    evaluation.runWritingChecker({
+      rows: ids.map(id => checkerRow(id)),
+      runs: 1,
+      service: evaluation.createEvalWorker()
+    }),
+    /3 runs in a row/
+  );
+  assert.equal(sent.length, 12);
+  sent.length = 0;
+  await assert.rejects(
+    evaluation.runWriting({ cases: ids.map(id => writingCase(id)), runs: 1, service: evaluation.createEvalWorker() }),
+    /3 runs in a row/
+  );
+  assert.equal(sent.length, 24);
+});
+
+test('ends a guarded suite when a model asks for a very long wait', async context => {
+  mockProviderKey(context);
+  skipWaits(context);
+  mockWriting(context, { verdict: () => limited(3600) });
+  await assert.rejects(
+    evaluation.runWritingChecker({
+      rows: [checkerRow('a')],
+      runs: 1,
+      service: evaluation.createEvalWorker({ guard: true })
+    }),
+    /Quota stop: .*3600 s/
+  );
 });
 
 test('asks the checker about every row, gate rejects included, and scores each side', async context => {
@@ -1065,6 +1179,22 @@ test('requires the full counts of each checker file', () => {
     'bad-1: missing or repeated id'
   ]);
 });
+
+for (const [name, sentences] of [
+  ['an extra key', [{ facts: ['g.service'], text: 'It is a friend.', note: 'flipped' }]],
+  ['a mistyped fact id', [{ facts: ['g.sevice'], text: 'It is a friend.' }]],
+  ['a fact of another card', [{ facts: ['u.block'], text: 'It is a friend.' }]],
+  ['no fact id', [{ facts: [], text: 'It is a friend.' }]],
+  ['no text', [{ facts: ['g.service'], text: ' ' }]],
+  ['a missing key', [{ text: 'It is a friend.' }]],
+  ['no sentence', []]
+]) {
+  test(`refuses a checker row with ${name}`, () => {
+    const rows = checkerRows();
+    rows[0] = { ...rows[0], sentences };
+    assert.deepEqual(evaluation.checkerRowErrors(rows), ['bad-0: needs sentences of facts and text from its cards']);
+  });
+}
 
 test('checks both holdouts together and refuses a writing run without its own', context => {
   const holdoutPath = holdoutFile(context, holdoutCases());
@@ -1196,7 +1326,13 @@ test('passes a run that meets every bar and lists the cards to enable', () => {
   const score = evaluation.scoreWriting(scoreWorld());
   assert.deepEqual(score.failures, []);
   assert.equal(score.report.writtenClusters, 150);
-  assert.deepEqual(score.allowlist, writeCardIds().slice(0, 50));
+  assert.deepEqual(
+    score.allowlist,
+    writeCardIds()
+      .slice(0, 50)
+      .filter(id => !HELD.includes(id))
+  );
+  assert.ok(HELD.every(id => !(id in score.report.cards)));
 });
 
 test('holds written precision to 143 of 150 clusters', () => {
@@ -1311,6 +1447,7 @@ function mockLimits(
     routerTokens = () => 240000,
     routerRequests = n => 100000 - n,
     smallUsage = { prompt_tokens: 1500, completion_tokens: 500 },
+    latencyMs = 0,
     routerPrompt = 3300,
     writer,
     headers = true
@@ -1322,6 +1459,7 @@ function mockLimits(
     const body = JSON.parse(String(init.body));
     models.push(body.model);
     const name = body.response_format.json_schema.name;
+    if (latencyMs > 0) await new Promise(resolve => setTimeout(resolve, latencyMs));
     const limits = (tokens, requests) =>
       headers
         ? {
@@ -1370,7 +1508,7 @@ for (const [name, options] of [
   ['the daily request counts move together', { routerRequests: n => 100000 - n * 6 }],
   // Replies 2 and 3 bracket the five small calls: a shared bucket is down by their 10,000 tokens too.
   ['the router bucket pays for the small calls', { routerTokens: n => 240000 - (n > 2 ? 13812 : 0) * (n % 2) }],
-  ['the small calls are too few to tell', { smallUsage: { prompt_tokens: 600, completion_tokens: 100 } }],
+  ['the small calls are too few to tell', { smallUsage: { prompt_tokens: 60, completion_tokens: 10 } }],
   ['the provider sends no limits', { headers: false }]
 ]) {
   test(`proves nothing when ${name}`, async context => {
@@ -1382,6 +1520,21 @@ for (const [name, options] of [
     assert.deepEqual(report.failures, ['no proof that the writer and checker leave the router quota alone']);
   });
 }
+
+test('proves separate buckets at the documented limit with ordinary latency', async context => {
+  mockProviderKey(context);
+  const models = mockLimits(context, {
+    routerPrompt: 3400,
+    smallUsage: { prompt_tokens: 750, completion_tokens: 350 },
+    latencyMs: 600
+  });
+  const report = await measure();
+  assert.equal(report.separation.proven, true);
+  assert.equal(report.separation.attempts.length, 1);
+  const [attempt] = report.separation.attempts;
+  assert.ok(attempt.smallTokens > attempt.reservation + attempt.refill);
+  assert.ok(models.filter(model => model === SMALL).length <= 2 + 40);
+});
 
 test('repeats a spoiled separation attempt, since live traffic only causes a false fail', async context => {
   mockProviderKey(context);
@@ -1418,7 +1571,7 @@ async function gateWithWriting(context, { count = 6, failing = 0, listed = write
       return completion({ result: { op: 'help', cards: [current.cards[0]] } });
     }
     if (name === 'bread_help_check') return completion({ supported: true, answers: true });
-    if (fixtures.indexOf(current) < failing) return new Response(null, { status: 429 });
+    if (fixtures.indexOf(current) < failing) return limited(0);
     const fact = JSON.parse(user).cards[0].FACTS[0];
     return completion({ answerable: true, sentences: [{ facts: [fact.id], text: fact.text }] });
   });
@@ -1439,6 +1592,40 @@ test('blocks the deploy when writer failures leave under two thirds written', as
 
 test('blocks the deploy when fewer than six questions reach a listed card', async context => {
   assert.deepEqual(await gateWithWriting(context, { count: 5 }), ['5 questions expect a listed writing card, needs 6']);
+});
+
+test('blocks the deploy on a forbidden card that a written reply cites second', async context => {
+  mockProviderKey(context);
+  const writable = writeCardIds();
+  let fixture;
+  mockQuestionFixtures(context, cases => {
+    fixture = cases.find(
+      item => item.priority === 'P0' && writable.includes(item.cards?.[0]) && writable.includes(item.forbidCards?.[0])
+    );
+    return [fixture];
+  });
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    const name = body.response_format.json_schema.name;
+    if (name === 'bread_command_intent') {
+      return completion({ result: { op: 'help', cards: [fixture.cards[0], fixture.forbidCards[0]] } });
+    }
+    if (name === 'bread_help_check') return completion({ supported: true, answers: true });
+    const data = cardData();
+    const { cards } = JSON.parse(body.messages[1].content);
+    // One fact of each card's own, copied word for word.
+    const sentences = cards.map(given => {
+      const other = new Set(cards.filter(item => item !== given).flatMap(item => item.FACTS.map(fact => fact.id)));
+      const fact = given.FACTS.find(item => !other.has(item.id) && data.facts[item.id]);
+      return { facts: [fact.id], text: fact.text };
+    });
+    return completion({ answerable: true, sentences });
+  });
+  const summary = await runEval({ offlineOnly: false, questions: true, dataset: writingOn(...writable) });
+  assert.ok(
+    summary.gate?.failures.includes(`${fixture.id}: served the forbidden card ${fixture.forbidCards[0]}`),
+    JSON.stringify(summary.gate?.failures)
+  );
 });
 
 test('asks nothing of written answers while no card is listed', async context => {

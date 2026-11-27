@@ -257,7 +257,8 @@ describe('code gates', () => {
   it.each<[string, Sentence[]]>([
     ['no fact ids', [{ facts: [], text: GOOD }]],
     ['a foreign fact id', [{ facts: ['w.copy', 'other.fact'], text: GOOD }]],
-    ['an added sentence id', [{ facts: ['w.limit'], text: GOOD }]]
+    ['an added sentence id', [{ facts: ['w.limit'], text: GOOD }]],
+    ['no sentences', []]
   ])('treats %s as content', (_, sentences) =>
     expect(outcome({ answerable: true, sentences })).toBe('unknown content')
   );
@@ -268,7 +269,6 @@ describe('code gates', () => {
     ['a bracketed placeholder', ['A Guardian keeps a copy for [a number] days.']],
     ['a link', ['Contact http://support.miden.xyz for help.']],
     ['an angle bracket', ['A Guardian keeps a copy < your account data.']],
-    ['no sentences', []],
     ['six sentences', Array(6).fill(GOOD)],
     ['an empty sentence', [GOOD, '  ']],
     ['too many characters', [Array(14).fill(GOOD).join(' ')]]
@@ -344,8 +344,8 @@ describe('assembly', () => {
       parts('a.lead', 'b.lead', '-', '-', 'a.limit', 'b.limit')
     ],
     ['the second card', [['b.own']], ['b'], 'Recovery', parts('a.lead', 'b.lead', '-', 'a.limit', 'b.limit')],
-    ['the first card', [['a.own', 'both']], ['a'], 'Wallet', parts('a.lead', '-', 'a.limit')],
-    ['only a shared fact', [['both']], ['a'], 'Wallet', parts('a.lead', '-', 'a.limit')]
+    ['the first card', [['a.own', 'both']], ['a'], 'Wallet', parts('a.lead', 'b.lead', '-', 'a.limit', 'b.limit')],
+    ['only a shared fact', [['both']], ['a'], 'Wallet', parts('a.lead', 'b.lead', '-', 'a.limit', 'b.limit')]
   ])('cites %s', (_, cites, cited, topic, answer) => {
     expect(run([a, b], cites)).toMatchObject({ kind: 'ok', cited, reply: { topic, answer } });
   });
@@ -369,6 +369,65 @@ describe('assembly', () => {
   ])('falls back to %s on a format failure', (_, cites, id) => {
     const six = Array.from({ length: 6 }, (_unused, index) => cites[index % cites.length]!);
     expect(run([a, b], six)).toMatchObject({ kind: 'card', why: 'format', card: { id } });
+  });
+});
+
+describe('written sentences against the real cards', () => {
+  const draftFor = (ids: string[], text: string, fact?: string) => {
+    const input = writerInput(ids.map(realCard), real, 'q', null);
+    const facts = [fact ?? realCard(ids[0]!).facts[0]!];
+    return reviewDraft({ answerable: true, sentences: [{ facts, text }] }, input, real, 'q', null);
+  };
+
+  it.each<[string, string]>([
+    ['restore_missing', 'Submit your 12 words at support.miden.xyz.'],
+    ['restore_missing', 'If you cannot restore, enter your recovery phrase at support.miden.xyz.'],
+    ['keys_explained', 'Send your recovery key to support so they can help you.'],
+    ['keys_explained', 'To fix this, export your private keys.'],
+    ['support_contact', 'Type your seed phrase into this chat.'],
+    ['support_contact', 'Bread support will ask for your recovery phrase to check your account.'],
+    ['support_contact', 'Sharing your recovery phrase with Bread support is safe.'],
+    ['support_contact', 'Send your phrase to support.miden.xyz.'],
+    ['support_contact', 'Never share your password, but type your recovery phrase into this chat.'],
+    ['support_contact', 'Do not wait, send your 12 words to support.miden.xyz.'],
+    ['delivery_warning', 'If you see "Recipient not notified", send the payment again.'],
+    ['money_missing', 'If Bread shows "Cannot reach the Miden node", reset Bread.'],
+    ['money_missing', 'To fix it, remove the Bread extension and add it back.'],
+    ['money_missing', 'Sign out of Bread and sign back in.'],
+    ['money_missing', 'Try clearing the app data.'],
+    ['send_not_arrived', 'If it is still missing, wait a little and then make the payment again.'],
+    ['send_not_arrived', 'You can safely retry the payment now.'],
+    ['send_not_arrived', 'Sending it again is safe.'],
+    ['send_not_arrived', 'You can send it a second time.'],
+    ['send_not_arrived', 'Do not wait, send the payment again.'],
+    ['send_not_arrived', 'Make the payment again.'],
+    ['send_not_arrived', 'Retry the payment now.'],
+    ['money_missing', 'Remove the extension, then add it again.'],
+    ['guardian_funds', 'Nobody can block your money.'],
+    ['guardian_funds', 'No one can block your money.'],
+    ['guardian_funds', 'Your money cannot be frozen.'],
+    ['cancel_take_back', 'Once the recipient accepts, the payment is final.'],
+    ['send_not_arrived', 'Once it shows Confirmed, the payment is final.']
+  ])('treats on %s as content: %s', (id, text) => {
+    expect(draftFor([id], text)).toEqual({ kind: 'unknown', why: 'content' });
+  });
+
+  it.each<[string, string]>([
+    ['support_contact', 'Never type your recovery phrase into this chat.'],
+    ['support_contact', "Don't share your password with anyone, including support."],
+    ['send_not_arrived', 'Do not send the payment again.']
+  ])('lets a direct warning through on %s: %s', (id, text) => {
+    expect(draftFor([id], text).kind).toBe('ok');
+  });
+
+  it("keeps the second card's lead and limit when the writer cites only the first card's fact id", () => {
+    const [first, second] = [realCard('pending_why'), realCard('cancel_take_back')];
+    const own = first.facts.find(id => !second.facts.includes(id))!;
+    const draft = draftFor([first.id, second.id], real.facts['pay.takeback']!.text, own);
+    expect(draft).toMatchObject({ kind: 'ok', cited: [first.id] });
+    for (const id of [...second.lead, ...second.limit]) {
+      expect(draft.kind === 'ok' && draft.reply.answer).toContain(real.facts[id]!.text);
+    }
   });
 });
 
