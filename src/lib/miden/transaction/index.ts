@@ -3487,6 +3487,7 @@ const runGatedWriteLeaf = async <T>({
   offscreen,
   submitGate,
   tagUnopenedBeforeSubmit = false,
+  deferPreSubmitKillMark = false,
   leaf
 }: {
   txId: string;
@@ -3494,6 +3495,7 @@ const runGatedWriteLeaf = async <T>({
   offscreen: boolean;
   submitGate: ReturnType<typeof offscreenSubmitGate>;
   tagUnopenedBeforeSubmit?: boolean;
+  deferPreSubmitKillMark?: boolean;
   leaf: () => Promise<T>;
 }): Promise<T> =>
   runWriteLeaf(txId, attempt, offscreen, async () => {
@@ -3502,7 +3504,7 @@ const runGatedWriteLeaf = async <T>({
     } catch (error) {
       submitGate.settle();
       await submitGate.drain();
-      if (offscreen && !submitGate.opened() && isKilledPipeline(error)) {
+      if (!deferPreSubmitKillMark && offscreen && !submitGate.opened() && isKilledPipeline(error)) {
         markKilledBeforeSubmit(error);
       }
       if (tagUnopenedBeforeSubmit && offscreen && !submitGate.opened()) {
@@ -5498,6 +5500,7 @@ const generateGuardianTransaction = async (
   // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
+  let preDispatchPinWritten = false;
   let submitLeafEntered = false;
   let submitStageRecorded = false;
   let inlineSubmitNotReached = false;
@@ -5628,6 +5631,7 @@ const generateGuardianTransaction = async (
       // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
       const requestBytes = await withProposalStep('submit_serialize', async () => tr.serialize());
       if (transaction.requestBytes !== undefined) {
+        preDispatchPinWritten = true;
         await withProposalStep('submit_pin', () => pinGuardianCrossing(transaction.id, attempt));
       }
       offscreenDispatched = true;
@@ -5637,6 +5641,7 @@ const generateGuardianTransaction = async (
         attempt,
         offscreen: true,
         submitGate,
+        deferPreSubmitKillMark: preDispatchPinWritten,
         leaf: () =>
           dispatchGuardianPipeline(
             transaction.accountId,
@@ -5678,6 +5683,7 @@ const generateGuardianTransaction = async (
     }
   } catch (error) {
     submitGate.settle();
+    await submitGate.drain();
     // The message goes in the FORMAT STRING, not only in the object. Chrome
     // truncates strings nested inside a logged object's preview (~100 chars),
     // and a guardian write's whole diagnostic value is the executor's reason,
@@ -5692,17 +5698,43 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
-    if (!submitLeafEntered && isConfirmedKill(error)) {
-      markKilledBeforeSubmit(error);
-    }
     // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
-    // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
-    const gateShut = offscreenDispatched && !submitGate.opened();
-    if (
-      (hasErrorBeforeSubmit(error) || gateShut || inlineSubmitNotReached || isKilledBeforeSubmit(error)) &&
-      transaction.attemptId !== undefined
-    ) {
-      await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+    // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes. When
+    // `pinGuardianCrossing` already wrote `mayHaveSubmitted = true`, retirement must use the throwing check and
+    // finish before `gateShut` or `markKilledBeforeSubmit` takes effect (#2325).
+    const rawGateShut = offscreenDispatched && !submitGate.opened();
+    const preSubmitConfirmed =
+      hasErrorBeforeSubmit(error) ||
+      rawGateShut ||
+      inlineSubmitNotReached ||
+      isKilledBeforeSubmit(error) ||
+      (!submitLeafEntered && isConfirmedKill(error));
+    let preDispatchPinRetired = !preDispatchPinWritten;
+    if (preSubmitConfirmed) {
+      if (preDispatchPinWritten) {
+        if (transaction.attemptId === undefined) {
+          preDispatchPinRetired = false;
+        } else {
+          try {
+            await markAttemptPreSubmitEndOrThrow(transaction.id, transaction.attemptId);
+            preDispatchPinRetired = true;
+          } catch (retireError) {
+            console.warn(
+              `[submit-evidence] could not retire the pre-dispatch pin of attempt ${transaction.attemptId} on ${transaction.id}`,
+              retireError
+            );
+            preDispatchPinRetired = false;
+          }
+        }
+      } else if (transaction.attemptId !== undefined) {
+        await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+      }
+    }
+    const gateShut = rawGateShut && preDispatchPinRetired;
+    if (!preDispatchPinRetired) {
+      markInsideSubmitLeaf(error);
+    } else if (isKilledPipeline(error) && (gateShut || (!submitLeafEntered && isConfirmedKill(error)))) {
+      markKilledBeforeSubmit(error);
     }
     // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
     // or once this attempt may have crossed its submit, abandoning would retract a co-signature the chain may be about

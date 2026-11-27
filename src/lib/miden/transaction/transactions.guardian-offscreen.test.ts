@@ -4397,6 +4397,196 @@ describe('guardian offscreen submit gate (#1644)', () => {
     );
   });
 
+  it.each([
+    ['OperationAbortedError', () => new OperationAbortedError('op-pin-retire-fail', 'deadline')],
+    [
+      'WasmClientPoisonedError',
+      () => {
+        const err = new WasmClientPoisonedError('watchdog', new Error('evicted pre-open pinned'));
+        markLockEvictedError(err);
+        return err;
+      }
+    ]
+  ] as const)(
+    'keeps candidate, sets mayHaveSubmitted, and withholds preSubmitKill when %s kills pinned offscreen Guardian send pre-open and pin retirement throws (#2325)',
+    async (label, makeKillError) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockLeafOpensGate = false;
+      const sendRow = {
+        type: 'send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '1',
+        requestBytes: new Uint8Array([9, 9]),
+        extraInputs: { recallBlocks: 100 }
+      };
+      const txId = `pinned-preopen-retire-fail-${label}`;
+      const { service } = arrange(txId, sendRow);
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+      let retireAttempted = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const inner = realWhereImpl(query) as {
+          modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+          first: () => Promise<unknown>;
+        };
+        return {
+          ...inner,
+          modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+            const current = (await inner.first()) as Record<string, unknown> | undefined;
+            const probe: Record<string, unknown> = current
+              ? {
+                  ...current,
+                  submitEvidence: Array.isArray(current.submitEvidence)
+                    ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                    : undefined
+                }
+              : {};
+            fn(probe);
+            const currentPreEnd = (current?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+              entry => entry.preSubmitEnd === true
+            );
+            const probePreEnd = (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+              entry => entry.preSubmitEnd === true
+            );
+            if (!currentPreEnd && probePreEnd) {
+              retireAttempted = true;
+              throw new Error('QuotaExceededError retiring pre-dispatch pin');
+            }
+            return inner.modify(fn);
+          }
+        };
+      });
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(makeKillError());
+
+      try {
+        await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+      } finally {
+        repo.transactions.where.mockImplementation(realWhereImpl);
+        clearGuardianAccountLocks();
+      }
+
+      expect(retireAttempted).toBe(true);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      const finalRow = txStore.find(r => r.id === txId)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'pin', raisedFlag: true, endedBy: 'kill', candidateKept: true })
+        ])
+      );
+      expect(
+        (finalRow.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+          entry => entry.preSubmitEnd === true
+        ) ?? false
+      ).toBe(false);
+    }
+  );
+
+  it('withholds preSubmitKill and keeps candidate when kill throws right after pinGuardianCrossing write before leaf dispatch and pin retirement throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 100 }
+    };
+    const txId = 'pinned-preleaf-after-write-retire-fail';
+    const { service } = arrange(txId, sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let failRetire = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          const entries = probe.submitEvidence as Array<{ source?: string; preSubmitEnd?: boolean }> | undefined;
+          const currentPreEnd = (current?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+            entry => entry.preSubmitEnd === true
+          );
+          if (failRetire && !currentPreEnd && entries?.some(entry => entry.preSubmitEnd === true)) {
+            throw new Error('QuotaExceededError retiring pre-leaf pin');
+          }
+          const result = await inner.modify(fn);
+          if (!failRetire && entries?.some(entry => entry.source === 'pin' && entry.preSubmitEnd !== true)) {
+            failRetire = true;
+            throw new OperationAbortedError('op-pin-post-write-abort', 'deadline');
+          }
+          return result;
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      clearGuardianAccountLocks();
+    }
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === txId)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'pin', raisedFlag: true, endedBy: 'kill', candidateKept: true })
+      ])
+    );
+  });
+
+  it('retires pre-dispatch pin cleanly, sets preSubmitKill, and abandons candidate when pinned offscreen Guardian send fails pre-open (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 100 }
+    };
+    const txId = 'pinned-preopen-retire-clean';
+    const { service } = arrange(txId, sendRow);
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new OperationAbortedError('op-pin-retire-clean', 'deadline'));
+
+    await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === txId)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'pin', preSubmitEnd: true })])
+    );
+    expect(finalRow.submitEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
   it('abandons candidate, avoids candidateKept, and records unabandoned candidate when lock eviction hits after proposal creation (#2325)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
