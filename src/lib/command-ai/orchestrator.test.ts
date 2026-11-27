@@ -788,5 +788,65 @@ describe('command-ai orchestrator', () => {
         )
       ).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { routeId: 'main-eth' } });
     });
+
+    const intent = (from_chain: string, bridgeRoutes: ReturnType<typeof context>['bridgeRoutes']) =>
+      compileOutputToResolution(
+        { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain, to_chain: 'Miden Testnet' },
+        redactPrompt('x', { contacts: [] }).map,
+        { ...createContext(), bridgeRoutes }
+      );
+
+    it.each([
+      ['a Miden network no route is on', { toChain: 'miden-devnet' }],
+      ['a bridge from Miden to Miden', { fromChain: 'miden', toChain: 'miden' }]
+    ])('says there is no route for %s', (_label, draft) => {
+      expectNoRoute(request(draft), ['in-usdc', 'in-eth']);
+    });
+
+    it('does not take a testnet route for a stated mainnet', () => {
+      const res = intent('Base Mainnet', [usdc, eth]);
+      expect(res).toMatchObject({ kind: 'clarifying', slot: 'route', questionKey: 'commandAiBridgeNoRoute' });
+    });
+
+    it('does not take a testnet route when a follow-up states mainnet', () => {
+      const res = compileOutputToResolution(
+        patch({ from_chain: 'Base Mainnet' }),
+        redactPrompt('x', { contacts: [] }).map,
+        context(),
+        { action: 'bridge', routeId: 'in-eth', fromChain: 'base-sepolia', toChain: 'miden-testnet' }
+      );
+      expect(res).toMatchObject({ kind: 'clarifying', slot: 'route', questionKey: 'commandAiBridgeNoRoute' });
+    });
+
+    it('selects the mainnet route for a stated mainnet and keeps the testnet variant for a bare name', () => {
+      const base = inRoute('main-base', 'ETH', 'base');
+      expect(intent('Base Mainnet', [base, eth])).toMatchObject({ draft: { routeId: 'main-base' } });
+      expect(intent('base', [usdc, eth])).toMatchObject({ draft: { routeId: 'in-eth' } });
+      const miden = { ...usdc, id: 'main-miden', destinationNetwork: 'miden-mainnet' };
+      expect(
+        resolveDraftToAction(
+          { action: 'bridge', amount: '5', toChain: 'miden-mainnet' },
+          redactPrompt('bridge', { contacts: [] }).map,
+          { ...createContext(), bridgeRoutes: [miden, eth] }
+        )
+      ).toMatchObject({ draft: { routeId: 'main-miden' } });
+    });
+
+    it('names a send network without the mainnet suffix', () => {
+      const res = compileOutputToResolution(
+        {
+          ...patch({}).patch,
+          op: 'set_intent',
+          action: 'send',
+          amount: { kind: 'exact_ref', ref: 'AMT_1' },
+          asset: 'USDCx',
+          to_chain: 'Ethereum Mainnet',
+          recipient_ref: 'CONTACT_1'
+        },
+        redactPrompt('send 2 USDCx to Alice Work', { contacts: createContext().contacts }).map,
+        createContext()
+      );
+      expect(res).toMatchObject({ handoff: { draft: { bridgeNetwork: 'ethereum' } } });
+    });
   });
 });
