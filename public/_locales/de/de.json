@@ -2395,5 +2395,17 @@
   "replaceWalletEraseWarning": "Vergewissern Sie sich, dass Sie Ihre aktuelle Wiederherstellungsphrase oder Sicherungsdatei haben, falls Sie sie noch benötigen. Dies kann nicht rückgängig gemacht werden.",
   "eraseAndRestoreWallet": "Löschen und Wallet wiederherstellen",
   "eraseAndCreateWallet": "Löschen und Wallet erstellen",
-  "backToUnlock": "Zurück zur Anmeldung"
+  "backToUnlock": "Zurück zur Anmeldung",
+  "authReasonUnlock": "Entsperren Sie Ihre Wallet",
+  "authReasonViewRecoveryPhrase": "Rufen Sie Ihre Wiederherstellungsphrase ab",
+  "authReasonRevealPrivateKey": "Geben Sie Ihren privaten Schlüssel preis",
+  "authReasonRevealEverydayKey": "Geben Sie Ihren Alltagsschlüssel preis",
+  "authReasonExportAccountFile": "Exportieren Sie Ihre Kontodatei",
+  "authReasonExportWalletFile": "Exportieren Sie Ihre Wallet-Datei",
+  "authReasonChangeSpendingLimit": "Ändern Sie Ihr Ausgabenlimit",
+  "authReasonOverLimitTransaction": "Genehmigen Sie eine Transaktion, die Ihr Limit überschreitet",
+  "authReasonRemoveDevice": "Gerät entfernen",
+  "authReasonSwitchGuardian": "Wechseln Sie Ihren Guardian",
+  "authReasonSetUp": "Sicherheit der Wallet einrichten",
+  "encryptedWalletFileDescriptionExportAuth": "Sie werden bei der Erstellung der Datei zur Authentifizierung aufgefordert."
 }

@@ -9,6 +9,7 @@ import SpendingLimits, { MAX_SPENDING_LIMIT, formatUsdLimitInput, parseUsdLimitI
 const mockReadSpendingLimit = jest.fn();
 const mockSaveSpendingLimit = jest.fn();
 let mockStrictResult: ((result: 'authenticated' | 'cancelled') => void) | undefined;
+let mockStrictPurpose: string | undefined;
 
 const mockWalletState: any = {
   currentAccount: { publicKey: 'account-a' },
@@ -38,12 +39,15 @@ jest.mock('components/Button', () => ({
 jest.mock('components/StrictActionAuthentication', () => ({
   StrictActionAuthentication: ({
     reason,
+    purpose,
     onResult
   }: {
     reason: string;
+    purpose: string;
     onResult: (result: 'authenticated' | 'cancelled') => void;
   }) => {
     mockStrictResult = onResult;
+    mockStrictPurpose = purpose;
     return (
       <div data-testid="strict-authentication">
         <span>{reason}</span>
@@ -110,6 +114,7 @@ describe('SpendingLimits', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockStrictResult = undefined;
+    mockStrictPurpose = undefined;
     mockWalletState.currentAccount = { publicKey: 'account-a' };
     mockReadSpendingLimit.mockResolvedValue(undefined);
     mockSaveSpendingLimit.mockImplementation(async (draft: any) => ({
@@ -227,6 +232,7 @@ describe('SpendingLimits', () => {
     fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
 
     expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
+    expect(mockStrictPurpose).toBe('change-spending-limit');
     expect(mockSaveSpendingLimit).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));

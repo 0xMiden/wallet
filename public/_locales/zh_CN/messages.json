@@ -11121,5 +11121,53 @@
   "backToUnlock": {
     "message": "返回登录",
     "englishSource": "Back to sign in"
+  },
+  "authReasonUnlock": {
+    "message": "解锁您的钱包",
+    "englishSource": "Unlock your wallet"
+  },
+  "authReasonViewRecoveryPhrase": {
+    "message": "查看您的恢复短语",
+    "englishSource": "View your recovery phrase"
+  },
+  "authReasonRevealPrivateKey": {
+    "message": "披露您的私钥",
+    "englishSource": "Reveal your private key"
+  },
+  "authReasonRevealEverydayKey": {
+    "message": "展示您的日常密钥",
+    "englishSource": "Reveal your everyday key"
+  },
+  "authReasonExportAccountFile": {
+    "message": "导出您的账户文件",
+    "englishSource": "Export your account file"
+  },
+  "authReasonExportWalletFile": {
+    "message": "导出您的钱包文件",
+    "englishSource": "Export your wallet file"
+  },
+  "authReasonChangeSpendingLimit": {
+    "message": "更改您的消费限额",
+    "englishSource": "Change your spending limit"
+  },
+  "authReasonOverLimitTransaction": {
+    "message": "批准超出限额的交易",
+    "englishSource": "Approve a transaction over your limit"
+  },
+  "authReasonRemoveDevice": {
+    "message": "移除设备",
+    "englishSource": "Remove a device"
+  },
+  "authReasonSwitchGuardian": {
+    "message": "更换您的Guardian",
+    "englishSource": "Switch your Guardian"
+  },
+  "authReasonSetUp": {
+    "message": "设置钱包安全",
+    "englishSource": "Set up wallet security"
+  },
+  "encryptedWalletFileDescriptionExportAuth": {
+    "message": "创建文件时，系统将要求您进行身份验证。",
+    "englishSource": "You will be asked to authenticate when the file is created."
   }
 }
