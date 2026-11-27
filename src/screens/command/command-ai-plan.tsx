@@ -318,10 +318,12 @@ function ActivePlanBanner({
 }): React.ReactElement {
   const { t } = useTranslation();
   const portfolio = useCommandPortfolio(scope);
+  // Live quotes and current-proof balances only: a draft converts dollars at them and spends from them; the figure's
+  // remembered quotes and older proofs are for display.
   const { getWalletContext, loadEarnPositions } = useCommandAiWalletData(
     scope,
-    portfolio.assets,
-    portfolio.tokenPrices
+    portfolio.actionBalances,
+    portfolio.livePrices
   );
 
   const isLastStep = plan.currentIndex >= plan.steps.length - 1;

@@ -111,3 +111,5 @@ Quote loading removes the derived amount input while keeping the opposite input 
 - An upstream quote error proves rejection, not a correct integration. Before blaming the provider, compare a working reference's exact request fields, authentication, headers and transport with controlled dry requests; check feature branches as well as main. Unfunded downstream paths remain unproven.
 
 - Release1.17.8 validation runs RC CI and the release E2E/Mainnet batch in parallel, per explicit user correction. Do not serialize their setup behind RC CI.
+
+- A first-frame balance fix is proven against the user's real holding shape, not a one-token fixture. Read the installed state first (held tokens, their price kinds, cached quotes and proof age), then sample every frame of both Sidebar and Command with the feed held open. Four earlier fixes passed single-token tests while a wallet holding an unpriceable token beside USDCx still drew a dash (#2355).

@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
+- [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
 - [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.
 - [CHANGE][all] Answer an assistant clarification that has a single option with that option instead of asking, except for the recipient, where choosing it stays your click.
 - [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.

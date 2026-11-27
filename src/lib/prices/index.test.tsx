@@ -3,6 +3,7 @@ import React from 'react';
 import { act, render, renderHook } from '@testing-library/react';
 
 import { fetchBasketPrices } from './basket-nav';
+import { writeDisplayFeed } from './display-feed';
 import { fetchKlineSeries, fetchTokenPrices, hasNoUsdMarket } from './feed';
 import { PriceProvider, useBasketSparkline, useTokenSparkline } from './index';
 import { writeUsdPriceCache } from './usd';
@@ -63,6 +64,10 @@ jest.mock('./basket-nav', () => ({
   fetchBasketPrices: jest.fn(async () => ({}))
 }));
 jest.mock('./usd', () => ({ writeUsdPriceCache: jest.fn(async () => undefined) }));
+jest.mock('./display-feed', () => ({
+  ...jest.requireActual('./display-feed'),
+  writeDisplayFeed: jest.fn(async () => undefined)
+}));
 
 // The list key while no list has loaded (`peekPriceListKey` with every peek null).
 const NO_LIST_KEY = JSON.stringify([null, null, null, null]);
@@ -97,8 +102,8 @@ beforeEach(() => {
   jest.mocked(writeUsdPriceCache).mockClear();
   mockWallet.locked = false;
   mockWallet.ready = true;
-  setTokenPrices.mockClear();
-  mockSetPriceState.mockClear();
+  setTokenPrices.mockReset();
+  mockSetPriceState.mockReset();
   mockUseRetryableSWR.mockReset();
   mockUseRetryableSWR.mockReturnValue({
     data: {
@@ -135,6 +140,14 @@ describe('PriceProvider', () => {
     expect(mockUseRetryableSWR.mock.calls[0]![0]).toBeNull();
   });
 
+  it('reports prices as loading until a wallet exists, never ready before the feed has run', () => {
+    mockWallet.ready = false;
+    mockUseRetryableSWR.mockReturnValue({ isLoading: false });
+    render(<PriceProvider />);
+    expect(mockSetPriceState).toHaveBeenCalledWith({ tokenPricesStatus: 'loading' });
+    expect(mockSetPriceState).not.toHaveBeenCalledWith({ tokenPricesStatus: 'ready' });
+  });
+
   it.each([
     ['locked', { locked: true, ready: false }],
     ['ready', { locked: false, ready: true }]
@@ -156,7 +169,8 @@ describe('PriceProvider', () => {
       assetKey: key[2],
       listKey: key[3],
       prices: {},
-      basketPrices: {}
+      basketPrices: {},
+      unquoted: []
     });
     expect(fetchTokenPrices).toHaveBeenLastCalledWith(['ARB', 'ETH']);
   });
@@ -348,6 +362,43 @@ describe('PriceProvider', () => {
       ],
       exchange
     );
+  });
+
+  it('remembers what every market ruled out for the next document, but never a basket its vault can price', async () => {
+    mockAssets = new Map([
+      ['verified', 'ARB'],
+      ['bridge', 'ETH'],
+      ['gamecoin', 'GC']
+    ]);
+    mockBaskets = new Map([['verified', ['bridge']]]);
+    mockDecimals = new Map([['bridge', 8]]);
+    jest.mocked(hasNoUsdMarket).mockImplementation(symbol => symbol === 'ARB' || symbol === 'GC');
+    render(<PriceProvider />);
+    await expect(mockUseRetryableSWR.mock.lastCall?.[1]()).resolves.toMatchObject({ unquoted: ['GC'] });
+  });
+
+  it('writes the run for display and lands its prices before it reports ready', () => {
+    const order: string[] = [];
+    setTokenPrices.mockImplementation(() => order.push('prices'));
+    mockSetPriceState.mockImplementation(() => order.push('status'));
+    const exchange = { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1, kind: 'market' as const } };
+    mockUseRetryableSWR.mockReturnValue({
+      data: {
+        network: 'testnet',
+        listKey: NO_LIST_KEY,
+        assetKey: JSON.stringify([
+          ['bridge', 'ETH'],
+          ['verified', 'ARB']
+        ]),
+        prices: exchange,
+        basketPrices: {},
+        unquoted: ['GC']
+      }
+    });
+    render(<PriceProvider />);
+    expect(writeDisplayFeed).toHaveBeenCalledWith('testnet', exchange, ['GC'], NO_LIST_KEY);
+    // The first prices write is the key-change clear; the run's prices come before the status.
+    expect(order.slice(-2)).toEqual(['prices', 'status']);
   });
 
   it('shows basket quotes under exchange quotes and never writes them to the spending-limit cache', () => {
