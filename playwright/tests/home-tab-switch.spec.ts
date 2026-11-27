@@ -53,8 +53,20 @@ async function settledOn(page: Page, id: string) {
   await expect
     .poll(async () => (await drawn(page)).filter(pane => pane.opacity > 0).map(pane => pane.id))
     .toEqual([id]);
+  // Only the panes' own motion: the page keeps unrelated animations (a spinner, a shimmer) running.
   await expect
-    .poll(() => page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length))
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document
+            .getAnimations()
+            .filter(
+              a =>
+                a.playState === 'running' &&
+                (a.effect as KeyframeEffect | null)?.target?.hasAttribute?.('data-home-page')
+            ).length
+      )
+    )
     .toBe(0);
 }
 
