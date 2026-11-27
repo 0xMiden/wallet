@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useLayoutEffect } from 'react';
 
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
@@ -66,9 +66,16 @@ jest.mock('lib/store', () => ({
 
 // Guardian-outage flag: a mutable holder so tests can arm/clear it and fire
 // the subscription like the real sync loop does.
-const guardianOutage = { accounts: new Set<string>(), listeners: new Set<() => void>() };
+const guardianOutage = {
+  accounts: new Map<string, { kind: 'guardian_outage'; guardianOutageReason: string }>(),
+  listeners: new Set<() => void>()
+};
+const armGuardianOutage = (pk: string, guardianOutageReason = 'consecutive_unreachable') => {
+  guardianOutage.accounts.set(pk, { kind: 'guardian_outage', guardianOutageReason });
+};
 jest.mock('lib/miden/front/guardian-sync', () => ({
   isGuardianSyncOutage: (pk: string) => guardianOutage.accounts.has(pk),
+  getGuardianSyncOutage: (pk: string) => guardianOutage.accounts.get(pk),
   subscribeGuardianSyncOutage: (listener: () => void) => {
     guardianOutage.listeners.add(listener);
     return () => guardianOutage.listeners.delete(listener);
@@ -265,7 +272,7 @@ describe('ConnectivityIssueBanner', () => {
 
   // -- guardian outage ------------------------------------------------------
   it('renders the guardian banner with the Switch Guardian CTA when the current account is flagged', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     render(<ConnectivityIssueBanner />);
 
     expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
@@ -281,13 +288,13 @@ describe('ConnectivityIssueBanner', () => {
   });
 
   it('does not render the guardian banner for an outage on a DIFFERENT account', () => {
-    guardianOutage.accounts.add('someone-else');
+    armGuardianOutage('someone-else');
     const { container } = render(<ConnectivityIssueBanner />);
     expect(container.firstChild).toBeNull();
   });
 
   it('node outranks guardian (a dead node masks the guardian signal); guardian outranks prover', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     setState({ node: true, prover: true });
     const { rerender } = render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-node')).toBeInTheDocument();
@@ -302,7 +309,7 @@ describe('ConnectivityIssueBanner', () => {
   });
 
   it('guardian dismiss is banner-local (no shared-category dismiss) and the banner clears with the flag', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     render(<ConnectivityIssueBanner />);
 
     fireEvent.click(screen.getByLabelText('close'));
@@ -315,8 +322,8 @@ describe('ConnectivityIssueBanner', () => {
   // boolean's reset effect would never fire and the first dismiss would silently
   // suppress the second account's banner.
   it('does not carry a guardian dismiss across an account switch to another flagged account', () => {
-    guardianOutage.accounts.add('acct-1');
-    guardianOutage.accounts.add('acct-2');
+    armGuardianOutage('acct-1');
+    armGuardianOutage('acct-2');
     const { rerender } = render(<ConnectivityIssueBanner />);
 
     fireEvent.click(screen.getByLabelText('close'));
@@ -331,8 +338,8 @@ describe('ConnectivityIssueBanner', () => {
   });
 
   it('keeps the guardian dismiss when switching back to the account it was made on', () => {
-    guardianOutage.accounts.add('acct-1');
-    guardianOutage.accounts.add('acct-2');
+    armGuardianOutage('acct-1');
+    armGuardianOutage('acct-2');
     const { rerender } = render(<ConnectivityIssueBanner />);
 
     fireEvent.click(screen.getByLabelText('close'));
@@ -356,7 +363,7 @@ describe('ConnectivityIssueBanner', () => {
   // so coming back re-surfaced a banner the user had already dismissed — and
   // this view stays mounted across account switches, so nothing else reset it.
   it('keeps the guardian dismiss across a switch to a HEALTHY account and back', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     const { rerender } = render(<ConnectivityIssueBanner />);
 
     fireEvent.click(screen.getByLabelText('close'));
@@ -379,7 +386,7 @@ describe('ConnectivityIssueBanner', () => {
   // that lands while the user is elsewhere must still expire the dismiss, so a
   // later, genuinely new outage is not suppressed by a stale one.
   it('expires the dismiss when the dismissed account recovers while another account is selected', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     const { rerender } = render(<ConnectivityIssueBanner />);
     fireEvent.click(screen.getByLabelText('close'));
 
@@ -395,7 +402,7 @@ describe('ConnectivityIssueBanner', () => {
 
     act(() => {
       currentAccount.publicKey = 'acct-1';
-      guardianOutage.accounts.add('acct-1');
+      armGuardianOutage('acct-1');
       guardianOutage.listeners.forEach(listener => listener());
     });
     rerender(<ConnectivityIssueBanner />);
@@ -404,7 +411,7 @@ describe('ConnectivityIssueBanner', () => {
   });
 
   it('clears the guardian banner when the sync loop stands the flag down', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
 
@@ -513,17 +520,45 @@ describe('user-visible connectivity errors', () => {
     ['node', 'connectivityNodeBody'],
     ['guardian', 'connectivityGuardianBody']
   ] as const)('reports only the selected %s outage using %s after 1000 ms', (category, id) => {
-    if (category === 'guardian') guardianOutage.accounts.add('acct-1');
+    if (category === 'guardian') armGuardianOutage('acct-1');
     else setState({ [category]: true, prover: true, resolving: true });
     const view = render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId(`connectivity-banner-${category}`)).toHaveTextContent(`Visible ${id}`);
     act(() => jest.advanceTimersByTime(999));
     expect(mockReport.mock.calls).toEqual([]);
     act(() => jest.advanceTimersByTime(1));
-    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    expect(mockReport.mock.calls).toEqual([
+      category === 'guardian' ? [id, 'inline', guardianOutage.accounts.get('acct-1')] : [id, 'inline']
+    ]);
     view.rerender(<ConnectivityIssueBanner className="layout-only" />);
     act(() => jest.advanceTimersByTime(1000));
-    expect(mockReport.mock.calls).toEqual([[id, 'inline']]);
+    expect(mockReport.mock.calls).toEqual([
+      category === 'guardian' ? [id, 'inline', guardianOutage.accounts.get('acct-1')] : [id, 'inline']
+    ]);
+  });
+
+  it('waits a full second on the new account when switching between Guardian outages', () => {
+    armGuardianOutage('acct-1');
+    armGuardianOutage('acct-2', 'request_timeout_fuse');
+
+    const View = ({ switchAccount = false }: { switchAccount?: boolean }) => {
+      useLayoutEffect(() => {
+        if (switchAccount) jest.advanceTimersByTime(1);
+      }, [switchAccount]);
+      return <ConnectivityIssueBanner />;
+    };
+
+    const view = render(<View />);
+    act(() => jest.advanceTimersByTime(999));
+    currentAccount.publicKey = 'acct-2';
+    view.rerender(<View switchAccount />);
+    expect(mockReport).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(998));
+    expect(mockReport).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(1));
+    expect(mockReport.mock.calls).toEqual([
+      ['connectivityGuardianBody', 'inline', guardianOutage.accounts.get('acct-2')]
+    ]);
   });
 
   it.each(['prover', 'resolving'] as const)('does not report %s informational state', category => {
@@ -535,7 +570,7 @@ describe('user-visible connectivity errors', () => {
   });
 
   it.each(['none', 'other-account'] as const)('does not report %s hidden state', category => {
-    if (category === 'other-account') guardianOutage.accounts.add('other-account');
+    if (category === 'other-account') armGuardianOutage('other-account');
     render(<ConnectivityIssueBanner />);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     act(() => jest.advanceTimersByTime(1000));
@@ -543,7 +578,7 @@ describe('user-visible connectivity errors', () => {
   });
 
   it('drops a guardian outage dismissed at 999 ms', () => {
-    guardianOutage.accounts.add('acct-1');
+    armGuardianOutage('acct-1');
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
     act(() => jest.advanceTimersByTime(999));
