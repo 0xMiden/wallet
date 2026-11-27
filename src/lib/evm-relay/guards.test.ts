@@ -71,8 +71,11 @@ describe('assertRelayAccountMatches', () => {
     expect(() => assertRelayAccountMatches(value, CHAIN, RELAY_ADDRESS)).toThrow(RelayMismatchError);
   });
 
-  it('refuses a deduct account on a chain without a configured fee recipient', () => {
+  it('takes the executor as the fee recipient on a chain without a configured fee recipient', () => {
     const chain = { ...CHAIN, feeRecipient: undefined };
+    const toExecutor = account({ mode: 'deduct', feeRecipient: upperHex(EXECUTOR), feeTokens: [NATIVE, USDC] });
+    expect(() => assertRelayAccountMatches(toExecutor, chain, RELAY_ADDRESS)).not.toThrow();
+    // Another recipient is refused, also the one that another config names.
     expect(() => assertRelayAccountMatches(deduct(), chain, RELAY_ADDRESS)).toThrow(RelayMismatchError);
     expect(() => assertRelayAccountMatches(account(), chain, RELAY_ADDRESS)).not.toThrow();
   });
@@ -91,10 +94,10 @@ describe('deductFeeRecipient', () => {
     );
   });
 
-  it('refuses a chain without a configured fee recipient', () => {
-    expect(() => deductFeeRecipient(deduct(), { ...CHAIN, feeRecipient: undefined })).toThrow(
-      'the chain does not take deduct mode'
-    );
+  it('gives the executor on a chain without a configured fee recipient, and refuses another recipient', () => {
+    const chain = { ...CHAIN, feeRecipient: undefined };
+    expect(deductFeeRecipient(account({ mode: 'deduct', feeRecipient: EXECUTOR }), chain)).toBe(EXECUTOR);
+    expect(() => deductFeeRecipient(deduct(), chain)).toThrow('the fee recipient is not the configured fee recipient');
   });
 });
 
@@ -149,9 +152,12 @@ describe('assertRelayQuoteMatches', () => {
     expect(error).toMatchObject({ message: `relay: ${message}` });
   });
 
-  it('refuses a quote on a chain without a configured fee recipient', () => {
+  it('accepts only a quote that pays the executor on a chain without a configured fee recipient', () => {
     const chain = { ...CHAIN, feeRecipient: undefined };
-    expect(() => assertRelayQuoteMatches(quote(), chain, USDC, NOW)).toThrow('the chain does not take deduct mode');
+    expect(() => assertRelayQuoteMatches(quote({ recipient: EXECUTOR }), chain, USDC, NOW)).not.toThrow();
+    expect(() => assertRelayQuoteMatches(quote(), chain, USDC, NOW)).toThrow(
+      'the fee recipient is not the configured fee recipient'
+    );
   });
 
   it.each<[string, RelayQuote, Address, string]>([
