@@ -178,6 +178,7 @@ jest.mock('components/QRCode', () => ({
 let mockPublicKey = 'test-account-123';
 
 jest.mock('lib/miden/front', () => ({
+  request: jest.fn(),
   useAccount: () => ({ publicKey: mockPublicKey }),
   useAllTokensBaseMetadata: () => ({}),
   useAllBalances: () => ({
@@ -547,6 +548,74 @@ describe('Receive - Address', () => {
       container.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!.click();
     });
     expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+  });
+
+  it('reports funding discovery only for the active, available Receive tile', async () => {
+    jest.useFakeTimers();
+    const previousObserver = window.IntersectionObserver;
+    const observers: IntersectionObserverCallback[] = [];
+    window.IntersectionObserver = jest.fn(callback => {
+      observers.push(callback);
+      return { observe: jest.fn(), disconnect: jest.fn() };
+    }) as unknown as typeof IntersectionObserver;
+    const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { request } = jest.requireMock<typeof import('lib/miden/front')>('lib/miden/front');
+    const reporter = jest.mocked(request);
+    reporter.mockClear();
+    const tile = () => testContainer!.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!;
+    try {
+      mockNetworkKey = 'devnet';
+      mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'fixture unavailable' };
+      const container = await renderReceive();
+      document.body.append(container);
+
+      expect(tile()).toBeDisabled();
+      tile().click();
+      expect(reporter).not.toHaveBeenCalled();
+      expect(observers).toHaveLength(0);
+
+      mockCrossChain = { state: 'available' };
+      await setPageActive(false);
+      expect(tile()).toBeEnabled();
+      tile().click();
+      expect(reporter).not.toHaveBeenCalled();
+      expect(observers).toHaveLength(0);
+
+      await setPageActive(true);
+      expect(observers).toHaveLength(1);
+      act(() => {
+        observers[0]!(
+          [{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+        jest.advanceTimersByTime(ROUTE_DWELL_MS - 1);
+      });
+      expect(reporter).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      await act(async () => tile().click());
+
+      expect(reporter.mock.calls.map(([message]) => 'event' in message && message.event)).toEqual([
+        expect.objectContaining({
+          phase: 'discovery',
+          feature: 'funding',
+          entryPoint: 'receive_tile',
+          discoveryAction: 'exposed'
+        }),
+        expect.objectContaining({
+          phase: 'discovery',
+          feature: 'funding',
+          entryPoint: 'receive_tile',
+          discoveryAction: 'selected'
+        })
+      ]);
+    } finally {
+      visibility.mockReturnValue('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      visibility.mockRestore();
+      reporter.mockClear();
+      window.IntersectionObserver = previousObserver;
+      jest.useRealTimers();
+    }
   });
 
   it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {

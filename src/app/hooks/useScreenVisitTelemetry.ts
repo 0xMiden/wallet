@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
 
 import { useAppEnv } from 'app/env';
-import { request } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
-import { WalletMessageType } from 'lib/shared/types';
+import { reportTelemetryEvent } from 'lib/telemetry/report-flow';
 import { touchRun } from 'lib/telemetry/run';
 import { createVisitTracker, screenForPath, VisitTracker } from 'lib/telemetry/screen-visits';
-import { ScreenVisitEvent, TelemetryNavSource, TelemetrySurface } from 'lib/telemetry/types';
+import { TelemetryNavSource, TelemetrySurface } from 'lib/telemetry/types';
 import { HistoryAction } from 'lib/woozie';
 
 const SOURCE_OF: Record<string, TelemetryNavSource> = {
@@ -14,16 +13,6 @@ const SOURCE_OF: Record<string, TelemetryNavSource> = {
   [HistoryAction.Pop]: 'back',
   [HistoryAction.Replace]: 'replace'
 };
-
-function report(event: ScreenVisitEvent): void {
-  void (async () => {
-    try {
-      await request({ type: WalletMessageType.ReportTelemetryEventRequest, event });
-    } catch {
-      // Telemetry must never surface as a user-visible failure.
-    }
-  })();
-}
 
 /**
  * Report which screen the usable wallet shows and for how long it is visible. `usable` is false on the lock screen
@@ -37,7 +26,12 @@ export function useScreenVisitTelemetry(usable: boolean, pathname: string, trigg
   const wasUsable = useRef(false);
 
   useEffect(() => {
-    const tracker = createVisitTracker({ now: () => performance.now(), surface, runId: touchRun, emit: report });
+    const tracker = createVisitTracker({
+      now: () => performance.now(),
+      surface,
+      runId: touchRun,
+      emit: reportTelemetryEvent
+    });
     trackerRef.current = tracker;
     wasUsable.current = false;
     tracker.visible(document.visibilityState !== 'hidden');
