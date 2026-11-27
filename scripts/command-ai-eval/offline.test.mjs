@@ -1179,6 +1179,48 @@ test('stops a suite after three runs in a row stay technical failures', async co
   assert.equal(sent.length, 24);
 });
 
+const rateLimited = limit =>
+  new Response(JSON.stringify({ error: { message: `Rate limit reached for model m on ${limit}: Limit 1.` } }), {
+    status: 429,
+    headers: { 'retry-after': '2' }
+  });
+
+test('ends a guarded command suite on a daily or unnamed limit without asking again', async context => {
+  mockProviderKey(context);
+  skipWaits(context);
+  context.mock.method(console, 'warn', () => {});
+  let reply;
+  const fetch = context.mock.method(globalThis, 'fetch', async () => reply());
+  const run = () => runEval({ offlineOnly: false, commandsViaWorker: true, guard: true });
+  reply = () => rateLimited('tokens per day (TPD)');
+  await assert.rejects(run, /Quota stop: .*a daily or quota limit/);
+  assert.equal(fetch.mock.callCount(), 1);
+  reply = () => new Response(null, { status: 429 });
+  await assert.rejects(run, /Quota stop: .*names no per-minute limit/);
+  assert.equal(fetch.mock.callCount(), 2);
+});
+
+test('waits out a per-minute limit in a guarded command suite and totals its calls', async context => {
+  mockProviderKey(context);
+  skipWaits(context);
+  context.mock.method(console, 'warn', () => {});
+  mockCaseFixtures(context, cases => cases.slice(0, 1));
+  let calls = 0;
+  context.mock.method(globalThis, 'fetch', async () =>
+    ++calls === 1
+      ? rateLimited('tokens per minute (TPM)')
+      : Response.json({
+          choices: [{ finish_reason: 'stop', message: { content: '{"result":{"op":"cancel"}}' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 2 }
+        })
+  );
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, guard: true });
+  assert.equal(calls, 4);
+  assert.ok(summary.usage, 'the summary totals usage per model');
+  const [usage] = Object.values(summary.usage);
+  assert.deepEqual([usage.calls, usage.promptTokens, usage.completionTokens], [4, 30, 6]);
+});
+
 test('ends a guarded suite when a model asks for a very long wait', async context => {
   mockProviderKey(context);
   skipWaits(context);
