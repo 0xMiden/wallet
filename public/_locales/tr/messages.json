@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Tümünü gör",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$'i talep etmek için",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ talep etme",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Bakiye güncelleme",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Yük dengeleme yapılamadı.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

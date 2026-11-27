@@ -2304,3 +2304,28 @@ describe('cancelled partial swap progress', () => {
     expect(mockT).toHaveBeenCalledWith('swapProgressPercent', { percentage: '40' });
   });
 });
+
+describe('HistoryView maxRows', () => {
+  it('caps the rows after the claim cards are merged in, keeping the newest', () => {
+    const entries = [50, 40, 30, 20, 10].map(offset =>
+      makeEntry({ key: `row-${offset}`, timestamp: DAY_A + offset, message: `row-${offset}` })
+    );
+    const pending = [45, 5].map(offset => ({
+      note: { id: `note-${offset}`, receivedAt: DAY_A + offset } as PendingActivityItem['note'],
+      status: 'pending' as const
+    }));
+    const { container } = render(
+      <HistoryView
+        {...baseProps}
+        entries={entries}
+        pendingItems={pending}
+        renderPendingItem={item => <span>{item.note.id}</span>}
+        fullHistory
+        maxRows={5}
+      />
+    );
+
+    expect(screen.getAllByTestId('activity-row')).toHaveLength(4);
+    expect([...container.querySelectorAll('[data-pending-note-id]')].map(el => el.textContent)).toEqual(['note-45']);
+  });
+});

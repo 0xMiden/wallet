@@ -743,7 +743,9 @@ const History = memo<HistoryProps>(
         loadMore={loadMore}
         // Paging reads settled rows, so it stops wherever that read is off: under Pending, where every settled row
         // is filtered out, and off screen.
-        hasMore={readingCompleted && hasMore}
+        // A capped list stops paging once it is full.
+        hasMore={readingCompleted && hasMore && !(numItems && entries.length >= numItems)}
+        maxRows={numItems}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}

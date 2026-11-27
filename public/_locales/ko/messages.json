@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "모두 보기",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$를 청구하려면",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ 청구",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "잔액 업데이트",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "부하 분산을 수행할 수 없습니다.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
