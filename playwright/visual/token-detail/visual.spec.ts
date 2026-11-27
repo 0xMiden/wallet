@@ -216,3 +216,53 @@ test('lists five rows with this token claim cards only, and links to all activit
   await seeAll.click();
   await expect(page).toHaveURL(/#\/history$/);
 });
+
+test('captures Send Available at the precision boundary', async ({ page, context }, testInfo) => {
+  const capture = process.env.SEND_AVAILABLE_CAPTURE;
+  test.skip(!capture, 'Runs on the isolated Send Available proof branch');
+  if (capture !== 'before' && capture !== 'after') throw new Error('Expected an explicit before or after capture');
+  const dark = testInfo.project.name.endsWith('dark');
+  const origin = 'http://127.0.0.1:5192';
+  const unsupportedRequests: string[] = [];
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin === origin) return route.continue();
+    unsupportedRequests.push(url.origin);
+    return route.abort();
+  });
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto(`${origin}/send-available.html${dark ? '?dark' : ''}`);
+  expect(await page.locator('html').evaluate(element => element.classList.contains('dark'))).toBe(dark);
+
+  const available = page.getByTestId('send-amount-available');
+  const max = page.getByTestId('send-amount-max');
+  const amount = page.getByTestId('send-amount-input');
+  const canonicalMax = '10000.29999999999';
+  const shown = capture === 'before' ? '10000.3' : '10000.2999';
+  await expect(available).toHaveText(`Available ${shown}`);
+  await expect(available.getByTitle(`Available ${capture === 'before' ? '10000.3' : canonicalMax}`)).toBeVisible();
+  await expect(max).toBeVisible();
+  await max.click();
+  await expect(page.locator('main')).toHaveAttribute('data-canonical-amount', canonicalMax);
+  await expect(amount).toHaveValue(canonicalMax);
+  await expect(page.getByTestId('send-amount-confirm')).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  for (const control of [available, max]) {
+    const box = await control.boundingBox();
+    if (!box) throw new Error('Expected a visible control');
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+    expect(box.y + box.height).toBeLessThanOrEqual(640);
+  }
+  await page.screenshot({
+    path: testInfo.outputPath(`send-available-${dark ? 'dark' : 'light'}-${capture}.png`),
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'css'
+  });
+  expect(pageErrors).toEqual([]);
+  expect(unsupportedRequests).toEqual([]);
+});
