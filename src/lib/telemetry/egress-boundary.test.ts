@@ -2418,6 +2418,26 @@ describe('user-visible error reports', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  it.each([
+    ['closed phase', { faucetFailurePhase: 'definitive_refusal' }, 'definitive_refusal'],
+    ['unrecognized phase', { faucetFailurePhase: POISON.amount }, undefined],
+    ['private text', { faucetFailurePhase: 'definitive_refusal', rawError: POISON.addressTestnet }, undefined]
+  ] as const)('reports only the closed Home faucet evidence for %s', async (_label, evidence, expected) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [
+      'raw_home_faucet_failed',
+      'prompt',
+      { kind: 'faucet_failure', ...evidence }
+    ]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics.faucetFailurePhase).toBe(expected);
+    expect(diagnostics).not.toHaveProperty('rawError');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it.each(['send_step', 'command_send'] as const)('sends the closed invalid amount producer %s', async producer => {
     consentOn();
     reportUserVisibleError('invalidAmount', 'field', { kind: 'invalid_amount', invalidAmountProducer: producer });

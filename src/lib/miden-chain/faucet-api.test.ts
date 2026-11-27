@@ -6,6 +6,7 @@ import {
   FaucetRateLimitedError,
   faucetFetch,
   getFaucetApiUrl,
+  getFaucetFailurePhase,
   getPowChallenge,
   mintFromMidenFaucet,
   requestTokens,
@@ -588,6 +589,7 @@ describe('faucet-api', () => {
         ).catch((e: unknown) => e);
 
         expect(error).toBeInstanceOf(FaucetOutcomeUnknownError);
+        expect(getFaucetFailurePhase(error as Error)).toBe('unrecorded');
       }
     );
 
@@ -741,6 +743,7 @@ describe('faucet-api', () => {
 
       expect(error).toBeInstanceOf(Error);
       expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(getFaucetFailurePhase(error as Error)).toBe('definitive_refusal');
     });
 
     it('reports an accepted request whose body stalls past the faucet timeout as unreadable', async () => {
@@ -898,13 +901,16 @@ describe('faucet-api', () => {
       const reason = new Error('cancelled before metadata');
       controller.abort(reason);
       await expect(mintFromMidenFaucet('mtst1testaddress', undefined, controller.signal)).rejects.toBe(reason);
+      expect(getFaucetFailurePhase(reason)).toBe('unrecorded');
       expect(fetchMock).not.toHaveBeenCalled();
       expect(spawnWorkerMock).not.toHaveBeenCalled();
     });
 
     it('fails unavailable metadata before PoW or mint', async () => {
       fetchMock.mockResolvedValue(errorResponse(503, 'unavailable'));
-      await expect(mintFromMidenFaucet('mtst1testaddress')).rejects.toThrow('metadata request failed with status 503');
+      const error = await mintFromMidenFaucet('mtst1testaddress').catch((error: unknown) => error);
+      expect(error).toMatchObject({ message: expect.stringContaining('metadata request failed with status 503') });
+      expect(getFaucetFailurePhase(error as Error)).toBe('request_preparation');
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(spawnWorkerMock).not.toHaveBeenCalled();
     });
