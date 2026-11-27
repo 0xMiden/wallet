@@ -812,7 +812,6 @@ function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly Brid
       patch: {
         ...chip.patch,
         toAssetQuery: undefined,
-        tokenId: undefined,
         // An amount of one asset means nothing in another.
         ...(keepsAsset
           ? {}

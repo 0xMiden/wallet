@@ -1156,6 +1156,13 @@ describe('command-ai orchestrator', () => {
         handoff: { action: 'receive', path: '/receive', jumpToConfirm: false }
       });
     });
+
+    it('keeps the picked holding on a same-symbol route offered when no route matches', () => {
+      const ctx = { ...twins(), bridgeRoutes: [sendRoute('foo-out', 'FOO')] };
+      const half = { numerator: 1, denominator: 2 };
+      const offered = question(resolve({ action: 'bridge', ...gone, amountFraction: half, toChain: 'base' }, ctx));
+      expect(pick(offered, 'foo-out', ctx)).toMatchObject({ handoff: { draft: { amount: '4' } } });
+    });
   });
 });
 
