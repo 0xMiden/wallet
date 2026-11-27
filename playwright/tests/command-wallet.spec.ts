@@ -37,12 +37,12 @@ async function captureCommand(page: Page, info: TestInfo, name: string): Promise
 }
 
 async function captureCompactSend(page: Page, info: TestInfo, name: string): Promise<void> {
-  const actions = page.getByRole('navigation', { name: 'Wallet actions' });
-  await actions.getByRole('button', { name: 'Send', exact: true }).click();
+  const actions = page.locator('[data-home-actions="true"]');
+  await actions.getByRole('tab', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-home-page="send"]:not([inert])')).toBeInViewport({ ratio: 0.95 });
   await expect(page.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(0);
   await captureCommand(page, info, name);
-  await actions.getByRole('button', { name: 'Home', exact: true }).click();
+  await actions.getByRole('tab', { name: 'Home', exact: true }).click();
 }
 
 async function assertWorkbenchFrames(page: Page, act: () => Promise<void>, dialogCounts: number[]): Promise<void> {
