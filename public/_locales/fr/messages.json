@@ -2487,8 +2487,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "Lorsque le service est activé, les preuves de transaction sont générées sur des serveurs distants : c'est plus rapide, cela ne nécessite aucun téléchargement volumineux sur votre appareil et vos clés ne quittent jamais celui-ci. Lorsque le service est désactivé ou indisponible, le portefeuille effectue la vérification localement : c'est plus confidentiel, mais plus lent et nécessite un téléchargement unique volumineux.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "Activé par défaut. Lorsque cette option est activée, le portefeuille envoie les détails des transactions à un service distant afin de générer des preuves. Lorsqu’elle est désactivée, le portefeuille valide les transactions localement sur votre appareil, à l’exception des retraits via le pont et des dépôts « Earn », qui continuent de faire appel à ce service distant. Si le service n’est pas disponible, la validation locale est possible.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "Transfert",
@@ -3554,8 +3554,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Un Guardian est un service indépendant qui <b>valide chaque transaction</b> provenant de votre portefeuille, ajoutant ainsi un filet de sécurité sans que vous ayez à renoncer à la gestion autonome de vos actifs.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Un Guardian est un service indépendant qui <b>aide à autoriser vos transactions</b>. Votre Guardian peut consulter les détails de votre compte et de vos paiements.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Fonctionnalités",
@@ -3570,8 +3570,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Gérez vos fonds en toute autonomie. Accédez à votre espace personnel. Consultez vos soldes, sauf si vous les partagez.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "Transférez vos fonds vous-même.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Changer de fournisseur, c'est facile",
