@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
+import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
@@ -903,7 +904,11 @@ export const cancelStuckTransactions = async () => {
 export const cancelStaleQueuedTransactions = async (
   onQueuedSnapshot?: (rows: readonly QueueAdmissionMember[]) => void
 ): Promise<void> => {
-  const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const queued = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusIndexSpecs([ITransactionStatus.Queued]),
+    () => true
+  );
   const stale = queued.filter(
     tx => !tx.awaitingRecoverySeed && Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE
   );

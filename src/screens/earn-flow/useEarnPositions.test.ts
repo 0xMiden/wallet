@@ -6,6 +6,7 @@ import { SWRConfig } from 'swr';
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult, EarnVaultInfo } from 'lib/epoch';
 import { fetchEarnPositions, POSITIONS_PAGE_LIMIT, positionsBudgetDelayMs } from 'lib/epoch';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
@@ -39,27 +40,53 @@ const mockEarnDepositRows: Array<{
 }> = [];
 
 const mockClearPortfolioObservations = jest.fn(async () => {});
+let mockRepoTransactionsOverride: typeof Repo.transactions | undefined;
+const defaultMockTransactions = {
+  where: jest.fn((_index: string) => ({
+    anyOf: (...types: string[]) => ({
+      filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => types.includes(row.type) && predicate(row))
+      }),
+      toArray: async () => mockEarnDepositRows.filter(row => types.includes(row.type))
+    }),
+    equals: (type: string) => ({
+      filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
+        toArray: async () => mockEarnDepositRows.filter(row => row.type === type && predicate(row))
+      }),
+      toArray: async () => mockEarnDepositRows.filter(row => row.type === type)
+    })
+  })),
+  filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
+    toArray: async () => mockEarnDepositRows.filter(predicate)
+  })
+};
 jest.mock('lib/miden/repo', () => ({
   portfolioObservations: { clear: () => mockClearPortfolioObservations() },
-  transactions: {
-    where: jest.fn((_index: string) => ({
-      anyOf: (...types: string[]) => ({
-        toArray: async () => mockEarnDepositRows.filter(row => types.includes(row.type))
-      }),
-      equals: (type: string) => ({
-        toArray: async () => mockEarnDepositRows.filter(row => row.type === type)
-      })
-    })),
-    filter: (predicate: (row: (typeof mockEarnDepositRows)[number]) => boolean) => ({
-      toArray: async () => mockEarnDepositRows.filter(predicate)
-    })
+  get transactions() {
+    return mockRepoTransactionsOverride ?? defaultMockTransactions;
   }
 }));
 
 // A live query that runs once on subscribe and again on each `emitDbChange`, as Dexie runs one again after a write.
 const mockLiveQueries = new Set<() => Promise<void>>();
+let useActualLiveQuery = false;
+let actualLiveQueryDeliveries = 0;
 jest.mock('lib/dexie-live-query', () => ({
-  subscribeToLiveQuery: <T>(query: () => T | Promise<T>, observer: { next: (value: T) => void }) => {
+  subscribeToLiveQuery: <T>(
+    query: () => T | Promise<T>,
+    observer: { next: (value: T) => void; error?: (err: unknown) => void }
+  ) => {
+    if (useActualLiveQuery) {
+      return jest
+        .requireActual<typeof import('lib/dexie-live-query')>('lib/dexie-live-query')
+        .subscribeToLiveQuery(query, {
+          next: value => {
+            actualLiveQueryDeliveries += 1;
+            observer.next(value);
+          },
+          error: observer.error ?? (() => undefined)
+        });
+    }
     let active = true;
     const run = async () => {
       const value = await query();
@@ -1340,21 +1367,119 @@ describe('useEarnPositions', () => {
       });
 
       it('a settled send row triggers no read', async () => {
-        renderOnPage();
-        await advance(5_000);
-        expect(reads()).toBe(1);
+        const filterSpy = jest.spyOn(Repo.transactions, 'filter');
+        try {
+          renderOnPage();
+          await advance(5_000);
+          expect(reads()).toBe(1);
 
-        mockEarnDepositRows.push({
-          id: 'send-1',
-          type: 'send',
-          accountId: 'miden-account',
-          initiatedAt: 1,
-          extraInputs: { epochStatus: 'confirmed', phase: 'received' }
+          const sendRow = {
+            id: 'send-1',
+            type: 'send',
+            accountId: 'miden-account',
+            initiatedAt: 1,
+            extraInputs: { epochStatus: 'confirmed', phase: 'received' }
+          };
+          mockEarnDepositRows.push(sendRow);
+          await act(emitDbChange);
+          await advance(60_000);
+          expect(reads()).toBe(1);
+          expect(filterSpy).toHaveBeenCalled();
+          expect(
+            filterSpy.mock.calls.every(([predicate]) => !predicate(sendRow as Parameters<typeof predicate>[0]))
+          ).toBe(true);
+        } finally {
+          filterSpy.mockRestore();
+        }
+
+        await act(async () => {
+          cleanup();
         });
-        await act(emitDbChange);
-        await advance(60_000);
-        expect(reads()).toBe(1);
-        expect(Repo.transactions.where).toHaveBeenCalledWith('type');
+        jest.useRealTimers();
+        const actualRepo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+        const actualFilterSpy = jest.spyOn(actualRepo.transactions, 'filter');
+        const whereSpy = jest.spyOn(actualRepo.transactions, 'where');
+        const origOpenCursor = actualRepo.transactions.core.openCursor.bind(actualRepo.transactions.core);
+        const origQuery = actualRepo.transactions.core.query.bind(actualRepo.transactions.core);
+        const coveredTypes = new Set<string>();
+        const recordTypeRange = (req: { query: { index: { name: string | null }; range: unknown } }) => {
+          if (req.query.index.name !== 'type') return;
+          const range = req.query.range as { values?: unknown[]; lower?: unknown; upper?: unknown };
+          if (Array.isArray(range.values)) {
+            for (const value of range.values) {
+              if (typeof value === 'string') coveredTypes.add(value);
+            }
+          } else if (typeof range.lower === 'string' && typeof range.upper === 'string') {
+            for (const candidate of ['earn-deposit', 'earn-withdraw']) {
+              if (range.lower <= candidate && candidate <= range.upper) coveredTypes.add(candidate);
+            }
+          }
+        };
+        actualRepo.transactions.core.openCursor = req => {
+          recordTypeRange(req);
+          return origOpenCursor(req);
+        };
+        actualRepo.transactions.core.query = req => {
+          recordTypeRange(req);
+          return origQuery(req);
+        };
+        mockRepoTransactionsOverride = actualRepo.transactions;
+        jest.mocked(fetchEarnPositions).mockResolvedValue({ ...liveResult, positions: [], errors: [] });
+        try {
+          await actualRepo.transactions.clear();
+          await actualRepo.transactions.bulkAdd([
+            {
+              id: 'earn-dep-real',
+              type: 'earn-deposit',
+              accountId: 'miden-account',
+              initiatedAt: 100,
+              status: ITransactionStatus.Completed,
+              displayIcon: 'SEND',
+              extraInputs: {
+                evmRecipient: '0xabcdef',
+                marketUid: MARKET_UID,
+                sourceFaucetId: 'faucet-1',
+                epochStatus: 'confirmed'
+              }
+            },
+            {
+              id: 'send-real-1',
+              type: 'send',
+              accountId: 'miden-account',
+              initiatedAt: 101,
+              status: ITransactionStatus.Completed,
+              displayIcon: 'SEND'
+            }
+          ]);
+
+          renderOnPage();
+          await waitFor(() => expect(coveredTypes.has('earn-withdraw')).toBe(true), { timeout: 5_000 });
+          await waitFor(() => expect(reads()).toBe(2), { timeout: 5_000 });
+          expect([...coveredTypes].sort()).toEqual(['earn-deposit', 'earn-withdraw']);
+          expect(whereSpy).toHaveBeenCalledWith('type');
+          expect(actualFilterSpy).not.toHaveBeenCalled();
+
+          await actualRepo.transactions.add({
+            id: 'send-real-2',
+            type: 'send',
+            accountId: 'miden-account',
+            initiatedAt: 102,
+            status: ITransactionStatus.Completed,
+            displayIcon: 'SEND'
+          });
+          await act(emitDbChange);
+          await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+          expect(reads()).toBe(2);
+          expect(actualFilterSpy).not.toHaveBeenCalled();
+        } finally {
+          cleanup();
+          mockRepoTransactionsOverride = undefined;
+          actualRepo.transactions.core.openCursor = origOpenCursor;
+          actualRepo.transactions.core.query = origQuery;
+          whereSpy.mockRestore();
+          actualFilterSpy.mockRestore();
+          await actualRepo.transactions.clear();
+        }
       });
 
       it("reads nothing when another account's Earn row settles", async () => {
@@ -1430,6 +1555,98 @@ describe('useEarnPositions', () => {
         await advance(60_000);
         expect(reads()).toBe(3);
       });
+    });
+
+    it('observes a newly settled earn-withdraw write through real Dexie subscribeToLiveQuery even past 64 earn-deposit rows', async () => {
+      const actualRepo = jest.requireActual<typeof import('lib/miden/repo')>('lib/miden/repo');
+      mockRepoTransactionsOverride = actualRepo.transactions;
+      useActualLiveQuery = true;
+      actualLiveQueryDeliveries = 0;
+      jest.mocked(positionsBudgetDelayMs).mockImplementation(() => 0);
+      jest.mocked(fetchEarnPositions).mockResolvedValue({
+        ...liveResult,
+        positions: [],
+        totalDepositsUSD: 0,
+        errors: []
+      });
+      const origOpenCursor = actualRepo.transactions.core.openCursor.bind(actualRepo.transactions.core);
+      const origQuery = actualRepo.transactions.core.query.bind(actualRepo.transactions.core);
+      const origCount = actualRepo.transactions.core.count.bind(actualRepo.transactions.core);
+      const seenBaselineTx = new Set<object>();
+      actualRepo.transactions.core.openCursor = req => {
+        seenBaselineTx.add(req.trans);
+        return origOpenCursor(req);
+      };
+      actualRepo.transactions.core.query = req => {
+        seenBaselineTx.add(req.trans);
+        return origQuery(req);
+      };
+      actualRepo.transactions.core.count = req => {
+        seenBaselineTx.add(req.trans);
+        return origCount(req);
+      };
+      try {
+        await actualRepo.transactions.clear();
+        const withdrawExtra = {
+          evmOwner: '0xabcdef',
+          marketUid: MARKET_UID,
+          destinationFaucetId: 'faucet-1',
+          sourceAmount: '1',
+          sourceSymbol: 'USDC',
+          phase: 'redeeming' as const
+        };
+        const seeded: ITransaction[] = [
+          ...Array.from(
+            { length: 70 },
+            (_, i): ITransaction => ({
+              id: `earn-dep-${String(i).padStart(2, '0')}`,
+              type: 'earn-deposit',
+              accountId: 'miden-account',
+              initiatedAt: 100 + i,
+              status: ITransactionStatus.Completed,
+              displayIcon: 'SEND',
+              extraInputs: {
+                evmRecipient: '0xabcdef',
+                marketUid: MARKET_UID,
+                sourceFaucetId: 'faucet-1',
+                epochStatus: 'confirmed'
+              }
+            })
+          ),
+          {
+            id: 'withdraw-1',
+            type: 'earn-withdraw',
+            accountId: 'miden-account',
+            initiatedAt: 500,
+            status: ITransactionStatus.GeneratingTransaction,
+            displayIcon: 'RECEIVE',
+            extraInputs: withdrawExtra
+          }
+        ];
+        await actualRepo.transactions.bulkAdd(seeded);
+        seenBaselineTx.clear();
+
+        renderOnPage();
+        await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(1), { timeout: 5_000 });
+        await waitFor(() => expect(actualLiveQueryDeliveries).toBeGreaterThanOrEqual(1), { timeout: 5_000 });
+        expect(seenBaselineTx.size).toBe(1);
+
+        await actualRepo.transactions.update('withdraw-1', {
+          status: ITransactionStatus.Completed,
+          completedAt: 505,
+          extraInputs: { ...withdrawExtra, phase: 'delivering' }
+        });
+
+        await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+      } finally {
+        cleanup();
+        actualRepo.transactions.core.openCursor = origOpenCursor;
+        actualRepo.transactions.core.query = origQuery;
+        actualRepo.transactions.core.count = origCount;
+        useActualLiveQuery = false;
+        mockRepoTransactionsOverride = undefined;
+        await actualRepo.transactions.clear();
+      }
     });
   });
 

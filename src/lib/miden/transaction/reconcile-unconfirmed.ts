@@ -5,6 +5,7 @@
 // the entries' evidence, and the landed write the account's other rows.
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 
+import { RANGE_ANY, readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
@@ -58,11 +59,13 @@ export type RowOutcome =
   | { kind: 'never-committed'; judgement: RowJudgement; baseline: string }
   | { kind: 'pending'; judgement: RowJudgement; baseline: string };
 
-/** Every row of `row`'s account that was not restored, scanned rather than indexed: dApp rows store the bare address. */
+/** Every row of `row`'s account that was not restored, chunk-scanned: dApp rows store the bare address. */
 export const accountRowsOf = async (row: ITransaction): Promise<ITransaction[]> =>
-  Repo.transactions
-    .filter(other => other.restoredFromBackup !== true && sameWalletAccountId(other.accountId, row.accountId))
-    .toArray();
+  readTransactionIndexChunks(
+    Repo.transactions,
+    [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+    other => other.restoredFromBackup !== true && sameWalletAccountId(other.accountId, row.accountId)
+  );
 
 const accountEvidenceKey = (rows: readonly ITransaction[]): string =>
   JSON.stringify(
@@ -887,7 +890,12 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
   const now = deps.now ?? Date.now;
   try {
     const startedMs = now();
-    const rows = await Repo.transactions.filter(row => awaitingVerdict(row, Math.floor(startedMs / 1000))).toArray();
+    const nowSec = Math.floor(startedMs / 1000);
+    const rows = await readTransactionIndexChunks(
+      Repo.transactions,
+      statusIndexSpecs([ITransactionStatus.Unconfirmed, ITransactionStatus.Failed]),
+      row => awaitingVerdict(row, nowSec)
+    );
     const raw: unknown = (await storage.get([SCHEDULE_KEY]))[SCHEDULE_KEY];
     const stored = parseSchedule(raw);
     const schedule: Schedule = {};
