@@ -1,3 +1,4 @@
+import { attachStepProgressionLifecycle } from './step-lifecycle';
 import {
   createStepProgressionTracker,
   MAX_REPEAT_EVENTS_PER_STEP_VISIT,
@@ -225,5 +226,106 @@ describe('step-progression', () => {
 
     expect(emitted).toHaveLength(MAX_STEP_EVENTS_PER_FLOW);
     expect(emitted[MAX_STEP_EVENTS_PER_FLOW - 1]?.order).toBe(MAX_STEP_EVENTS_PER_FLOW);
+  });
+
+  it('uses monotonic performance.now by default rather than Date.now', () => {
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValueOnce(500).mockReturnValueOnce(925);
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(9_999_999);
+    const emitted: TaskStepEvent[] = [];
+
+    try {
+      const tracker = createStepProgressionTracker({
+        flow: 'send',
+        flowId: 'flow-mono',
+        runId: 'run-1',
+        emit: event => emitted.push(event)
+      });
+
+      tracker.enter('review');
+      tracker.transition('submit', 'submitting');
+
+      expect(emitted).toEqual([
+        {
+          phase: 'step',
+          flow: 'send',
+          flowId: 'flow-mono',
+          runId: 'run-1',
+          step: 'review',
+          stepAction: 'submit',
+          order: 1,
+          visibleMs: 425,
+          complete: true
+        }
+      ]);
+      expect(dateSpy).not.toHaveBeenCalled();
+    } finally {
+      perfSpy.mockRestore();
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('pauses on persisted pagehide/pageshow and tears down only on non-persisted pagehide', () => {
+    let clock = 100;
+    const emitted: TaskStepEvent[] = [];
+    const tracker = createStepProgressionTracker({
+      flow: 'fund',
+      flowId: 'flow-bfcache',
+      runId: 'run-1',
+      now: () => clock,
+      emit: event => emitted.push(event)
+    });
+    const detach = attachStepProgressionLifecycle(tracker);
+
+    try {
+      tracker.enter('select_amount');
+      clock += 300;
+      const persistedHide = new Event('pagehide');
+      Object.defineProperty(persistedHide, 'persisted', { value: true });
+      window.dispatchEvent(persistedHide);
+
+      // Suspended in BFCache: dwell must pause and tracker stays alive.
+      clock += 5_000;
+      expect(tracker.isDisposed()).toBe(false);
+      expect(emitted).toEqual([]);
+
+      const persistedShow = new Event('pageshow');
+      Object.defineProperty(persistedShow, 'persisted', { value: true });
+      window.dispatchEvent(persistedShow);
+      clock += 200;
+      tracker.transition('continue', 'select_route');
+
+      clock += 150;
+      const terminalHide = new Event('pagehide');
+      Object.defineProperty(terminalHide, 'persisted', { value: false });
+      window.dispatchEvent(terminalHide);
+
+      expect(tracker.isDisposed()).toBe(true);
+      expect(emitted).toEqual([
+        {
+          phase: 'step',
+          flow: 'fund',
+          flowId: 'flow-bfcache',
+          runId: 'run-1',
+          step: 'select_amount',
+          stepAction: 'continue',
+          order: 1,
+          visibleMs: 500,
+          complete: true
+        },
+        {
+          phase: 'step',
+          flow: 'fund',
+          flowId: 'flow-bfcache',
+          runId: 'run-1',
+          step: 'select_route',
+          stepAction: 'leave',
+          order: 2,
+          visibleMs: 150,
+          complete: false
+        }
+      ]);
+    } finally {
+      detach();
+    }
   });
 });

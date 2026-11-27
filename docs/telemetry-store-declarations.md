@@ -44,7 +44,7 @@ belong to the two flow phases, `operation` to `settled`:
 | `navSource` | `visit` only: `initial`, `push`, `back`, `replace`, `resume` |
 | `surface` | `visit` and `discovery`: `popup`, `side_panel`, `full_page`, `app` |
 | `order` | `visit` and `step` only: in-memory counter ordering one run's visits or one attempt's step events |
-| `complete` | `visit` and `step` only: false when the window closed abruptly mid-visit or on `pagehide`. `durationMs` is then the visible milliseconds |
+| `complete` | `visit` and `step` only: false when interrupted by an abrupt close or non-persisted `pagehide` teardown (`true` for normal step exits, retries, and `repeat` events). `durationMs` is then the visible milliseconds |
 | `feature` | `discovery` only: `overview`, `explore`, `activity`, `me`, `send`, `receive`, `earn`, `swap`, `funding` |
 | `entryPoint` | `discovery` only: `bottom_nav`, `home_actions`, `receive_tile`, each restricted to its own features |
 | `discoveryAction` | `discovery` only: `exposed` or `selected` |

@@ -35,6 +35,10 @@ export interface StepProgressionTracker {
   isDisposed(): boolean;
 }
 
+function defaultNow(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
 function isAllowedAction(action: TelemetryStepAction): boolean {
   return TELEMETRY_STEP_ACTIONS.includes(action);
 }
@@ -45,7 +49,7 @@ function isAllowedAction(action: TelemetryStepAction): boolean {
  */
 export function createStepProgressionTracker(options: StepProgressionTrackerOptions): StepProgressionTracker {
   const { flow, flowId, runId, emit } = options;
-  const now = options.now ?? (() => Date.now());
+  const now = options.now ?? defaultNow;
 
   let isVisible = options.initiallyVisible ?? true;
   let activeStep: TelemetryStep | null = null;

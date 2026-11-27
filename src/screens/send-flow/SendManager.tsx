@@ -1105,6 +1105,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     const admission = commandDrafts?.readSendAdmission();
     if (command && admission?.status === 'admitted' && admission.intent === restoredSendIntent && admission.txId) {
       transitionSendStep('continue');
+      settleSendFlow(flow => flow.complete());
       reviewHandoffRef.current = true;
       navigate(`/generating-transaction-full/${encodeURIComponent(admission.txId)}`);
       return;

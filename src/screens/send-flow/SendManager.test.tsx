@@ -23,7 +23,7 @@ import { MidenAddressError } from 'utils/miden';
 
 import type { SendNetwork } from './bridge-networks';
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
-import { settleSendFlow } from './send-telemetry';
+import { hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
@@ -2784,6 +2784,73 @@ describe('send telemetry', () => {
     expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
     expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
     expect(telemetryPayload()).not.toContain('4200');
+  });
+
+  it('completes and clears the open send flow on Command admitted-send shortcut', async () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 }
+      ]
+    });
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
+    const intent = JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer']);
+    function Session() {
+      const drafts = useCommandDrafts();
+      const [ready, setReady] = React.useState(false);
+      return ready ? (
+        <>
+          <SendFlow isLoading={false} />
+          <button onClick={() => drafts.finishSendAdmission(intent, 'tx-admitted-1')}>Queue completed</button>
+        </>
+      ) : (
+        <button
+          onClick={() => {
+            drafts.writeDraft('send', {
+              reviewId: 'original-handoff',
+              amount: '2',
+              recipientAddress: '0xrecipient',
+              tokenId: 'T1',
+              bridgeNetwork: 'sepolia',
+              bridgeRoute: 'agglayer'
+            });
+            drafts.beginSendAdmission(intent);
+            setReady(true);
+          }}
+        >
+          Seed pending
+        </button>
+      );
+    }
+
+    const view = render(
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <Session />
+      </CommandShell>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Seed pending' }));
+    dwell();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    expect(hasOpenSendFlow()).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Queue completed' }));
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction-full/tx-admitted-1');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(false);
+
+    view.unmount();
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+
+    renderSend();
+    expect(beginFlowMock).toHaveBeenCalledTimes(2);
   });
 });
 
