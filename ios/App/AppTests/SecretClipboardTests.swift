@@ -96,6 +96,15 @@ final class SecretClipboardTests: XCTestCase {
     }
 }
 
+private final class ClosingContext: LAContext {
+    private(set) var closed = false
+
+    override func invalidate() {
+        closed = true
+        super.invalidate()
+    }
+}
+
 final class RevealApprovalStoreTests: XCTestCase {
     private var clock: UInt64 = 0
     private let center = NotificationCenter()
@@ -146,6 +155,26 @@ final class RevealApprovalStoreTests: XCTestCase {
         let id = try approve()
         center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         XCTAssertNil(store.consume(id))
+    }
+
+    // Through the plugin call that lock makes: a discard that names no approval.
+    func testADiscardWithNoIdClosesEveryOpenPrompt() throws {
+        let first = ClosingContext()
+        let second = ClosingContext()
+        _ = RevealApprovalStore.shared.begin(first)
+        _ = RevealApprovalStore.shared.begin(second)
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "discard", methodName: "discardRevealApproval",
+            options: [:], success: { _, _ in }, error: { _ in XCTFail("A discard must resolve") }))
+        LocalBiometricPlugin().discardRevealApproval(call)
+        XCTAssertTrue(first.closed)
+        XCTAssertTrue(second.closed)
+    }
+
+    func testBackgroundingClosesAnOpenPrompt() {
+        let open = ClosingContext()
+        _ = store.begin(open)
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        XCTAssertTrue(open.closed)
     }
 
     func testDiscardingAnotherIdKeepsTheApproval() throws {
