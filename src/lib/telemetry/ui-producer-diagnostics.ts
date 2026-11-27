@@ -76,10 +76,12 @@ export const EARN_POSITIONS_LOAD_STAGES = [
   'unrecorded'
 ] as const;
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
+export const EARN_DEPOSIT_SUBMIT_ORIGINS = ['preflight', 'open_position'] as const;
 export const CONFIRM_APPROVAL_FAILURE_ORIGINS = ['approve', 'decline', 'automatic_reconnect'] as const;
 export type ConfirmApprovalFailureOrigin = (typeof CONFIRM_APPROVAL_FAILURE_ORIGINS)[number];
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
+type EarnDepositSubmitOrigin = (typeof EARN_DEPOSIT_SUBMIT_ORIGINS)[number];
 export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
 export type BridgeBalanceStage =
   | 'configuration'
@@ -183,6 +185,7 @@ type InvalidAmountProducer = (typeof INVALID_AMOUNT_PRODUCERS)[number];
 export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
+  | { kind: 'earn_deposit_submit'; earnDepositSubmitOrigin: EarnDepositSubmitOrigin }
   | { kind: 'confirm_approval_failure'; confirmApprovalFailureOrigin: ConfirmApprovalFailureOrigin }
   | {
       kind: 'bridge_balance_read';
@@ -230,6 +233,7 @@ export type UiProducerDiagnostics = {
   guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
+  earnDepositSubmitOrigin?: EarnDepositSubmitOrigin;
   bridgeBalanceBranch?: BridgeBalanceBranch;
   bridgeBalanceStage?: BridgeBalanceStage;
   featureUnavailableFeature?: FeatureUnavailableFeature;
@@ -255,6 +259,7 @@ export const UI_PRODUCER_KEYS = [
   'guardianOutageReason',
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
+  'earnDepositSubmitOrigin',
   'bridgeBalanceBranch',
   'bridgeBalanceStage',
   'featureUnavailableFeature',
@@ -285,6 +290,11 @@ const groups = {
     id: 'connectivityGuardianBody',
     surface: 'inline',
     fields: { guardianOutageReason: GUARDIAN_OUTAGE_REASONS }
+  },
+  earn_deposit_submit: {
+    id: 'raw_earn_deposit_submit_failed',
+    surface: 'notice',
+    fields: { earnDepositSubmitOrigin: EARN_DEPOSIT_SUBMIT_ORIGINS }
   },
   earn_positions_load: {
     id: 'earnPositionsLoadError',

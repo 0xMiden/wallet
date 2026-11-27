@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] With usage sharing enabled, report closed-list Send and Funding step progression (steps reached, transition actions, active visible time, repeats, and retries) without transaction or wallet details, and update consent copy and telemetry docs (#1969).
+- [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
 - [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
 - [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
