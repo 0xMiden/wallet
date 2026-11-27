@@ -2606,7 +2606,13 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        [
+          'raw_swap_submit_failed',
+          'review',
+          { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'review_submit_catch' }
+        ]
+      ]);
     });
 
     it('opens the unvalued challenge when the actual swap cannot be priced', async () => {
@@ -2914,7 +2920,9 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('chain rejected');
       expect(mockNavigate).not.toHaveBeenCalled();
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        ['raw_swap_submit_failed', 'review', { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'run_swap_catch' }]
+      ]);
     });
 
     it('stringifies a non-Error rejection', async () => {
@@ -2943,7 +2951,9 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('plain failure');
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        ['raw_swap_submit_failed', 'review', { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'run_swap_catch' }]
+      ]);
     });
   });
 
