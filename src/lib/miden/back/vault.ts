@@ -107,7 +107,11 @@ import {
   uninstallRealmKeystore,
   withWasmClientLock
 } from '../sdk/miden-client';
-import type { PreparedGuardianHotKeyRecovery, PreparedGuardianSeedRecovery } from '../sdk/miden-client-interface';
+import type {
+  PreparedGuardianHotKeyRecovery,
+  PreparedGuardianSeedRecovery,
+  PreparedWalletSeedRecovery
+} from '../sdk/miden-client-interface';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isAccountNotFoundOnChainError, isWasmTrap, readWasmHandle, rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -925,6 +929,7 @@ export class Vault {
       };
 
       let preparedSeedRecovery: PreparedGuardianSeedRecovery | undefined;
+      let preparedWalletSeedRecovery: PreparedWalletSeedRecovery | undefined;
       let guardianCreateKey: GuardianCreateKey | undefined;
       let createdAccounts: SpawnedAccount[];
 
@@ -943,21 +948,13 @@ export class Vault {
           // Pre-fetch guardian create key before wiping any existing wallet (#1207 + #2360).
           guardianCreateKey = await fetchGuardianCreateKey(guardianEndpoint);
         } else if (ownMnemonic && midenClient.network !== 'mock') {
-          // Verify node reachability read-only before wiping on OnChain/OffChain seed restore.
-          await (async () => {
-            const client = await liveClient();
-            if (typeof client.checkNodeReachable === 'function') {
-              await client.checkNodeReachable();
-            }
-          })().catch((err: unknown) => {
-            if (isWasmClientPoisonedError(err) || midenClient.isDisposed) throw err;
-            if (err instanceof PublicError) throw err;
-            const reason = err instanceof Error ? err.message : String(err);
-            throw new PublicError(
-              'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
-                `Please check your connection and try restoring again. Details: ${reason}`
-            );
-          });
+          // Derive deterministic accountId in memory + probe read-only before wiping existing wallet.
+          preparedWalletSeedRecovery = await (async () =>
+            (await liveClient()).prepareWalletSeedRecovery(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME))().catch(
+            mapGuardianRecoveryError
+          );
+
+          await options?.checkAccountsAdmitted?.([preparedWalletSeedRecovery.accountId]);
         }
 
         // COMMIT POINT: pre-commit validation succeeded. Notify pending-admission guard, take over
@@ -1026,33 +1023,14 @@ export class Vault {
                 };
               }
 
-              if (ownMnemonic && client.network !== 'mock') {
-                assertWasmHoldCurrent(hold, 'in Vault.spawn before the import probe');
-                try {
-                  console.log('[Vault.spawn] Step 8a: probing the import...');
-                  return {
-                    accountId: await client.importPublicMidenWalletFromSeed(walletSeed, NEW_ACCOUNT_AUTH_SCHEME),
-                    accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
-                    keyDerivation: NEW_ACCOUNT_KEY_DERIVATION
-                  };
-                } catch (probeError) {
-                  if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
-                    throw probeError;
-                  }
-                  if (!isAccountNotFoundOnChainError(probeError)) {
-                    const reason = probeError instanceof Error ? probeError.message : String(probeError);
-                    if (isLikelyNetworkError(probeError)) {
-                      console.error('[Vault.spawn] the import could not reach the node', probeError);
-                      throw new PublicError(
-                        'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
-                          `Please check your connection and try restoring again. Details: ${reason}`
-                      );
-                    }
-                    console.error('[Vault.spawn] the import probe failed', probeError);
-                    throw new PublicError(getMessage('restoreAccountLookupFailed', { reason }));
-                  }
-                  console.warn('[Vault.spawn] no account on chain at hdIndex=0; creating fresh', probeError);
-                }
+              if (preparedWalletSeedRecovery?.foundOnChain) {
+                assertWasmHoldCurrent(hold, 'in Vault.spawn before the account import');
+                console.log('[Vault.spawn] Step 8a: importing existing on-chain account...');
+                return {
+                  accountId: await client.importPublicMidenWalletFromSeed(walletSeed, NEW_ACCOUNT_AUTH_SCHEME),
+                  accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
+                  keyDerivation: NEW_ACCOUNT_KEY_DERIVATION
+                };
               }
               assertWasmHoldCurrent(hold, 'in Vault.spawn before the pre-create sync');
               console.log('[Vault.spawn] Step 8b: syncing state...');

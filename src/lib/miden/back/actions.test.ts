@@ -1306,6 +1306,8 @@ describe('actions', () => {
 
       it.each([
         ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['OnChain seed restore', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw', 'words', true)],
+        ['OffChain seed restore', 'spawn', () => registerNewWallet(WalletType.OffChain, 'pw', 'words', true)],
         ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
       ] as const)(
         'pre-commit %s failure does not leave PENDING_ADMISSION_STORAGE_KEY=[] or call undoFailedSetup, keeping existing wallet on next init()',
@@ -1357,6 +1359,8 @@ describe('actions', () => {
 
       it.each([
         ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['OnChain seed restore', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw', 'words', true)],
+        ['OffChain seed restore', 'spawn', () => registerNewWallet(WalletType.OffChain, 'pw', 'words', true)],
         ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
       ] as const)(
         'unadmitted recovered account in %s aborts via checkAccountsAdmitted BEFORE onBeforeCommit / wipe',

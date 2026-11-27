@@ -3161,6 +3161,273 @@ describe('MidenClientInterface', () => {
       await expect(client.checkNodeReachable()).rejects.toThrow(/reach.*Miden network/i);
     });
 
+    describe('prepareWalletSeedRecovery', () => {
+      const setupPrepareSeedRecovery = async ({
+        network = 'testnet',
+        commitmentHex = '0xdeadbeef',
+        blockCommitmentValue = '0xgenesis' as string | undefined
+      } = {}) => {
+        let heldCount = 0;
+        const mockTerminate = jest.fn();
+        const mockAccountsCreate = jest.fn(async () => ({ id: () => 'sdk-derived-id' }));
+        const createMock = jest.fn(async () => ({
+          accounts: { create: mockAccountsCreate },
+          terminate: mockTerminate
+        }));
+        const commitmentFree = jest.fn();
+        const proofFree = jest.fn();
+        const rpcFree = jest.fn();
+        let proofCallHeldCount: number | undefined;
+        const mockGetAccountProof = jest.fn(async () => {
+          proofCallHeldCount = heldCount;
+          return {
+            accountCommitment: () => ({ toHex: () => commitmentHex, free: commitmentFree }),
+            free: proofFree
+          };
+        });
+        const blockCommitment = jest.fn<Promise<string | undefined>, [number]>(async () => blockCommitmentValue);
+        const ensureSdkWasmReady = jest.fn(async () => undefined);
+        const getMessage = jest.fn((key: string, subs?: { reason?: string }) =>
+          subs?.reason ? `${key}:${subs.reason}` : key
+        );
+
+        jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+          ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+          MidenClient: { create: jest.fn(), createMock },
+          Endpoint: jest.fn((url: string) => ({ url })),
+          RpcClient: jest.fn(() => ({ getAccountProof: mockGetAccountProof, free: rpcFree }))
+        }));
+        jest.doMock('./miden-client', () => ({
+          withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+            heldCount++;
+            try {
+              return await fn({});
+            } finally {
+              heldCount--;
+            }
+          },
+          yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+          withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+          getCurrentWasmLockHold: () => null
+        }));
+        jest.doMock('lib/miden-chain/constants', () => ({
+          ...jest.requireActual('lib/miden-chain/constants'),
+          ensureSdkWasmReady
+        }));
+        jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+          getEffectiveNetworkName: () => network,
+          getEffectiveRpcUrl: () => 'https://rpc.example',
+          getEffectiveProverUrl: () => undefined,
+          getEffectiveNoteTransportUrl: () => undefined,
+          getEffectiveFeeFaucetId: () => '0xfee'
+        }));
+        jest.doMock('./helpers', () => ({
+          getBech32AddressFromAccountId: jest.fn(() => 'mtst1derived'),
+          accountRefToSdk: jest.fn((id: string) => ({ sdkRef: id }))
+        }));
+        jest.doMock('../transaction/reconcile-reads', () => ({
+          createNodeReads: jest.fn(async () => ({
+            account: jest.fn(),
+            blockCommitment
+          }))
+        }));
+        jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+        jest.doMock('lib/i18n', () => ({ getMessage }));
+
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const { WalletType } = await import('screens/onboarding/types');
+        const { PublicError } = await import('lib/miden/back/defaults');
+        const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+        const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, network);
+
+        return {
+          client,
+          WalletType,
+          PublicError,
+          WasmClientPoisonedError,
+          createMock,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          commitmentFree,
+          proofFree,
+          rpcFree,
+          blockCommitment,
+          ensureSdkWasmReady,
+          getMessage,
+          getProofCallHeldCount: () => proofCallHeldCount
+        };
+      };
+
+      it('OffChain derives deterministic private accountId in mock client, terminates it, verifies node reachability, and returns foundOnChain: false', async () => {
+        const {
+          client,
+          WalletType,
+          PublicError,
+          createMock,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          blockCommitment
+        } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(7);
+
+        const prepared = await client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa');
+
+        expect(prepared).toEqual({
+          walletType: WalletType.OffChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+        expect(createMock).toHaveBeenCalledTimes(1);
+        expect(mockAccountsCreate).toHaveBeenCalledWith({ storage: 'private', seed, auth: 'ecdsa' });
+        expect(mockTerminate).toHaveBeenCalledTimes(1);
+        expect(blockCommitment).toHaveBeenCalledWith(0);
+        expect(mockGetAccountProof).not.toHaveBeenCalled();
+
+        blockCommitment.mockResolvedValueOnce(undefined);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toThrow(PublicError);
+
+        blockCommitment.mockResolvedValueOnce(undefined);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toThrow(
+          /Could not reach the Miden network to look up your account.*Details: Could not reach the Miden network/
+        );
+      });
+
+      it('OffChain preserves PublicError, WASM traps, and WasmClientPoisonedError from checkNodeReachable', async () => {
+        const { client, WalletType, PublicError, WasmClientPoisonedError } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(7);
+
+        const pubErr = new PublicError('custom public err');
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(pubErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(pubErr);
+
+        const poisonErr = new WasmClientPoisonedError('watchdog', new Error('abandoned'));
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(poisonErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(poisonErr);
+
+        const trapErr = new WebAssembly.RuntimeError('unreachable');
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(trapErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(trapErr);
+      });
+
+      it('OnChain probes read-only outside WASM lock, frees proof/rpc, and returns foundOnChain: true for non-zero commitment', async () => {
+        const {
+          client,
+          WalletType,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          commitmentFree,
+          proofFree,
+          rpcFree,
+          ensureSdkWasmReady,
+          getProofCallHeldCount
+        } = await setupPrepareSeedRecovery({ commitmentHex: '0x1234abcd' });
+        const seed = new Uint8Array(32).fill(9);
+
+        const prepared = await client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa');
+
+        expect(prepared).toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: true
+        });
+        expect(mockAccountsCreate).toHaveBeenCalledWith({ storage: 'public', seed, auth: 'ecdsa' });
+        expect(mockTerminate).toHaveBeenCalledTimes(1);
+        expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountProof).toHaveBeenCalledWith({ sdkRef: 'mtst1derived' }, null, null);
+        expect(getProofCallHeldCount()).toBe(0);
+        expect(commitmentFree).toHaveBeenCalledTimes(1);
+        expect(proofFree).toHaveBeenCalledTimes(1);
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+      });
+
+      it('OnChain returns foundOnChain: false on zero commitment or node not-found responses', async () => {
+        const { client, WalletType, mockGetAccountProof, commitmentFree, proofFree, rpcFree } =
+          await setupPrepareSeedRecovery({ commitmentHex: `0x${'0'.repeat(64)}` });
+        const seed = new Uint8Array(32).fill(9);
+
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+        expect(commitmentFree).toHaveBeenCalledTimes(1);
+        expect(proofFree).toHaveBeenCalledTimes(1);
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+
+        mockGetAccountProof.mockRejectedValueOnce(
+          Object.assign(new Error('missing'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' })
+        );
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+
+        mockGetAccountProof.mockRejectedValueOnce(
+          new Error('RPC error: grpc request failed for get_account_proof: account 0x0e3b not found at block 42')
+        );
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+      });
+
+      it('OnChain classifies network errors as connectivity PublicError and unclassified errors as restoreAccountLookupFailed', async () => {
+        const { client, WalletType, PublicError, mockGetAccountProof, rpcFree, getMessage } =
+          await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(9);
+
+        mockGetAccountProof.mockRejectedValueOnce(new Error('Failed to fetch'));
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toThrow(
+          /Could not reach the Miden network to look up your account.*Details: Failed to fetch/
+        );
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+
+        mockGetAccountProof.mockRejectedValueOnce(new Error('unexpected deserialization mismatch'));
+        const err = await client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa').catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PublicError);
+        expect((err as Error).message).toBe('restoreAccountLookupFailed:unexpected deserialization mismatch');
+        expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', {
+          reason: 'unexpected deserialization mismatch'
+        });
+        expect(rpcFree).toHaveBeenCalledTimes(2);
+      });
+
+      it('rethrows WASM traps and kills without freeing trapped mockClient, proof, or rpc handles', async () => {
+        const {
+          client,
+          WalletType,
+          WasmClientPoisonedError,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          proofFree,
+          rpcFree
+        } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(9);
+
+        const createTrap = new WebAssembly.RuntimeError('unreachable');
+        mockAccountsCreate.mockRejectedValueOnce(createTrap);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(createTrap);
+        expect(mockTerminate).not.toHaveBeenCalled();
+
+        const poison = new WasmClientPoisonedError('watchdog', new Error('abandoned'));
+        mockAccountsCreate.mockRejectedValueOnce(new Error('wrapper', { cause: poison }));
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(poison);
+        expect(mockTerminate).not.toHaveBeenCalled();
+
+        const proofTrap = new WebAssembly.RuntimeError('memory access out of bounds');
+        mockGetAccountProof.mockRejectedValueOnce(proofTrap);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(proofTrap);
+        expect(proofFree).not.toHaveBeenCalled();
+        expect(rpcFree).not.toHaveBeenCalled();
+      });
+    });
+
     it('refuses a pasted hot key against an operator of another network before any lookup', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
       const { adopt, lookupCalls, client } = await setupRecovery(undefined, { network: 'mainnet' });

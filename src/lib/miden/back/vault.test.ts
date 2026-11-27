@@ -118,6 +118,11 @@ const mockPrepareGuardianRecoveryByHotKey = jest.fn(async (_hotSecretKeyHex: str
 );
 const mockAdoptPreparedGuardianHotKeyRecovery = jest.fn(async (prepared: any) => prepared.entries);
 const mockCheckNodeReachable = jest.fn(async () => {});
+const mockPrepareWalletSeedRecovery = jest.fn(async (walletType: WalletType) => ({
+  walletType,
+  accountId: walletType === WalletType.OnChain ? 'acc-pub-key-imported' : 'acc-pub-key-1',
+  foundOnChain: walletType === WalletType.OnChain
+}));
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -154,6 +159,7 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   adoptPreparedGuardianHotKeyRecovery: (...args: unknown[]) =>
     mockAdoptPreparedGuardianHotKeyRecovery(...(args as [any])),
   checkNodeReachable: () => mockCheckNodeReachable(),
+  prepareWalletSeedRecovery: (...args: unknown[]) => mockPrepareWalletSeedRecovery(...(args as [WalletType])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
@@ -303,6 +309,7 @@ const mockMidenClient = {
   prepareGuardianRecoveryByHotKey: mockPrepareGuardianRecoveryByHotKey,
   adoptPreparedGuardianHotKeyRecovery: mockAdoptPreparedGuardianHotKeyRecovery,
   checkNodeReachable: mockCheckNodeReachable,
+  prepareWalletSeedRecovery: mockPrepareWalletSeedRecovery,
   getAccounts: mockGetAccounts,
   getAccount: mockGetAccount,
   syncState: mockSyncState,
@@ -554,6 +561,11 @@ beforeEach(() => {
     );
   mockAdoptPreparedGuardianHotKeyRecovery.mockReset().mockImplementation(async (prepared: any) => prepared.entries);
   mockCheckNodeReachable.mockReset().mockResolvedValue(undefined);
+  mockPrepareWalletSeedRecovery.mockReset().mockImplementation(async (walletType: WalletType) => ({
+    walletType,
+    accountId: walletType === WalletType.OnChain ? 'acc-pub-key-imported' : 'acc-pub-key-1',
+    foundOnChain: walletType === WalletType.OnChain
+  }));
   mockDeserializeHotSecretKey.mockImplementation(() => fakeHotSecretKey() as any);
   // mockReset, not just a fresh value: a queued mockResolvedValueOnce from one
   // test must not survive into the next.
@@ -2597,35 +2609,33 @@ describe('Vault.spawn', () => {
   });
 
   it('probes only the v1 ECDSA derivation during spawn, then creates from that seed', async () => {
-    // One node miss; beforeEach never resets this mock, so a persistent
-    // rejection would leak into later tests.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fallback-pk',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
-    const probeCalls: unknown[][] = mockMidenClient.importPublicMidenWalletFromSeed.mock.calls;
-    expect(probeCalls.map(call => call[1])).toEqual(['ecdsa']);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    const probeCalls: unknown[][] = mockPrepareWalletSeedRecovery.mock.calls;
+    expect(probeCalls.map(call => call[2])).toEqual(['ecdsa']);
     const seedHex = (value: unknown) =>
       value instanceof Uint8Array ? Buffer.from(value).toString('hex') : 'not-bytes';
     // The v1 on-chain ECDSA golden vector at index 0 (derive-seed.test.ts).
-    expect(seedHex(probeCalls[0]![0])).toBe('694ff992013be7c9f1c8ac4ed266f549df45acc0d9c0abe803a6ef0f22f78464');
+    expect(seedHex(probeCalls[0]![1])).toBe('694ff992013be7c9f1c8ac4ed266f549df45acc0d9c0abe803a6ef0f22f78464');
     const createCalls: unknown[][] = mockMidenClient.createMidenWallet.mock.calls;
-    expect(seedHex(createCalls[0]![1])).toBe(seedHex(probeCalls[0]![0]));
+    expect(seedHex(createCalls[0]![1])).toBe(seedHex(probeCalls[0]![1]));
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.keyDerivation).toBe('v1');
   });
 
   it('ABORTS the restore instead of creating a fresh wallet when the node is unreachable', async () => {
-    // The fund-loss-shaped bug: a probe miss and an unreachable node are different
-    // answers. If the RPC is down mid-restore, every scheme "misses", spawn falls
-    // through, and a user who typed a CORRECT seed gets a brand-new EMPTY wallet —
-    // their real account simply doesn't appear. This is the exact error text a real
-    // CI run produced when Miden testnet DNS failed.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(
-      new Error(
-        'client error: RPC error: grpc request failed for submit_proven_transaction: ' +
-          'Miden node is unavailable; check that the node is running and reachable'
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+      new PublicError(
+        'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+          'Please check your connection and try restoring again. Details: Miden node is unavailable'
       )
     );
 
@@ -2634,74 +2644,87 @@ describe('Vault.spawn', () => {
     );
     // The whole point: NO wallet was created behind the user's back.
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
   });
 
   it('still creates a fresh wallet when the probes definitively miss (seed is genuinely new)', async () => {
-    // The legitimate fall-through must survive: "no account on chain" is a real
-    // answer and a first-time seed must still produce a wallet.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fresh-pk',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
   });
 
-  it('treats the node reporting the account missing as a miss, not an outage (#1127)', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_016_ACCOUNT_MISS));
+  it('creates a fresh wallet when prepareWalletSeedRecovery reports foundOnChain: false (#1127)', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'fresh-pk-1127',
+      foundOnChain: false
+    });
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk-1127');
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk-1127');
-    // The miss is logged with the node text that decided it.
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('account on chain'),
-      expect.objectContaining({ message: NODE_016_ACCOUNT_MISS })
-    );
-    warn.mockRestore();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
   });
 
-  it('names the node failure when the import probe cannot reach the node', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(NODE_UNAVAILABLE));
+  it('names the node failure when prepareWalletSeedRecovery cannot reach the node', async () => {
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+      new PublicError(
+        'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+          `Please check your connection and try restoring again. Details: ${NODE_UNAVAILABLE}`
+      )
+    );
     const error = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true).catch((e: unknown) => e);
     expect((error as Error).message).toBe(
       'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
         `Please check your connection and try restoring again. Details: ${NODE_UNAVAILABLE}`
     );
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('aborts the restore instead of creating a wallet when the probe fails for a reason other than a miss', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error(UNCLASSIFIED_PROBE_FAILURE));
+  it('aborts the restore instead of creating a wallet when prepareWalletSeedRecovery fails for a reason other than a miss', async () => {
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(new PublicError('restoreAccountLookupFailed'));
     const error = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true).catch((e: unknown) => e);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect((error as Error).message).toBe('restoreAccountLookupFailed');
-    expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', { reason: UNCLASSIFIED_PROBE_FAILURE });
   });
 
-  it('stamps v1 when the probe finds an account', async () => {
+  it('stamps v1 when prepareWalletSeedRecovery finds an account on chain', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'v1-pk-abc',
+      foundOnChain: true
+    });
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('v1-pk-abc');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('v1-pk-abc');
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.authScheme).toBe('ecdsa');
     expect(accounts[0]!.keyDerivation).toBe('v1');
   });
 
-  it('skips importPublicMidenWalletFromSeed when the client network is "mock"', async () => {
-    // The spawn branch that guards on `network !== 'mock'` is only reachable
-    // when `ownMnemonic` is true AND the client reports its network. Our
-    // mock getMidenClient returns a plain object whose `network` field is
-    // 'devnet' (it was hardcoded at mock time; the mutable `mockMidenClient`
-    // handle doesn't reach through to the factory-level stub). Verify that
-    // the default devnet path flows through importPublicMidenWalletFromSeed.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('imported-pk');
+  it('skips prepareWalletSeedRecovery and importPublicMidenWalletFromSeed when the client network is "mock"', async () => {
+    mockGetMidenClient.mockResolvedValueOnce({
+      ...mockMidenClient,
+      network: 'mock'
+    } as never);
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('mock-created-pk');
     await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
+    expect(mockPrepareWalletSeedRecovery).not.toHaveBeenCalled();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockMidenClient.createMidenWallet).toHaveBeenCalledTimes(1);
   });
 
   it('wraps WASM errors in a PublicError with "Failed to create wallet"', async () => {
@@ -4606,31 +4629,23 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
-  it('Vault.spawn (restore probes): eviction during the probe stops the fresh-create fallback', async () => {
-    // The probe loses the mutex mid-lookup and then reports a definitive miss,
-    // so the restore falls through. Pre-guard, that would mint a fresh EMPTY
-    // wallet off an abandoned restore - it's the guard
-    // `'in Vault.spawn before the pre-create sync'`, after the import, that
-    // catches the revoked hold and stops it.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+  it('Vault.spawn (restore probes): eviction during the pre-create sync after miss stops createMidenWallet', async () => {
+    mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+      walletType: WalletType.OnChain,
+      accountId: 'acc-miss',
+      foundOnChain: false
+    });
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
       revokeWasmHold();
-      throw new Error(NODE_016_ACCOUNT_MISS);
     });
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
-    expect(mockMidenClient.syncState).not.toHaveBeenCalled();
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
   it('Vault.spawn (restore probes): a probe that REJECTS with poison is not read as a scheme miss', async () => {
-    // The per-iteration guard above only asks whether THIS realm's hold is still
-    // ours. It says nothing about a probe that rejected because the client itself
-    // was replaced under it — and swallowed as a miss, that runs the loop out of
-    // schemes and falls through to mint a fresh EMPTY wallet off a restore whose
-    // outcome nobody knows, hiding the user's real account. Same guard
-    // `createHDAccount` already carries.
-    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+    mockPrepareWalletSeedRecovery.mockImplementationOnce(async () => {
       // Name-tagged rather than a real instance, which is the shape the offscreen
       // proxy reconstructs across the realm boundary.
       throw Object.assign(new Error('probe abandoned'), { name: 'WasmClientPoisonedError' });
@@ -4639,8 +4654,8 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
-    // Stopped at the FIRST scheme, and no empty wallet was minted.
-    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockPrepareWalletSeedRecovery).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
@@ -6273,12 +6288,17 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
   });
 
   it.each([WalletType.OnChain, WalletType.OffChain])(
-    'Vault.spawn (%s seed restore) checks node reachability before wiping and preserves the existing wallet on network outage',
+    'Vault.spawn (%s seed restore) runs pre-commit prepareWalletSeedRecovery and preserves the existing wallet on network outage',
     async walletType => {
       const snapshot = await seedExistingWallet();
       const clearSpy = clearStorageSpy();
       const onBeforeCommit = jest.fn(async () => undefined);
-      mockCheckNodeReachable.mockRejectedValueOnce(new Error('Failed to fetch'));
+      mockPrepareWalletSeedRecovery.mockRejectedValueOnce(
+        new PublicError(
+          'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+            'Please check your connection and try restoring again. Details: Failed to fetch'
+        )
+      );
 
       await expect(
         Vault.spawn(walletType, NEW_PW, VALID_MNEMONIC, true, undefined, { onBeforeCommit })
@@ -6286,9 +6306,72 @@ describe('Vault non-destructive pre-commit validation (#2360)', () => {
 
       expect(onBeforeCommit).not.toHaveBeenCalled();
       expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+      expect(mockCreateMidenWallet).not.toHaveBeenCalled();
       await expectExistingWalletIntact(snapshot, clearSpy);
     }
   );
+
+  it.each([WalletType.OnChain, WalletType.OffChain])(
+    'Vault.spawn (%s seed restore) aborts before wipe when checkAccountsAdmitted rejects on invite-only mainnet',
+    async walletType => {
+      const snapshot = await seedExistingWallet();
+      const clearSpy = clearStorageSpy();
+      const onBeforeCommit = jest.fn(async () => undefined);
+      const expectedAccountId = `${walletType === WalletType.OnChain ? 'mtst1onchain' : 'mtst1offchain'}`;
+      mockPrepareWalletSeedRecovery.mockResolvedValueOnce({
+        walletType,
+        accountId: expectedAccountId,
+        foundOnChain: walletType === WalletType.OnChain
+      });
+      const checkAccountsAdmitted = jest.fn(async () => {
+        throw new PublicError('Account is not admitted to mainnet');
+      });
+
+      await expect(
+        Vault.spawn(walletType, NEW_PW, VALID_MNEMONIC, true, undefined, {
+          onBeforeCommit,
+          checkAccountsAdmitted
+        })
+      ).rejects.toThrow('Account is not admitted to mainnet');
+
+      expect(checkAccountsAdmitted).toHaveBeenCalledWith([expectedAccountId]);
+      expect(onBeforeCommit).not.toHaveBeenCalled();
+      expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+      expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+      await expectExistingWalletIntact(snapshot, clearSpy);
+    }
+  );
+
+  it('Vault.spawn (OnChain seed restore) preserves existing wallet when prepareWalletSeedRecovery fails with restoreAccountLookupFailed', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    const onBeforeCommit = jest.fn(async () => undefined);
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(new PublicError('restoreAccountLookupFailed'));
+
+    await expect(
+      Vault.spawn(WalletType.OnChain, NEW_PW, VALID_MNEMONIC, true, undefined, { onBeforeCommit })
+    ).rejects.toThrow('restoreAccountLookupFailed');
+
+    expect(onBeforeCommit).not.toHaveBeenCalled();
+    expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
+
+  it('Vault.spawn (OnChain seed restore) retires unheld WASM traps from prepareWalletSeedRecovery without wiping', async () => {
+    const snapshot = await seedExistingWallet();
+    const clearSpy = clearStorageSpy();
+    mockRetireUnheldTrap.mockClear();
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    mockPrepareWalletSeedRecovery.mockRejectedValueOnce(trap);
+
+    await expect(Vault.spawn(WalletType.OnChain, NEW_PW, VALID_MNEMONIC, true)).rejects.toThrow(
+      'Failed to create wallet'
+    );
+
+    expect(mockRetireUnheldTrap).toHaveBeenCalledWith(trap);
+    await expectExistingWalletIntact(snapshot, clearSpy);
+  });
 
   it('Vault.spawn runs onBeforeCommit before clearStorage and adopts prepared Guardian seed recovery after commit', async () => {
     await seedExistingWallet();

@@ -43,7 +43,7 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
-import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady, isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -105,11 +105,14 @@ import { normalizedCommitment, noteDetailsCommitment } from './note-details-comm
 import { beginProveAttempt } from './prove-telemetry';
 import { readPswapOrderNote } from './pswap-order-note';
 import {
+  errorMessageParts,
+  isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit,
-  readWasmHandle
+  readWasmHandle,
+  rethrowTrapOrKill
 } from './sdk-error-code';
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
@@ -208,6 +211,12 @@ export interface PreparedGuardianHotKeyRecovery {
   states: PreparedServedGuardianState[];
   secretKey: AuthSecretKey;
   dispose: () => void;
+}
+
+export interface PreparedWalletSeedRecovery {
+  walletType: WalletType;
+  accountId: string;
+  foundOnChain: boolean;
 }
 
 const MAX_RECOVERY_HD_INDEX = 20;
@@ -697,6 +706,29 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   return entry.client;
 }
 
+/**
+ * Single AST call site for `sdk.MidenClient.createMock(` in wallet source so
+ * `store-clients.test.ts` continues to observe exactly one mock-client opener.
+ */
+async function createMockSdkClient(
+  options?: Parameters<typeof MidenClient.createMock>[0],
+  onBeforeCreate?: () => void
+): Promise<MidenClient> {
+  const sdk = await import('@miden-sdk/miden-sdk/lazy');
+  onBeforeCreate?.();
+  return await sdk.MidenClient.createMock(options);
+}
+
+function connectivityLookupError(cause: unknown): never {
+  rethrowTrapOrKill(cause);
+  if (cause instanceof PublicError) throw cause;
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  throw new PublicError(
+    'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+      `Please check your connection and try restoring again. Details: ${reason}`
+  );
+}
+
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
@@ -722,9 +754,9 @@ export class MidenClientInterface {
     let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
     try {
       if (mock) {
-        const sdk = await import('@miden-sdk/miden-sdk/lazy');
-        stage = 'mock_create';
-        const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
+        const mockClient = await createMockSdkClient({ seed: options.seed }, () => {
+          stage = 'mock_create';
+        });
         return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
       }
 
@@ -1019,6 +1051,135 @@ export class MidenClientInterface {
     const commitment = await reads.blockCommitment(0);
     if (!commitment) {
       throw new Error('Could not reach the Miden network');
+    }
+  }
+
+  /**
+   * Pre-commit seed recovery preparation for OnChain and OffChain wallets:
+   * derives the deterministic account ID in memory via an ephemeral mock client
+   * without mutating MidenClientDB, then performs read-only node reachability /
+   * chain discovery outside the WASM client lock.
+   */
+  async prepareWalletSeedRecovery(
+    walletType: WalletType,
+    seed: Uint8Array,
+    auth?: AuthScheme
+  ): Promise<PreparedWalletSeedRecovery> {
+    if (walletType === WalletType.Guardian) {
+      throw new Error(
+        'A Guardian account is recovered with prepareGuardianRecoveryBySeed, not prepareWalletSeedRecovery'
+      );
+    }
+
+    const isPublic = walletType === WalletType.OnChain;
+    const mockClient = await createMockSdkClient();
+    let accountId: string;
+    let skipTerminate = false;
+    try {
+      const wallet: Account = await mockClient.accounts.create({
+        storage: isPublic ? 'public' : 'private',
+        seed,
+        ...(auth ? { auth } : {})
+      });
+      accountId = getBech32AddressFromAccountId(wallet.id());
+    } catch (error) {
+      try {
+        rethrowTrapOrKill(error);
+      } catch (trapOrKill) {
+        skipTerminate = true;
+        throw trapOrKill;
+      }
+      throw error;
+    } finally {
+      if (!skipTerminate) {
+        try {
+          mockClient.terminate();
+        } catch (terminateError) {
+          console.error('[prepareWalletSeedRecovery] could not terminate mock client:', terminateError);
+        }
+      }
+    }
+
+    if (!isPublic) {
+      try {
+        await this.checkNodeReachable();
+      } catch (error) {
+        connectivityLookupError(error);
+      }
+      return { walletType, accountId, foundOnChain: false };
+    }
+
+    let rpc: RpcClient | undefined;
+    let proof: Awaited<ReturnType<RpcClient['getAccountProof']>> | undefined;
+    let trapOrKill = false;
+    try {
+      await ensureSdkWasmReady();
+      rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+      proof = await withRpcTimeout(
+        () => rpc!.getAccountProof(accountRefToSdk(accountId), null, null),
+        'restoreAccountProof',
+        { retries: 0 }
+      );
+      const commitmentHandle = proof.accountCommitment();
+      let commitmentHex: string;
+      try {
+        commitmentHex = commitmentHandle.toHex();
+      } catch (err) {
+        try {
+          rethrowTrapOrKill(err);
+        } catch (handledTrapOrKill) {
+          trapOrKill = true;
+          throw handledTrapOrKill;
+        }
+        try {
+          (commitmentHandle as { free?: () => void }).free?.();
+        } catch {
+          // Best-effort cleanup of commitment handle.
+        }
+        throw err;
+      }
+      try {
+        (commitmentHandle as { free?: () => void }).free?.();
+      } catch {
+        // Best-effort cleanup of commitment handle.
+      }
+      return {
+        walletType,
+        accountId,
+        foundOnChain: !/^(0x)?0+$/i.test(commitmentHex.trim())
+      };
+    } catch (error) {
+      try {
+        rethrowTrapOrKill(error);
+      } catch (handledTrapOrKill) {
+        trapOrKill = true;
+        throw handledTrapOrKill;
+      }
+      if (
+        isAccountNotFoundOnChainError(error) ||
+        errorMessageParts(error).some(part => /\baccount \S+ not found at block \d+\b/i.test(part))
+      ) {
+        return { walletType, accountId, foundOnChain: false };
+      }
+      if (isLikelyNetworkError(error)) {
+        connectivityLookupError(error);
+      }
+      const { getMessage } = await import('lib/i18n');
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new PublicError(getMessage('restoreAccountLookupFailed', { reason }));
+    } finally {
+      if (!trapOrKill) {
+        try {
+          (proof as { free?: () => void } | undefined)?.free?.();
+        } catch (freeError) {
+          console.error('[prepareWalletSeedRecovery] could not free account proof:', freeError);
+        }
+        try {
+          (rpc as { free?: () => void } | undefined)?.free?.();
+        } catch (freeError) {
+          console.error('[prepareWalletSeedRecovery] could not free RPC client:', freeError);
+        }
+      }
     }
   }
 
