@@ -2,6 +2,21 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
+- [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
+- [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
+- [FIX][all] Distinguish a still-active retry attempt from a missing acknowledgement in opt-in reports.
+- [FIX][all] Identify whether standard Send or Command Send showed an invalid amount warning in opt-in reports.
+- [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.
+- [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
+- [FIX][all] Show the specific reason Command swap review is blocked by insufficient fees, invalid amounts, or an unavailable pair.
+- [FIX][all] Identify which amount screen showed an unknown token precision warning in opt-in diagnostics.
+- [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
+- [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
+- [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
+- [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
+- [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
+- [FIX][all] Explain what Guardian can see and when the wallet shares transaction details for remote proving (#2361).
 - [FIX][all] Require a fresh verified price before Bread Command drafts a dollar-denominated send.
 - [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
 - [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.

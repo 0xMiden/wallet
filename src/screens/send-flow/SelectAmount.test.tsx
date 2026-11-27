@@ -838,7 +838,9 @@ describe('SelectAmount user-visible errors', () => {
     await act(async () => jest.advanceTimersByTimeAsync(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTimeAsync(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['unknownTokenScale', 'inline', { kind: 'token_scale', tokenScaleProducer: 'select_amount' }]
+    ]);
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });

@@ -211,6 +211,84 @@ test('Bread answers questions without moving the composer while the model replie
   }
 });
 
+test('Bread says when no bridge route matches and leaves the choice to the user', async ({
+  extensionContext,
+  extensionId
+}, info) => {
+  test.setTimeout(250_000);
+  await importWallet(extensionContext, extensionId);
+  const command = await extensionContext.newPage();
+  await command.addInitScript(() => {
+    localStorage.setItem('bread_command_ai_proxy_url', 'http://127.0.0.1:47989');
+  });
+  await command.route('http://127.0.0.1:47989/v1/compile', async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'POST',
+          'access-control-allow-headers': 'content-type'
+        }
+      });
+      return;
+    }
+    await route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' },
+      json: {
+        output: {
+          result: {
+            op: 'set_intent',
+            action: 'bridge',
+            amount: null,
+            asset: 'USDCx',
+            to_asset: null,
+            from_chain: 'miden',
+            to_chain: 'solana',
+            recipient_ref: null,
+            provider: null,
+            note_type: null,
+            earn_op: null
+          }
+        }
+      }
+    });
+  });
+
+  try {
+    await command.goto(`chrome-extension://${extensionId}/fullpage.html#/`);
+    for (const theme of ['light', 'dark'] as const) {
+      await command.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+      await command.evaluate(value => localStorage.setItem('theme_setting', value), theme);
+      for (const width of [390, 1440]) {
+        // Tall enough that the whole card is in the capture.
+        await command.setViewportSize({ width, height: 1400 });
+        await command.reload({ waitUntil: 'domcontentloaded' });
+        await expect(command.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*dark)/);
+        const input = command.getByTestId('command-ai-input');
+        const card = command.getByTestId('command-ai-clarification');
+        // The route catalog loads after the page; until then the bar can only say bridging is unavailable.
+        await expect(async () => {
+          await input.fill('Bridge USDCx to Solana');
+          await input.press('Enter');
+          await expect(card).toContainText('There is no route for that. Choose one of the other routes:', {
+            timeout: 5_000
+          });
+        }).toPass({ timeout: 60_000 });
+        const chips = card.locator('[data-testid^="command-ai-chip-"]');
+        await expect(chips.first()).toBeVisible();
+        for (const chip of await chips.all()) await expect(chip).not.toContainText(/solana/i);
+        await expect(card).toBeInViewport({ ratio: 1 });
+        expect(await card.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+        await expect(command.getByTestId('command-workbench')).toHaveCount(0);
+        await captureCommand(command, info, `command-ai-bridge-no-route-${theme}-${width}x1400`);
+      }
+    }
+  } finally {
+    await command.close();
+  }
+});
+
 test('compact launcher opens the real Command workspace and preserves a minimized unsigned Send draft', async ({
   extensionContext,
   extensionId
