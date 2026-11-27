@@ -107,7 +107,7 @@ const cases = [
 describe('wallet canvas actual DOM fixtures', () => {
   it.each(cases)('retains the real layout and actionable target for $name', async ({ name, node, targetText }) => {
     const { container } = render(<FullScreenPage entrance="fade">{node}</FullScreenPage>);
-    if (name === 'biometric') await screen.findByText('Biometric authentication failed');
+    if (name === 'biometric') await screen.findByText('Continue');
     const buttons = Array.from(container.querySelectorAll('button'));
     const target = buttons.find(button => button.textContent === targetText);
     expect(target).toBeDefined();
