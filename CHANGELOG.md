@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Keep the existing wallet and network override intact across Forgot password until replacement validation succeeds, surface honest replacement confirmation with cancel/back-out, and support Guardian hot-key recovery during password reset (#2360).
 - [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
 - [FIX][extension] Show the expand arrow on the Bread Command bar.
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.

@@ -880,7 +880,7 @@
   "reset": "ウォレットをリセットする",
   "forgotPassword": "パスワードをお忘れですか？",
   "forgotPasswordDescription": "パスワードをお忘れの場合は、一度ログアウトしてからアカウントを再度インポートする必要があります。その後、新しいパスワードを設定することができます。",
-  "forgotPasswordSecondDescription": "12語のリカバリーフレーズを知っているか、暗号化されたバックアップファイルを持っている場合を除き、ログアウトしないでください。",
+  "forgotPasswordSecondDescription": "現在のウォレットは、置き換えを確定するまでこのデバイスに保持されます。続行する前に、12語のリカバリーフレーズ、Guardian キー、または暗号化されたバックアップファイルをご準備ください。",
   "biometricUnlockRequired": "生体認証によるロック解除が必要です",
   "biometricUnlockRequiredDescription": "このウォレットは生体認証のみを使用します。ロックを解除するには、Face ID、Touch ID、またはデバイスのパスコードを使用してください。別のデバイスでウォレットにアクセスするには、12語のリカバリーフレーズを使用してください。",
   "resetWallet": "ウォレットをリセットする",
@@ -2376,5 +2376,12 @@
   "midenNameReceiptRegistry": "レジストリ",
   "midenNameReceiptNoteId": "登録 note",
   "midenNameReceiptPhase": "フェーズ",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "既存のウォレットを置き換えますか？",
+  "replaceWalletCreateSubtitle": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで新しいウォレットが作成されます。",
+  "replaceWalletRestoreSubtitle": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで復元されたウォレットが復元されます。",
+  "replaceWalletEraseWarning": "現在のウォレットが引き続き必要な場合は、リカバリーフレーズまたはバックアップを保管していることを確認してください。この操作は取り消せません。",
+  "eraseAndRestoreWallet": "消去してウォレットを復元",
+  "eraseAndCreateWallet": "消去してウォレットを作成",
+  "backToUnlock": "サインインに戻る"
 }

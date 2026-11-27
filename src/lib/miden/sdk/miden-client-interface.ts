@@ -117,7 +117,7 @@ import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-rec
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
 import { awaitTestSendAuthorization } from './test-send-authorization';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
-import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -180,6 +180,34 @@ export interface RecoveredGuardianAccount {
   hdIndex: number;
   coldPublicKey: string;
   coldSecretKeyHex: string;
+}
+
+export type PreparedServedGuardianState = ServedGuardianState & {
+  accountId?: string;
+};
+
+export interface PreparedGuardianSeedEntry {
+  hdIndex: number;
+  coldPublicKey: string;
+  coldSecretKeyHex: string;
+  coldSecretKey: AuthSecretKey;
+  state: PreparedServedGuardianState;
+}
+
+export interface PreparedGuardianSeedRecovery {
+  guardianEndpoint: string;
+  accountIds: string[];
+  entries: PreparedGuardianSeedEntry[];
+  dispose: () => void;
+}
+
+export interface PreparedGuardianHotKeyRecovery {
+  guardianEndpoint: string;
+  accountIds: string[];
+  hotPublicKey: string;
+  states: PreparedServedGuardianState[];
+  secretKey: AuthSecretKey;
+  dispose: () => void;
 }
 
 const MAX_RECOVERY_HD_INDEX = 20;
@@ -972,11 +1000,37 @@ export class MidenClientInterface {
    *   the endpoint the account was originally registered with — account IDs
    *   are content-hash bound to the guardian pubkey baked into storage.
    */
-  async recoverGuardianAccountsBySeed(
+  private freeWasmKeySafely(key: AuthSecretKey): void {
+    if (this.isDisposed) return;
+    try {
+      (key as { free?: () => void }).free?.();
+    } catch {
+      // Best-effort cleanup when abandoning prepared WASM keys.
+    }
+  }
+
+  /**
+   * Read-only Genesis commitment lookup verifying the Miden node is reachable
+   * before destructive restore wipes existing wallet state.
+   */
+  async checkNodeReachable(): Promise<void> {
+    const { createNodeReads } = await import('../transaction/reconcile-reads');
+    const reads = await createNodeReads();
+    const commitment = await reads.blockCommitment(0);
+    if (!commitment) {
+      throw new Error('Could not reach the Miden network');
+    }
+  }
+
+  /**
+   * Phase 1 of seed-based Guardian recovery: walks HD cold keys, verifies served
+   * states on-chain, selects adoptable accounts, and checks for empty results,
+   * with ZERO local MidenClientDB or keystore writes.
+   */
+  async prepareGuardianRecoveryBySeed(
     deriveColdSeed: (hdIndex: number) => Uint8Array,
     guardianEndpoint: string
-  ): Promise<RecoveredGuardianAccount[]> {
-    const recovered: RecoveredGuardianAccount[] = [];
+  ): Promise<PreparedGuardianSeedRecovery> {
     type Match = {
       hdIndex: number;
       sk: AuthSecretKey;
@@ -984,9 +1038,22 @@ export class MidenClientInterface {
       coldCommitment: string;
       coldPublicKey: string;
       coldSecretKeyHex: string;
-      states: ServedGuardianState[];
+      states: PreparedServedGuardianState[];
     };
     const found: Match[] = [];
+    const liveKeys = new Set<AuthSecretKey>();
+    const releaseKey = (key: AuthSecretKey) => {
+      if (!liveKeys.delete(key)) return;
+      this.freeWasmKeySafely(key);
+    };
+    let disposed = false;
+    const releaseRemainingKeys = () => {
+      if (disposed) return;
+      disposed = true;
+      for (const key of Array.from(liveKeys)) {
+        releaseKey(key);
+      }
+    };
     let consecutiveMisses = 0;
 
     // The scan holds `this` across many independently-locked ops; a recovery
@@ -999,70 +1066,135 @@ export class MidenClientInterface {
         throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
       }
     };
-    // Not yet bound to an account: on mobile its origin routes through native HTTP
-    // while it is scanned, and for the session only once an account is adopted from it.
-    await withGuardianProbe(
-      guardianEndpoint,
-      async () => {
-        for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
-          refuseIfReplaced();
-          const coldSeed = deriveColdSeed(hdIndex);
-          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-          const coldPublicKeyHandle = coldSk.publicKey();
-          const coldPublicKey = Buffer.from(coldPublicKeyHandle.serialize().slice(1)).toString('hex');
-          const commitmentHandle = coldPublicKeyHandle.toCommitment();
-          const coldCommitment = commitmentHandle.toHex();
-          commitmentHandle.free();
-          coldPublicKeyHandle.free();
-          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-          const states = await this.lookupServedStatesByKey(coldSk, guardianEndpoint, acc =>
-            assertRecoverySignerMatches(acc, coldCommitment)
-          );
+    try {
+      const selectedEntries = await withGuardianProbe(
+        guardianEndpoint,
+        async () => {
+          for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+            refuseIfReplaced();
+            const coldSeed = deriveColdSeed(hdIndex);
+            const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+            liveKeys.add(coldSk);
+            const coldPublicKeyHandle = coldSk.publicKey();
+            const coldPublicKey = Buffer.from(coldPublicKeyHandle.serialize().slice(1)).toString('hex');
+            const commitmentHandle = coldPublicKeyHandle.toCommitment();
+            const coldCommitment = commitmentHandle.toHex();
+            commitmentHandle.free();
+            coldPublicKeyHandle.free();
+            const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-          if (states.length === 0) {
-            // Tolerate a small gap before giving up, so a non-contiguous index or a
-            // transient empty guardian response doesn't silently drop later accounts.
-            consecutiveMisses++;
-            if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
-            continue;
-          }
-          consecutiveMisses = 0;
-          found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
-        }
-        // One client for every account, outside every WASM hold: a network read must not pin the client.
-        const chain = await readAccountChainStates(
-          found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
-        );
-        refuseIfReplaced();
-        const judged: Array<
-          Match & { state: ServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
-        > = [];
-        for (const match of found) {
-          for (const state of match.states) {
-            const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
-            // A never-deployed account has nothing on the chain to match yet, so it must be the one this phrase builds.
-            if (verdict === 'undeployed') {
-              await assertUndeployedStateFromSeed(state, match.coldSeed, match.coldCommitment);
+            const states = await this.lookupServedStatesByKey(coldSk, guardianEndpoint, acc =>
+              assertRecoverySignerMatches(acc, coldCommitment)
+            );
+
+            if (states.length === 0) {
+              releaseKey(coldSk);
+              // Tolerate a small gap before giving up, so a non-contiguous index or a
+              // transient empty guardian response doesn't silently drop later accounts.
+              consecutiveMisses++;
+              if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+              continue;
             }
-            judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
+            consecutiveMisses = 0;
+            found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
           }
-        }
-        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of await selectAdoptable(judged)) {
-          for (const accountId of await this.adoptServedStates([state], sk)) {
-            recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
+          // One client for every account, outside every WASM hold: a network read must not pin the client.
+          const chain = await readAccountChainStates(
+            found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
+          );
+          refuseIfReplaced();
+          const judged: Array<
+            Match & { state: PreparedServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
+          > = [];
+          for (const match of found) {
+            for (const state of match.states) {
+              const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
+              // A never-deployed account has nothing on the chain to match yet, so it must be the one this phrase builds.
+              if (verdict === 'undeployed') {
+                await assertUndeployedStateFromSeed(state, match.coldSeed, match.coldCommitment);
+              }
+              judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
+            }
           }
-        }
-        return recovered;
-      },
-      adopted => adopted.length > 0
-    );
+          const adoptable = await selectAdoptable(judged);
+          const neededKeys = new Set(adoptable.map(({ sk }) => sk));
+          for (const match of found) {
+            if (!neededKeys.has(match.sk)) {
+              releaseKey(match.sk);
+            }
+          }
+          return adoptable.map(({ hdIndex, sk, coldPublicKey, coldSecretKeyHex, state }) => ({
+            hdIndex,
+            coldPublicKey,
+            coldSecretKeyHex,
+            coldSecretKey: sk,
+            state
+          }));
+        },
+        entries => entries.length > 0
+      );
 
-    if (recovered.length === 0) {
-      throw new NoGuardianAccountsFoundError();
+      if (selectedEntries.length === 0) {
+        throw new NoGuardianAccountsFoundError();
+      }
+
+      return {
+        guardianEndpoint,
+        accountIds: selectedEntries.map(({ state }) => state.accountId ?? state.accountIdHex),
+        entries: selectedEntries,
+        dispose: releaseRemainingKeys
+      };
+    } catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError)) {
+        releaseRemainingKeys();
+      }
+      throw error;
     }
+  }
 
-    return recovered;
+  /**
+   * Phase 2 of seed-based Guardian recovery: writes verified accounts to
+   * IndexedDB and keystore after commit.
+   */
+  async adoptPreparedGuardianSeedRecovery(prepared: PreparedGuardianSeedRecovery): Promise<RecoveredGuardianAccount[]> {
+    const recovered: RecoveredGuardianAccount[] = [];
+    let abortedByPoisonOrTrap = false;
+    try {
+      for (const { hdIndex, coldPublicKey, coldSecretKeyHex, coldSecretKey, state } of prepared.entries) {
+        for (const accountId of await this.adoptServedStates([state], coldSecretKey)) {
+          recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
+        }
+      }
+      return recovered;
+    } catch (error) {
+      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+      throw error;
+    } finally {
+      if (!abortedByPoisonOrTrap) {
+        prepared.dispose();
+      }
+    }
+  }
+
+  /**
+   * Scan Guardian for any accounts registered under this seed, verify them and
+   * adopt them locally into MidenClient. Never writes keys: callers persist
+   * keys to Vault after this resolves.
+   */
+  async recoverGuardianAccountsBySeed(
+    deriveColdSeed: (hdIndex: number) => Uint8Array,
+    guardianEndpoint: string
+  ): Promise<RecoveredGuardianAccount[]> {
+    const prepared = await this.prepareGuardianRecoveryBySeed(deriveColdSeed, guardianEndpoint);
+    try {
+      return await this.adoptPreparedGuardianSeedRecovery(prepared);
+    } catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
+        prepared.dispose();
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1091,7 +1223,7 @@ export class MidenClientInterface {
     sk: AuthSecretKey,
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
-  ): Promise<ServedGuardianState[]> {
+  ): Promise<PreparedServedGuardianState[]> {
     // Refused before the lookup, which would show that operator the recovery's key.
     if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
       const { getMessage } = await import('lib/i18n');
@@ -1115,7 +1247,7 @@ export class MidenClientInterface {
       throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
     }
 
-    const states: ServedGuardianState[] = [];
+    const states: PreparedServedGuardianState[] = [];
     for (const { state } of matches) {
       const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
       states.push(
@@ -1126,7 +1258,7 @@ export class MidenClientInterface {
             assertWasmHoldCurrent(hold, 'recover-guardian-decode after verification');
             const facts = await readServedStateFacts(acc, accountBytes);
             assertWasmHoldCurrent(hold, 'recover-guardian-decode after reading the facts');
-            return facts;
+            return { ...facts, accountId: getBech32AddressFromAccountId(acc.id()) };
           },
           { label: 'recover-guardian-decode' }
         )
@@ -1163,6 +1295,106 @@ export class MidenClientInterface {
     return adopted;
   }
 
+  private async prepareHotKeyVerification(hotSecretKeyHex: string): Promise<{
+    sk: AuthSecretKey;
+    hotPublicKey: string;
+    verifyAccount: (acc: Account) => Promise<void>;
+    noAccountMessage: string;
+  }> {
+    const [{ deserializeHotSecretKey }, { getMessage }] = await Promise.all([
+      import('../guardian/hot-key-import'),
+      import('lib/i18n')
+    ]);
+
+    // Outside any hold: a trap leaves as itself, for the caller to retire, and frees nothing.
+    const sk = deserializeHotSecretKey(hotSecretKeyHex);
+    const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
+    const { hotPublicKey, pastedCommitment } = readWasmHandle(sk.publicKey(), publicKey => ({
+      hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+      pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
+    }));
+
+    const verifyAccount = async (acc: Account) => {
+      // Membership, not position: the signer set can hold more than one hot key, and a
+      // membership change moves the slots. A key in no slot is rotated out.
+      if (hasSignerCommitment(acc, pastedCommitment)) return;
+      throw new Error(getMessage('importHotKeyNotActive'));
+    };
+
+    return {
+      sk,
+      hotPublicKey,
+      verifyAccount,
+      noAccountMessage: getMessage('importHotKeyNoAccount')
+    };
+  }
+
+  /**
+   * Phase 1 of hot-key Guardian recovery: verifies the pasted key is an active
+   * signer on the served Guardian account(s) without adopting or writing keys.
+   */
+  async prepareGuardianRecoveryByHotKey(
+    hotSecretKeyHex: string,
+    guardianEndpoint: string
+  ): Promise<PreparedGuardianHotKeyRecovery> {
+    const { sk, hotPublicKey, verifyAccount, noAccountMessage } = await this.prepareHotKeyVerification(hotSecretKeyHex);
+    let disposed = false;
+    let handedOff = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      this.freeWasmKeySafely(sk);
+    };
+
+    try {
+      const states = await withGuardianProbe(
+        guardianEndpoint,
+        () => this.lookupServedStatesByKey(sk, guardianEndpoint, verifyAccount),
+        found => found.length > 0
+      );
+
+      if (states.length === 0) {
+        throw new NoGuardianAccountsFoundError(noAccountMessage);
+      }
+
+      handedOff = true;
+      return {
+        guardianEndpoint,
+        accountIds: states.map(s => s.accountId ?? s.accountIdHex),
+        hotPublicKey,
+        states,
+        secretKey: sk,
+        dispose
+      };
+    } catch (error) {
+      if (!handedOff && !(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
+        dispose();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Phase 2 of hot-key Guardian recovery: adopts verified states into IndexedDB
+   * and keystore after commit, then frees the prepared WASM secret key handle.
+   */
+  async adoptPreparedGuardianHotKeyRecovery(
+    prepared: PreparedGuardianHotKeyRecovery
+  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
+    let abortedByPoisonOrTrap = false;
+    try {
+      const adopted = await this.adoptServedStates(prepared.states, prepared.secretKey);
+      return adopted.map(accountId => ({ accountId, hotPublicKey: prepared.hotPublicKey }));
+    } catch (error) {
+      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+      throw error;
+    } finally {
+      if (!abortedByPoisonOrTrap) {
+        prepared.dispose();
+      }
+    }
+  }
+
   /**
    * Adopt the Guardian account authorized by a pasted HOT secret key — the
    * seed-less import flow. One lookup against one operator, no HD walk.
@@ -1182,38 +1414,31 @@ export class MidenClientInterface {
     hotSecretKeyHex: string,
     guardianEndpoint: string
   ): Promise<{ accountId: string; hotPublicKey: string }[]> {
-    const [{ deserializeHotSecretKey }, { getMessage }] = await Promise.all([
-      import('../guardian/hot-key-import'),
-      import('lib/i18n')
-    ]);
+    const { sk, hotPublicKey, verifyAccount, noAccountMessage } = await this.prepareHotKeyVerification(hotSecretKeyHex);
 
-    // Outside any hold: a trap leaves as itself, for the caller to retire, and frees nothing.
-    const sk = deserializeHotSecretKey(hotSecretKeyHex);
-    const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
-    const { hotPublicKey, pastedCommitment } = readWasmHandle(sk.publicKey(), publicKey => ({
-      hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
-      pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
-    }));
+    let abortedByPoisonOrTrap = false;
+    try {
+      // Not yet bound to an account: on mobile its origin routes through native HTTP
+      // while it is looked up, and for the session only once an account is adopted from it.
+      const adopted = await withGuardianProbe(
+        guardianEndpoint,
+        () => this.recoverAndAdoptByKey(sk, guardianEndpoint, verifyAccount),
+        found => found.length > 0
+      );
 
-    // Not yet bound to an account: on mobile its origin routes through native HTTP
-    // while it is looked up, and for the session only once an account is adopted from it.
-    const adopted = await withGuardianProbe(
-      guardianEndpoint,
-      () =>
-        this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
-          // Membership, not position: the signer set can hold more than one hot key, and a
-          // membership change moves the slots. A key in no slot is rotated out.
-          if (hasSignerCommitment(acc, pastedCommitment)) return;
-          throw new Error(getMessage('importHotKeyNotActive'));
-        }),
-      found => found.length > 0
-    );
+      if (adopted.length === 0) {
+        throw new NoGuardianAccountsFoundError(noAccountMessage);
+      }
 
-    if (adopted.length === 0) {
-      throw new NoGuardianAccountsFoundError(getMessage('importHotKeyNoAccount'));
+      return adopted.map(accountId => ({ accountId, hotPublicKey }));
+    } catch (error) {
+      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+      throw error;
+    } finally {
+      if (!abortedByPoisonOrTrap) {
+        this.freeWasmKeySafely(sk);
+      }
     }
-
-    return adopted.map(accountId => ({ accountId, hotPublicKey }));
   }
 
   /**

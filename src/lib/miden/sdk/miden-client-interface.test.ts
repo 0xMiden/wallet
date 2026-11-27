@@ -3021,6 +3021,144 @@ describe('MidenClientInterface', () => {
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
+    it('prepareGuardianRecoveryBySeed verifies served accounts without calling adopt or keystore.insert until adoptPreparedGuardianSeedRecovery', async () => {
+      const { adopt, insert, fakeMidenClient, client, probes } = await setupRecovery();
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      const freed: string[] = [];
+      const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+        const sk = origDerive(seed);
+        return {
+          ...sk,
+          free: () => freed.push(`sk-${seed[0]}`)
+        };
+      });
+
+      const prepared = await client.prepareGuardianRecoveryBySeed(
+        hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+        'https://guardian.example'
+      );
+
+      expect(prepared.accountIds).toEqual(['recovered-a', 'recovered-b']);
+      expect(prepared.guardianEndpoint).toBe('https://guardian.example');
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
+
+      const recovered = await client.adoptPreparedGuardianSeedRecovery(prepared);
+
+      expect(recovered).toEqual([
+        { accountId: 'recovered-a', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' },
+        { accountId: 'recovered-b', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' }
+      ]);
+      expect(adopt.mock.calls.map(([c, a]) => [c, (a as any).id().toString()])).toEqual([
+        [fakeMidenClient, 'recovered-a'],
+        [fakeMidenClient, 'recovered-b']
+      ]);
+      expect(insert).toHaveBeenCalledTimes(2);
+      expect(freed.length).toBeGreaterThan(0);
+    });
+
+    it('prepareGuardianRecoveryBySeed frees prepared AuthSecretKey handles when dispose() aborts adoption and throws NoGuardianAccountsFoundError on empty', async () => {
+      const { client, adopt, insert } = await setupRecovery();
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      const freeSpies: jest.Mock[] = [];
+      const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+        const free = jest.fn();
+        freeSpies.push(free);
+        return { ...origDerive(seed), free };
+      });
+
+      const prepared = await client.prepareGuardianRecoveryBySeed(
+        hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+        'https://guardian.example'
+      );
+      prepared.dispose();
+
+      expect(freeSpies.some(f => f.mock.calls.length > 0)).toBe(true);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+
+      const empty = await setupRecovery(undefined, { finds: false });
+      const { NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
+      await expect(
+        empty.client.prepareGuardianRecoveryBySeed(
+          hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+          'https://guardian.example'
+        )
+      ).rejects.toBeInstanceOf(NoGuardianAccountsFoundError);
+      expect(empty.adopt).not.toHaveBeenCalled();
+    });
+
+    it('prepareGuardianRecoveryByHotKey stages active hot-key lookup without adopting until adoptPreparedGuardianHotKeyRecovery', async () => {
+      const { client, adopt, insert, probes, signerSlots } = await setupRecovery(undefined, {
+        endpoint: 'https://guardian.example'
+      });
+      signerSlots[0] = '0xaabb';
+      signerSlots[1] = '0xaabb';
+      const secretKeyFree = jest.fn();
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: jest.fn(() => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11, 0x22]),
+            toCommitment: () => ({ toHex: () => '0xaabb', free: jest.fn() }),
+            free: jest.fn()
+          }),
+          free: secretKeyFree
+        }))
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const hotClient = MidenClientInterface.fromClient((client as any).client, 'testnet');
+      const mockState = {
+        bytes: new Uint8Array(),
+        accountIdHex: '0x01',
+        accountId: 'hot-acc-1',
+        nonce: 0n,
+        isNew: false,
+        commitment: 'feed'
+      };
+      jest.spyOn(hotClient as any, 'lookupServedStatesByKey').mockResolvedValueOnce([mockState]);
+
+      const prepared = await hotClient.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      expect(prepared.accountIds).toEqual(['hot-acc-1']);
+      expect(prepared.hotPublicKey).toBe('1122');
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      expect(probes.mockProbeVerdicts).toContainEqual(['https://guardian.example', true]);
+
+      prepared.dispose();
+      expect(secretKeyFree).toHaveBeenCalledTimes(1);
+
+      jest.spyOn(hotClient as any, 'lookupServedStatesByKey').mockResolvedValueOnce([mockState]);
+      const preparedForAdopt = await hotClient.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      const adoptedSpy = jest.spyOn(hotClient as any, 'adoptServedStates').mockResolvedValueOnce(['hot-acc-1']);
+
+      const adopted = await hotClient.adoptPreparedGuardianHotKeyRecovery(preparedForAdopt);
+      expect(adopted).toEqual([{ accountId: 'hot-acc-1', hotPublicKey: '1122' }]);
+      expect(adoptedSpy).toHaveBeenCalledWith(preparedForAdopt.states, preparedForAdopt.secretKey);
+    });
+
+    it('checkNodeReachable checks blockCommitment(0) via createNodeReads and throws when node is unreachable', async () => {
+      const blockCommitment = jest.fn<Promise<string | undefined>, [number]>(async () => '0xgenesis');
+      jest.doMock('../transaction/reconcile-reads', () => ({
+        createNodeReads: jest.fn(async () => ({
+          account: jest.fn(),
+          blockCommitment
+        }))
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+      await expect(client.checkNodeReachable()).resolves.toBeUndefined();
+      expect(blockCommitment).toHaveBeenCalledWith(0);
+
+      blockCommitment.mockResolvedValueOnce(undefined);
+      await expect(client.checkNodeReachable()).rejects.toThrow(/reach.*Miden network/i);
+    });
+
     it('refuses a pasted hot key against an operator of another network before any lookup', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
       const { adopt, lookupCalls, client } = await setupRecovery(undefined, { network: 'mainnet' });

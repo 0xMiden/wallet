@@ -880,7 +880,7 @@
   "reset": "Restablecer cartera",
   "forgotPassword": "¿Has olvidado la contraseña?",
   "forgotPasswordDescription": "Si has olvidado tu contraseña, tendrás que cerrar sesión y volver a importar tu cuenta. Después, podrás crear una contraseña nueva.",
-  "forgotPasswordSecondDescription": "No cierres sesión a menos que conozcas tu frase de recuperación de 12 palabras o tengas un archivo de copia de seguridad cifrado.",
+  "forgotPasswordSecondDescription": "Tu cartera actual permanece en este dispositivo hasta que confirmes un reemplazo. Ten lista tu frase de recuperación de 12 palabras, clave de Guardian o archivo de copia de seguridad cifrado antes de continuar.",
   "biometricUnlockRequired": "Desbloqueo biométrico obligatorio",
   "biometricUnlockRequiredDescription": "Esta cartera utiliza únicamente autenticación biométrica. Utiliza Face ID, Touch ID o el código de acceso de tu dispositivo para desbloquearla. Para acceder a tu cartera en otro dispositivo, utiliza tu frase de recuperación de 12 palabras.",
   "resetWallet": "Restablecer cartera",
@@ -2368,5 +2368,12 @@
   "midenNameReceiptRegistry": "Registro",
   "midenNameReceiptNoteId": "Registro note",
   "midenNameReceiptPhase": "Fase",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "¿Reemplazar tu cartera existente?",
+  "replaceWalletCreateSubtitle": "Esto borrará de forma permanente tu cartera actual de este dispositivo y creará una nueva con la contraseña que acabas de configurar.",
+  "replaceWalletRestoreSubtitle": "Esto borrará de forma permanente tu cartera actual de este dispositivo y restaurará la cartera recuperada con la contraseña que acabas de configurar.",
+  "replaceWalletEraseWarning": "Asegúrate de tener tu frase de recuperación o copia de seguridad actual si aún la necesitas. Esta acción no se puede deshacer.",
+  "eraseAndRestoreWallet": "Borrar y restaurar cartera",
+  "eraseAndCreateWallet": "Borrar y crear cartera",
+  "backToUnlock": "Volver al inicio de sesión"
 }

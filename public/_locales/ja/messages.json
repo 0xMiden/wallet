@@ -4046,8 +4046,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12語のリカバリーフレーズを知っているか、暗号化されたバックアップファイルを持っている場合を除き、ログアウトしないでください。",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "現在のウォレットは、置き換えを確定するまでこのデバイスに保持されます。続行する前に、12語のリカバリーフレーズ、Guardian キー、または暗号化されたバックアップファイルをご準備ください。",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "生体認証によるロック解除が必要です",
@@ -10932,5 +10932,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "既存のウォレットを置き換えますか？",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで新しいウォレットが作成されます。",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで復元されたウォレットが復元されます。",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "現在のウォレットが引き続き必要な場合は、リカバリーフレーズまたはバックアップを保管していることを確認してください。この操作は取り消せません。",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "消去してウォレットを復元",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "消去してウォレットを作成",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "サインインに戻る",
+    "englishSource": "Back to sign in"
   }
 }

@@ -4046,8 +4046,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Nie wylogowuj się, chyba że znasz swoją 12-wyrazową frazę odzyskiwania lub posiadasz zaszyfrowany plik kopii zapasowej.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Twój obecny portfel pozostanie na tym urządzeniu, dopóki nie potwierdzisz zastąpienia. Przed kontynuowaniem przygotuj swoją 12-wyrazową frazę odzyskiwania, klucz Guardian lub zaszyfrowany plik kopii zapasowej.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Wymagane odblokowanie biometryczne",
@@ -10936,5 +10936,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Zastąpić istniejący portfel?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i utworzenie nowego z hasłem, które właśnie ustawiłeś.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i przywrócenie odzyskanego portfela z hasłem, które właśnie ustawiłeś.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Upewnij się, że masz swoją obecną frazę odzyskiwania lub kopię zapasową, jeśli nadal ich potrzebujesz. Tej operacji nie można cofnąć.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Usuń i przywróć portfel",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Usuń i utwórz portfel",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Wróć do logowania",
+    "englishSource": "Back to sign in"
   }
 }

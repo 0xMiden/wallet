@@ -38,7 +38,9 @@ jest.mock('app/onboarding-finish', () => {
 // jest allows referencing them inside hoisted `jest.mock` factories).
 // ---------------------------------------------------------------------------
 const mockRegisterWallet = jest.fn<Promise<void>, unknown[]>();
+const mockRegisterWalletFromHotKey = jest.fn<Promise<void>, unknown[]>();
 const mockClearClientStorage = jest.fn();
+const mockClearClientStorageAfterRestore = jest.fn<Promise<void>, []>();
 const mockNavigate = jest.fn();
 const mockGenerateMnemonic = jest.fn(() => 'a b c d e f g h i j k l');
 
@@ -84,7 +86,8 @@ const mockRequest = jest.fn<Promise<void>, []>();
 const mockFollow = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
-    registerWallet: mockRegisterWallet
+    registerWallet: mockRegisterWallet,
+    registerWalletFromHotKey: mockRegisterWalletFromHotKey
   }),
   request: () => mockRequest()
 }));
@@ -94,7 +97,8 @@ jest.mock('lib/remote-config/runtime', () => ({
 }));
 
 jest.mock('lib/miden/reset', () => ({
-  clearClientStorage: () => mockClearClientStorage()
+  clearClientStorage: () => mockClearClientStorage(),
+  clearClientStorageAfterRestore: () => mockClearClientStorageAfterRestore()
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -140,11 +144,13 @@ let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
 let mockDeveloperChoice = false;
 // A stored network choice takes effect at once, as the real override cache does.
 const mockApply = jest.fn<Promise<void>, [EndpointOverride]>();
+const mockClearEndpointOverride = jest.fn<Promise<void>, []>(async () => {});
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => mockNetwork,
   hasDeveloperNetworkChoice: () => mockDeveloperChoice,
-  applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
+  applyEndpointOverride: (override: EndpointOverride) => mockApply(override),
+  clearEndpointOverride: () => mockClearEndpointOverride()
 }));
 
 // Store the latest handler closure so tests can invoke the mobile back handler
@@ -170,11 +176,13 @@ jest.mock('@miden/hd-key', () => ({
 // Guardian auto-detection: the real hook dynamically imports the WASM SDK.
 // Stub it with a controllable start() so tests can steer what the probe found.
 const mockProbeStart = jest.fn<Promise<unknown>, unknown[]>();
+const mockProbeStartWithKey = jest.fn<Promise<unknown>, unknown[]>();
 const mockProbeReset = jest.fn();
 // Records the network each render asks the probe for.
 const mockUseGuardianProbe = jest.fn((_network?: MIDEN_NETWORK_NAME) => ({
   state: { status: 'idle' },
   start: mockProbeStart,
+  startWithKey: mockProbeStartWithKey,
   reset: mockProbeReset
 }));
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
@@ -259,6 +267,13 @@ beforeEach(() => {
   // re-apply their default; mockBeginFlow is never given a one-shot.
   mockRegisterWallet.mockReset();
   mockRegisterWallet.mockResolvedValue(undefined);
+  mockRegisterWalletFromHotKey.mockReset();
+  mockRegisterWalletFromHotKey.mockResolvedValue(undefined);
+  mockClearClientStorageAfterRestore.mockReset();
+  mockClearClientStorageAfterRestore.mockResolvedValue(undefined);
+  mockClearEndpointOverride.mockReset();
+  mockClearEndpointOverride.mockResolvedValue(undefined);
+  mockProbeStartWithKey.mockReset();
   mockPutToStorage.mockReset();
   mockNavigate.mockReset();
   mockClassifyError.mockReset();
@@ -405,13 +420,30 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
   });
 
-  it('offers the header back on every step but Confirmation', async () => {
+  it('offers the header back on every step including Confirmation (unless loading)', async () => {
+    let resolveRegister!: () => void;
+    mockRegisterWallet.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveRegister = resolve;
+        })
+    );
     const { container } = renderPage();
     await dispatch({ id: 'create-password' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
     expect(captured.props?.canGoBack).toBe(true);
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    expect(captured.props?.canGoBack).toBe(true);
+
+    await act(async () => {
+      void captured.onAction!({ id: 'confirmation' });
+    });
     expect(captured.props?.canGoBack).toBe(false);
+
+    await act(async () => {
+      resolveRegister();
+    });
   });
 
   it('unknown action id: default branch is a no-op', async () => {
@@ -427,19 +459,24 @@ describe('ForgotPassword', () => {
     const { container } = renderPage();
     await dispatch({ id: 'confirmation' });
     expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
     // loading toggled back off after the flow completes.
     expect(flow(container).getAttribute('data-loading')).toBe('false');
   });
 
-  it('confirmation (Create flow): registers a Guardian wallet with ownMnemonic=false', async () => {
+  it('confirmation (Create flow): registers a Guardian wallet with ownMnemonic=false and clears client storage only after registration resolves', async () => {
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockClearClientStorageAfterRestore.mock.invocationCallOrder[0]!
+    );
     // Create flow: no probe runs, so no endpoint is threaded (undefined 5th arg).
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
@@ -451,20 +488,19 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so the page never
-  // reads or rewrites the endpoint override: no step of an attempt can lose it (#1174).
-  it('never reads or rewrites the endpoint override around the recovery wipe', async () => {
+  it('never reads or rewrites the endpoint override during a Create reset and keeps post-register cleanup ordered', async () => {
     mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(mockPutToStorage).not.toHaveBeenCalled();
-    expect(mockClearClientStorage.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockRegisterWallet.mock.invocationCallOrder[0]!
+    expect(mockRegisterWallet.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockClearClientStorageAfterRestore.mock.invocationCallOrder[0]!
     );
   });
 
@@ -676,12 +712,11 @@ describe('ForgotPassword', () => {
       'https://probed.example.com'
     );
 
-    // clearClientStorage still runs before registerWallet. The probe result lives
-    // in memory (a ref), so the wipe can't clobber it — no storage-write ordering
-    // constraint is needed anymore.
-    const clearedAt = mockClearClientStorage.mock.invocationCallOrder[0]!;
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
     const registeredAt = mockRegisterWallet.mock.invocationCallOrder[0]!;
-    expect(clearedAt).toBeLessThan(registeredAt);
+    const cleanedAt = mockClearClientStorageAfterRestore.mock.invocationCallOrder[0]!;
+    expect(registeredAt).toBeLessThan(cleanedAt);
   });
 
   it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
@@ -710,7 +745,7 @@ describe('ForgotPassword', () => {
     );
   });
 
-  it('confirmation (Create flow) reports a registerWallet rejection instead of swallowing it (#630)', async () => {
+  it('confirmation (Create flow) reports a registerWallet rejection without clearing client storage (#630)', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const boom = new Error('register failed');
     mockRegisterWallet.mockRejectedValueOnce(boom);
@@ -721,25 +756,28 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
     // Still logged for diagnostics...
     expect(errSpy).toHaveBeenCalledWith(boom);
     // ...but no longer ONLY logged: the reason reaches the screen and the flow
-    // does not navigate away from a wallet it has already wiped.
+    // does not navigate away.
     expect(captured.props?.recoveryError).toContain('register failed');
     expect(mockNavigate).not.toHaveBeenCalled();
     errSpy.mockRestore();
   });
 
-  it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
-    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+  it('clears the spinner and retries cleanly when registration fails without clearing storage first (#1093)', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(new Error('guardian unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
     expect(captured.props?.isLoading).toBe(false);
-    expect(captured.props?.recoveryError).toContain('storage unavailable');
-    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(captured.props?.recoveryError).toContain('guardian unavailable');
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
 
     const result = captured.backHandler!();
@@ -748,9 +786,22 @@ describe('ForgotPassword', () => {
 
     await dispatch({ id: 'confirmation' });
 
-    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
-    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(2);
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalled();
+  });
+
+  it('clears the spinner and surfaces an error if post-restore client cleanup throws (#1093)', async () => {
+    mockClearClientStorageAfterRestore.mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
@@ -1080,7 +1131,7 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     mockSnapshot = readySnapshot(LAUNCHED);
   });
 
-  it('switches to mainnet and refreshes the realm before the recovery wipes and registers', async () => {
+  it('switches to mainnet and refreshes the realm before registration, clearing client storage only after register resolves', async () => {
     renderPage();
     await recover();
 
@@ -1089,10 +1140,13 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     );
     const [applied] = mockApply.mock.invocationCallOrder;
     const [refreshed] = mockRequest.mock.invocationCallOrder;
+    const [registered] = mockRegisterWallet.mock.invocationCallOrder;
+    const [cleaned] = mockClearClientStorageAfterRestore.mock.invocationCallOrder;
     expect(applied).toBeLessThan(refreshed!);
-    expect(refreshed).toBeLessThan(mockClearClientStorage.mock.invocationCallOrder[0]!);
+    expect(refreshed).toBeLessThan(registered!);
+    expect(registered).toBeLessThan(cleaned!);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(applied).toBeLessThan(mockRegisterWallet.mock.invocationCallOrder[0]!);
   });
 
   it('shows a failed switch with nothing wiped, and a retry finishes the switch before recovering', async () => {
@@ -1103,12 +1157,14 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     expect(captured.props?.recoveryError).toBe('Worker unavailable');
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
     expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
     expect(mockRegisterWallet).not.toHaveBeenCalled();
 
     await dispatch({ id: 'confirmation' });
     expect(mockApply).toHaveBeenCalledTimes(1);
     expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockClearClientStorageAfterRestore).toHaveBeenCalledTimes(1);
   });
 
   it('recovers on the chosen network without switching when Developer Settings chose it', async () => {
@@ -1229,5 +1285,176 @@ describe('ForgotPassword keeps the network a reset started on', () => {
     expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
     expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+});
+
+describe('ForgotPassword non-destructive restore, hot-key recovery, and confirmation back-out (#2360)', () => {
+  it('passes replacesExistingWallet, recoveryErrorId, and onCancel that navigates to /unlock and cancels telemetry', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+
+    expect(captured.props?.replacesExistingWallet).toBe(true);
+    expect(typeof captured.props?.onCancel).toBe('function');
+
+    await act(async () => {
+      (captured.props?.onCancel as () => void)();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/unlock');
+    expect(handleFor('recover').cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes recoveryErrorId as smthWentWrong on empty errors and raw_onboarding_recovery_failed on descriptive errors', async () => {
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    mockRegisterWallet.mockRejectedValueOnce(new Error(''));
+    await dispatch({ id: 'confirmation' });
+    expect(captured.props?.recoveryError).toBe('smthWentWrong');
+    expect(captured.props?.recoveryErrorId).toBe('smthWentWrong');
+
+    mockRegisterWallet.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    await dispatch({ id: 'confirmation' });
+    expect(captured.props?.recoveryError).toBe('guardian lookup failed');
+    expect(captured.props?.recoveryErrorId).toBe('raw_onboarding_recovery_failed');
+  });
+
+  it('backs out from Confirmation cleanly across Create, Seed Import, Mobile SetupPasscode, and Hot-Key Import flows', async () => {
+    const { container } = renderPage();
+    // 1. Create (desktop): Confirmation -> CreatePassword
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+
+    // 2. Seed Import: Confirmation -> ImportSelectRecoveryMethod
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+
+    // 3. Mobile Create: Confirmation -> SetupPasscode
+    mockIsMobile.mockReturnValue(true);
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+  });
+
+  it('clears ENDPOINT_OVERRIDE_STORAGE_KEY on failed recoverOnly registration when no prior override existed', async () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    mockFetchFromStorage.mockResolvedValueOnce(null);
+    mockRegisterWallet.mockRejectedValueOnce(new Error('No Guardian accounts found'));
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).toHaveBeenCalledWith(expect.objectContaining({ networkName: MIDEN_NETWORK_NAME.MAINNET }));
+    expect(mockClearEndpointOverride).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
+  });
+
+  it('restores the prior ENDPOINT_OVERRIDE_STORAGE_KEY on failed recoverOnly registration when one existed before prepareMainnet', async () => {
+    mockSnapshot = readySnapshot(LAUNCHED);
+    const previousOverride = { rpcUrl: 'https://custom-testnet.example', networkName: MIDEN_NETWORK_NAME.TESTNET };
+    mockFetchFromStorage.mockResolvedValueOnce(previousOverride);
+    mockRegisterWallet.mockRejectedValueOnce(new Error('Still failing'));
+
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearEndpointOverride).not.toHaveBeenCalled();
+    expect(mockApply).toHaveBeenLastCalledWith(previousOverride);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('handles retry-guardian-probe by re-running the probe with current seed/key and clearing recoveryError', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+    expect(captured.props?.recoveryError).toContain('guardian lookup failed');
+
+    await dispatch({ id: 'back' });
+    await dispatch({ id: 'retry-guardian-probe' });
+
+    expect(captured.props?.recoveryError).toBeNull();
+    expect(mockProbeStart).toHaveBeenCalledTimes(2);
+    expect(mockProbeStart).toHaveBeenLastCalledWith(['seed', 'words', 'here']);
+  });
+
+  it('supports import-with-key and import-hot-key-submit end-to-end while keeping select-import-type seed-first', async () => {
+    const PAIR = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    mockProbeStartWithKey.mockResolvedValue({
+      ...PROBED_RESULT,
+      best: { ...PROBED_RESULT.best, endpoint: 'https://key-probed.example' }
+    });
+    const { container } = renderPage();
+
+    // select-import-type still goes straight to ImportFromSeed.
+    await dispatch({ id: 'select-import-type' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
+
+    // import-with-key transitions to ImportFromKey and backs out to Welcome.
+    await dispatch({ id: 'import-with-key' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromKey);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
+
+    // Submit hot key pair -> probe with key -> password -> recovery method -> confirm.
+    await dispatch({ id: 'import-with-key' });
+    await dispatch({ id: 'import-hot-key-submit', payload: PAIR });
+    expect(mockProbeStartWithKey).toHaveBeenCalledWith(PAIR);
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+
+    await dispatch({ id: 'create-password-submit', payload: { password: 'new-pw' } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+
+    // Back from Confirmation goes to ImportSelectRecoveryMethod, and retry-guardian-probe re-probes with key.
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+    await dispatch({ id: 'retry-guardian-probe' });
+    expect(mockProbeStartWithKey).toHaveBeenCalledTimes(2);
+
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://chosen-key.example' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockRegisterWalletFromHotKey).toHaveBeenCalledWith('new-pw', PAIR, 'https://chosen-key.example');
+    expect(mockRegisterWalletFromHotKey.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockClearClientStorageAfterRestore.mock.invocationCallOrder[0]!
+    );
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockFlowHandles.at(-1)!.handle.complete).toHaveBeenCalledTimes(1);
+    expect(telemetryCallArgs()).not.toContain(PAIR);
   });
 });

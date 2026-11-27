@@ -880,7 +880,7 @@
   "reset": "Réinitialiser le portefeuille",
   "forgotPassword": "Mot de passe oublié ?",
   "forgotPasswordDescription": "Si vous avez oublié votre mot de passe, vous devez vous déconnecter puis réimporter votre compte. Vous pourrez ensuite créer un nouveau mot de passe.",
-  "forgotPasswordSecondDescription": "Ne vous déconnectez pas à moins de connaître votre phrase de récupération de 12 mots ou de disposer d’un fichier de sauvegarde chiffré.",
+  "forgotPasswordSecondDescription": "Votre portefeuille actuel reste sur cet appareil jusqu’à ce que vous confirmiez un remplacement. Ayez votre phrase de récupération de 12 mots, votre clé Guardian ou votre fichier de sauvegarde chiffré à portée de main avant de continuer.",
   "biometricUnlockRequired": "Déverrouillage biométrique requis",
   "biometricUnlockRequiredDescription": "Ce portefeuille utilise exclusivement l'authentification biométrique. Utilisez Face ID, Touch ID ou le code d'accès de votre appareil pour le déverrouiller. Pour accéder à votre portefeuille sur un autre appareil, utilisez votre phrase de récupération de 12 mots.",
   "resetWallet": "Réinitialiser le portefeuille",
@@ -2372,5 +2372,12 @@
   "midenNameReceiptRegistry": "Registre",
   "midenNameReceiptNoteId": "note d’inscription",
   "midenNameReceiptPhase": "Phase",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Remplacer votre portefeuille existant ?",
+  "replaceWalletCreateSubtitle": "Cela effacera définitivement votre portefeuille actuel de cet appareil et en créera un nouveau avec le mot de passe que vous venez de définir.",
+  "replaceWalletRestoreSubtitle": "Cela effacera définitivement votre portefeuille actuel de cet appareil et restaurera le portefeuille récupéré avec le mot de passe que vous venez de définir.",
+  "replaceWalletEraseWarning": "Assurez-vous d’avoir votre phrase de récupération ou votre sauvegarde actuelle si vous en avez encore besoin. Cette action est irréversible.",
+  "eraseAndRestoreWallet": "Effacer et restaurer le portefeuille",
+  "eraseAndCreateWallet": "Effacer et créer un portefeuille",
+  "backToUnlock": "Retour à la connexion"
 }

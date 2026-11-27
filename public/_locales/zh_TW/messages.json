@@ -4046,8 +4046,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "除非您知道自己的 12 字恢復短語，或擁有加密的備份檔案，否則請勿登出。",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "在您確認替換之前，目前的錢包會保留在此裝置上。繼續之前，請先準備好您的 12 字恢復短語、Guardian 金鑰或加密的備份檔案。",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "需要透過生物辨識解鎖",
@@ -10932,5 +10932,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "要替換現有錢包嗎？",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼建立新錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼還原已復原的錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "如果您仍需要目前的錢包，請確認手邊保有目前的恢復短語或備份。此操作無法復原。",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "清除並還原錢包",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "清除並建立錢包",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "返回登入",
+    "englishSource": "Back to sign in"
   }
 }

@@ -4046,8 +4046,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12 kelimelik kurtarma ifadenizi bilmiyorsanız veya şifrelenmiş bir yedekleme dosyanız yoksa oturumu kapatmayın.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Bir değiştirme işlemini onaylayana kadar mevcut cüzdanınız bu cihazda kalır. Devam etmeden önce 12 kelimelik kurtarma ifadenizi, Guardian anahtarınızı veya şifrelenmiş yedekleme dosyanızı hazır bulundurun.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Biyometrik Kilit Açma Gerekli",
@@ -10934,5 +10934,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Mevcut cüzdanınız değiştirilsin mi?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Bu işlem mevcut cüzdanınızı bu cihazdan kalıcı olarak siler ve az önce belirlediğiniz parola ile yeni bir cüzdan oluşturur.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Bu işlem mevcut cüzdanınızı bu cihazdan kalıcı olarak siler ve az önce belirlediğiniz parola ile kurtarılan cüzdanı geri yükler.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Hala ihtiyacınız varsa mevcut kurtarma ifadenizin veya yedeğinizin elinizde olduğundan emin olun. Bu işlem geri alınamaz.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Sil ve cüzdanı geri yükle",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Sil ve cüzdan oluştur",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Girişe geri dön",
+    "englishSource": "Back to sign in"
   }
 }

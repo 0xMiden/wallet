@@ -942,11 +942,19 @@ describe('actions', () => {
         get.mockReset().mockResolvedValue({ DAppEnabled: true });
       });
     };
-    // A spawn as the real ones run: it wipes through the real clearStorage with the keep list they pass, saves its
-    // vault, and returns it once `returns` settles. One that never settles is a realm that stopped inside the spawn.
+    // A spawn as the real ones run: it commits through `onBeforeCommit`, wipes
+    // through the real clearStorage with the keep list they pass, saves its
+    // vault, and returns it once `returns` settles. One that never settles is a
+    // realm that stopped inside the spawn.
     const wipingSpawn =
       (vault: unknown, returns: Promise<unknown> = Promise.resolve()) =>
-      async () => {
+      async (...args: unknown[]) => {
+        const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+          | {
+              onBeforeCommit?: () => Promise<void>;
+            }
+          | undefined;
+        await opts?.onBeforeCommit?.();
         await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
         await getStorageProvider().set({ [SAVED_VAULT_KEY]: 'vault' });
         await returns;
@@ -1002,7 +1010,11 @@ describe('actions', () => {
           // A mainnet setup whose realm stopped inside its spawn, before the profile moved off mainnet.
           stored[PENDING_ADMISSION_STORAGE_KEY] = [];
           let markedAtSpawn: unknown;
-          Vault[spawnMethod].mockImplementationOnce(async () => {
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+              | { onBeforeCommit?: () => Promise<void> }
+              | undefined;
+            await opts?.onBeforeCommit?.();
             markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
             return wipingSpawn(spawnedFor('testnet-account'))();
           });
@@ -1200,9 +1212,29 @@ describe('actions', () => {
           let markedAtSpawn: unknown;
           let markedAtFirstCheck: unknown;
           let markedAtPublish: unknown;
-          Vault[spawnMethod].mockImplementationOnce(async () => {
-            markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
-            return wipingSpawn(spawnedFor('admitted-account', 'second-account'))();
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+              | { onBeforeCommit?: () => Promise<void> }
+              | undefined;
+            if (!opts?.onBeforeCommit) {
+              markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+              return wipingSpawn(spawnedFor('admitted-account', 'second-account'))(...args);
+            }
+            // Pre-commit phase must NOT write PENDING_ADMISSION_STORAGE_KEY before onBeforeCommit.
+            expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toBeUndefined();
+            return wipingSpawn(spawnedFor('admitted-account', 'second-account'))(
+              ...args.map(arg =>
+                arg === opts
+                  ? {
+                      ...opts,
+                      onBeforeCommit: async () => {
+                        await opts.onBeforeCommit!();
+                        markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+                      }
+                    }
+                  : arg
+              )
+            );
           });
           mockRedeemAccess.mockResolvedValueOnce('granted');
           mockAdmitted.mockImplementation(async () => {
@@ -1271,6 +1303,93 @@ describe('actions', () => {
         expect(mockAdmitted).toHaveBeenCalledWith('unadmitted-account');
         expect(outcome).toBeInstanceOf(Error);
       });
+
+      it.each([
+        ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
+      ] as const)(
+        'pre-commit %s failure does not leave PENDING_ADMISSION_STORAGE_KEY=[] or call undoFailedSetup, keeping existing wallet on next init()',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          stored[PENDING_ADMISSION_STORAGE_KEY] = ['existing-account'];
+          Vault[spawnMethod].mockRejectedValueOnce(new Error('guardian lookup failed'));
+
+          await expect(invoke()).rejects.toThrow('guardian lookup failed');
+
+          expect(stored[SAVED_VAULT_KEY]).toBe('existing-wallet-vault');
+          expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['existing-account']);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+          expect(mockUnlocked).not.toHaveBeenCalled();
+
+          // Existing wallet remains intact (not wiped on restart) when admitted on mainnet.
+          mockAdmitted.mockResolvedValueOnce(true);
+          await restartOver();
+          expect(mockInited).toHaveBeenLastCalledWith(true);
+        }
+      );
+
+      it.each([
+        [
+          'seed recovery without pre-existing marker',
+          'spawn',
+          () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)
+        ],
+        [
+          'hot-key recovery without pre-existing marker',
+          'spawnFromHotKey',
+          () => registerWalletFromHotKey('pw', 'hot:evm')
+        ]
+      ] as const)(
+        'pre-commit %s failure never writes PENDING_ADMISSION_STORAGE_KEY=[]',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          delete stored[PENDING_ADMISSION_STORAGE_KEY];
+          Vault[spawnMethod].mockRejectedValueOnce(new Error('no guardian account'));
+
+          await expect(invoke()).rejects.toThrow('no guardian account');
+
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([
+        ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
+      ] as const)(
+        'unadmitted recovered account in %s aborts via checkAccountsAdmitted BEFORE onBeforeCommit / wipe',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          mockAdmitted.mockResolvedValueOnce(false);
+          let ranBeforeCommit = false;
+
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'checkAccountsAdmitted' in arg) as
+              | {
+                  onBeforeCommit?: () => Promise<void>;
+                  checkAccountsAdmitted?: (accountIds: string[]) => Promise<void>;
+                }
+              | undefined;
+            if (!opts?.checkAccountsAdmitted || !opts?.onBeforeCommit) {
+              throw new Error('Expected checkAccountsAdmitted and onBeforeCommit options');
+            }
+            await opts.checkAccountsAdmitted(['unadmitted-recovered-account']);
+            ranBeforeCommit = true;
+            await opts.onBeforeCommit();
+            await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
+            return spawnedFor('unadmitted-recovered-account');
+          });
+
+          await expect(invoke()).rejects.toBeInstanceOf(PublicError);
+          expect(ranBeforeCommit).toBe(false);
+          expect(stored[SAVED_VAULT_KEY]).toBe('existing-wallet-vault');
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+        }
+      );
     });
 
     it('reads no admission for an import on a network that is not invite-only', async () => {
@@ -1368,7 +1487,11 @@ describe('actions', () => {
         'password123',
         'mnemonic words',
         true,
-        'https://guardian.example'
+        'https://guardian.example',
+        expect.objectContaining({
+          onBeforeCommit: expect.any(Function),
+          checkAccountsAdmitted: expect.any(Function)
+        })
       );
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
@@ -1462,7 +1585,17 @@ describe('actions', () => {
 
       await registerNewWallet(WalletType.Guardian, undefined, 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true, undefined);
+      expect(Vault.spawn).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        '',
+        'mnemonic words',
+        true,
+        undefined,
+        expect.objectContaining({
+          onBeforeCommit: expect.any(Function),
+          checkAccountsAdmitted: expect.any(Function)
+        })
+      );
     });
   });
 

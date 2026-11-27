@@ -880,7 +880,7 @@
   "reset": "Reset wallet",
   "forgotPassword": "Forgot password?",
   "forgotPasswordDescription": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password.",
-  "forgotPasswordSecondDescription": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.",
+  "forgotPasswordSecondDescription": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing.",
   "biometricUnlockRequired": "Biometric Unlock Required",
   "biometricUnlockRequiredDescription": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word recovery phrase.",
   "resetWallet": "Reset Wallet",
@@ -2376,5 +2376,12 @@
   "midenNameReceiptRegistry": "Registry",
   "midenNameReceiptNoteId": "Registration note",
   "midenNameReceiptPhase": "Phase",
-  "balanceCardAccountWithName": "$name$ · $number$"
+  "balanceCardAccountWithName": "$name$ · $number$",
+  "replaceWalletConfirmTitle": "Replace your existing wallet?",
+  "replaceWalletCreateSubtitle": "This will permanently erase your current wallet from this device and create a new one with the password you just set.",
+  "replaceWalletRestoreSubtitle": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set.",
+  "replaceWalletEraseWarning": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone.",
+  "eraseAndRestoreWallet": "Erase and restore wallet",
+  "eraseAndCreateWallet": "Erase and create wallet",
+  "backToUnlock": "Back to sign in"
 }
