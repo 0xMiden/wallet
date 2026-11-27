@@ -143,7 +143,7 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).toContain('With a private Bread account, your balance and holdings');
     expect(systemPrompt).toContain('the recipient can read it');
     expect(systemPrompt).toContain('Never call a transaction anonymous or unlinkable.');
-    expect(systemPrompt).not.toContain("The sender's account and some metadata are public.");
+    expect(systemPrompt).toContain('Your account ID, who sent a note, and the fact that a transaction happened are public.');
     expect(systemPrompt).toContain('Compare Public and Private in send review.');
     expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
     expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
@@ -153,7 +153,8 @@ describe('command-ai standalone Worker', () => {
     expect(systemPrompt).not.toContain('Guardian receives encrypted account state');
     expect(systemPrompt).toContain('Choose Assistant for what the AI can see.');
     expect(systemPrompt).toContain('Help sends no chat or wallet history.');
-    expect(systemPrompt).toContain('two of three validators');
+    expect(systemPrompt).toContain("Today all three network validators receive each transaction's private details to check it.");
+    expect(systemPrompt).not.toContain('two of three validators');
     expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5300);
     expect(JSON.stringify(help.response_format)).toContain('"explain"');
     expect(JSON.stringify(legacy.response_format)).not.toContain('"explain"');
@@ -186,7 +187,7 @@ describe('command-ai standalone Worker', () => {
     expect(withoutPrompt).not.toContain('snapshot');
     expect(withoutPrompt).not.toContain('missingSlot');
     expect(withoutPrompt).not.toContain('previousHelpTopic');
-    expect(body.messages[0].content).toContain('two of three validators');
+    expect(body.messages[0].content).toContain('all three network validators receive');
     expect(JSON.stringify(body.response_format)).toContain('"explain"');
   });
 
