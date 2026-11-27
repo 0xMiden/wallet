@@ -62,7 +62,7 @@ describe('auto-consume + proving settings copy accuracy (#478)', () => {
     expect(desc).toMatch(/when off[^.]*except bridge withdrawals and earn deposits[^.]*still try that remote service/i);
     expect(desc).toMatch(/if the service is unavailable, local proving is available/i);
     expect(enJson[key]).toBe(desc);
-    expect(messages[key].englishSource).toBe(desc);
+    expect(messages[key]?.englishSource).toBe(desc);
   });
 
   it('keeps en/messages.json and en/en.json in sync for the edited keys', () => {
