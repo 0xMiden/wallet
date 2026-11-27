@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "オン状態の場合、トランザクションの証明はリモートサーバー上で生成されます。これにより処理が高速化され、デバイスへの大容量のダウンロードも不要で、鍵がデバイスから外部に流出することもありません。オフ状態の場合、またはサービスが利用できない場合は、ウォレットがローカルで証明を行います。これによりプライバシーは高まりますが、処理速度は遅くなり、一度だけ大容量のダウンロードが必要となります。",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "デフォルトではオンになっています。オンになっている場合、ウォレットは取引の詳細をリモートサービスに送信してプルーフを生成します。オフになっている場合、ウォレットはデバイス上でローカルに取引のプルーフを生成しますが、ブリッジによる出金および「Earn」への入金については、引き続きリモートサービスを利用します。サービスが利用できない場合でも、ローカルでのプルーフ生成が可能です。",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "移籍",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardianは、<b>あなたのウォレットからのすべての取引</b>を承認する独立したサービスであり、自己管理を放棄することなくセーフティネットを提供します。",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardianとは、<b>取引の承認を支援する</b>独立したサービスです。Guardianは、あなたのアカウントおよび支払いの詳細を確認することができます。",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "機能の説明",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "ご自身の資金を自由に移動できます。ご自身のプライベートステータスにアクセスできます。共有設定をしていない限り、残高を確認できます。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "ご自身で資金を移動してください。",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "切り替えは簡単です",

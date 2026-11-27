@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "开启该功能时，交易证明将在远程服务器上生成——速度更快，无需向您的设备下载大量数据，且您的密钥始终保存在设备上。关闭该功能时，或当服务不可用时，钱包将本地生成证明：隐私性更强，但速度较慢，且需要一次性下载大量数据。",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "默认开启。开启时，钱包会将交易详情发送至远程服务以生成证明。关闭时，钱包会在您的设备上本地验证交易，但桥接提现和“赚取”存款除外，这些操作仍会尝试使用该远程服务。如果该服务不可用，则可进行本地验证。",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "转账",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian 是一项独立服务，<b>确认您钱包中的每笔交易</b>，在您无需放弃自主托管的情况下，为您增添了一层安全保障。",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian 是一项独立服务，<b>用于协助授权您的交易</b>。您的 Guardian 可以查看您的账户和支付详情。",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "功能说明",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "自主管理资金。查看您的私人账户状态。除非您选择共享，否则仅您本人可见余额。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "自行转移资金。",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "切换很简单",

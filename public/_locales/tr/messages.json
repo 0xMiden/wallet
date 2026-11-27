@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "Açık konumdayken, işlem kanıtları uzak sunucularda oluşturulur — bu işlem daha hızlıdır, cihazınıza büyük bir indirme gerektirmez ve anahtarlarınız cihazınızdan asla dışarı çıkmaz. Kapalı konumdayken veya hizmet kullanılamadığında, cüzdan kanıtlamayı yerel olarak gerçekleştirir: bu daha gizlidir, ancak daha yavaştır ve tek seferlik büyük bir indirme gerektirir.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "Varsayılan olarak açıktır. Açık olduğunda, cüzdan kanıtlar oluşturmak için işlem ayrıntılarını uzak bir servise gönderir. Kapalı olduğunda, cüzdan işlemleri cihazınızda yerel olarak doğrular; ancak köprü çekimleri ve Earn yatırımları hariçtir, bunlar yine de o uzak servisi dener. Servis kullanılamıyorsa, yerel doğrulama kullanılabilir.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "Transfer",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>onaylayan</b> ve kendi kendine saklama hakkından vazgeçmeden bir güvenlik ağı ekleyen bağımsız bir hizmettir.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian, <b>işlemlerinizi onaylamaya yardımcı olan</b> bağımsız bir hizmettir. Guardian'ınız, hesabınızı ve ödeme bilgilerinizi görebilir.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Ne işe yarar?",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Paranızı kendi başınıza aktarın. Kişisel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görüntüleyin.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "Fonlarınızı kendi başınıza aktarın.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Geçiş yapmak çok kolay",
