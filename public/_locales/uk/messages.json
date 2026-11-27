@@ -10501,6 +10501,10 @@
     "message": "Наразі відповідний маршрут перекладу недоступний.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Такого варіанту немає. Оберіть один із інших варіантів:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Обмін для цієї пари наразі недоступний.",
     "englishSource": "Swap is unavailable for that pair right now."

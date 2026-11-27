@@ -2270,6 +2270,7 @@
   "commandAiChooseEarnVault": "У яке сховище Earn ви хочете внести кошти?",
   "commandAiChooseEarnPosition": "З якої позиції Earn ви хочете зняти кошти?",
   "commandAiBridgeUnavailable": "Наразі відповідний маршрут перекладу недоступний.",
+  "commandAiBridgeNoRoute": "Такого варіанту немає. Оберіть один із інших варіантів:",
   "commandAiSwapUnavailable": "Обмін для цієї пари наразі недоступний.",
   "commandAiEarnUnavailable": "Наразі сховища та позиції Earn недоступні.",
   "commandAiFiatPriceUnavailable": "Актуальна ціна в доларах США для цього токена недоступна. Введіть суму токена.",
