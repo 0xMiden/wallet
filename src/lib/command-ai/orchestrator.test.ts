@@ -197,6 +197,131 @@ describe('command-ai orchestrator', () => {
     });
   });
 
+  it('labels routes that differ only by asset so no two bridge chips read the same', () => {
+    const base = createContext();
+    const route = (symbol: string) => ({
+      id: `mainnet:agglayer:${symbol.toLowerCase()}:faucet-${symbol.toLowerCase()}:receive`,
+      provider: 'agglayer' as const,
+      mode: 'receive' as const,
+      sourceSymbol: symbol,
+      sourceNetwork: 'ethereum',
+      destinationSymbol: symbol,
+      destinationNetwork: 'miden-mainnet'
+    });
+    const ctx = { ...base, bridgeRoutes: ['ETH', 'USDC', 'USDT', 'WBTC', 'LINK', 'DAI'].map(route) };
+    const { map } = redactPrompt('bridge in 10 usdcx', { contacts: ctx.contacts });
+    const clarifying = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'bridge',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: 'USDCX',
+        to_asset: null,
+        from_chain: null,
+        to_chain: 'miden',
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    expect(clarifying.kind).toBe('clarifying');
+    if (clarifying.kind !== 'clarifying') return;
+    const labels = clarifying.chips.map(chip => chip.label);
+    expect(labels).toHaveLength(6);
+    expect(new Set(labels).size).toBe(6);
+    expect(labels[1]).toBe('USDC → USDC · agglayer (ethereum → miden-mainnet)');
+  });
+
+  it('answers a one-option clarification with that option instead of asking', () => {
+    const base = createContext();
+    const ctx = { ...base, swapTokens: [{ symbol: 'USDCx', faucetId: 'faucet-usdcx', decimals: 6 }] };
+    const { map } = redactPrompt('swap 10', { contacts: ctx.contacts });
+    const res = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'swap',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: null,
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    // The only swap token was picked as the asset; with no partner left the swap is unavailable, not asked.
+    expect(res.kind).toBe('error');
+    if (res.kind !== 'error') return;
+    expect(res.messageKey).toBe('commandAiSwapUnavailable');
+  });
+
+  it('still asks for the recipient when a single saved contact could be offered', () => {
+    const base = createContext();
+    const ctx = { ...base, contacts: base.contacts.slice(0, 1) };
+    const { map } = redactPrompt('send 10 MIDEN', { contacts: ctx.contacts });
+    const res = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'send',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: 'MIDEN',
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    expect(res.kind).toBe('clarifying');
+    if (res.kind !== 'clarifying') return;
+    expect(res.slot).toBe('recipient');
+    expect(res.chips).toHaveLength(1);
+  });
+
+  it.each([
+    ['a saved contact address', VALID_MIDEN_ALICE],
+    ['an address that is not in the contacts', 'mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnew']
+  ])('uses a complete typed address without asking: %s', (_label, address) => {
+    const base = createContext();
+    const ctx = { ...base, contacts: base.contacts.slice(0, 1) };
+    const { map } = redactPrompt(`send 10 MIDEN to ${address}`, { contacts: ctx.contacts });
+    const res = compileOutputToResolution(
+      {
+        op: 'set_intent',
+        action: 'send',
+        amount: { kind: 'exact_ref', ref: 'AMT_1' },
+        asset: 'MIDEN',
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: 'ADDR_1',
+        provider: null,
+        note_type: null,
+        earn_op: null
+      },
+      map,
+      ctx
+    );
+
+    expect(res.kind).toBe('handoff');
+    if (res.kind !== 'handoff' || res.handoff.action !== 'send') return;
+    expect(res.handoff.draft.recipientAddress).toBe(address);
+  });
+
   it('surfaces bridge clarification chips and completes via chip click or patch_slots', () => {
     const ctx = createContext();
     const { map } = redactPrompt('bridge 500 usdc to miden', { contacts: ctx.contacts });
