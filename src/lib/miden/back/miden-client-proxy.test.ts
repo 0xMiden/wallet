@@ -2543,6 +2543,48 @@ describe('MidenClientProxy — settlement paths', () => {
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     }
   );
+
+  it.each([
+    {
+      title: 'settles a synchronous sendMessage throw with no deadline as a transport abort and drops the in-flight entry',
+      deadlineMs: null
+    },
+    {
+      title: 'a synchronous sendMessage throw with a deadline does not leave the entry to fire that deadline',
+      deadlineMs: 20
+    }
+  ])('$title', async ({ deadlineMs }) => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, __test } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      const transportError = new Error('Extension context invalidated.');
+      let inFlightAtDispatch: number | undefined;
+      fakeChrome.runtime.sendMessage.mockImplementation(() => {
+        inFlightAtDispatch = __test.inFlightSize();
+        throw transportError;
+      });
+      const timersBeforeCall = jest.getTimerCount();
+
+      const result = midenClientProxy.call('getAccount', ['a'], { deadlineMs }).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      const error = await result;
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+      expect(inFlightAtDispatch).toBe(1);
+      expect(error).toBeInstanceOf(OperationAbortedError);
+      expect(error).toMatchObject({ reason: 'transport', facts: { started: false, transportReason: 'context_invalidated' } });
+      expect((error as Error).cause).toBe(transportError);
+      expect(__test.inFlightSize()).toBe(0);
+
+      expect(jest.getTimerCount()).toBe(timersBeforeCall);
+      await jest.advanceTimersByTimeAsync(40);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+      expect(__test.inFlightSize()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 // ─── Slice 5a: consumeNoteId (the WRITE pipeline) ───────────────────────────
