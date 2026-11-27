@@ -928,6 +928,8 @@ describe('non-blocking transaction store reads (#2327)', () => {
             })
           );
         };
+        let barrierAwaitedInDetect = false;
+        const numericCountTxns = new WeakSet<object>();
         const origTx = isolated.transaction.bind(isolated);
         const txSpy = jest.spyOn(isolated, 'transaction').mockImplementation(((...args: unknown[]) => {
           const txPromise = (origTx as (...a: unknown[]) => Promise<unknown>)(...args);
@@ -938,6 +940,36 @@ describe('non-blocking transaction store reads (#2327)', () => {
             return res;
           });
         }) as typeof isolated.transaction);
+        const internalTable = table as unknown as {
+          _trans: (
+            mode: string,
+            fn: (idbtrans: unknown, trans: unknown) => unknown,
+            writeLocked?: unknown
+          ) => Promise<unknown>;
+        };
+        const origTrans = internalTable._trans.bind(table);
+        const transSpy = jest.spyOn(internalTable, '_trans').mockImplementation((mode, fn, writeLocked) => {
+          if (mode !== 'readonly') return origTrans(mode, fn, writeLocked);
+          let capturedIdbTrans: object | undefined;
+          const wrappedFn = (idbtrans: unknown, trans: unknown) => {
+            if (typeof idbtrans === 'object' && idbtrans !== null) {
+              capturedIdbTrans = idbtrans;
+            }
+            return fn(idbtrans, trans);
+          };
+          const resPromise = origTrans(mode, wrappedFn, writeLocked);
+          return resPromise.then(res => {
+            if (capturedIdbTrans && numericCountTxns.has(capturedIdbTrans) && pendingCompletion) {
+              return pendingCompletion.then(() => {
+                if (txSpy.mock.calls.length === 1) {
+                  barrierAwaitedInDetect = true;
+                }
+                return res;
+              });
+            }
+            return res;
+          });
+        });
         core.count = req =>
           origCount(req).then(count => {
             if (req.query.index.name === 'status') {
@@ -949,6 +981,9 @@ describe('non-blocking transaction store reads (#2327)', () => {
         core.openCursor = req => {
           if (req.values === false && req.query.index.name === 'status') {
             sawNumericStart = true;
+            if (typeof req.trans === 'object' && req.trans !== null) {
+              numericCountTxns.add(req.trans);
+            }
             fireBetweenTransactions();
           }
           return origOpenCursor(req);
@@ -960,7 +995,9 @@ describe('non-blocking transaction store reads (#2327)', () => {
             table
           );
           expect(page.transactions.map(tx => tx.id)).toContain('fallback-missing');
+          expect(barrierAwaitedInDetect).toBe(baseCount >= 64);
         } finally {
+          transSpy.mockRestore();
           txSpy.mockRestore();
           core.count = origCount;
           core.openCursor = origOpenCursor;
@@ -1147,5 +1184,183 @@ describe('non-blocking transaction store reads (#2327)', () => {
         probe.restore();
       }
     });
+  });
+
+  it('resolves chunked localSwapOrders and bounded/chunked countIndexEntriesUpTo under default jest.useFakeTimers()', async () => {
+    await Repo.transactions.bulkPut(
+      Array.from({ length: 5 }, (_, i) =>
+        makeTx(`fake-swap-${i}`, {
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          extraInputs: { orderId: `fake-order-${i}`, swapType: 'pswap' } as ITransaction['extraInputs']
+        })
+      )
+    );
+    expect(await Repo.transactions.count()).toBe(5);
+
+    const dbTxSpy = jest.spyOn(Repo.db, 'transaction');
+    jest.useFakeTimers();
+    try {
+      expect(await localSwapOrders('mtst1acct')).toHaveLength(5);
+      expect(
+        await countIndexEntriesUpTo(
+          Repo.transactions,
+          'status',
+          equalIndexSpec('status', ITransactionStatus.Completed).range,
+          1
+        )
+      ).toBe(1);
+      expect(dbTxSpy).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+      dbTxSpy.mockRestore();
+    }
+
+    await Repo.transactions.bulkPut(
+      Array.from({ length: 75 }, (_, i) =>
+        makeTx(`fake-swap-${i + 5}`, {
+          type: 'swap',
+          status: ITransactionStatus.Completed,
+          extraInputs: { orderId: `fake-order-${i + 5}`, swapType: 'pswap' } as ITransaction['extraInputs']
+        })
+      )
+    );
+    expect(await Repo.transactions.count()).toBe(80);
+
+    const flushChunkedUnderFakeTimers = async <T>(promise: Promise<T>): Promise<T> => {
+      let settled = false;
+      void promise.finally(() => {
+        settled = true;
+      });
+      while (!settled) {
+        await jest.advanceTimersByTimeAsync(0);
+      }
+      return promise;
+    };
+
+    jest.useFakeTimers();
+    try {
+      const startNow = Date.now();
+      expect(await flushChunkedUnderFakeTimers(localSwapOrders('mtst1acct'))).toHaveLength(80);
+      expect(
+        await flushChunkedUnderFakeTimers(
+          countIndexEntriesUpTo(
+            Repo.transactions,
+            'status',
+            equalIndexSpec('status', ITransactionStatus.Completed).range,
+            100
+          )
+        )
+      ).toBe(80);
+      expect(Date.now()).toBe(startNow);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('falls back to table.db.transaction when _trans is absent on a partial mock table', async () => {
+    const rows: ITransaction[] = Array.from({ length: 80 }, (_, i) =>
+      makeTx(`mock-${String(i).padStart(4, '0')}`, {
+        status: ITransactionStatus.Completed,
+        type: 'send'
+      })
+    );
+    const dbTransactionSpy = jest.fn((_mode: string, _table: unknown, run: (trans: unknown) => Promise<unknown>) =>
+      Promise.resolve(run({ idbtrans: {} }))
+    );
+    const partialMockTable = {
+      schema: {
+        primKey: { name: 'id', keyPath: 'id' },
+        idxByName: {
+          status: { name: 'status', keyPath: 'status', multiEntry: false }
+        }
+      },
+      db: {
+        transaction: dbTransactionSpy
+      },
+      core: {
+        schema: {
+          primaryKey: { name: 'id' },
+          getIndexByKeyPath: (name: string) => (name === 'status' ? { name: 'status' } : undefined)
+        },
+        query: jest.fn(async ({ limit }: { limit?: number }) => ({
+          result: rows.slice(0, limit ?? rows.length).map(r => r.id)
+        })),
+        openCursor: jest.fn(async () => {
+          let index = 0;
+          let stopped = false;
+          const cursor: Record<string, unknown> = {
+            done: rows.length === 0,
+            key: rows[0]?.status,
+            primaryKey: rows[0]?.id,
+            value: rows[0],
+            stop: () => {
+              stopped = true;
+            },
+            continue: () => {
+              index += 1;
+              if (index >= rows.length) {
+                cursor.done = true;
+                cursor.key = undefined;
+                cursor.primaryKey = undefined;
+                cursor.value = undefined;
+              } else {
+                cursor.key = rows[index]!.status;
+                cursor.primaryKey = rows[index]!.id;
+                cursor.value = rows[index];
+              }
+            },
+            continuePrimaryKey: (_key: unknown, targetPk: unknown) => {
+              while (index < rows.length && compareIdbKeys(rows[index]!.id, targetPk) <= 0) {
+                index += 1;
+              }
+              if (index >= rows.length) {
+                cursor.done = true;
+                cursor.key = undefined;
+                cursor.primaryKey = undefined;
+                cursor.value = undefined;
+              } else {
+                cursor.key = rows[index]!.status;
+                cursor.primaryKey = rows[index]!.id;
+                cursor.value = rows[index];
+              }
+            },
+            start: async (callback: () => void) => {
+              stopped = false;
+              while (!cursor.done && !stopped) {
+                callback();
+              }
+            }
+          };
+          return cursor as unknown as DBCoreCursor;
+        })
+      }
+    } as unknown as Dexie.Table<ITransaction, string>;
+
+    const smallCount = await countIndexEntriesUpTo(
+      partialMockTable,
+      'status',
+      equalIndexSpec('status', ITransactionStatus.Completed).range,
+      1
+    );
+    expect(smallCount).toBe(1);
+    expect(dbTransactionSpy).toHaveBeenCalledTimes(1);
+
+    const chunkedCount = await countIndexEntriesUpTo(
+      partialMockTable,
+      'status',
+      equalIndexSpec('status', ITransactionStatus.Completed).range,
+      100
+    );
+    expect(chunkedCount).toBe(80);
+    expect(dbTransactionSpy).toHaveBeenCalledTimes(3);
+
+    const chunkedRows = await readTransactionIndexChunks(
+      partialMockTable,
+      [equalIndexSpec('status', ITransactionStatus.Completed)],
+      () => true
+    );
+    expect(chunkedRows).toHaveLength(80);
+    expect(dbTransactionSpy).toHaveBeenCalledTimes(5);
   });
 });

@@ -305,6 +305,28 @@ function readSpecChunk(
     });
 }
 
+type ReadonlyTableWithInternalTrans = TransactionTable<ITransaction, string> & {
+  _trans?: <T>(mode: 'readonly', fn: (_idbtrans: unknown, trans: Transaction) => Promise<T>) => Promise<T>;
+};
+
+/**
+ * Runs a single-table readonly chunk on Dexie's internal `_trans` path (`tempTransaction`) so
+ * standalone reads match `where()`/`toArray()` and do not deadlock on `DexiePromise.follow`'s
+ * `queueMicrotask` scheduler when callers invoke `jest.useFakeTimers()`, falling back to
+ * `table.db.transaction` for partial table mocks without `_trans`.
+ */
+function runReadonlyTableTransaction<T>(
+  table: TransactionTable<ITransaction, string>,
+  run: (trans: Transaction) => Promise<T>
+): Promise<T> {
+  const internalTable = table as ReadonlyTableWithInternalTrans;
+  if (typeof internalTable._trans === 'function') {
+    return internalTable._trans('readonly', (_idbtrans, trans) => run(trans));
+  }
+  return table.db.transaction('r', table, run);
+}
+
+/** Counts index keys in `range` up to `maxCount` without invoking `table.core.count` on large sets. */
 export async function countIndexEntriesUpTo(
   table: TransactionTable<ITransaction, string>,
   indexName: string,
@@ -331,7 +353,7 @@ export async function countIndexEntriesUpTo(
         })
         .then(res => res.result.length);
     const outerTx = Dexie.currentTransaction;
-    return outerTx !== null ? runQuery(outerTx) : table.db.transaction('r', table, runQuery);
+    return outerTx !== null ? runQuery(outerTx) : runReadonlyTableTransaction(table, runQuery);
   }
 
   let total = 0;
@@ -385,7 +407,7 @@ export async function countIndexEntriesUpTo(
   }
 
   for (;;) {
-    const done = await table.db.transaction('r', table, countChunk);
+    const done = await runReadonlyTableTransaction(table, countChunk);
     if (done) break;
     await yieldToEventLoop();
   }
@@ -454,7 +476,7 @@ export async function readTransactionIndexChunks(
   }
 
   for (;;) {
-    const done = await table.db.transaction('r', table, runChunk);
+    const done = await runReadonlyTableTransaction(table, runChunk);
     if (done) break;
     await yieldToEventLoop();
   }
