@@ -5,6 +5,9 @@
 - [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.
 - [CHANGE][all] Answer an assistant clarification that has a single option with that option instead of asking, except for the recipient, where choosing it stays your click.
 - [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.
+- [FEATURE][all] When you share usage data, also report which screen you are on and how long it is visible (overview, send, receive, funding, swap, earn, explore, activity, me), with how you got there and whether it ran in the popup, side panel, full page or app, never a page address, account, contact, amount or anything typed, and describe it in the consent text and privacy policy (#1969, first slice).
+- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
+- [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, keeps every claim note represented in token history, and lists the latest five activity rows with a See all link to Activity.
 - [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
 - [FIX][extension] Show the expand arrow on the Bread Command bar.
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
