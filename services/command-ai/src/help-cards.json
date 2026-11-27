@@ -401,7 +401,7 @@
       "src": ["owner:wallet#2359", "wallet@6d0acae70:src/lib/settings/constants.ts"]
     },
     "p.proveoff": {
-      "text": "Turning off Delegate Proof Generation builds proofs on your device: slower, with a large one-time download.",
+      "text": "Turning off Delegate Proof Generation builds proofs on your device, which is slower.",
       "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
     },
     "p.bridgeswap": {
@@ -2962,11 +2962,11 @@
       "mode": "checked",
       "urgent": false,
       "lead": [],
-      "facts": ["p.notanon", "p.balance", "p.publicsend", "p.public", "p.validators", "p.services", "p.bridgeswap"],
+      "facts": ["p.notanon", "p.balance", "p.public", "p.validators", "p.services", "p.bridgeswap"],
       "limit": [],
       "required": ["p.notanon", "p.public", "p.validators", "p.services"],
       "forbid": [],
-      "answer": "Privacy in Bread does not mean anonymity. With a private account, your balance and holdings are not published on the public chain. A public send shows its token, amount and recipient address to anyone. Your account ID, a note's sender and the fact that a transaction happened are public. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Bridges and swaps disclose details to the services and networks involved."
+      "answer": "Privacy in Bread does not mean anonymity. With a private account, your balance and holdings are not published on the public chain. Your account ID, a note's sender and the fact that a transaction happened are public. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Bridges and swaps disclose details to the services and networks involved."
     },
     {
       "id": "privacy_check",
@@ -3030,7 +3030,7 @@
       "limit": [],
       "required": ["p.services", "p.validators"],
       "forbid": [],
-      "answer": "By default, an online service makes each transaction's proof (math showing it follows the rules), so private details leave your device. Your keys stay on your device. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Turning off Delegate Proof Generation builds proofs on your device: slower, with a large one-time download. Turning it off does not hide payments from your Guardian or the validators. Today all three validators, computers that check transactions, receive each transaction's private details."
+      "answer": "By default, an online service makes each transaction's proof (math showing it follows the rules), so private details leave your device. Your keys stay on your device. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Turning off Delegate Proof Generation builds proofs on your device, which is slower. Turning it off does not hide payments from your Guardian or the validators. Today all three validators, computers that check transactions, receive each transaction's private details."
     },
     {
       "id": "swap_bridge_privacy",
