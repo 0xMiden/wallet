@@ -2,6 +2,8 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
+- [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
 - [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
 - [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
 - [FIX][all] Explain what Guardian can see and when the wallet shares transaction details for remote proving (#2361).

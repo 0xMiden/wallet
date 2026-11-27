@@ -522,9 +522,18 @@ export class OperationAbortedError extends Error {
 /** Which timer of the deadline-holding op fired: armed at dispatch, the write backstop, at start, or after a sign. */
 export type OffscreenDeadlineTimer = 'dispatch' | 'backstop' | 'started' | 'resumed';
 
+export const OFFSCREEN_TRANSPORT_REASONS = [
+  'response_channel_closed',
+  'context_invalidated',
+  'no_receiver',
+  'unknown'
+] as const;
+export type OffscreenTransportReason = (typeof OFFSCREEN_TRANSPORT_REASONS)[number];
+
 export interface OffscreenAbortFacts {
   /** Whether the offscreen doc's signal that this op won its mutex had arrived; the signal can be dropped. */
   started: boolean;
+  transportReason?: OffscreenTransportReason;
   /** For a deadline abort: whose deadline fired, which of its timers, and whether that op was a write. */
   deadline?: { owner: 'own' | 'collateral'; timer: OffscreenDeadlineTimer; killer: 'write' | 'read' };
 }

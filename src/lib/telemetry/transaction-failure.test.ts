@@ -2,7 +2,7 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { OFFSCREEN_TRANSPORT_REASONS, OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop, isIOS } from 'lib/platform';
@@ -193,6 +193,7 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     OFFSCREEN_DEADLINE_TIMERS,
     OFFSCREEN_DEADLINE_KILLERS,
     OFFSCREEN_OP_STARTED,
+    OFFSCREEN_TRANSPORT_REASONS,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
     CONFIRMING_STEPS,
@@ -1531,7 +1532,7 @@ describe('a pipeline killed from outside', () => {
     ['deadline', `offscreen_aborted_deadline; ${unrecorded}`],
     ['deadline-no-kill', `offscreen_aborted_deadline_no_kill; ${unrecorded}`],
     ['doc-closed', 'offscreen_aborted_doc_closed; op start reported unavailable'],
-    ['transport', 'offscreen_aborted_transport; op start reported unavailable'],
+    ['transport', 'offscreen_aborted_transport; op start reported unavailable; transport reason unknown'],
     [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other; op start reported unavailable']
   ])('names an offscreen abort for %s by its reason, never its operation id', async (reason, identity) => {
     reportTransactionFailure({
@@ -1627,9 +1628,30 @@ describe('a pipeline killed from outside', () => {
     reportTransactionFailure({ type: 'consume', stage: 'sending', error: hostile });
     await settle();
     const [started, unreadable] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
-    expect(started).toContain('; point pipeline; offscreen_aborted_transport; op start reported yes. ');
-    expect(unreadable).toContain('; point pipeline; offscreen_aborted_transport; op start reported unavailable. ');
+    expect(started).toContain(
+      '; point pipeline; offscreen_aborted_transport; op start reported yes; transport reason unknown. '
+    );
+    expect(unreadable).toContain(
+      '; point pipeline; offscreen_aborted_transport; op start reported unavailable; transport reason unknown. '
+    );
     expectNoTransactionData(`${started} ${unreadable}`);
+  });
+
+  it.each([
+    ['response_channel_closed', 'response_channel_closed'],
+    ['context_invalidated', 'context_invalidated'],
+    ['no_receiver', 'no_receiver'],
+    [ACCOUNT_HEX, 'unknown']
+  ])('reports only the closed transport reason for %s', async (fact, expected) => {
+    const abort = new OperationAbortedError(OP_ID, 'transport', { started: true, transportReason: fact } as never);
+    abort.cause = new Error(`private transport details for ${ACCOUNT_HEX} amount ${AMOUNT}`);
+    reportTransactionFailure({ type: 'consume', stage: 'sending', error: sync(abort) });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; point pipeline; offscreen_aborted_transport; op start reported yes; transport reason ${expected}. `
+    );
+    expect(message).not.toContain('private transport details');
+    expectNoTransactionData(message);
   });
 
   it('names the kill rather than the unknown outcome text it abandoned', async () => {
@@ -2204,6 +2226,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['refusal node error', () => SUBMIT_NODE_ERRORS, () => policyText(REFUSED, "; and the network's own reason")],
   ['pipeline kill', () => PIPELINE_KILLS, () => policyText('Work the App stopped')],
+  ['offscreen transport reason', () => OFFSCREEN_TRANSPORT_REASONS, () => policyText('Work the App stopped')],
   ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
   ['confirming step', () => CONFIRMING_STEPS, () => policyText('The confirming step')],
