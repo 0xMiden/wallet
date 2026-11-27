@@ -6969,6 +6969,22 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
     );
   });
 
+  it('takes one shared storage turn for a successful mocked recovery import', async () => {
+    await loadModule();
+    const historyStorage = await import('lib/miden/guardian/history-storage');
+    const storageTurn = jest.spyOn(historyStorage, 'withWalletRecoveryLifetime');
+    try {
+      mockStartReply(() => Promise.resolve({ ok: true }));
+      const imported = askForRecoveryImport();
+      await flush();
+
+      expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+      expect(storageTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      storageTurn.mockRestore();
+    }
+  });
+
   it('normalizes a synchronous recovery import start-signal throw', async () => {
     await loadModule();
     mockStartReply(() => {
