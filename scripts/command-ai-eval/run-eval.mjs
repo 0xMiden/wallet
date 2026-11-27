@@ -109,6 +109,14 @@ function limitWaitMs(headers) {
   return seconds >= 0 ? seconds * 1000 : parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
 }
 
+/** A 429 may be waited out only when it names a per-minute limit and asks for at most 5 minutes. Never echoes the body. */
+function hardLimitReason(headers, body) {
+  if (/per day|\((?:TPD|RPD)\)|daily|quota/i.test(body)) return 'a daily or quota limit (429)';
+  if (!/per minute|\((?:TPM|RPM)\)/i.test(body)) return 'a 429 that names no per-minute limit';
+  const waitMs = limitWaitMs(headers);
+  return waitMs > MAX_LIMIT_WAIT_MS ? `a 429 asks to wait ${waitMs / 1000} s` : null;
+}
+
 const MIN_TOKEN_LIMIT = 8000;
 const MIN_REQUEST_LIMIT = 1000;
 
@@ -207,6 +215,8 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
     if (guard) {
       quotaStop ??= quotaStopReason(requested, response.headers);
       if (limitedMs > MAX_LIMIT_WAIT_MS) quotaStop ??= `${requested} asks to wait ${limitedMs / 1000} s`;
+      const hard = response.status === 429 ? hardLimitReason(response.headers, body) : null;
+      if (hard) quotaStop ??= `${requested} answered ${hard}`;
     }
     return new Response(response.status === 204 ? null : body, {
       status: response.status,
@@ -1373,6 +1383,7 @@ export async function runEval({
     modelFailures,
     ...(questions && worker ? { gate: { helpAccuracy, failures: [...gateFailures] } } : {}),
     maxPromptTokens: Math.max(maxPromptTokens, worker?.stats.maxPromptTokens ?? 0) || null,
+    ...(worker ? { usage: worker.stats.models } : {}),
     rateLimitHeaders: worker?.stats.rateLimitHeaders ?? null,
     errors,
     p95LatencyMs:
