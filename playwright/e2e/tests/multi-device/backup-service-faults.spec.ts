@@ -130,7 +130,7 @@ test.describe('Encrypted backup: service faults', () => {
           message: 'the device retries after the Retry-After has passed',
           timeout: 30_000
         })
-        .toBeGreaterThan(0);
+        .toBeGreaterThanOrEqual(1);
     });
 
     await steps.step('network_down_contact_edit_saves_locally', async () => {
