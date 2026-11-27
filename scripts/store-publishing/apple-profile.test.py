@@ -30,6 +30,35 @@ class ProfileTests(unittest.TestCase):
     def test_valid_store_profile_binds_installed_distribution_certificate(self):
         self.assertEqual(PROFILE.validate_profile(valid(), IDENTITIES, NOW), valid()['UUID'])
 
+    def test_exported_signing_requires_the_installed_profile_record_certificate_and_capabilities(self):
+        profile = valid()
+        expected = {'com.apple.developer.associated-domains': ['applinks:fixture.example'],
+                    'keychain-access-groups': ['$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)']}
+        signed = {**profile['Entitlements'],
+                  'com.apple.developer.associated-domains': ['applinks:fixture.example'],
+                  'keychain-access-groups': ['LHU7B7J5WL.com.miden.bread']}
+        profile_hash = 'a' * 64
+        record = {'uuid': profile['UUID'], 'sha256': profile_hash}
+        leaf = next(iter(IDENTITIES))
+        PROFILE.validate_exported_signing(profile, profile_hash, record, leaf, IDENTITIES, signed, expected, NOW)
+
+        for changes in [
+            {'profile_hash': 'b' * 64},
+            {'record': {**record, 'uuid': '87654321-4321-4321-4321-abcdef123456'}},
+            {'leaf': 'b' * 64},
+            {'identities': {leaf, 'b' * 64}, 'leaf': 'b' * 64},
+            {'signed': {**signed, 'get-task-allow': True}},
+            {'signed': {**signed, 'application-identifier': 'LHU7B7J5WL.other.app'}},
+            {'signed': {**signed, 'com.apple.developer.team-identifier': 'OTHERTEAM0'}},
+            {'signed': {**signed, 'com.apple.developer.associated-domains': []}},
+            {'signed': {**signed, 'keychain-access-groups': ['OTHERTEAM0.com.miden.bread']}},
+            {'expected': {**expected, 'keychain-access-groups': []}},
+        ]:
+            args = dict(profile=profile, profile_hash=profile_hash, record=record, leaf=leaf, identities=IDENTITIES,
+                        signed=signed, expected=expected, now=NOW)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                PROFILE.validate_exported_signing(**(args | changes))
+
     def test_invalid_profiles_are_rejected(self):
         cases = [
             {'TeamIdentifier': ['OTHERTEAM0']}, {'Name': 'development'}, {'Platform': ['OSX']}, {'Platform': 'iOS'},

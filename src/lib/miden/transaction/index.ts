@@ -68,6 +68,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
+import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
 import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { classifyProposalCreateRejection } from 'lib/miden/sdk/proposal-create-error-family';
@@ -132,6 +133,7 @@ import {
   completeConsumeTransaction,
   completeCustomTransaction,
   completeEarnDepositTransaction,
+  completeRegisterNameTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
@@ -321,7 +323,11 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'consume',
   'swap',
   'earn-deposit',
-  'execute'
+  'execute',
+  // Pre-built bytes, like `swap`: a requeue proposes the SAME register note (same
+  // serial, same note id), so the chain cannot accept it two times. The guard runs
+  // again on each attempt, before the proposal.
+  'register-name'
 ]);
 
 // Minus `execute`, only ever a dApp request: the dApp reads its five-minute wait running out as a failure, while a
@@ -371,7 +377,9 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'replace-hot-key',
   'update-procedure-threshold',
   'bridged-send',
-  'earn-deposit'
+  'earn-deposit',
+  // Keep registration writes on the same client as account sync and name claims.
+  'register-name'
 ]);
 
 /**
@@ -1835,11 +1843,11 @@ const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promis
 };
 
 /**
- * A bridged send's precondition for both leaves: the non-empty request stored on the row, and the one note recorded
- * when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing both names
- * the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
+ * A prebuilt-request outgoing row's precondition for both leaves: the non-empty request stored on the row, and the one
+ * note recorded when those bytes were built. Signing may use only that pair. Bytes are judged first, so a row missing
+ * both names the bytes. Called before any network call, so a guardian outage cannot requeue a row that fails it.
  */
-const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Array => {
+const requireRecordedRequest = (transaction: ITransaction): Uint8Array => {
   if (!transaction.requestBytes?.length) {
     throw new ProposalEffectRefusedError(
       transaction.type,
@@ -1856,6 +1864,9 @@ const requireBridgedSendRecordedRequest = (transaction: ITransaction): Uint8Arra
   }
   return transaction.requestBytes;
 };
+
+const requireBridgedSendRecordedRequest = requireRecordedRequest;
+const requireRegisterNameRecordedRequest = requireRecordedRequest;
 
 export const EPOCH_BRIDGE_ABANDONED_ERROR =
   'This bridge was already abandoned, so its collateral note was not submitted.';
@@ -2529,6 +2540,9 @@ const generateTransactionWithProvider = async (
     if (transaction.type === 'bridged-send' && bridgeProviderOf(transaction) !== 'near-intents') {
       requireBridgedSendRecordedRequest(transaction);
     }
+    if (transaction.type === 'register-name') {
+      requireRegisterNameRecordedRequest(transaction);
+    }
     result = await withEffectCheckedSigner(transaction, signCallback, async signer => {
       switch (transaction.type) {
         case 'consume': {
@@ -2693,6 +2707,24 @@ const generateTransactionWithProvider = async (
             )
           );
         }
+        case 'register-name': {
+          // RPC-only guard, immediately before the write: the name must still be
+          // free, the price and script allowlist unchanged, and the reclaim height
+          // not near. A throw goes to the loop catch, which marks the row Failed
+          // (no classifier there requeues these errors).
+          const registerBytes = requireRegisterNameRecordedRequest(transaction);
+          await assertMidenNameRegistrationLive(transaction);
+          return runStampedWriteLeaf(transaction.id, attemptContextOf(transaction), (stamp, submitGate) =>
+            midenClientProxy.newTransaction(
+              transaction.accountId,
+              registerBytes,
+              transaction.delegateTransaction,
+              signer,
+              stamp,
+              submitGate
+            )
+          );
+        }
       }
     });
   } catch (error) {
@@ -2741,6 +2773,9 @@ const generateTransactionWithProvider = async (
         break;
       case 'earn-deposit':
         await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'register-name':
+        await completeRegisterNameTransaction(transaction, result);
         break;
       case 'execute':
       default:
@@ -4753,6 +4788,18 @@ const generateGuardianTransaction = async (
       proposalResult = await proposeRebased(service, transaction, requestBytes, 'earn_deposit');
       break;
     }
+    case 'register-name': {
+      // Keep the registration note and add the v17 Guardian auth advice.
+      // Build the auth args at the proposal's sync height, then store those
+      // request bytes so signing and execution use the same request.
+      const registerBytes = requireRegisterNameRecordedRequest(transaction);
+      await assertMidenNameRegistrationLive(transaction);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
+      await assertPriorCandidateSettled(transaction, service);
+      proposalResult = await proposeRebased(service, transaction, registerBytes, 'register_name');
+      break;
+    }
     case 'swap': {
       const swapService = await swapStep('service_prepare', async () => {
         const prepared = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
@@ -5647,6 +5694,9 @@ const generateGuardianTransaction = async (
         // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
         // routing this to the generic custom-tx completion would strand the deposit.
         await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+        break;
+      case 'register-name':
+        await completeRegisterNameTransaction(transaction, result);
         break;
       case 'execute':
       default:

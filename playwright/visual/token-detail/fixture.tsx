@@ -12,7 +12,7 @@ export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
   ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
   : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
-const token = {
+export const token = {
   tokenId,
   balance: 987654321.123456,
   metadata: {
@@ -40,7 +40,9 @@ export const useMidenContext = (): never => {
 };
 export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
-  isLoading: false
+  isLoading: params.has('unavailable'),
+  readFailed: params.has('unavailable'),
+  balanceReadInFlight: params.has('updating')
 });
 export const useAllTokensBaseMetadata = () => (params.has('missing') ? {} : { [tokenId]: token.metadata });
 export const useWalletStore = <T,>(selector: (state: typeof storeState) => T): T => selector(storeState);
@@ -88,6 +90,8 @@ export const hapticMedium = () => undefined;
 export const hapticSelection = () => undefined;
 export const openExternalUrl = async () => undefined;
 export const goBack = () => undefined;
+export const useLocation = () => ({ pathname: '/', search: '', hash: '' });
+export const Link = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 export const navigate = (destination: string | { pathname: string; search?: string }) => {
   const path = typeof destination === 'string' ? destination : `${destination.pathname}${destination.search ?? ''}`;
   window.location.hash = path;

@@ -22,6 +22,8 @@ export interface AddContactDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** The recipient address from the send step. It is already known, so the sheet only asks for a name. */
   address: string;
+  /** Suggested label when the recipient was entered as a Miden Name. */
+  initialName?: string;
   /** The destination network chosen for a `0x` recipient; preselected here. */
   network?: BridgeNetworkId;
   /**
@@ -35,18 +37,19 @@ export interface AddContactDrawerProps {
 interface SheetBodyProps {
   open: boolean;
   address: string;
+  initialName?: string;
   initialNetwork?: BridgeNetworkId;
   onSaved: () => void;
   /** Reported upward so the sheet cannot be dismissed out from under an in-flight write. */
   onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, onSaved, onBusyChange }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialName, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
   const chain = detectAddressChain(address);
   const isEvm = chain === 'ethereum';
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName ?? '');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
   const networks = useContactBridgeNetworks();
   const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
@@ -164,6 +167,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
   onOpenChange,
   onBusyChange,
   address,
+  initialName,
   network
 }) => {
   const { t } = useTranslation();
@@ -199,6 +203,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
             key={address}
             open={open}
             address={address}
+            initialName={initialName}
             initialNetwork={network}
             onSaved={() => onOpenChange(false)}
             onBusyChange={setBusy}

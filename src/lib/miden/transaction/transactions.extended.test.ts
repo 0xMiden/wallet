@@ -15,7 +15,9 @@
 
 import { NoteScript, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
+import { bindMidenNameClaimRegistration } from 'lib/miden/name/registrations';
 import * as Repo from 'lib/miden/repo';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
@@ -47,6 +49,7 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   IBridgeClaimStatus,
+  ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -1038,24 +1041,226 @@ describe('completeConsumeTransaction', () => {
     await expect(completeConsumeTransaction('tx-1', txResult)).rejects.toThrow(/no input notes/);
   });
 
-  it('throws when the input note has no fungible assets', async () => {
-    txStore.push({ id: 'tx-1', status: ITransactionStatus.GeneratingTransaction, initiatedAt: 100 });
-    const txResult = {
+  // A note with no fungible asset (a Miden Name NFA delivery) completes. It has
+  // no faucet and no amount.
+  const nonFungibleResult = () =>
+    ({
       executedTransaction: () => ({
         id: () => ({ toHex: () => 'h' }),
         inputNotes: () => ({
           notes: () => [
             {
               note: () => ({
-                metadata: () => ({ sender: () => 'sender', noteType: () => 0 }),
-                assets: () => ({ fungibleAssets: () => [] })
+                metadata: () => ({ sender: () => 'registry', noteType: () => 0 }),
+                assets: () => ({ fungibleAssets: () => [], nonFungibleAssets: () => [{}] })
               })
             }
           ]
         })
-      })
-    } as any;
-    await expect(completeConsumeTransaction('tx-1', txResult)).rejects.toThrow(/no fungible/);
+      }),
+      serialize: () => new Uint8Array([9])
+    }) as any;
+
+  it('completes a consume whose note has no fungible assets, with no amount', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      faucetId: '',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.amount).toBeUndefined();
+    expect(txStore[0]!.faucetId).toBeUndefined();
+    expect(txStore[0]!.assetTotals).toEqual([]);
+    expect(txStore[0]!.displayMessage).toBe('Received');
+    expect(txStore[0]!.secondaryAccountId).toBe('registry');
+  });
+
+  it('labels a Miden Name claim "Name received" and moves the register row to owned', async () => {
+    txStore.push(
+      {
+        id: 'reg-1',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-1',
+        type: 'consume',
+        accountId: 'acc-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } }
+      }
+    );
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    const consumeRow = txStore.find(row => row.id === 'tx-1');
+    const registerRow = txStore.find(row => row.id === 'reg-1');
+    expect(consumeRow.status).toBe(ITransactionStatus.Completed);
+    expect(consumeRow.displayMessage).toBe('Name received');
+    expect(consumeRow.amount).toBeUndefined();
+    expect(registerRow.extraInputs.phase).toBe('owned');
+  });
+
+  function failedNameClaim() {
+    const registration = {
+      id: 'reg-1',
+      type: 'register-name',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 90,
+      extraInputs: {
+        network: getEffectiveNetworkName(),
+        label: 'alice',
+        phase: 'failed',
+        phaseUpdatedAt: 1,
+        failure: 'claim-failed',
+        lastError: 'interrupted',
+        deliveryNoteId: '0xdelivery',
+        claimTxId: 'tx-1',
+        claimAttempts: 2
+      }
+    };
+    const consume: ITransaction = {
+      id: 'tx-1',
+      type: 'consume',
+      accountId: registration.accountId,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      displayIcon: 'RECEIVE',
+      noteId: '0xDELIVERY',
+      extraInputs: { midenNameClaim: { label: 'Alice.miden', registerTxId: registration.id } }
+    };
+    return { registration, consume };
+  }
+
+  it('recovers an exact linked failed Miden Name claim when its existing consume completes', async () => {
+    const { registration, consume } = failedNameClaim();
+    txStore.push(registration, consume);
+
+    await completeConsumeTransaction(consume.id, nonFungibleResult());
+
+    expect(consume.status).toBe(ITransactionStatus.Completed);
+    expect(registration.extraInputs).toMatchObject({ phase: 'owned', claimAttempts: 2, claimTxId: 'tx-1' });
+    expect(registration.extraInputs).not.toHaveProperty('failure');
+    expect(registration.extraInputs).not.toHaveProperty('lastError');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('owned');
+  });
+
+  it('only binds a queued consume on manual retry', async () => {
+    const { registration, consume } = failedNameClaim();
+    consume.status = ITransactionStatus.Queued;
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'completed')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('failed');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(true);
+    expect(registration.extraInputs).toMatchObject({ phase: 'claiming', claimAttempts: 2, claimTxId: consume.id });
+  });
+
+  it('requires the existing claim id for automatic recovery of a completed consume', async () => {
+    const { registration, consume } = failedNameClaim();
+    registration.extraInputs.claimTxId = 'older';
+    consume.status = ITransactionStatus.Completed;
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'completed')).resolves.toBe(false);
+    expect(registration.extraInputs.phase).toBe('failed');
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(true);
+    expect(registration.extraInputs).toMatchObject({ phase: 'owned', claimTxId: consume.id });
+  });
+
+  it.each([
+    ['different account', { accountId: 'acc-2' }],
+    ['missing note membership', { noteId: '0xother' }],
+    ['batch excludes the legacy scalar', { noteIds: ['0xother'] }],
+    ['different label', { extraInputs: { midenNameClaim: { label: 'bob', registerTxId: 'reg-1' } } }],
+    ['different registration', { extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-2' } } }],
+    ['failed without pending verdict', { status: ITransactionStatus.Failed }],
+    ['restored consume', { restoredFromBackup: true }],
+    [
+      'batch link belongs to another note',
+      {
+        noteId: '0xa',
+        noteIds: ['0xa', '0xb', '0xdelivery'],
+        extraInputs: { midenNameClaims: { '0xb': { label: 'alice', registerTxId: 'reg-1' } } }
+      }
+    ]
+  ] as const)('refuses a failed Miden Name claim binding with %s', async (_reason, overrides) => {
+    const { registration, consume } = failedNameClaim();
+    txStore.push(registration, { ...consume, ...overrides });
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs).toMatchObject({ phase: 'failed', failure: 'claim-failed', claimTxId: 'tx-1' });
+  });
+
+  it('does not reopen a non-retryable registration failure', async () => {
+    const { registration, consume } = failedNameClaim();
+    registration.extraInputs.failure = 'taken';
+    txStore.push(registration, consume);
+
+    await expect(bindMidenNameClaimRegistration(registration.id, consume.id, 'manual')).resolves.toBe(false);
+    expect(registration.extraInputs).toMatchObject({ phase: 'failed', failure: 'taken' });
+  });
+
+  it('completes a Miden Name claim even when the register row is missing', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'missing' } }
+    });
+    await completeConsumeTransaction('tx-1', nonFungibleResult());
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).toBe('Name received');
+  });
+
+  it('labels a batch Miden Name claim "Name received" and moves every linked register row in midenNameClaims to owned', async () => {
+    txStore.push(
+      {
+        id: 'reg-1',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 90,
+        extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'reg-2',
+        type: 'register-name',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 91,
+        extraInputs: { label: 'bob', phase: 'claiming', phaseUpdatedAt: 1 }
+      },
+      {
+        id: 'tx-batch',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xa',
+        noteIds: ['0xa', '0xb'],
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        extraInputs: {
+          midenNameClaims: {
+            '0xa': { label: 'alice', registerTxId: 'reg-1' },
+            '0xb': { label: 'bob', registerTxId: 'reg-2' }
+          }
+        }
+      }
+    );
+    await completeConsumeTransaction('tx-batch', nonFungibleResult());
+    expect(txStore.find(row => row.id === 'tx-batch')?.displayMessage).toBe('Name received');
+    expect(txStore.find(row => row.id === 'reg-1')?.extraInputs.phase).toBe('owned');
+    expect(txStore.find(row => row.id === 'reg-2')?.extraInputs.phase).toBe('owned');
   });
 });
 
@@ -2156,6 +2361,63 @@ describe('initiateConsumeTransactionFromId', () => {
     );
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;
+  });
+
+  it('queues and tags midenNameClaim atomically inside queueConsumeRows and adopts untagged existing claims', async () => {
+    const summary = jest.spyOn(midenClientProxy, 'getInputNoteSummary').mockResolvedValue({
+      noteType: 0,
+      assets: null
+    });
+    try {
+      const id = await initiateConsumeTransactionFromId('acc-1', '0xNameNote', false, false, undefined, undefined, {
+        label: 'alice',
+        registerTxId: 'reg-1'
+      });
+      const inserted = txStore.find(row => row.id === id);
+      expect(inserted?.extraInputs).toEqual({
+        midenNameClaim: { label: 'alice', registerTxId: 'reg-1' },
+        midenNameClaims: { '0xnamenote': { label: 'alice', registerTxId: 'reg-1' } }
+      });
+
+      txStore.push({
+        id: 'existing-untagged',
+        type: 'consume',
+        accountId: 'acc-1',
+        noteId: '0xExisting',
+        noteIds: ['0xExisting', '0xOther'],
+        status: ITransactionStatus.Completed,
+        initiatedAt: 1
+      });
+      const reusedId = await initiateConsumeTransactionFromId(
+        'acc-1',
+        '0xExisting',
+        false,
+        false,
+        undefined,
+        undefined,
+        { label: 'bob', registerTxId: 'reg-2' }
+      );
+      expect(reusedId).toBe('existing-untagged');
+      expect(txStore.find(row => row.id === 'existing-untagged')?.extraInputs).toEqual({
+        midenNameClaims: { '0xexisting': { label: 'bob', registerTxId: 'reg-2' } }
+      });
+
+      const conflictId = await initiateConsumeTransactionFromId(
+        'acc-1',
+        '0xExisting',
+        false,
+        false,
+        undefined,
+        undefined,
+        { label: 'mallory', registerTxId: 'reg-other' }
+      );
+      expect(conflictId).toBe('existing-untagged');
+      expect(txStore.find(row => row.id === 'existing-untagged')?.extraInputs).toEqual({
+        midenNameClaims: { '0xexisting': { label: 'bob', registerTxId: 'reg-2' } }
+      });
+    } finally {
+      summary.mockRestore();
+    }
   });
 });
 

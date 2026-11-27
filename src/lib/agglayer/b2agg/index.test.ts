@@ -162,7 +162,9 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
   createLocationState: () => ({ historyPosition: 1 }),
-  listen: () => () => {}
+  listen: () => () => {},
+  // The Command bridge pickers open a Popover, which closes itself on a location change.
+  useLocation: () => ({ pathname: '/', hash: '' })
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),

@@ -61,7 +61,7 @@ import {
 } from './helper';
 import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import { attemptSubmitCrossing, hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
-import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
+import { canAwaitVerdict, crossedCandidateNonce, isNoteHoldingRow, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
@@ -1102,7 +1102,12 @@ const startupSnapshot = (
  * than promising nothing was submitted (the existing 30-min reaper already
  * marks that same edge case Failed, so this is not a new regression).
  */
-export const failInterruptedTransactions = async () => {
+export type InterruptedSweepResult = {
+  failedCount: number;
+  failedNoteHolderCount: number;
+};
+
+export const failInterruptedTransactions = async (): Promise<InterruptedSweepResult> => {
   const inProgress = await getTransactionsInProgress();
   const nowMs = Date.now();
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -1112,11 +1117,12 @@ export const failInterruptedTransactions = async () => {
       (!startedInThisRealm.has(tx.id) &&
         (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT))
   );
-  await Promise.all(
+  const outcomes = await Promise.all(
     transactions.map(async tx => {
+      const mayHoldNotes = isNoteHoldingRow(tx, nowSeconds);
       handBackInterruptedCandidate(tx);
       await recordOutOfBandEnd(tx.id);
-      return cancelTransaction(
+      const cancelled = await cancelTransaction(
         tx,
         TRANSACTION_INTERRUPTED_ON_STARTUP,
         'Interrupted - check your activity after it syncs',
@@ -1125,8 +1131,17 @@ export const failInterruptedTransactions = async () => {
         undefined,
         startupSnapshot(tx, nowSeconds, nowMs)
       );
+      return { cancelled, mayHoldNotes };
     })
   );
+  let failedCount = 0;
+  let failedNoteHolderCount = 0;
+  for (const outcome of outcomes) {
+    if (!outcome.cancelled) continue;
+    failedCount += 1;
+    if (outcome.mayHoldNotes) failedNoteHolderCount += 1;
+  }
+  return { failedCount, failedNoteHolderCount };
 };
 
 /**

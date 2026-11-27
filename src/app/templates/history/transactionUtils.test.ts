@@ -717,10 +717,10 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
   const deposit = (overrides: Partial<IHistoryEntry>) =>
     bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
 
-  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+  it('keeps a USDCx deposit pending until the minted note is received', () => {
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
-    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
     expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('pending');
   });
 
   it('reads Completed on the consume of the minted note', () => {

@@ -326,7 +326,7 @@ export const DappActive: FC<DappActiveProps> = ({ capsuleRef }) => {
             <button
               type="button"
               onClick={handleReload}
-              className="rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-pure-white"
+              className="rounded-full bg-primary-500 px-6 py-3 text-sm font-semibold text-pure-white"
             >
               {t('retry')}
             </button>

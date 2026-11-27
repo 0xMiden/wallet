@@ -1262,7 +1262,7 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
   });
 }
 
-const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled', 'visit'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {
