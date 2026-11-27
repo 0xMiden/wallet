@@ -27,6 +27,25 @@ export type PriceSymbol = string;
 /** The symbol of a USD stablecoin. Its price is 1 USD, and the Worker asks no price source for it. */
 export const USD_SYMBOL = 'usd';
 
+/**
+ * The price symbol of the native coin of each known chain, by chain id. A served chain of this table needs no
+ * `nativePrice` in RELAY_CONFIG; a `nativePrice` of its `chains` entry replaces the value of the table. A testnet has
+ * no market, so it takes the symbol of its mainnet coin. For a new chain, add a line here.
+ */
+export const DEFAULT_NATIVE_PRICES: ReadonlyMap<number, PriceSymbol> = new Map([
+  [1, 'ETHUSDT'], // Ethereum
+  [10, 'ETHUSDT'], // Optimism
+  [137, 'POLUSDT'], // Polygon
+  [4663, 'ETHUSDT'], // Robinhood
+  [5042, USD_SYMBOL], // Arc: the native coin is USDC
+  [8453, 'ETHUSDT'], // Base
+  [42161, 'ETHUSDT'], // Arbitrum One
+  [84532, 'ETHUSDT'], // Base Sepolia
+  [421614, 'ETHUSDT'], // Arbitrum Sepolia
+  [5042002, USD_SYMBOL], // Arc Testnet: the native coin is USDC
+  [11155111, 'ETHUSDT'] // Sepolia
+]);
+
 export interface CaliburConfig {
   address: Hex;
   /** The hash of the Calibur runtime code. */
@@ -41,7 +60,8 @@ export interface ChainConfig {
   calibur: CaliburConfig;
   feeRecipient: Hex | null;
   /**
-   * The price symbol of the native coin, or null when the entry has none. `deduct` mode needs it on each served chain.
+   * The price symbol of the native coin: the `nativePrice` of the chain's entry, else the value of
+   * `DEFAULT_NATIVE_PRICES`, else null. `deduct` mode needs it on each served chain.
    */
   nativePrice: PriceSymbol | null;
   /**
@@ -234,9 +254,10 @@ export interface ParsedRelayConfig {
 /**
  * Parse `RELAY_CONFIG` for the served chains `chainIds`. Each served chain gets the one Calibur pin and the one fee
  * recipient, and the native price, the fee tokens and the allowed targets of its `chains` entry. A served chain
- * without an entry gets no price, no fee token and no target list. In `deduct` mode each served chain needs an entry
- * with `nativePrice`. The parse checks an entry of a chain that is not served, but does not keep it: that chain is not
- * supported.
+ * without an entry gets the native price of `DEFAULT_NATIVE_PRICES` (none for a chain that the table does not have),
+ * no fee token and no target list. In `deduct` mode each served chain needs a native price: a chain that is not in the
+ * table needs an entry with `nativePrice`. The parse checks an entry of a chain that is not served, but does not keep
+ * it: that chain is not supported.
  */
 export function parseRelayConfig(
   relayConfig: string | undefined,
@@ -261,7 +282,7 @@ export function parseRelayConfig(
     const chains = new Map<number, ChainConfig>();
     for (const chainId of chainIds) {
       const entry = entries.get(chainId);
-      const nativePrice = entry?.nativePrice ?? null;
+      const nativePrice = entry?.nativePrice ?? DEFAULT_NATIVE_PRICES.get(chainId) ?? null;
       if (gasMode === 'deduct' && nativePrice === null) {
         fail(`RELAY_CONFIG.chains.${chainId}.nativePrice`, 'is required when GAS_MODE is deduct');
       }

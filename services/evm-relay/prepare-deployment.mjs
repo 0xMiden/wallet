@@ -71,7 +71,7 @@ export function checkGasMode(value) {
 /**
  * The keys of the optional `chains` object of RELAY_CONFIG: the chains that have a native price, fee tokens or allowed
  * targets. It can be empty. The Worker's parse checks each key and value, also the deduct rules (a `nativePrice` on
- * each served chain, and no old `fees` table).
+ * each served chain that the Worker's default table does not have, and no old `fees` table).
  */
 export function configChainIds(relayConfig) {
   const value = parseVariable(relayConfig, 'EVM_RELAY_CONFIG');
