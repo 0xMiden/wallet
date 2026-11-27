@@ -18,7 +18,6 @@ import { useAppEnv } from 'app/env';
 import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
-import CommandLauncher from 'app/layouts/CommandLauncher';
 import { useHomePagerPreview } from 'app/layouts/home-pager-preview';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import {
@@ -370,7 +369,6 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // The Home pane holds the swipe carousel for every home-group route.
   panesRef.current[activeTab] = showActionBar ? (
     <>
-      {activeAction !== 'overview' && <CommandLauncher />}
       <div ref={actionDiscovery.ref} className="shrink-0 relative z-10" data-home-actions="true">
         <HomeActionBar
           items={actionItems}
