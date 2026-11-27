@@ -115,6 +115,29 @@ describe('command-ai privacy redactor', () => {
     expect(res.map.addrs.ADDR_1).toBe(typed);
   });
 
+  it.each([
+    'friend.near-sub',
+    'bob.friend.near',
+    'friend.near.testnet',
+    'friend.near..testnet',
+    'Friend.Near-Sub',
+    'myfriend.near'
+  ])('keeps the whole typed token around a saved address: %s', typed => {
+    const res = redactPrompt(`send 1 usdc to ${typed}.`, {
+      contacts: [{ id: 'c-saved', name: 'friend', address: 'friend.near' }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>.');
+    expect(res.map.addrs).toEqual({ ADDR_1: typed });
+  });
+
+  it('leaves punctuation around a saved address out of its placeholder', () => {
+    const res = redactPrompt('send to ...friend.near.', {
+      contacts: [{ id: 'c-saved', name: 'Zed', address: 'friend.near' }]
+    });
+    expect(res.redactedText).toBe('send to ...<ADDR_1>.');
+    expect(res.map.addrs).toEqual({ ADDR_1: 'friend.near' });
+  });
+
   it('redacts an upper-case Miden address that is not saved', () => {
     const res = redactPrompt('send to MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62', { contacts: [] });
     expect(res.redactedText).toBe('send to <ADDR_1>');
