@@ -14,6 +14,12 @@ export type EventCategory =
 
 export type EventSeverity = 'info' | 'warn' | 'error' | 'debug';
 
+/**
+ * The label of one wallet instance in a test. Most suites use A and B. The
+ * multi-device suite also launches C (`fixtures/multi-device.ts`).
+ */
+export type WalletLabel = 'A' | 'B' | 'C';
+
 // ── Timeline Event ────────────────────────────────────────────────────────────
 
 export interface TimelineEvent {
@@ -23,7 +29,7 @@ export interface TimelineEvent {
   stepName: string;
   category: EventCategory;
   severity: EventSeverity;
-  wallet?: 'A' | 'B';
+  wallet?: WalletLabel;
   message: string;
   data?: Record<string, unknown>;
   durationMs?: number;
@@ -94,8 +100,8 @@ export interface Checkpoint {
   completedAt: string;
   durationMs: number;
   assertions: AssertionResult[];
-  screenshotPaths?: { walletA?: string; walletB?: string };
-  stateSnapshotPaths?: { walletA?: string; walletB?: string };
+  screenshotPaths?: { walletA?: string; walletB?: string; walletC?: string };
+  stateSnapshotPaths?: { walletA?: string; walletB?: string; walletC?: string };
   error?: {
     message: string;
     stack: string;
@@ -164,8 +170,8 @@ export interface SnapshotCaps {
 // ── Step Options ──────────────────────────────────────────────────────────────
 
 export interface StepOptions {
-  screenshotWallets?: Array<{ target: ScreenshotCapable; label: 'A' | 'B' }>;
-  captureStateFrom?: Array<{ target: StateCaptureCapable; label: 'A' | 'B'; extensionId?: string }>;
+  screenshotWallets?: Array<{ target: ScreenshotCapable; label: WalletLabel }>;
+  captureStateFrom?: Array<{ target: StateCaptureCapable; label: WalletLabel; extensionId?: string }>;
 }
 
 // ── CLI Invocation ────────────────────────────────────────────────────────────
@@ -193,7 +199,7 @@ export interface CLIInvocation {
 
 export interface WalletSnapshot {
   capturedAt: string;
-  wallet: 'A' | 'B';
+  wallet: WalletLabel;
   stepIndex: number;
   stepName: string;
   /** Discriminator: which runtime captured this snapshot. */
@@ -233,7 +239,7 @@ export type NetworkCategory = 'rpc' | 'transport' | 'prover' | 'other';
 
 export interface NetworkRecord {
   timestamp: string;
-  wallet: 'A' | 'B';
+  wallet: WalletLabel;
   url: string;
   method: string;
   status: number;
@@ -285,16 +291,17 @@ export interface TestFailureReport {
   stateAtFailure: {
     walletA?: WalletSnapshot;
     walletB?: WalletSnapshot;
+    walletC?: WalletSnapshot;
   };
   recentCliCommands: CLIInvocation[];
   browserErrors: Array<{
-    wallet: 'A' | 'B';
+    wallet: WalletLabel;
     message: string;
     stack?: string;
     timestamp: string;
   }>;
   failedNetworkRequests: Array<{
-    wallet: 'A' | 'B';
+    wallet: WalletLabel;
     url: string;
     status: number;
     failureText?: string;

@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Show USD price source and 10-minute freshness on Token detail (hiding stale and unavailable values instead of showing zero), warn when a balance refresh fails while keeping the last confirmed balance, display Failed/Not confirmed status badges beside Retry on claim cards, reset page state on token switches, and explain disabled Send actions (#2028).
+- [CHORE][ci] Add the multi-device E2E suite: device roles, claims of one note on several devices, the encrypted backup and swaps across devices, on testnet against a local wallet-api Worker, dispatched from Release E2E.
 - [FIX][all] Keep the existing wallet and network override intact across Forgot password until replacement validation succeeds, surface honest replacement confirmation with cancel/back-out, and support Guardian hot-key recovery during password reset (#2360).
 - [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
 - [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).
