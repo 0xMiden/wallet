@@ -273,6 +273,8 @@ Intent Rules:
 // a snapshot, so every other request stays as it was.
 const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
 
+const NO_COMMAND = { op: 'unsupported', reason: '', suggested_route: null };
+
 const HELP_DATA = helpCards as unknown as HelpDataset;
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
@@ -479,7 +481,7 @@ function answerHelp(
   // A number-only reply may answer a pending clarification, which an explain reply would drop.
   if (isPlaceholderOnly(text)) {
     return {
-      output: { op: 'unsupported', reason: '', suggested_route: null },
+      output: NO_COMMAND,
       trace: { ...trace, path: 'placeholder' },
       selected: []
     };
@@ -549,6 +551,13 @@ export async function askModel(call: ModelCall): Promise<unknown> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The provider's refusal of a reply its model could not fit to the schema. */
+async function isUnshapedReply(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false;
+  const data: unknown = await res.json().catch(() => null);
+  return isRecord(data) && isRecord(data.error) && data.error.code === 'json_validate_failed';
 }
 
 function firstChoice(data: unknown): { content: unknown; finish_reason: unknown } | undefined {
@@ -695,6 +704,13 @@ async function handleCompile(
       });
     }
     if (!res.ok) {
+      // The app sends a typed clarification reply without its snapshot first, and sends the snapshot only after a
+      // reply. A short one like "public" can be impossible to shape, so that request says it found no command.
+      if (!snapshot && (await isUnshapedReply(res))) {
+        console.warn(JSON.stringify({ event: 'compile_refused', model }));
+        onTrace?.({ path: 'refused', picked: [], unknownIds: [], served: null });
+        return jsonResponse({ output: NO_COMMAND }, 200);
+      }
       throw compilationFailed();
     }
 
@@ -772,7 +788,7 @@ async function dispatch(request: Request, env: Env, options: ServiceOptions): Pr
 }
 
 export interface HelpTrace {
-  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written';
+  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written' | 'refused';
   picked: string[];
   unknownIds: string[];
   /** The card the user got: the first cited one for written text. */
