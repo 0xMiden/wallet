@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
 - [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, keeps every claim note represented in token history, and lists the latest five activity rows with a See all link to Activity.
 - [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
 - [FIX][extension] Show the expand arrow on the Bread Command bar.
