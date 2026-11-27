@@ -60,6 +60,10 @@ const BENIGN_NATIVE_CODES = new Set([
   'AUTH_UNAVAILABLE',
   'AUTH_FAILED',
   'BIOMETRIC_BUSY',
+  // A one-use reveal approval that lapsed (lock, background, timeout, a newer prompt) or named
+  // another key. Asking again is the remedy.
+  'APPROVAL_EXPIRED',
+  'APPROVAL_MISMATCH',
   'DEVICE_LOCKED',
   // Caller/input fault (a malformed digest handed to the native sign path), not
   // a hardware condition — surfacing it as a "secure hardware failure" would be
@@ -168,6 +172,6 @@ export async function deleteHotKey(ciphertext: string): Promise<void> {
  * decodes the serialized `AuthSecretKey` and strips the 1-byte scheme prefix
  * so the format matches the native return.
  */
-export async function revealHotKey(ciphertext: string): Promise<string> {
-  return withHardwareFailureReport(() => implFor(ciphertext).revealHotKey(ciphertext));
+export async function revealHotKey(ciphertext: string, approval?: string): Promise<string> {
+  return withHardwareFailureReport(() => implFor(ciphertext).revealHotKey(ciphertext, approval));
 }

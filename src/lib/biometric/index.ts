@@ -383,7 +383,7 @@ export async function generateHardwareKey(): Promise<void> {
  * @param data - The data to encrypt (UTF-8 string)
  * @returns Base64-encoded encrypted data
  */
-export async function encryptWithHardwareKey(data: string): Promise<string> {
+export async function encryptWithHardwareKey(data: string, reason?: string): Promise<string> {
   console.log('[HardwareSecurity] encryptWithHardwareKey called');
   const plugin = getHardwareSecurityPlugin();
 
@@ -391,19 +391,32 @@ export async function encryptWithHardwareKey(data: string): Promise<string> {
     throw new Error('Hardware security not available');
   }
 
-  const result = await plugin.encryptWithHardwareKey({ data });
+  const result = await plugin.encryptWithHardwareKey(reason === undefined ? { data } : { data, reason });
   console.log('[HardwareSecurity] Encryption successful');
   return result.encrypted;
+}
+
+export interface HardwareDecryptPrompt {
+  /** Localized prompt text naming the action. */
+  reason?: string;
+  /** Set when the decrypt is the first half of revealing this everyday key (iOS). */
+  revealHotKey?: { publicKey: string; onApproval: (approval: string) => void };
 }
 
 /**
  * Decrypt data using the hardware-backed key.
  * This will trigger biometric authentication.
  *
- * @param encrypted - Base64-encoded encrypted data
+ * @param encrypted - The wrapper that encryptWithHardwareKey returned
+ * @param onRewrapped - Called when the platform returns a replacement for `encrypted` (iOS, for a
+ *   wrapper made by its earlier key). Must not throw: the decrypt has already succeeded.
  * @returns The decrypted data as a string
  */
-export async function decryptWithHardwareKey(encrypted: string): Promise<string> {
+export async function decryptWithHardwareKey(
+  encrypted: string,
+  onRewrapped?: (rewrapped: string) => Promise<void>,
+  prompt?: HardwareDecryptPrompt
+): Promise<string> {
   console.log('[HardwareSecurity] decryptWithHardwareKey called');
   const plugin = getHardwareSecurityPlugin();
 
@@ -411,9 +424,33 @@ export async function decryptWithHardwareKey(encrypted: string): Promise<string>
     throw new Error('Hardware security not available');
   }
 
-  const result = await plugin.decryptWithHardwareKey({ encrypted });
+  const result = await plugin.decryptWithHardwareKey({
+    encrypted,
+    ...(prompt?.reason !== undefined && { reason: prompt.reason }),
+    ...(prompt?.revealHotKey && { revealHotKeyPublicKey: prompt.revealHotKey.publicKey })
+  });
   console.log('[HardwareSecurity] Decryption successful');
+  if ('revealApproval' in result && typeof result.revealApproval === 'string') {
+    prompt?.revealHotKey?.onApproval(result.revealApproval);
+  }
+  const rewrapped = 'rewrapped' in result ? result.rewrapped : undefined;
+  if (typeof rewrapped === 'string') {
+    await onRewrapped?.(rewrapped);
+  }
   return result.decrypted;
+}
+
+/**
+ * Drop a reveal approval (iOS; no other platform issues one). With none named, drop them all and close
+ * any open prompt. Never rejects: native also drops them on use, on background and after 15 seconds.
+ */
+export async function discardRevealApproval(approval?: string): Promise<void> {
+  if (!isIOS()) return;
+  try {
+    await LocalBiometric.discardRevealApproval(approval === undefined ? {} : { approval });
+  } catch (error) {
+    console.error('[HardwareSecurity] discardRevealApproval error:', error);
+  }
 }
 
 /**

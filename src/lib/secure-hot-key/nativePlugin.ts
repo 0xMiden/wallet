@@ -73,9 +73,11 @@ export async function deleteHotKey(ciphertext: string): Promise<void> {
   await pluginCall(() => HotKey.deleteHotKey({ ciphertext }));
 }
 
-export async function revealHotKey(ciphertext: string): Promise<string> {
+export async function revealHotKey(ciphertext: string, approval?: string): Promise<string> {
   assertMobile();
 
-  const { secretKeyHex } = await pluginCall(() => HotKey.revealHotKey({ ciphertext }));
+  const { secretKeyHex } = await pluginCall(() =>
+    HotKey.revealHotKey(approval === undefined ? { ciphertext } : { ciphertext, approval })
+  );
   return secretKeyHex;
 }

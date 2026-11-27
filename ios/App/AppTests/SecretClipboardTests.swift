@@ -1,5 +1,6 @@
 import XCTest
 import Capacitor
+import LocalAuthentication
 import UIKit
 @testable import App
 
@@ -92,5 +93,110 @@ final class SecretClipboardTests: XCTestCase {
         wait(for: [pastExpiry], timeout: 2.5)
 
         XCTAssertNil(pasteboard.string)
+    }
+}
+
+private final class ClosingContext: LAContext {
+    private(set) var closed = false
+
+    override func invalidate() {
+        closed = true
+        super.invalidate()
+    }
+}
+
+final class RevealApprovalStoreTests: XCTestCase {
+    private var clock: UInt64 = 0
+    private let center = NotificationCenter()
+    private lazy var store = RevealApprovalStore(now: { [unowned self] in self.clock }, notifications: center)
+
+    private func approve(_ publicKey: String = "02ab") throws -> String {
+        let context = LAContext()
+        let ticket = store.begin(context)
+        let id = try XCTUnwrap(store.issue(ticket: ticket, publicKeyHex: publicKey))
+        store.end(context)
+        return id
+    }
+
+    func testAnApprovalWorksOnceAndOnlyUnderItsOwnId() throws {
+        let id = try approve()
+        XCTAssertNil(store.consume("another id"))
+        XCTAssertEqual(store.consume(id), "02ab")
+        XCTAssertNil(store.consume(id))
+    }
+
+    func testAnApprovalExpires() throws {
+        let inTime = try approve()
+        clock += RevealApprovalStore.lifetimeNanoseconds
+        XCTAssertEqual(store.consume(inTime), "02ab")
+        let late = try approve()
+        clock += RevealApprovalStore.lifetimeNanoseconds + 1
+        XCTAssertNil(store.consume(late))
+    }
+
+    func testANewerPromptDropsTheApprovalAndSupersedesEarlierTickets() throws {
+        let id = try approve()
+        let first = store.begin(LAContext())
+        XCTAssertNil(store.consume(id))
+        _ = store.begin(LAContext())
+        XCTAssertNil(store.issue(ticket: first, publicKeyHex: "02ab"))
+    }
+
+    func testLockDropsTheApprovalAndAnyPromptInFlight() throws {
+        let id = try approve()
+        store.invalidateAll()
+        XCTAssertNil(store.consume(id))
+        let ticket = store.begin(LAContext())
+        store.invalidateAll()
+        XCTAssertNil(store.issue(ticket: ticket, publicKeyHex: "02ab"))
+    }
+
+    func testBackgroundingDropsTheApproval() throws {
+        let id = try approve()
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        XCTAssertNil(store.consume(id))
+    }
+
+    // Through the plugin call that lock makes: a discard that names no approval.
+    func testADiscardWithNoIdClosesEveryOpenPrompt() throws {
+        let first = ClosingContext()
+        let second = ClosingContext()
+        _ = RevealApprovalStore.shared.begin(first)
+        _ = RevealApprovalStore.shared.begin(second)
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "discard", methodName: "discardRevealApproval",
+            options: [:], success: { _, _ in }, error: { _ in XCTFail("A discard must resolve") }))
+        LocalBiometricPlugin().discardRevealApproval(call)
+        XCTAssertTrue(first.closed)
+        XCTAssertTrue(second.closed)
+    }
+
+    func testBackgroundingClosesAnOpenPrompt() {
+        let open = ClosingContext()
+        _ = store.begin(open)
+        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        XCTAssertTrue(open.closed)
+    }
+
+    func testDiscardingAnotherIdKeepsTheApproval() throws {
+        let id = try approve()
+        store.discard("another id")
+        XCTAssertEqual(store.consume(id), "02ab")
+        let next = try approve()
+        store.discard(next)
+        XCTAssertNil(store.consume(next))
+    }
+
+    func testOfConcurrentUsesOnlyOneSucceeds() throws {
+        let id = try approve()
+        let winners = NSLock()
+        var count = 0
+        DispatchQueue.concurrentPerform(iterations: 64) { _ in
+            if store.consume(id) != nil {
+                winners.lock()
+                count += 1
+                winners.unlock()
+            }
+        }
+        XCTAssertEqual(count, 1)
     }
 }

@@ -41,6 +41,11 @@ private let kTagSuffixBytes = 16
 private let kMinPayloadBytes = 48
 private let kMaxPayloadBytes = 256
 
+private func normalizedPublicKeyHex(_ hex: String) -> String {
+    let lower = hex.lowercased()
+    return lower.hasPrefix("0x") ? String(lower.dropFirst(2)) : lower
+}
+
 @objc(HotKeyPlugin)
 public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HotKeyPlugin"
@@ -399,6 +404,18 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
+        // An approval from the vault prompt of this same reveal stands in for the prompt below. One
+        // that is spent, expired or dropped is refused: it never falls back to a new prompt, which
+        // could appear after a lock.
+        if let approval = call.getString("approval") {
+            guard let publicKey = RevealApprovalStore.shared.consume(approval) else {
+                call.reject("Authentication expired. Try again.", "APPROVAL_EXPIRED")
+                return
+            }
+            performReveal(call, fullTagData: fullTagData, payload: payload, approvedPublicKeyHex: publicKey)
+            return
+        }
+
         // Presence gate before touching the key material. deviceOwner
         // Authentication includes the passcode fallback, so any secured
         // device can pass; only a device with no auth at all rejects.
@@ -415,7 +432,9 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             return
         }
-        laContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Reveal your device key") { [weak self] success, error in
+        _ = RevealApprovalStore.shared.begin(laContext)
+        laContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: kRevealHotKeyReason) { [weak self] success, error in
+            defer { RevealApprovalStore.shared.end(laContext) }
             guard let self else { return }
             guard success else {
                 let nsError = error as NSError?
@@ -428,12 +447,14 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 return
             }
-            self.performReveal(call, fullTagData: fullTagData, payload: payload)
+            self.performReveal(call, fullTagData: fullTagData, payload: payload, approvedPublicKeyHex: nil)
         }
     }
 
     /// Post-auth reveal body: SE key lookup, silent ECIES unwrap, resolve.
-    private func performReveal(_ call: CAPPluginCall, fullTagData: Data, payload: Data) {
+    private func performReveal(
+        _ call: CAPPluginCall, fullTagData: Data, payload: Data, approvedPublicKeyHex: String?
+    ) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: fullTagData,
@@ -492,6 +513,15 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             zeroBytes(&unwrapped)
             call.reject("Unwrapped hot-key has wrong length")
             return
+        }
+        if let approved = approvedPublicKeyHex {
+            let publicKey = (try? P256K.Signing.PrivateKey(dataRepresentation: unwrapped))?
+                .publicKey.dataRepresentation.map { String(format: "%02x", $0) }.joined()
+            guard publicKey == normalizedPublicKeyHex(approved) else {
+                zeroBytes(&unwrapped)
+                call.reject("This approval was for another key", "APPROVAL_MISMATCH")
+                return
+            }
         }
 
         let secretKeyHex = unwrapped.map { String(format: "%02x", $0) }.joined()
