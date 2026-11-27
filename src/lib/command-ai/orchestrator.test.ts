@@ -737,7 +737,7 @@ describe('command-ai orchestrator', () => {
       expect(res).toMatchObject({ kind: 'error', messageKey: 'commandAiBridgeUnavailable' });
     });
 
-    const patch = (fields: Record<string, string>) => ({
+    const patch = (fields: Partial<Record<'asset' | 'to_asset' | 'from_chain' | 'to_chain', string>>) => ({
       op: 'patch_slots' as const,
       patch: {
         action: null,
