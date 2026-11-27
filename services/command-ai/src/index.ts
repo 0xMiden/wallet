@@ -17,7 +17,7 @@ export const COMMAND_AI_MAX_BODY_BYTES = 16 * 1024;
 export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 8 * 1024;
 const COMMAND_AI_TIMEOUT_MS = 15_000;
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-oss-120b';
+export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const DEFAULT_REASONING_EFFORT = 'low';
 const RATE_LIMIT_RETRY_S = '60';
 

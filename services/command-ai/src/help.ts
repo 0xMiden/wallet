@@ -15,7 +15,15 @@ export interface HelpCard {
   answer: string;
 }
 
+/** Which cards may be answered in written text. `cards: []` turns writing off. */
+export interface WritingConfig {
+  writer: string;
+  checker: string;
+  cards: string[];
+}
+
 export interface HelpDataset {
+  writing: WritingConfig;
   forbid: string[];
   buttons: Record<string, { card: string; titles: string[] }>;
   facts: Record<string, { text: string; src: string[] }>;
@@ -68,6 +76,10 @@ export const isPlaceholderOnly = (text: string): boolean =>
   text.search(PLACEHOLDER) >= 0 && /^[\s\p{P}\p{S}]*$/u.test(text.replace(PLACEHOLDER, ''));
 
 const UNKNOWN = new Set(['not_covered', 'cannot_diagnose']);
+
+export function selectCards(_ids: unknown, _data: HelpDataset): HelpCard[] {
+  return [];
+}
 
 export function selectCard(ids: unknown, data: HelpDataset): HelpCard {
   const byId = new Map(data.cards.map(card => [card.id, card]));

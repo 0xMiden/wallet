@@ -10,7 +10,7 @@ import { parseAiCompilerOutput } from '../../src/lib/command-ai/schema';
 import { hasUnsafeSharingAdvice } from '../../services/command-ai/src/help-safety.mjs';
 import { type HelpCard, type HelpDataset, buildHelpPrompt, explainReply } from '../../services/command-ai/src/help';
 import helpCards from '../../services/command-ai/src/help-cards.json';
-import { SYSTEM_PROMPT } from '../../services/command-ai/src/index';
+import { DEFAULT_MODEL, SYSTEM_PROMPT } from '../../services/command-ai/src/index';
 import shippedTitles from './help-titles-1.18.2.json';
 
 const data = helpCards as unknown as HelpDataset;
@@ -286,4 +286,38 @@ it('maps each topic button to its card and lists every shipped and current title
     return titles.filter(title => !button.titles.includes(title)).map(title => `${topic}: ${title}`);
   });
   expect(bad).toEqual([]);
+});
+
+// Safety, emergency and who-can-see cards are never reworded by the model.
+const WORD_FOR_WORD = `
+  lost_phrase lost_phrase_and_device forgot_password reset_reinstall secrets_scams phrase_exposed
+  device_stolen send_stuck_failed not_covered cannot_diagnose guardian_see privacy_overview privacy_check
+  who_sees_payment validators delegated_proving swap_bridge_privacy
+`
+  .trim()
+  .split(/\s+/);
+
+describe('writing switch', () => {
+  const QUALIFIED = ['openai/gpt-oss-20b'];
+
+  it('keeps the 17 word-for-word cards out of writing', () => {
+    expect(WORD_FOR_WORD).toHaveLength(17);
+    expect(data.cards.filter(card => card.mode !== 'write').map(card => card.id)).toEqual(
+      data.cards.filter(card => WORD_FOR_WORD.includes(card.id)).map(card => card.id)
+    );
+  });
+
+  it('is off, with a qualified writer and checker that leave the router quota alone', () => {
+    // The commit that enables cards changes this to the exact graded list, with its run ids.
+    expect(data.writing).toEqual({ writer: QUALIFIED[0], checker: QUALIFIED[0], cards: [] });
+    for (const model of [data.writing?.writer, data.writing?.checker]) expect(model).not.toBe(DEFAULT_MODEL);
+  });
+
+  it('lists only distinct write cards', () => {
+    const write = data.cards.filter(card => card.mode === 'write').map(card => card.id);
+    const listed = data.writing?.cards;
+    expect(listed).toBeDefined();
+    expect(new Set(listed).size).toBe(listed?.length);
+    expect(listed?.filter(id => !write.includes(id))).toEqual([]);
+  });
 });

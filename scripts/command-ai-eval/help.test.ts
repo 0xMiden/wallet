@@ -12,7 +12,8 @@ import {
   explainReply,
   isPlaceholderOnly,
   matchTopicButton,
-  selectCard
+  selectCard,
+  selectCards
 } from '../../services/command-ai/src/help';
 
 const card = (id: string, mode: CardMode, urgent = false): HelpCard => ({
@@ -31,6 +32,7 @@ const card = (id: string, mode: CardMode, urgent = false): HelpCard => ({
 });
 
 const data: HelpDataset = {
+  writing: { writer: 'w', checker: 'c', cards: [] },
   forbid: [],
   buttons: {
     Recovery: { card: 'w1', titles: ['What if I lose my device?', 'デバイスを紛失したら？'] },
@@ -67,7 +69,35 @@ describe('selectCard', () => {
     [[], 'not_covered'],
     ['w1', 'not_covered'],
     [[7, null], 'not_covered']
-  ])('selects %j', (ids, id) => expect(selectCard(ids, data).id).toBe(id));
+  ])('selects %j', (ids, id) => {
+    expect(selectCard(ids, data).id).toBe(id);
+    expect(selectCards(ids, data)[0]?.id).toBe(id);
+  });
+
+  it.each<[string[], string[]]>([
+    [
+      ['w1', 'w2'],
+      ['w1', 'w2']
+    ],
+    [
+      ['w2', 'w1'],
+      ['w2', 'w1']
+    ],
+    [
+      ['w1', 'c1'],
+      ['w1', 'c1']
+    ],
+    [['w1', 'not_covered'], ['w1']],
+    [['not_covered', 'w1'], ['not_covered']],
+    [['w1', 'f1'], ['f1']],
+    [['w1', 'u1'], ['u1']],
+    [['nope', 'w2'], ['w2']],
+    [
+      ['w1', 'w2', 'c1'],
+      ['w1', 'w2']
+    ],
+    [[], ['not_covered']]
+  ])('keeps at most two cards for %j', (ids, kept) => expect(selectCards(ids, data).map(({ id }) => id)).toEqual(kept));
 });
 
 describe('matchTopicButton', () => {
