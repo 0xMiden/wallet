@@ -2,6 +2,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 
 import type { TxAssetView } from 'app/confirm/decode';
 import type { NoteFlow } from 'app/confirm/note-flow';
+import type { AuthPurpose } from 'lib/auth/auth-purpose';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
@@ -210,7 +211,7 @@ export interface WalletActions {
     spends: readonly IConsumedAssetTotal[]
   ) => Promise<SpendingLimitAssessment | undefined>;
   getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
-  verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
+  verifyStrictActionAuthentication: (credential: string | undefined, purpose: AuthPurpose) => Promise<void>;
 
   // Signing actions
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;

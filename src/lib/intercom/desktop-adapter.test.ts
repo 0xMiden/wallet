@@ -371,11 +371,12 @@ describe('DesktopIntercomAdapter', () => {
     it('handles strict authentication protector and verification requests', async () => {
       const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
       const verified = await adapter.request({
-        type: WalletMessageType.VerifyStrictActionAuthenticationRequest
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        purpose: 'remove-device'
       });
 
       expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
-      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith(undefined);
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith(undefined, 'remove-device');
       expect(protectors).toEqual({
         type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
         protectors: { hardware: false, password: true }
