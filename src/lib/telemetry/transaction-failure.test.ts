@@ -1531,7 +1531,7 @@ describe('a pipeline killed from outside', () => {
     ['deadline', `offscreen_aborted_deadline; ${unrecorded}`],
     ['deadline-no-kill', `offscreen_aborted_deadline_no_kill; ${unrecorded}`],
     ['doc-closed', 'offscreen_aborted_doc_closed; op start reported unavailable'],
-    ['transport', 'offscreen_aborted_transport; op start reported unavailable'],
+    ['transport', 'offscreen_aborted_transport; op start reported unavailable; transport reason unknown'],
     [`stalled on ${ACCOUNT_HEX}`, 'offscreen_aborted_other; op start reported unavailable']
   ])('names an offscreen abort for %s by its reason, never its operation id', async (reason, identity) => {
     reportTransactionFailure({
@@ -1627,9 +1627,30 @@ describe('a pipeline killed from outside', () => {
     reportTransactionFailure({ type: 'consume', stage: 'sending', error: hostile });
     await settle();
     const [started, unreadable] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
-    expect(started).toContain('; point pipeline; offscreen_aborted_transport; op start reported yes. ');
-    expect(unreadable).toContain('; point pipeline; offscreen_aborted_transport; op start reported unavailable. ');
+    expect(started).toContain(
+      '; point pipeline; offscreen_aborted_transport; op start reported yes; transport reason unknown. '
+    );
+    expect(unreadable).toContain(
+      '; point pipeline; offscreen_aborted_transport; op start reported unavailable; transport reason unknown. '
+    );
     expectNoTransactionData(`${started} ${unreadable}`);
+  });
+
+  it.each([
+    ['response_channel_closed', 'response_channel_closed'],
+    ['context_invalidated', 'context_invalidated'],
+    ['no_receiver', 'no_receiver'],
+    [ACCOUNT_HEX, 'unknown']
+  ])('reports only the closed transport reason for %s', async (fact, expected) => {
+    const abort = new OperationAbortedError(OP_ID, 'transport', { started: true, transportReason: fact } as never);
+    abort.cause = new Error(`private transport details for ${ACCOUNT_HEX} amount ${AMOUNT}`);
+    reportTransactionFailure({ type: 'consume', stage: 'sending', error: sync(abort) });
+    const message = await reportedMessage();
+    expect(message).toContain(
+      `; point pipeline; offscreen_aborted_transport; op start reported yes; transport reason ${expected}. `
+    );
+    expect(message).not.toContain('private transport details');
+    expectNoTransactionData(message);
   });
 
   it('names the kill rather than the unknown outcome text it abandoned', async () => {

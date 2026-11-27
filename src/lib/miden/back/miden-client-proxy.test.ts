@@ -2506,22 +2506,43 @@ describe('MidenClientProxy — settlement paths', () => {
   // same error TYPE. It used to surface as a bare Error, which classified as an
   // ordinary failure everywhere downstream: `tryCompleteKilledConsume` skipped its
   // node check, and the persisted `rawError` carried no recognizable kill reason.
-  it('a sendMessage transport rejection settles as OperationAbortedError(transport), keeping the cause', async () => {
-    const { midenClientProxy } = await loadProxy(true);
-    const { OperationAbortedError } = await import('./offscreen-codec');
-    const transportError = new Error('message port closed before a response');
-    fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
+  it.each([
+    ['The message port closed before a response was received.', 'response_channel_closed'],
+    [
+      'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received.',
+      'response_channel_closed'
+    ],
+    ['Extension context invalidated.', 'context_invalidated'],
+    ['Could not establish connection. Receiving end does not exist.', 'no_receiver'],
+    ['Unrecognized failure: Extension context invalidated.', 'unknown'],
+    [null, 'unknown']
+  ])(
+    'classifies sendMessage transport rejection %s while keeping the cause',
+    async (browserMessage, transportReason) => {
+      const { midenClientProxy } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      const transportError =
+        browserMessage === null
+          ? Object.defineProperty(new Error(), 'message', {
+              get() {
+                throw new Error('Unreadable transport message');
+              }
+            })
+          : new Error(`${browserMessage} account 0x1234567890abcdef amount 987654321`);
+      fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
 
-    const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
-    await flush();
-    fireReady();
-    const err = await p;
-    expect(err).toBeInstanceOf(OperationAbortedError);
-    expect((err as { reason?: string }).reason).toBe('transport');
-    expect((err as { facts?: unknown }).facts).toEqual({ started: false });
-    // The original transport message is preserved, not swallowed.
-    expect((err as Error).cause).toBe(transportError);
-  });
+      const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
+      await flush();
+      fireReady();
+      const err = await p;
+      expect(err).toBeInstanceOf(OperationAbortedError);
+      expect((err as { reason?: string }).reason).toBe('transport');
+      expect((err as { facts?: unknown }).facts).toEqual({ started: false, transportReason });
+      // The original transport message is preserved, not swallowed.
+      expect((err as Error).cause).toBe(transportError);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    }
+  );
 });
 
 // ─── Slice 5a: consumeNoteId (the WRITE pipeline) ───────────────────────────
