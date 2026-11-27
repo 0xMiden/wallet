@@ -487,19 +487,43 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // provably never called submit, and the candidate a kill left can be abandoned instead of held for the Guardian's grace.
 // A missing op_id, a settled dispatch, a refusal or no answer at all all mean no submit, failed before it like any other
 // pre-submit step.
-async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
-  const { op_id } = context;
-  if (!op_id || context.settled) throw new Error('offscreen submit gate: no live op to submit for');
-  const request: OffscreenSubmitGateRequest = {
-    target: SW_TARGET,
-    type: OFFSCREEN_SUBMIT_GATE,
-    op_id,
-    ...(evidence === undefined ? {} : { evidence })
-  };
+async function sendSubmitGate(request: OffscreenSubmitGateRequest, refusalLabel: string): Promise<void> {
   const resp = (await chrome.runtime.sendMessage(request)) as OffscreenSubmitGateResponse | undefined;
   if (resp?.ok !== true) {
-    throw new Error(`offscreen submit gate refused: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
+    throw new Error(`${refusalLabel}: ${resp && !resp.ok ? resp.error : 'no response from SW'}`);
   }
+}
+
+async function passSubmitGate(context: DispatchContext, evidence?: SubmitEvidenceFields): Promise<void> {
+  const { op_id } = context;
+  if (!op_id || context.settled || context.gateClosed) {
+    throw new Error('offscreen submit gate: no live op to submit for');
+  }
+  await sendSubmitGate(
+    {
+      target: SW_TARGET,
+      type: OFFSCREEN_SUBMIT_GATE,
+      op_id,
+      ...(evidence === undefined ? {} : { evidence })
+    },
+    'offscreen submit gate refused'
+  );
+}
+
+async function retractSubmitGate(context: DispatchContext): Promise<void> {
+  const { op_id } = context;
+  if (!op_id || context.settled || context.gateClosed) {
+    throw new Error('offscreen submit gate retract: no live op to retract');
+  }
+  await sendSubmitGate(
+    {
+      target: SW_TARGET,
+      type: OFFSCREEN_SUBMIT_GATE,
+      op_id,
+      action: 'retract'
+    },
+    'offscreen submit gate retract refused'
+  );
 }
 
 function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
@@ -592,6 +616,12 @@ type DispatchContext = {
   readonly submitGated: boolean;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
+  /** Set by `handleCall` catch before `sendResponse` so abandoned dispatches cannot open or retract gates after reply. */
+  gateClosed?: boolean;
+  /** Best-effort pre-submit gate retraction while `guardianPipeline` waits between gate entry and `attempt.submit()`. */
+  retractPreSubmitGate?: () => Promise<void>;
+  /** Shared raw `retractSubmitGate` promise so `handleCall` eviction cleanup awaits an in-flight retract without duplicating IPC. */
+  activeRetract?: Promise<void>;
 };
 
 /** One execute and prove of a guardian leaf, ready for its submit. */
@@ -1211,23 +1241,66 @@ const DISPATCH: Record<string, DispatchFn> = {
             evidence: readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
           };
         };
+        const startGateRetract = (): Promise<void> => {
+          context.retractPreSubmitGate = undefined;
+          if (context.activeRetract) return context.activeRetract;
+          const pending = retractSubmitGate(context).finally(() => {
+            if (context.activeRetract === pending) context.activeRetract = undefined;
+          });
+          // Suppress spurious unhandledRejection when eviction interrupts the caller awaiting `submitGate.retract()`.
+          void pending.catch(() => {});
+          context.activeRetract = pending;
+          return pending;
+        };
+        const retractGateBestEffort = async (): Promise<void> => {
+          try {
+            await startGateRetract();
+          } catch (retractError) {
+            console.warn(`${TAG} failed to retract submit gate`, retractError);
+          }
+        };
         attempt = await withFreshProof({
           executeAndProve,
           expirationBlockOf: proven => proven.evidence.expirationBlock,
           readTip: readChainTip,
           assertLive: () => assertWasmHoldCurrent(hold, 'in the guardian pipeline after reading the chain tip'),
-          budgetMs: OFFSCREEN_PROOF_BUDGET_MS
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+          submitGate: {
+            commit: async proven => {
+              if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
+              context.retractPreSubmitGate = retractGateBestEffort;
+              try {
+                // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
+                await passSubmitGate(context, proven.evidence);
+              } catch (gateError) {
+                context.retractPreSubmitGate = undefined;
+                throw gateError;
+              }
+              // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
+              try {
+                assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
+              } catch (error) {
+                await retractGateBestEffort();
+                throw error;
+              }
+            },
+            retract: () => startGateRetract()
+          }
         });
-        // Read under this op's own hold before the gate, so the service worker can record what the attempt was (#1081).
-        await passSubmitGate(context, attempt.evidence);
-        // The gate's round trip parks this dispatch, so ownership is asked once more before the submit.
-        assertWasmHoldCurrent(hold, 'in the guardian pipeline after its submit gate');
-        if (oneClickRequired) assertOneClickDeadline(oneClickDeadline ?? undefined);
+        if (oneClickRequired) {
+          try {
+            assertOneClickDeadline(oneClickDeadline ?? undefined);
+          } catch (error) {
+            await retractGateBestEffort();
+            throw error;
+          }
+        }
       } catch (preSubmitError) {
         // Everything above precedes the submit call, so this attempt provably never crossed (#1081). A kill keeps its
         // own shape: markErrorBeforeSubmit never tags one.
         throw markErrorBeforeSubmit(preSubmitError);
       }
+      context.retractPreSubmitGate = undefined;
       const submittedTx = await attempt.submit();
       recordProveTiming('guardianPipeline submit returned; applying');
       // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
@@ -1558,6 +1631,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   // apart, because a write's real deadline is armed at execution START and its
   // dispatch-time backstop is a flat 5 minutes either way.
   recordProveTiming(`call '${msg?.method}' op=${msg?.op_id} entered`);
+  let activeContext: DispatchContext | undefined;
   try {
     // On receipt, before any await: a reload that arrives while this call waits on a cold
     // init is newer, and adopting after the await would let this older state win.
@@ -1672,6 +1746,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         submitGated: msg.submitGated === true,
         settled: false
       };
+      activeContext = context;
       try {
         const dispatchArgs = executionFeeContext ? [...args, executionFeeContext] : args;
         return await dispatch(context, client, ...dispatchArgs);
@@ -1743,6 +1818,22 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // requeue → double-spend). `undefined` for a code-less error keeps the reply
     // shape unchanged (mirrors the flag-off path).
     const errorName = errorNameOf(err);
+    if (errorName === 'WasmClientPoisonedError' && activeContext && !activeContext.settled) {
+      if (activeContext.retractPreSubmitGate) {
+        const retract = activeContext.retractPreSubmitGate;
+        activeContext.retractPreSubmitGate = undefined;
+        await retract();
+      } else if (activeContext.activeRetract) {
+        try {
+          await activeContext.activeRetract;
+        } catch (retractError) {
+          console.warn(`${TAG} failed to retract submit gate`, retractError);
+        }
+      }
+    }
+    // Keep `settled` controlled by `execute`'s `finally` so evicted un-gated writes can still post stage evidence (#775),
+    // while `gateClosed` blocks late `OFFSCREEN_SUBMIT_GATE` open/retract messages once the reply tears down SW gates.
+    if (activeContext) activeContext.gateClosed = true;
     // Guarded for the same reason `errorName` is: both reads touch a value of
     // unknown provenance, and `message` can be an accessor that throws just as
     // `name` can. A throw escaping here skips `sendResponse` entirely, which the

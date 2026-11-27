@@ -463,4 +463,84 @@ describe('user-visible error reporting', () => {
     dwellForError();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
   });
+
+  it('reports an explicit recoveryErrorId instead of raw_onboarding_recovery_failed when provided', () => {
+    renderComponent({ recoveryError: 'smthWentWrong', recoveryErrorId: 'smthWentWrong' });
+    dwellForError();
+    expect(reportUserVisibleError).toHaveBeenCalledWith('smthWentWrong', 'notice');
+  });
+});
+
+describe('replacing an existing wallet (replacesExistingWallet)', () => {
+  it('renders no replace-wallet warning or cancel action by default', () => {
+    renderComponent();
+    expect(screen.queryByTestId('onboarding-replace-wallet-warning')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-confirmation-cancel')).not.toBeInTheDocument();
+  });
+
+  it('shows honest erase warning, restore submit label, and back-to-unlock action when restoring over an existing wallet', () => {
+    const onCancel = jest.fn();
+    renderComponent({
+      onboardingType: OnboardingType.Import,
+      replacesExistingWallet: true,
+      onCancel
+    });
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('replaceWalletConfirmTitle');
+    expect(screen.getByText('replaceWalletRestoreSubtitle')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-replace-wallet-warning')).toHaveTextContent('replaceWalletEraseWarning');
+    expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveTextContent('eraseAndRestoreWallet');
+
+    const cancelButton = screen.getByTestId('onboarding-confirmation-cancel');
+    expect(cancelButton).toHaveTextContent('backToUnlock');
+    fireEvent.click(cancelButton);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses create replacement copy and eraseAndCreateWallet label for OnboardingType.Create', () => {
+    renderComponent({
+      onboardingType: OnboardingType.Create,
+      replacesExistingWallet: true,
+      onCancel: jest.fn()
+    });
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('replaceWalletConfirmTitle');
+    expect(screen.getByText('replaceWalletCreateSubtitle')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-replace-wallet-warning')).toHaveTextContent('replaceWalletEraseWarning');
+    expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveTextContent('eraseAndCreateWallet');
+  });
+
+  it('disables the back-to-unlock cancel button while registration is running', () => {
+    const onCancel = jest.fn();
+    renderComponent({
+      onboardingType: OnboardingType.Import,
+      replacesExistingWallet: true,
+      onCancel,
+      isLoading: true
+    });
+
+    const cancelButton = screen.getByTestId('onboarding-confirmation-cancel');
+    expect(cancelButton).toBeDisabled();
+    fireEvent.click(cancelButton);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('switches submit to retry while keeping back-to-unlock reachable after a failed replace attempt', () => {
+    const onCancel = jest.fn();
+    renderComponent({
+      onboardingType: OnboardingType.Import,
+      replacesExistingWallet: true,
+      recoveryError: 'guardian unreachable',
+      onCancel
+    });
+
+    expect(screen.getByTestId('onboarding-confirmation-failed')).toHaveTextContent('guardian unreachable');
+    expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveTextContent('retry');
+    expect(screen.queryByTestId('onboarding-replace-wallet-warning')).not.toBeInTheDocument();
+
+    const cancelButton = screen.getByTestId('onboarding-confirmation-cancel');
+    expect(cancelButton).toHaveTextContent('backToUnlock');
+    fireEvent.click(cancelButton);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
 });

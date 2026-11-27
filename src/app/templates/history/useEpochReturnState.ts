@@ -4,6 +4,7 @@ import { usePageActive } from 'app/layouts/page-active';
 import { Status } from 'components/ui/StatusBadge';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { EpochNoteState, readEpochNoteState } from 'lib/epoch/return-state';
+import { hasTransactionIndex } from 'lib/miden/db/index-query';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -110,17 +111,26 @@ export function useEpochReturnState(
 
   useEffect(() => {
     if (!noteId) return;
+    const matchesClaim = (tx: ITransaction) =>
+      tx.accountId === accountId &&
+      tx.type === 'consume' &&
+      !tx.restoredFromBackup &&
+      (tx.noteId === noteId || tx.noteIds?.includes(noteId) === true);
+
     return subscribeToLiveQuery(
-      () =>
-        Repo.transactions
-          .where({ accountId })
-          .filter(
-            tx =>
-              tx.type === 'consume' &&
-              !tx.restoredFromBackup &&
-              (tx.noteId === noteId || tx.noteIds?.includes(noteId) === true)
-          )
-          .toArray(),
+      async () => {
+        if (hasTransactionIndex('noteId', Repo.transactions) && hasTransactionIndex('noteIds', Repo.transactions)) {
+          const [byNoteId, byNoteIds] = await Promise.all([
+            Repo.transactions.where('noteId').equals(noteId).filter(matchesClaim).toArray(),
+            Repo.transactions.where('noteIds').equals(noteId).filter(matchesClaim).toArray()
+          ]);
+          const byId = new Map<string, ITransaction>();
+          for (const row of byNoteId) byId.set(row.id, row);
+          for (const row of byNoteIds) byId.set(row.id, row);
+          return [...byId.values()];
+        }
+        return Repo.transactions.where({ accountId }).filter(matchesClaim).toArray();
+      },
       {
         next: rows => setClaims({ noteId, rows }),
         error: () => setClaims(undefined)

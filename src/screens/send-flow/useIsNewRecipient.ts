@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import * as Repo from 'lib/miden/repo';
@@ -97,10 +98,11 @@ export function useIsNewRecipient(accountId: string | null | undefined, to: stri
   useEffect(() => {
     if (!accountId || !key) return;
     let cancelled = false;
-    Repo.transactions
-      .where('type')
-      .anyOf('send', 'bridged-send')
-      .toArray()
+    readTransactionIndexChunks(
+      Repo.transactions,
+      typeIndexSpecs(['send', 'bridged-send']),
+      row => !row.restoredFromBackup && row.status !== ITransactionStatus.Failed
+    )
       .then(rows => {
         if (!cancelled) setRead({ accountId, key, known: knownRecipientKeys(rows, accountId) });
       })

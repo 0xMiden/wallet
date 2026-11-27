@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { EventCategory, EventSeverity, TimelineEvent } from './types';
+import type { EventCategory, EventSeverity, TimelineEvent, WalletLabel } from './types';
 
 /**
  * NDJSON event stream recorder. Streams to disk so partial output survives crashes.
@@ -91,7 +91,7 @@ export class TimelineRecorder {
   /**
    * Get events for a specific wallet.
    */
-  getEventsForWallet(wallet: 'A' | 'B'): TimelineEvent[] {
+  getEventsForWallet(wallet: WalletLabel): TimelineEvent[] {
     return this.events.filter(e => e.wallet === wallet);
   }
 

@@ -20,6 +20,7 @@ import {
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from './miden-client';
+import { isLockEvictedError } from './sdk-error-code';
 import {
   isWasmClientPoisonedError,
   poisonReasonOf,
@@ -63,6 +64,10 @@ describe('wasm lock watchdog', () => {
 
   it('evicts a never-settling holder at the ceiling so the next acquirer runs, rejecting it with a named error', async () => {
     const first = withWasmClientLock(() => new Promise<never>(() => {}));
+    let firstErr: unknown;
+    void first.catch(e => {
+      firstErr = e;
+    });
     const firstRejects = expectRejection(first, {
       name: 'WasmClientPoisonedError',
       reason: 'watchdog'
@@ -77,6 +82,7 @@ describe('wasm lock watchdog', () => {
 
     expect(ran).toBe(true);
     await firstRejects;
+    expect(isLockEvictedError(firstErr)).toBe(true);
     await second;
   });
 
@@ -580,6 +586,7 @@ describe('assertWasmHoldCurrent (#788 follow-up)', () => {
       thrown = e;
     }
     expect(isWasmClientPoisonedError(thrown)).toBe(true);
+    expect(isLockEvictedError(thrown)).toBe(true);
     expect(((thrown as Error).cause as Error).message).toBe('operation abandoned after the account read');
 
     // A callee with several re-checks forwards its step, which follows the caller's label.
@@ -1167,12 +1174,17 @@ describe('watchdog pause and yield', () => {
 
   it('a yielded wait that never settles is evicted at the relaxed ceiling instead of wedging forever', async () => {
     const op = withWasmClientLock(hold => yieldWasmClientLock(() => new Promise<never>(() => {}), hold));
+    let opErr: unknown;
+    void op.catch(e => {
+      opErr = e;
+    });
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
     await jest.advanceTimersByTimeAsync(0);
     expect(isWasmClientBusy()).toBe(false);
     await jest.advanceTimersByTimeAsync(1_800_000);
     await opRejects;
+    expect(isLockEvictedError(opErr)).toBe(true);
     // The lock keeps working - no leaked acquire, no wedged queue.
     await expect(withWasmClientLock(async () => 'ok')).resolves.toBe('ok');
   });

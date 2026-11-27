@@ -41,7 +41,7 @@ export async function fetchTokenPrices(symbols: readonly string[] = []): Promise
     );
     await source.resolve(candidates);
     for (const [symbol, quote] of Object.entries(await source.fetchQuotes(candidates))) {
-      if (!prices.has(symbol)) prices.set(symbol, quote);
+      if (!prices.has(symbol)) prices.set(symbol, { ...quote, provider: source.id });
     }
     asked.push(source);
   }

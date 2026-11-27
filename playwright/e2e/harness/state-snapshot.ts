@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { TimelineRecorder } from './timeline-recorder';
-import type { SnapshotCaps, WalletSnapshot } from './types';
+import type { SnapshotCaps, WalletLabel, WalletSnapshot } from './types';
 
 /**
  * Capture wallet state via platform-neutral capabilities. The fixture supplies
@@ -12,7 +12,7 @@ import type { SnapshotCaps, WalletSnapshot } from './types';
  */
 export async function captureWalletSnapshot(
   caps: SnapshotCaps,
-  walletLabel: 'A' | 'B',
+  walletLabel: WalletLabel,
   stepIndex: number,
   stepName: string
 ): Promise<WalletSnapshot> {
@@ -86,7 +86,7 @@ export async function captureWalletSnapshot(
  */
 export async function captureAndSaveSnapshot(
   caps: SnapshotCaps,
-  walletLabel: 'A' | 'B',
+  walletLabel: WalletLabel,
   stepIndex: number,
   stepName: string,
   outputDir: string,
