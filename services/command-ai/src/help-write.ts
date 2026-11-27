@@ -101,3 +101,43 @@ export function writerInput(
   });
   return { system: WRITER_RULES.replace('{budget}', String(budget)), user, budget, cards };
 }
+
+export interface Sentence {
+  facts: string[];
+  text: string;
+}
+
+export interface WrittenReply {
+  op: 'explain';
+  topic: string;
+  answer: string;
+}
+
+export type Draft =
+  | { kind: 'ok'; reply: WrittenReply; cited: string[]; checkerUser: string; fallback: HelpCard }
+  | { kind: 'unknown'; why: 'unanswerable' | 'content' }
+  | { kind: 'card'; why: 'format' | 'technical'; card: HelpCard };
+
+export function checkerInput(
+  _sentences: Sentence[],
+  _input: WriterInput,
+  _data: HelpDataset,
+  _question: string,
+  _previousTopic: string | null
+): string {
+  return '{}';
+}
+
+export function reviewDraft(
+  _raw: unknown,
+  input: WriterInput,
+  _data: HelpDataset,
+  _question: string,
+  _previousTopic: string | null
+): Draft {
+  return { kind: 'card', why: 'technical', card: input.cards[0]! };
+}
+
+export function unknownCard(_first: HelpCard, data: HelpDataset): HelpCard {
+  return data.cards[0]!;
+}
