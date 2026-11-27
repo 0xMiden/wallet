@@ -2401,8 +2401,22 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
         { tokenId: TEST_TOKEN_IBTC.faucetId, balance: 1.5, metadata: { symbol: 'BTC', decimals: 8 } }
       ],
       tokenPrices: {
-        ETH: { price: 2000, change24h: 3.2, percentageChange24h: 0.1, observedAt: now, provider: 'binance', kind: 'market' },
-        BTC: { price: 65000, change24h: 120, percentageChange24h: 0.2, observedAt: now, provider: 'binance', kind: 'market' }
+        ETH: {
+          price: 2000,
+          change24h: 3.2,
+          percentageChange24h: 0.1,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market'
+        },
+        BTC: {
+          price: 65000,
+          change24h: 120,
+          percentageChange24h: 0.2,
+          observedAt: now,
+          provider: 'binance',
+          kind: 'market'
+        }
       }
     });
 
