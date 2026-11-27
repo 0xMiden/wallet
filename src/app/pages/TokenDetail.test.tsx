@@ -433,10 +433,11 @@ function configure(o: Overrides = {}) {
           { time: 1_700_000_120_000, value: 3 }
         ]
       : o.klineData;
-  mockUseRetryableSWR.mockImplementation((_key: unknown, fetcher: () => unknown) => {
+  mockUseRetryableSWR.mockImplementation((key: unknown, fetcher: () => unknown) => {
     // Cover the inline `() => fetchKlineData(symbol, timeframe)` closure. A rejection is SWR's error state.
     Promise.resolve(fetcher()).catch(() => undefined);
-    return { data };
+    // The display cache's read is still pending here; only the chart takes the configured payload.
+    return { data: Array.isArray(key) && key[0] === 'cached-display-market-quotes' ? undefined : data };
   });
 }
 

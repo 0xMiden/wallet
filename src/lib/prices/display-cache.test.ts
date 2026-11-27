@@ -148,6 +148,45 @@ it('serves the basket stored for the subscribed network and list', async () => {
   await waitFor(() => expect(result.current?.BLUEDW).toBeUndefined());
 });
 
+// A map read for another network or list revision while the new key loads (or after its read failed).
+async function switchedAway(switchKey: () => void) {
+  const fetchedAt = Date.now() - 5_000;
+  const stored: Record<string, unknown> = {
+    usd_price_cache: { ETH: { priceMicro: '2500000000', fetchedAt: Math.floor(fetchedAt / 1000) } },
+    'display_feed_v1:mainnet': { fetchedAt, baskets: { BLUEDW: 2 }, unquoted: [], listKey: 'list-a' }
+  };
+  jest.mocked(fetchFromStorage).mockImplementation(async key => stored[key]);
+  mockListKey = 'list-a';
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+  const { result, rerender } = renderHook(() => useCachedDisplayQuotes(), { wrapper });
+  await waitFor(() => expect(result.current?.BLUEDW?.price).toBe(2));
+  expect(result.current?.ETH?.kind).toBe('market');
+
+  jest.mocked(fetchFromStorage).mockRejectedValue(new Error('storage unavailable'));
+  act(() => switchKey());
+  rerender();
+  await act(async () => {});
+  return result.current;
+}
+
+it('drops a basket from another network and keeps its market quote', async () => {
+  const quotes = await switchedAway(() => {
+    mockNetwork = 'testnet';
+    mockBridgeListeners.forEach(listener => listener());
+  });
+  expect(quotes?.BLUEDW).toBeUndefined();
+  expect(quotes?.ETH).toMatchObject({ price: 2500, kind: 'market' });
+});
+
+it('drops a basket from another list revision and keeps its market quote', async () => {
+  const quotes = await switchedAway(() => {
+    mockListKey = 'list-b';
+  });
+  expect(quotes?.BLUEDW).toBeUndefined();
+  expect(quotes?.ETH).toMatchObject({ price: 2500, kind: 'market' });
+});
+
 it('primes the key a mounted reader reads, so its first frame has the stored quotes', async () => {
   const listKey = peekPriceListKey('mainnet') ?? '';
   mockListKey = listKey;

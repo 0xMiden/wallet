@@ -85,27 +85,40 @@ export async function readCachedDisplayQuotes(
   return quotes;
 }
 
+type Network = ReturnType<typeof getEffectiveNetworkName>;
+
+/** A cached read, stamped with the network and list revision it was read for. */
+interface StampedQuotes {
+  network: Network;
+  listKey: string;
+  quotes: TokenPrices;
+}
+
+async function readStamped(network: Network, listKey: string): Promise<StampedQuotes> {
+  return { network, listKey, quotes: await readCachedDisplayQuotes(undefined, network, listKey) };
+}
+
 /** Fills the key `useCachedDisplayQuotes` reads for the current network and its loaded list revision. */
 export async function primeCachedDisplayQuotes(isCurrent: () => boolean): Promise<void> {
   const network = getEffectiveNetworkName();
   const listKey = (await loadPriceListKey(network)) ?? '';
   if (!isCurrent()) return;
-  const quotes = await readCachedDisplayQuotes(undefined, network, listKey);
-  if (isCurrent()) await mutate(displayCacheKey(network, listKey), quotes, { revalidate: false });
+  const stamped = await readStamped(network, listKey);
+  if (isCurrent()) await mutate(displayCacheKey(network, listKey), stamped, { revalidate: false });
 }
 
 export function useCachedDisplayQuotes(): TokenPrices | undefined {
   const network = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
   const listKey = useLoadedList(network, loadPriceListKey, peekPriceListKey, sameKey) ?? '';
-  return useRetryableSWR(
-    displayCacheKey(network, listKey),
-    () => readCachedDisplayQuotes(undefined, network, listKey),
-    {
-      suspense: false,
-      shouldRetryOnError: false,
-      refreshInterval: 60_000,
-      // A network or list change keeps the last quotes for the one storage read, rather than dropping every one.
-      keepPreviousData: true
-    }
-  ).data;
+  const stamped = useRetryableSWR(displayCacheKey(network, listKey), () => readStamped(network, listKey), {
+    suspense: false,
+    shouldRetryOnError: false,
+    refreshInterval: 60_000,
+    // A network or list change keeps the last market quotes for the one storage read, rather than dropping every one.
+    keepPreviousData: true
+  }).data;
+  if (!stamped || (stamped.network === network && stamped.listKey === listKey)) return stamped?.quotes;
+  // The previous key's map, kept while this one loads or after its read failed: a basket value belongs to its own
+  // network and list revision, a market price does not.
+  return Object.fromEntries(Object.entries(stamped.quotes).filter(([, quote]) => quote.kind === 'market'));
 }
