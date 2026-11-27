@@ -1,5 +1,5 @@
-import en from '../../../public/_locales/en/en.json';
 import { type AuthPurpose, authPromptReason } from './auth-purpose';
+import en from '../../../public/_locales/en/en.json';
 
 jest.mock('lib/i18n', () => ({ getMessage: (key: string) => key }));
 
