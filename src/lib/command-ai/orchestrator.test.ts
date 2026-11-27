@@ -680,6 +680,75 @@ describe('createClarificationSnapshot', () => {
   });
 });
 
+describe('the token id behind a bridge route', () => {
+  const empty = redactPrompt('', { contacts: [] }).map;
+  const route = (provider: string) => ({
+    id: `testnet:${provider}:usdcx:sepolia:send`,
+    provider,
+    mode: 'send' as const,
+    sourceSymbol: 'USDCx',
+    sourceNetwork: 'miden-testnet',
+    destinationSymbol: 'USDC',
+    destinationNetwork: 'sepolia'
+  });
+  const context = (...providers: string[]): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-usdcx-other',
+          tokenSlug: 'USDCx',
+          balance: 5,
+          balanceBaseUnits: '5000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'USDCx', name: 'Other USDCx', decimals: 6 }
+        }
+      ],
+      externalEvmAddress: VALID_EVM_ALICE_WORK,
+      bridgeRoutes: providers.map(route)
+    };
+  };
+  const held = {
+    action: 'bridge' as const,
+    assetQuery: 'ETH',
+    tokenId: 'faucet-eth',
+    fromChain: 'miden',
+    toChain: 'sepolia'
+  };
+
+  it('is dropped when a bridge chip names a different source symbol', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const asked = resolveDraftToAction(held, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    const picked = applyChipSelection(asked, asked.chips[1]!, ctx);
+
+    expect(picked).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { assetQuery: 'USDCx' } });
+    if (picked.kind !== 'clarifying') return;
+    expect(picked.draft.tokenId).toBeUndefined();
+  });
+
+  it('does not pick the balance for a max amount when it holds a different asset', () => {
+    const res = resolveDraftToAction({ ...held, amountIsMax: true }, empty, context('xreserve'));
+
+    expect(res).toMatchObject({ kind: 'handoff', handoff: { draft: { amount: '1000' } } });
+  });
+
+  it('stays selected when the route source symbol is the same asset', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const draft = { ...held, assetQuery: 'usdcx', tokenId: 'faucet-usdcx-other', amountIsMax: true };
+    const asked = resolveDraftToAction(draft, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+
+    expect(applyChipSelection(asked, asked.chips[1]!, ctx)).toMatchObject({
+      kind: 'handoff',
+      handoff: { draft: { amount: '5' } }
+    });
+  });
+});
+
 describe('a follow-up that names an asset', () => {
   const noPatch = {
     action: null,
@@ -708,6 +777,18 @@ describe('a follow-up that names an asset', () => {
     expect(next).toMatchObject({ assetQuery: 'USDC', toAssetQuery: 'MIDEN' });
     expect(next.tokenId).toBeUndefined();
     expect(next.toTokenId).toBeUndefined();
+  });
+
+  it('compares and stores a padded symbol without its padding', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: ' PEPE ', to_asset: ' ZORK ' }, empty)).toMatchObject({
+      assetQuery: 'PEPE',
+      tokenId: 'faucet-pepe',
+      toAssetQuery: 'ZORK',
+      toTokenId: 'faucet-zork'
+    });
+    const changed = applyPatchToDraft(base, { ...noPatch, asset: ' USDC ' }, empty);
+    expect(changed).toMatchObject({ assetQuery: 'USDC', toTokenId: 'faucet-zork' });
+    expect(changed.tokenId).toBeUndefined();
   });
 
   it('keeps the token id when the same symbol is repeated or no asset is named', () => {

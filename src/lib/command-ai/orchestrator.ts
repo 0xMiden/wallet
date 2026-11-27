@@ -342,6 +342,11 @@ function applyAmountExpr(amount: AmountExpr | null, map: RedactionMap, target: H
   }
 }
 
+/** The same trim and case folding that symbol resolution uses. */
+function isSameSymbol(a: string | undefined, b: string): boolean {
+  return a?.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 function applyAssetSlot(
   value: string | null,
   map: RedactionMap,
@@ -350,11 +355,11 @@ function applyAssetSlot(
 ): void {
   if (!value) return;
   const nicheId = resolveNicheTokenId(value, map);
-  const symbol = resolveAssetRef(value, map);
+  const symbol = resolveAssetRef(value, map).trim();
   const [queryKey, idKey] =
     field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
   // A different asset must not keep the old token id: resolution prefers the id over the symbol.
-  if (nicheId || target[queryKey]?.toLowerCase() !== symbol.toLowerCase()) target[idKey] = nicheId;
+  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
   target[queryKey] = symbol;
 }
 
@@ -822,7 +827,9 @@ function resolveBridgeFlow(
         provider: route.provider,
         fromChain: route.sourceNetwork,
         toChain: route.destinationNetwork,
-        assetQuery: route.sourceSymbol
+        assetQuery: route.sourceSymbol,
+        // The chip merge keeps the draft's token id unless the patch overwrites it.
+        ...(isSameSymbol(draft.assetQuery, route.sourceSymbol) ? {} : { tokenId: undefined })
       }
     }));
     return {
@@ -838,7 +845,9 @@ function resolveBridgeFlow(
 
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
-  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, draft.tokenId, ctx.balances);
+  const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
+  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
   if (!amount) {
