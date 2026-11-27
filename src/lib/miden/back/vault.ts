@@ -668,7 +668,9 @@ export class Vault {
       ? (await import('lib/desktop/secure-storage')).decryptWithHardwareKey
       : (await import('lib/biometric')).decryptWithHardwareKey;
 
-    const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
+    const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey, rewrapped =>
+      replaceHardwareWrapper(encryptedVaultKey, rewrapped)
+    );
     const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
     return Passworder.importVaultKey(vaultKeyBytes);
   }
@@ -3176,6 +3178,20 @@ type PreparedVaultProtector = {
   storageKey: string;
   value: string;
 };
+
+/**
+ * Swaps the stored hardware wrapper for its replacement in one write, but only while the one that was
+ * decrypted is still stored: the prompt stays open as long as the user likes, and a wallet set up
+ * meanwhile must keep its own protector. A failed write keeps the old wrapper, which still decrypts.
+ */
+async function replaceHardwareWrapper(previous: string, replacement: string): Promise<void> {
+  try {
+    if ((await getPlain<string>(VAULT_KEY_HARDWARE_STORAGE_KEY)) !== previous) return;
+    await savePlain(VAULT_KEY_HARDWARE_STORAGE_KEY, replacement);
+  } catch (error) {
+    console.warn('[Vault] could not replace the hardware wrapper, will retry at the next unlock', error);
+  }
+}
 
 /**
  * Encrypts `vaultKeyBytes` with the device's hardware key WITHOUT persisting to

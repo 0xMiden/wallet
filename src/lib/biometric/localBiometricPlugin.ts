@@ -36,7 +36,8 @@ export interface LocalBiometricPlugin {
 
   encryptWithHardwareKey(options: { data: string }): Promise<{ encrypted: string }>;
 
-  decryptWithHardwareKey(options: { encrypted: string }): Promise<{ decrypted: string }>;
+  /** `rewrapped` comes only with a wrapper made by the earlier key: its verified replacement. */
+  decryptWithHardwareKey(options: { encrypted: string }): Promise<{ decrypted: string; rewrapped?: string }>;
 
   deleteHardwareKey(): Promise<void>;
 }

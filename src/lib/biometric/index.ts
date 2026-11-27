@@ -400,10 +400,15 @@ export async function encryptWithHardwareKey(data: string): Promise<string> {
  * Decrypt data using the hardware-backed key.
  * This will trigger biometric authentication.
  *
- * @param encrypted - Base64-encoded encrypted data
+ * @param encrypted - The wrapper that encryptWithHardwareKey returned
+ * @param onRewrapped - Called when the platform returns a replacement for `encrypted` (iOS, for a
+ *   wrapper made by its earlier key). Must not throw: the decrypt has already succeeded.
  * @returns The decrypted data as a string
  */
-export async function decryptWithHardwareKey(encrypted: string): Promise<string> {
+export async function decryptWithHardwareKey(
+  encrypted: string,
+  onRewrapped?: (rewrapped: string) => Promise<void>
+): Promise<string> {
   console.log('[HardwareSecurity] decryptWithHardwareKey called');
   const plugin = getHardwareSecurityPlugin();
 
@@ -413,6 +418,10 @@ export async function decryptWithHardwareKey(encrypted: string): Promise<string>
 
   const result = await plugin.decryptWithHardwareKey({ encrypted });
   console.log('[HardwareSecurity] Decryption successful');
+  const rewrapped = 'rewrapped' in result ? result.rewrapped : undefined;
+  if (typeof rewrapped === 'string') {
+    await onRewrapped?.(rewrapped);
+  }
   return result.decrypted;
 }
 
