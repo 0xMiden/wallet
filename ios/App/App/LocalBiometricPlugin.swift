@@ -2,6 +2,7 @@ import Foundation
 import Capacitor
 import LocalAuthentication
 import Security
+import UIKit
 import os.log
 import CryptoKit
 import CommonCrypto
@@ -16,6 +17,99 @@ private let kLegacyKeyTag = "com.miden.wallet.hardware.key"
 private let kPresenceKeyTagPrefix = "com.miden.wallet.hardware.key.up."
 // "up1:<key id>:<base64>". A legacy wrapper is bare base64, which cannot contain ":".
 private let kPresenceWrapperPrefix = "up1:"
+
+// Prompt text when the caller sends none, and the one prompt that also approves a hot key reveal.
+// The second is never taken from JS, so another action's wording cannot obtain that approval.
+private let kFallbackReason = "Authenticate to access your wallet"
+let kRevealHotKeyReason = "Reveal your everyday key"
+private let kMaxReasonLength = 120
+
+private func promptReason(_ requested: String?, fallback: String) -> String {
+    let trimmed = requested?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty || trimmed.count > kMaxReasonLength ? fallback : trimmed
+}
+
+/// Revealing the everyday key reads the vault key and then the hot key. The vault prompt names that
+/// action, and the approval issued here lets HotKey skip a second prompt for that one reveal. It
+/// holds no LAContext, so it cannot open any keychain key.
+///
+/// At most one approval exists. It works once, for one public key, for 15 seconds, and is dropped
+/// when another prompt starts, on lock and when the app goes to the background.
+final class RevealApprovalStore {
+    static let shared = RevealApprovalStore()
+    static let lifetimeNanoseconds: UInt64 = 15_000_000_000
+
+    private let lock = NSLock()
+    private let now: () -> UInt64
+    private var latestTicket: UInt64 = 0
+    private var approval: (id: String, publicKeyHex: String, issuedAt: UInt64)?
+    private var openContexts: [LAContext] = []
+    private var backgroundObserver: NSObjectProtocol?
+
+    // CLOCK_MONOTONIC_RAW keeps counting while the device sleeps.
+    init(now: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) },
+         notifications: NotificationCenter = .default) {
+        self.now = now
+        backgroundObserver = notifications.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil
+        ) { [weak self] _ in self?.invalidateAll() }
+    }
+
+    /// Call before every prompt. Drops any approval and supersedes every earlier ticket.
+    func begin(_ context: LAContext) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        latestTicket += 1
+        approval = nil
+        openContexts.append(context)
+        return latestTicket
+    }
+
+    /// Call once the prompt's work is over, however it ended. The context cannot be used again.
+    func end(_ context: LAContext) {
+        lock.lock()
+        openContexts.removeAll { $0 === context }
+        lock.unlock()
+        context.invalidate()
+    }
+
+    /// Nil when a newer prompt, a lock or a background came after `ticket`.
+    func issue(ticket: UInt64, publicKeyHex: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard ticket == latestTicket else { return nil }
+        let id = UUID().uuidString
+        approval = (id: id, publicKeyHex: publicKeyHex, issuedAt: now())
+        return id
+    }
+
+    /// The approved public key, once. Removed under the lock, so of two concurrent calls one gets nil.
+    func consume(_ id: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let current = approval, current.id == id else { return nil }
+        approval = nil
+        guard now() &- current.issuedAt <= Self.lifetimeNanoseconds else { return nil }
+        return current.publicKeyHex
+    }
+
+    func discard(_ id: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if approval?.id == id { approval = nil }
+    }
+
+    /// Lock and background: no approval survives, none can still be issued, and open prompts close.
+    func invalidateAll() {
+        lock.lock()
+        latestTicket += 1
+        approval = nil
+        let contexts = openContexts
+        openContexts = []
+        lock.unlock()
+        contexts.forEach { $0.invalidate() }
+    }
+}
 
 @objc(LocalBiometricPlugin)
 public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -33,6 +127,7 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "generateHardwareKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "encryptWithHardwareKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "decryptWithHardwareKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "discardRevealApproval", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteHardwareKey", returnType: CAPPluginReturnPromise)
     ]
 
@@ -78,7 +173,9 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let policy: LAPolicy = useFallback ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
 
+        _ = RevealApprovalStore.shared.begin(context)
         context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
             if success {
                 os_log("[LocalBiometric] verifyIdentity SUCCESS", log: logger, type: .debug)
                 call.resolve()
@@ -263,7 +360,10 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let context = LAContext()
-        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Set up wallet security") { success, error in
+        let reason = promptReason(call.getString("reason"), fallback: "Set up wallet security")
+        _ = RevealApprovalStore.shared.begin(context)
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
             if !success {
                 self.rejectAuthentication(call, error)
                 return
@@ -316,9 +416,16 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // A fresh context per call, so one approval never covers a later decrypt.
+        let revealPublicKey = call.getString("revealHotKeyPublicKey")
+        let reason = revealPublicKey == nil
+            ? promptReason(call.getString("reason"), fallback: kFallbackReason)
+            : kRevealHotKeyReason
+
+        // A fresh context per call, never kept, so one approval never covers a later decrypt.
         let context = LAContext()
-        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Unlock your wallet") { success, error in
+        let ticket = RevealApprovalStore.shared.begin(context)
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
             // With no device passcode there is no prompt to show for a legacy wrapper, and refusing
             // would leave that wallet with only the reset path.
             let noPasscode = isLegacy && (error as NSError?)?.code == LAError.passcodeNotSet.rawValue
@@ -337,15 +444,35 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             if isLegacy, success, let rewrapped = self.makePresenceWrapper(decrypted, context: context) {
                 response["rewrapped"] = rewrapped
             }
+            if success, let publicKey = revealPublicKey {
+                // Superseded, locked or backgrounded since the prompt began: end the reveal here,
+                // so HotKey cannot put up a second prompt for it.
+                guard let approval = RevealApprovalStore.shared.issue(ticket: ticket, publicKeyHex: publicKey) else {
+                    call.reject("Authentication expired. Try again.", "APPROVAL_EXPIRED")
+                    return
+                }
+                response["revealApproval"] = approval
+            }
 
             os_log("[LocalBiometric] decryptWithHardwareKey success", log: logger, type: .debug)
             call.resolve(response)
         }
     }
 
+    /// With `approval`, drop that one. Without it (lock), drop everything and close open prompts.
+    @objc func discardRevealApproval(_ call: CAPPluginCall) {
+        if let approval = call.getString("approval") {
+            RevealApprovalStore.shared.discard(approval)
+        } else {
+            RevealApprovalStore.shared.invalidateAll()
+        }
+        call.resolve()
+    }
+
     /// Delete every hardware-backed vault key
     @objc func deleteHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] deleteHardwareKey called", log: logger, type: .debug)
+        RevealApprovalStore.shared.invalidateAll()
         hardwareKeyTags().forEach { deleteKey(tag: $0) }
         call.resolve()
     }

@@ -2,7 +2,7 @@
 
 ## 1.18.3 (TBD)
 
-- [CHANGE][mobile] Require device authentication when opening a biometric wallet on iOS, and move an existing wallet to a new device key at its next unlock.
+- [CHANGE][mobile] Require device authentication when opening a biometric wallet on iOS, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
 - [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).

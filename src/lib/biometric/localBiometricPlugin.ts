@@ -34,10 +34,22 @@ export interface LocalBiometricPlugin {
 
   generateHardwareKey(): Promise<void>;
 
-  encryptWithHardwareKey(options: { data: string }): Promise<{ encrypted: string }>;
+  encryptWithHardwareKey(options: { data: string; reason?: string }): Promise<{ encrypted: string }>;
 
-  /** `rewrapped` comes only with a wrapper made by the earlier key: its verified replacement. */
-  decryptWithHardwareKey(options: { encrypted: string }): Promise<{ decrypted: string; rewrapped?: string }>;
+  /**
+   * `rewrapped` comes only with a wrapper made by the earlier key: its verified replacement.
+   * `revealHotKeyPublicKey` says this decrypt is the first half of revealing that everyday key. Native
+   * then shows its own text for that action and returns `revealApproval`, which `HotKey.revealHotKey`
+   * accepts once, for that key only.
+   */
+  decryptWithHardwareKey(options: {
+    encrypted: string;
+    reason?: string;
+    revealHotKeyPublicKey?: string;
+  }): Promise<{ decrypted: string; rewrapped?: string; revealApproval?: string }>;
+
+  /** Drops that approval. With none named, drops every approval and closes any open prompt (lock). */
+  discardRevealApproval(options: { approval?: string }): Promise<void>;
 
   deleteHardwareKey(): Promise<void>;
 }

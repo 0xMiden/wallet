@@ -95,7 +95,8 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       try {
         if (!hasHardwareProtector && attempt > LAST_ATTEMPT)
           await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-        await unlock(hasHardwareProtector ? undefined : (passcode ?? walletPassword)!);
+        // A hardware wallet is asked once, when the export reads the vault key.
+        if (!hasHardwareProtector) await unlock((passcode ?? walletPassword)!);
 
         setAttempt(1);
         onGoNext();
@@ -177,7 +178,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             className="flex-1 max-w-none"
             variant={ButtonVariant.Primary}
             data-testid="encrypted-file-wallet-password-submit"
-            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            title={t('continue')}
             disabled={!continueEnabled}
             onClick={() => onSubmit()}
             isLoading={isSubmitting}
@@ -187,7 +188,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     >
       <SubPageSection
         description={t(
-          hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription'
+          hasHardwareProtector ? 'encryptedWalletFileDescriptionExportAuth' : 'encryptedWalletFileDescription'
         )}
       >
         {!hasHardwareProtector && !usePasscodeEntry && (
@@ -249,11 +250,6 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       {!hasHardwareProtector && isDisabled && (
         <Notice errorId="unlockPasswordErrorDelay" tone="negative" role="alert" title={t('error')}>
           {`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-        </Notice>
-      )}
-      {hasHardwareProtector && errors.password && (
-        <Notice errorId="raw_encrypted_file_unlock_failed" tone="negative" role="alert" title={t('error')}>
-          {errors.password.message || ''}
         </Notice>
       )}
 

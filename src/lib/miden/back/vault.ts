@@ -20,8 +20,10 @@ import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { MidenDAppErrorType } from 'lib/adapter/types';
+import { type AuthPurpose, authPromptReason } from 'lib/auth/auth-purpose';
 import type { BackupMergeRecords } from 'lib/backup/state';
 import { deriveSyncSecretKey, isValidSyncSecretKey, signSyncMessage, syncPublicKeyHex } from 'lib/backup/sync-key';
+import type { HardwareDecryptPrompt } from 'lib/biometric';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -623,12 +625,12 @@ export class Vault {
   }
 
   /** Verify the configured protector without constructing or adopting another vault. */
-  static async verifyProtector(credential?: string): Promise<void> {
+  static async verifyProtector(credential: string | undefined, purpose: AuthPurpose): Promise<void> {
     if (credential !== undefined) {
       await Vault.unlockWithPassword(credential);
       return;
     }
-    await Vault.getHardwareVaultKey();
+    await Vault.getHardwareVaultKey(purpose);
   }
 
   /**
@@ -643,7 +645,7 @@ export class Vault {
    */
   static async tryHardwareUnlock(): Promise<Vault | null> {
     try {
-      const vaultKey = await Vault.getHardwareVaultKey();
+      const vaultKey = await Vault.getHardwareVaultKey('unlock');
       return new Vault(vaultKey);
     } catch {
       return null;
@@ -654,7 +656,10 @@ export class Vault {
    * Get the vault key using hardware-backed security (biometric).
    * Throws if hardware unlock is not available or fails.
    */
-  private static async getHardwareVaultKey(): Promise<CryptoKey> {
+  private static async getHardwareVaultKey(
+    purpose: AuthPurpose,
+    revealHotKey?: HardwareDecryptPrompt['revealHotKey']
+  ): Promise<CryptoKey> {
     if (!isDesktop() && !isMobile()) {
       throw new PublicError('Hardware unlock is not available on this platform');
     }
@@ -668,8 +673,10 @@ export class Vault {
       ? (await import('lib/desktop/secure-storage')).decryptWithHardwareKey
       : (await import('lib/biometric')).decryptWithHardwareKey;
 
-    const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey, rewrapped =>
-      replaceHardwareWrapper(encryptedVaultKey, rewrapped)
+    const vaultKeyBase64 = await decryptWithHardwareKey(
+      encryptedVaultKey,
+      rewrapped => replaceHardwareWrapper(encryptedVaultKey, rewrapped),
+      { reason: authPromptReason(purpose), revealHotKey }
     );
     const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
     return Passworder.importVaultKey(vaultKeyBytes);
@@ -714,7 +721,9 @@ export class Vault {
     // hardware prompt the user answers in their own time. Taking the accounts
     // write queue around it would stall unlock and every account write behind a
     // dialog. The queue is taken below, around the reads that need it.
-    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+    const vaultKey = password
+      ? await Vault.unlockWithPassword(password)
+      : await Vault.getHardwareVaultKey('export-wallet-file');
 
     return withError('Failed to prepare encrypted wallet backup', async () => {
       // Every member of the file comes from one turn of the single-writer queue,
@@ -2766,7 +2775,7 @@ export class Vault {
     if (password) {
       vaultKey = await Vault.unlockWithPassword(password);
     } else {
-      vaultKey = await Vault.getHardwareVaultKey();
+      vaultKey = await Vault.getHardwareVaultKey('view-recovery-phrase');
     }
 
     return withError('Failed to reveal recovery phrase', async () => {
@@ -2793,7 +2802,7 @@ export class Vault {
     if (password) {
       vaultKey = await Vault.unlockWithPassword(password);
     } else {
-      vaultKey = await Vault.getHardwareVaultKey();
+      vaultKey = await Vault.getHardwareVaultKey('reveal-private-key');
     }
 
     return withError('Failed to reveal private key', async () => {
@@ -2820,7 +2829,9 @@ export class Vault {
       if (password === '') {
         throw new PublicError('A password or passcode is required to export this account');
       }
-      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+      const vaultKey = password
+        ? await Vault.unlockWithPassword(password)
+        : await Vault.getHardwareVaultKey('export-account-file');
       // The invariant is about the ACCOUNT, not about the key the SDK happens to ask for, so it is
       // decided here, once, before any key is served. Keying it on the requested commitment cannot
       // work: accAuthSecretKeyStrgKey is polymorphic - insertKeyCallbackWrapper stores a serialized
@@ -2913,9 +2924,14 @@ export class Vault {
    * field). Throws on non-Guardian accounts and on Guardian accounts whose
    * `hotPublicKey` is not yet set (post-recovery, pre-banner-activation).
    */
-  static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
-    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
-    return withError('Failed to reveal everyday key', async () => {
+  static async revealHotKey(accountPublicKey: string, password?: string, hotPublicKey?: string): Promise<string> {
+    // One prompt for the whole reveal: the vault key decrypt names the action, and the approval it
+    // returns lets the hot key plugin, which has no key of its own to prompt with, skip a second one.
+    let approval: string | undefined;
+    const revealRequest = hotPublicKey
+      ? { publicKey: hotPublicKey, onApproval: (id: string) => (approval = id) }
+      : undefined;
+    const reveal = async (vaultKey: CryptoKey) => {
       const allAccounts = await fetchAndDecryptOne<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {
@@ -2933,11 +2949,20 @@ export class Vault {
       if (!(await isStored(evmStorageKey))) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const evmPrivateKey = await fetchAndDecryptOne<string>(evmStorageKey, vaultKey);
       if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
-      const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
+      const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext, approval);
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
       return encodePrivateKeyPair(pair);
-    });
+    };
+    try {
+      const vaultKey = password
+        ? await Vault.unlockWithPassword(password)
+        : await Vault.getHardwareVaultKey('reveal-everyday-key', revealRequest);
+      return await withError('Failed to reveal everyday key', () => reveal(vaultKey));
+    } finally {
+      // Gone already if native used it. This covers a failure between the two native calls.
+      if (approval !== undefined) await (await import('lib/biometric')).discardRevealApproval(approval);
+    }
   }
 
   async getCurrentAccount() {
@@ -3238,7 +3263,7 @@ async function prepareHardwareProtector(vaultKeyBytes: Uint8Array): Promise<stri
           await hs.generateHardwareKey();
         }
         const vaultKeyBase64 = Buffer.from(vaultKeyBytes).toString('base64');
-        return await hs.encryptWithHardwareKey(vaultKeyBase64);
+        return await hs.encryptWithHardwareKey(vaultKeyBase64, authPromptReason('set-up'));
       }
     } catch {
       return null;
