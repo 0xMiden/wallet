@@ -836,8 +836,12 @@ describe('CommandAiBar', () => {
   it('morphs cleanly between 1-line input and multi-line composer', () => {
     renderBar();
     expect(screen.getByTestId('command-ai-input').tagName).toBe('INPUT');
+    // The chevron files set fill="none" on their root: without a fill here the toggle draws nothing.
+    const chevron = () => screen.getByTestId('command-ai-morph-toggle').querySelector('svg');
+    expect(chevron()).toHaveAttribute('fill', 'currentColor');
     fireEvent.click(screen.getByTestId('command-ai-morph-toggle'));
     expect(screen.getByTestId('command-ai-input').tagName).toBe('TEXTAREA');
+    expect(chevron()).toHaveAttribute('fill', 'currentColor');
     fireEvent.click(screen.getByTestId('command-ai-morph-toggle'));
     expect(screen.getByTestId('command-ai-input').tagName).toBe('INPUT');
   });

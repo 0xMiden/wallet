@@ -204,6 +204,7 @@ describe('history projection', () => {
       noteType: NoteTypeEnum.Private,
       noteDelivery: 'confirmed',
       dappOrigins: ['https://app.example'],
+      initiatingDappOrigin: 'https://app.example',
       inputNoteIds: ['input'],
       noteIds: ['input'],
       outputNoteIds: ['change'],
@@ -217,10 +218,12 @@ describe('history projection', () => {
     });
     const projected = projectTransaction(original);
     expect(projected).not.toHaveProperty('d');
+    expect(JSON.stringify(projected)).not.toContain('https://app.example');
     const [stored] = parseHistoryChunk(JSON.stringify([projected]));
     if (!stored) throw new Error('The backup receipt must parse');
     const restored = restoreTransaction(stored);
     expect(restored.dappOrigins).toBeUndefined();
+    expect(restored.initiatingDappOrigin).toBeUndefined();
 
     const [legacy] = parseHistoryChunk(JSON.stringify([{ ...stored, d: original.dappOrigins }]));
     if (!legacy) throw new Error('The legacy backup receipt must parse');
