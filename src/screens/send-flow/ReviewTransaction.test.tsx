@@ -84,6 +84,11 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
+let mockBalancesLoading = false;
+let mockBalanceReadFailed = false;
+let mockBalanceReadInFlight = false;
+const mockRetryBalanceRead = jest.fn();
+let mockReviewSubmit: (() => void | Promise<void>) | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' | 'solana' = 'miden';
 const reviewedEpochBinding: { address: string; validity: QuoteValidity } = {
@@ -396,11 +401,14 @@ jest.mock('components/TokenLogo', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
-    <button type="button" data-accent={accent} {...rest}>
-      {title}
-    </button>
-  )
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => {
+    if (rest['data-testid'] === 'send-review-submit') mockReviewSubmit = rest.onClick;
+    return (
+      <button type="button" data-accent={accent} {...rest}>
+        {title}
+      </button>
+    );
+  }
 }));
 
 jest.mock('lib/biometric', () => ({
@@ -447,7 +455,13 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: mockPublicKey }),
-  useAllBalances: () => ({ data: mockBalanceData }),
+  useAllBalances: () => ({
+    data: mockBalanceData,
+    isLoading: mockBalancesLoading,
+    readFailed: mockBalanceReadFailed,
+    balanceReadInFlight: mockBalanceReadInFlight,
+    mutate: mockRetryBalanceRead
+  }),
   useAllTokensBaseMetadata: () => mockTokensMeta
 }));
 
@@ -735,6 +749,14 @@ const UNSCALED_TOKEN = {
   fiatPrice: 0
 };
 
+const PROVISIONAL_USDCX_BALANCE = {
+  ...UNSCALED_TOKEN,
+  tokenId: USDCX_FAUCET_ID_BECH32,
+  metadata: { ...UNSCALED_TOKEN.metadata, symbol: 'USDCX', name: 'USDCX' },
+  balance: 0,
+  balanceBaseUnits: '0'
+};
+
 const setValidRoute = (tokenId = VALID_TOKEN.tokenId) => {
   mockSearch = `amount=5&to=0xrecipient&tokenId=${tokenId}`;
   mockBalanceData = [{ ...VALID_TOKEN, tokenId }];
@@ -793,6 +815,11 @@ beforeEach(() => {
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
   mockBalanceData = undefined;
+  mockBalancesLoading = false;
+  mockBalanceReadFailed = false;
+  mockBalanceReadInFlight = false;
+  mockRetryBalanceRead.mockResolvedValue(undefined);
+  mockReviewSubmit = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
@@ -1597,6 +1624,108 @@ describe('USDCx burn review', () => {
     mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
+  const balancePlaceholders = {
+    empty: [],
+    'native zero': [
+      {
+        ...VALID_TOKEN,
+        tokenId: USDCX_FAUCET_ID_BECH32,
+        metadata: { symbol: 'USDCX', decimals: 6 },
+        balance: 0,
+        balanceBaseUnits: '0'
+      }
+    ]
+  };
+
+  it.each(Object.entries(balancePlaceholders))(
+    'keeps the %s pending balance placeholder on the USDCx burn review',
+    async (_label, placeholder) => {
+      const landedBalances = mockBalanceData;
+      mockBalancesLoading = true;
+      mockBalanceData = placeholder;
+      const { rerender } = render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+
+      // A disabled button suppresses click events, so invoke the handler itself.
+      expect(mockReviewSubmit).toEqual(expect.any(Function));
+      await act(async () => {
+        await mockReviewSubmit?.();
+      });
+      expect(mockWalletStoreState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+
+      mockBalancesLoading = false;
+      mockBalanceData = landedBalances;
+      rerender(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    }
+  );
+
+  it.each(['compact', 'command'] as const)(
+    'offers balance retry after a failed initial USDCx read in %s review',
+    async presentation => {
+      const landedBalances = mockBalanceData;
+      mockBalancesLoading = true;
+      mockBalanceData = [];
+      const review = () => (
+        <FlowPresentationProvider value={presentation}>
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      );
+      const { rerender } = render(review());
+      await flush();
+      expect(screen.queryByText('tokenDetailBalanceUnavailable')).not.toBeInTheDocument();
+
+      mockBalanceReadFailed = true;
+      rerender(review());
+      await flush();
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.getByText('tokenDetailBalanceUnavailable')).toBeInTheDocument();
+      const retry = screen.getByRole('button', { name: 'retry' });
+      fireEvent.click(retry);
+      expect(mockRetryBalanceRead).toHaveBeenCalledTimes(1);
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+
+      mockBalanceReadInFlight = true;
+      rerender(review());
+      await flush();
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(mockRetryBalanceRead).toHaveBeenCalledTimes(1);
+
+      mockBalanceReadFailed = false;
+      mockBalanceReadInFlight = false;
+      mockBalancesLoading = false;
+      mockBalanceData = landedBalances;
+      rerender(review());
+      await flush();
+      expect(screen.queryByText('tokenDetailBalanceUnavailable')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    }
+  );
+
+  it.each(Object.entries(balancePlaceholders))(
+    'redirects a loaded USDCx burn when the landed snapshot is %s',
+    async (_label, placeholder) => {
+      mockBalanceData = placeholder;
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+    }
+  );
+
   it('submits the exact base-unit burn and shows Circle fee as varying, with no payout bound', async () => {
     render(<ReviewTransaction />);
     await flush();
@@ -1643,6 +1772,34 @@ describe('USDCx burn review', () => {
     fireEvent.click(screen.getByTestId('send-review-submit'));
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
+
+  it('shows loading for a current measured fee awaiting native scale', async () => {
+    mockNativeMetadata = null;
+    mockBalancesLoading = true;
+    mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.queryByText('usdcxBurnFeeUnavailable')).not.toBeInTheDocument();
+    expect(screen.getByText('loading', { selector: '[role="status"]' })).toBeInTheDocument();
+    expect(screen.queryByText('0.000298 USDCX')).not.toBeInTheDocument();
+  });
+
+  it.each(unreviewable.slice(2))(
+    'shows an unreviewable %s fee as unavailable even while waiting for native scale',
+    async (_label, estimate) => {
+      mockNativeMetadata = null;
+      mockBalancesLoading = true;
+      mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+      mockBurnFeeReserve = estimate;
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('usdcxBurnFeeUnavailable')).toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    }
+  );
 
   it('does not confirm a native fee whose scale is unknown', async () => {
     mockNativeMetadata = null;
@@ -1792,6 +1949,16 @@ describe('ReviewTransaction — redirect guards', () => {
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: 'other' }];
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  it('redirects a same-chain review while a matching zero row is still loading', async () => {
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalancesLoading = true;
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 0 }];
+    render(<ReviewTransaction />);
+    await flush();
+
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
@@ -3942,6 +4109,49 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxUnsupportedFaucet');
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
     await expectReport('usdcxUnsupportedFaucet');
+  });
+
+  it('waits for burn balance data without reporting an invalid amount', async () => {
+    setBurnRoute();
+    const balances = mockBalanceData;
+    mockBalanceData = undefined;
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect({
+      error: screen.queryByTestId('review-error')?.textContent,
+      reports: jest.mocked(reportUserVisibleError).mock.calls
+    }).toEqual({ error: undefined, reports: [] });
+
+    mockBalanceData = balances;
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('waits to report unknown native scale until the USDCx balance lands', async () => {
+    setBurnRoute();
+    mockNativeMetadata = null;
+    mockBalancesLoading = true;
+    mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    mockBalancesLoading = false;
+    mockBalanceData = [{ ...PROVISIONAL_USDCX_BALANCE, balance: 100, balanceBaseUnits: '100000000' }];
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
+    await expectReport('unknownTokenScale');
   });
 
   it('does not report the immediate minimum or a pending minimum read as a failure', async () => {
