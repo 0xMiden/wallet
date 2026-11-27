@@ -1914,8 +1914,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       await reachRouteStep();
       expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
 
-      const params = epochState.quoteEVMToMiden.mock.lastCall?.[0];
-      expect(params).toBeDefined();
+      expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+        expect.objectContaining({ evmTokenAddress: CIRCLE_SEPOLIA_USDC, isNative: false }),
+        QUOTE_ACCOUNT
+      );
+      const [params] = epochState.quoteEVMToMiden.mock.lastCall!;
       const publishQuote = async (scope: object, tokenIn = '1000000') => {
         Object.assign(epochState, {
           status: 'quoted',
