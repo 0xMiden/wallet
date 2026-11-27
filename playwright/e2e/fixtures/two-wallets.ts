@@ -31,6 +31,7 @@ import {
   installNetworkFaults,
   LOCAL_NETWORK_ORIGINS,
   type NetworkFaultPolicy,
+  type NetworkFaultTarget,
   type NetworkOrigins
 } from '../harness/network-faults';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
@@ -51,6 +52,7 @@ import type {
   EnvironmentConfig,
   SerializedWalletState,
   SnapshotCaps,
+  WalletLabel,
   WalletSnapshot
 } from '../harness/types';
 import { MidenCli, resolveCliPath } from '../helpers/miden-cli';
@@ -93,6 +95,14 @@ export interface GuardianFaultTestApi {
    * The false-green guard for `armNetworkFault`, mirroring `guardianFaultHits`.
    */
   networkFaultHits(): Promise<number>;
+  /**
+   * How many requests this wallet's browser context sent to `target`'s origin
+   * since launch, faulted or not, as `context.route` saw them (route-seam targets
+   * only: guardians, wallet API and the other HTTP services). Not reset by
+   * `clearFaults`, so read it before and after an action. See
+   * `NetworkFaultControls.requestCount`.
+   */
+  networkRequestCount(target: NetworkFaultTarget): number;
   clearFaults(): Promise<void>;
   /**
    * Start recording this wallet's guardian pushes and state reads, for
@@ -120,9 +130,11 @@ export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi
  * reads whatever landed here. Wallets a spec never instantiated simply leave
  * their slot undefined.
  */
-type FailureSnapshots = {
+export type FailureSnapshots = {
   walletA?: WalletSnapshot;
   walletB?: WalletSnapshot;
+  /** Filled only by the multi-device fixture's third wallet (`fixtures/multi-device.ts`). */
+  walletC?: WalletSnapshot;
 };
 
 type ProfileDebugSession = DebugSession & {
@@ -181,13 +193,14 @@ const networkOrigins = (): NetworkOrigins => {
     prover: toOrigin(cfg.provingUrl) ?? LOCAL_NETWORK_ORIGINS.prover,
     transport: toOrigin(cfg.transportUrl) ?? LOCAL_NETWORK_ORIGINS.transport,
     guardianA: toOrigin(cfg.guardianUrl) ?? LOCAL_NETWORK_ORIGINS.guardianA,
-    guardianB: toOrigin(cfg.guardianUrlB) ?? LOCAL_NETWORK_ORIGINS.guardianB
+    guardianB: toOrigin(cfg.guardianUrlB) ?? LOCAL_NETWORK_ORIGINS.guardianB,
+    walletApi: toOrigin(process.env.E2E_WALLET_API_URL) ?? LOCAL_NETWORK_ORIGINS.walletApi
   };
 };
 
 const ROOT_DIR = path.resolve(__dirname, '../../..');
 const DEFAULT_EXTENSION_PATH = path.join(ROOT_DIR, 'dist', 'chrome_unpacked');
-const AGENTIC_TIMEOUT_MS = parseInt(process.env.E2E_AGENTIC_TIMEOUT ?? '600000', 10);
+export const AGENTIC_TIMEOUT_MS = parseInt(process.env.E2E_AGENTIC_TIMEOUT ?? '600000', 10);
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -197,7 +210,7 @@ const AGENTIC_TIMEOUT_MS = parseInt(process.env.E2E_AGENTIC_TIMEOUT ?? '600000',
 // against the localhost harness -- the CLI mints on one chain, the wallet syncs
 // another, and the suite reports product-shaped failures (or worse, passes
 // while testing nothing). See harness/extension-network.ts for the signal.
-function getExtensionPath(): string {
+export function getExtensionPath(): string {
   const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
   const manifestPath = path.join(extensionPath, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
@@ -217,7 +230,7 @@ function getRunOutputDir(testId: string): string {
  * Closes over the Page + BrowserContext + extensionId so test-step.ts can
  * stay runtime-agnostic.
  */
-function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionId: string): SnapshotCaps {
+export function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionId: string): SnapshotCaps {
   return {
     platform: 'chrome',
     runtimeVersion: context.browser()?.version() ?? '',
@@ -356,8 +369,8 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
   return { context, page, faults };
 }
 
-async function launchWalletInstance(
-  label: 'A' | 'B',
+export async function launchWalletInstance(
+  label: WalletLabel,
   extensionPath: string,
   timeline: TimelineRecorder,
   outputDir: string,
@@ -677,6 +690,7 @@ async function launchWalletInstance(
       guardianFaultHits: () => faults.guardianFaultHits(),
       guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
       networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
+      networkRequestCount: (target: NetworkFaultTarget) => faults.requestCount(target),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves
@@ -730,10 +744,10 @@ async function launchWalletInstance(
  * reads the store). Purely diagnostic: any failure here yields `undefined`
  * rather than breaking teardown.
  */
-async function captureFailureSnapshot(
+export async function captureFailureSnapshot(
   steps: TestStepRunner,
   timeline: TimelineRecorder,
-  label: 'A' | 'B'
+  label: WalletLabel
 ): Promise<WalletSnapshot | undefined> {
   const caps = steps.walletCaps[label];
   if (!caps) return undefined;
@@ -758,7 +772,7 @@ async function captureFailureSnapshot(
  * the page closes in `launchWalletInstance` — so these were the outliers.
  * Teardown must not be able to invent a failure.
  */
-async function closeContextQuietly(context: BrowserContext, page: Page): Promise<void> {
+export async function closeContextQuietly(context: BrowserContext, page: Page): Promise<void> {
   // Swallowing the close error is not enough on its own: this destroys the
   // context out from under the screen-capture binding, and an outstanding
   // capture call then fails in Playwright's own bookkeeping, out of band, where
@@ -907,7 +921,11 @@ export const test = base.extend<TwoWalletFixtures>({
           error: err,
           timeline,
           steps,
-          stateAtFailure: { walletA: failureSnapshots.walletA, walletB: failureSnapshots.walletB },
+          stateAtFailure: {
+            walletA: failureSnapshots.walletA,
+            walletB: failureSnapshots.walletB,
+            walletC: failureSnapshots.walletC
+          },
           testTimeoutMs: testInfo.timeout
         });
 

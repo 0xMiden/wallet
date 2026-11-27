@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHORE][ci] Add the multi-device E2E suite: device roles, claims of one note on several devices, the encrypted backup and swaps across devices, on testnet against a local wallet-api Worker, dispatched from Release E2E.
 - [FIX][all] Keep the existing wallet and network override intact across Forgot password until replacement validation succeeds, surface honest replacement confirmation with cancel/back-out, and support Guardian hot-key recovery during password reset (#2360).
 - [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
 - [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).

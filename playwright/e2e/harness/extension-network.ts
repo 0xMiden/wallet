@@ -165,6 +165,81 @@ export function assertExtensionNetworkMatches(extensionPath: string, harnessNetw
 }
 
 /**
+ * The wallet-api build define as the bundle carries it.
+ *
+ * `loopbackOverride()` in src/lib/backup/api-client.ts reads
+ * `process.env.MIDEN_WALLET_API_URL`. The bundler replaces the define with a
+ * string literal and folds the first statement, so the emitted function starts
+ * with `const trimmed = "<define>".trim()` (or `const raw = "<define>"` when it
+ * does not fold). An empty literal means a build without the define.
+ */
+const BAKED_WALLET_API_RE = /\bfunction loopbackOverride[\w$]*\(\)\s*\{\s*const (?:raw|trimmed)\s*=\s*(["'])(.*?)\1/g;
+
+export interface BakedWalletApiReading {
+  /** The define without a trailing slash; an empty string for a build without it. */
+  url: string;
+  /** Bundle file the reading came from, relative to the extension dir. */
+  source: string;
+}
+
+const withoutTrailingSlash = (url: string): string => url.trim().replace(/\/+$/, '');
+
+/** Every distinct `MIDEN_WALLET_API_URL` value baked into the built extension, with the first file of each. */
+export function readBakedWalletApiUrls(extensionPath: string): BakedWalletApiReading[] {
+  const readings = new Map<string, BakedWalletApiReading>();
+  for (const rel of bundleFiles(extensionPath)) {
+    const code = fs.readFileSync(path.join(extensionPath, rel), 'utf8');
+    for (const match of code.matchAll(BAKED_WALLET_API_RE)) {
+      const url = withoutTrailingSlash(match[2] ?? '');
+      if (!readings.has(url)) readings.set(url, { url, source: rel });
+    }
+  }
+  return [...readings.values()];
+}
+
+const verifiedWalletApi = new Set<string>();
+
+/**
+ * Fail before a browser launches unless every bundle of the built extension
+ * carries `expectedBaseUrl` as its `MIDEN_WALLET_API_URL` define. A build
+ * without the define talks to the network's configured backup service (or to
+ * none), never to the local Worker, so a multi-device run against it tests
+ * nothing of the local backup.
+ *
+ * This reads the bytes Chrome loads. The running extension proves the same
+ * thing at runtime with `assertBackupReachesWalletApi` (helpers/multi-device.ts).
+ */
+export function assertExtensionWalletApiMatches(extensionPath: string, expectedBaseUrl: string): void {
+  const expected = withoutTrailingSlash(expectedBaseUrl);
+  const memoKey = `${extensionPath} ${expected}`;
+  if (verifiedWalletApi.has(memoKey)) return;
+
+  // The multi-device script bakes its default URL after cross-env, so a custom URL needs the script it wraps.
+  const rebuild = `E2E_NETWORK=testnet MIDEN_WALLET_API_URL=${expected} yarn test:e2e:blockchain:build`;
+  const readings = readBakedWalletApiUrls(extensionPath);
+  if (readings.length === 0) {
+    throw new Error(
+      `Could not read the MIDEN_WALLET_API_URL define baked into the extension at ${extensionPath}. ` +
+        `The guard looks for the start of loopbackOverride() in the emitted bundles ` +
+        `(see playwright/e2e/harness/extension-network.ts); a minified build hides it. Rebuild with "${rebuild}".`
+    );
+  }
+  const mismatched = readings.filter(reading => reading.url !== expected);
+  if (mismatched.length > 0) {
+    const found = readings.map(reading => `"${reading.url || '(empty)'}" (${reading.source})`).join(', ');
+    throw new Error(
+      `Extension/wallet-api mismatch: the build at ${extensionPath} carries MIDEN_WALLET_API_URL ${found}, ` +
+        `but this run expects the local Worker at "${expected}". A build without the define never sends a backup ` +
+        `request to the local Worker. Rebuild the extension: "${rebuild}".`
+    );
+  }
+  verifiedWalletApi.add(memoKey);
+  console.log(
+    `[e2e] extension wallet-api define "${expected}" matches (read from ${readings.map(r => r.source).join(', ')})`
+  );
+}
+
+/**
  * The IndexedDB store the SDK opens for each URL of the localnet node, `MidenClientDB_<network id>`: miden-client's
  * `Endpoint::to_network_id` names `http://localhost:57291` `mlcl` and every endpoint it does not name `mcst`. These are
  * the only URLs the stored-override guard reads, so it refuses any other rather than guess its store.

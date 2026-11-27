@@ -1,4 +1,14 @@
-import { assertWalletRunsOnStoredOverride, LOCALNET_SDK_STORES, type StoredOverrideProbe } from './extension-network';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import {
+  assertExtensionWalletApiMatches,
+  assertWalletRunsOnStoredOverride,
+  LOCALNET_SDK_STORES,
+  readBakedWalletApiUrls,
+  type StoredOverrideProbe
+} from './extension-network';
 
 const LOCALNET_HARNESS = { name: 'localhost', rpcUrl: 'http://localhost:57291' };
 const OVERRIDE_RPC_URL = 'http://127.0.0.1:57291';
@@ -91,5 +101,67 @@ describe('assertWalletRunsOnStoredOverride', () => {
     await expect(assertWalletRunsOnStoredOverride(probe, LOCALNET_HARNESS, OVERRIDE_RPC_URL)).rejects.toThrow(
       'No endpoint override is stored'
     );
+  });
+});
+
+describe('the wallet-api define baked into the build', () => {
+  let dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    dirs = [];
+  });
+
+  /** An unpacked extension whose bundles start loopbackOverride() with each of `literals`, in that order. */
+  const extension = (literals: string[]): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'wallet-api-define-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'chunks'));
+    // The folded shape the bundler emits today, then the unfolded one.
+    writeFileSync(
+      join(dir, 'background.js'),
+      `function loopbackOverride() {\n\tconst trimmed = ${JSON.stringify(literals[0] ?? '')}.trim();\n}\n`
+    );
+    literals.slice(1).forEach((literal, index) => {
+      writeFileSync(
+        join(dir, 'chunks', `api-client.${index}.js`),
+        `function loopbackOverride$1() {\n  const raw = ${JSON.stringify(literal)};\n}\n`
+      );
+    });
+    return dir;
+  };
+
+  it('reads the define of every bundle, without its trailing slash', () => {
+    expect(readBakedWalletApiUrls(extension(['http://127.0.0.1:8787/', 'http://127.0.0.1:8787']))).toEqual([
+      { url: 'http://127.0.0.1:8787', source: 'background.js' }
+    ]);
+  });
+
+  it('passes a build that carries the expected URL', () => {
+    const dir = extension(['http://127.0.0.1:8787']);
+    expect(() => assertExtensionWalletApiMatches(dir, 'http://127.0.0.1:8787/')).not.toThrow();
+  });
+
+  it('fails a build without the define, naming the rebuild', () => {
+    expect(() => assertExtensionWalletApiMatches(extension(['']), 'http://127.0.0.1:8787')).toThrow(
+      /"\(empty\)".*MIDEN_WALLET_API_URL=http:\/\/127\.0\.0\.1:8787 yarn test:e2e:blockchain:build/
+    );
+  });
+
+  it('names a rebuild that keeps a custom expected URL', () => {
+    expect(() =>
+      assertExtensionWalletApiMatches(extension(['http://127.0.0.1:8787']), 'http://localhost:9000')
+    ).toThrow(/MIDEN_WALLET_API_URL=http:\/\/localhost:9000 yarn test:e2e:blockchain:build/);
+  });
+
+  it('fails bundles that disagree with each other', () => {
+    const dir = extension(['http://127.0.0.1:8787', 'http://localhost:9999']);
+    expect(() => assertExtensionWalletApiMatches(dir, 'http://127.0.0.1:8787')).toThrow(/localhost:9999/);
+  });
+
+  it('fails a bundle where the guard cannot find the define', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wallet-api-define-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'background.js'), 'function other() {}\n');
+    expect(() => assertExtensionWalletApiMatches(dir, 'http://127.0.0.1:8787')).toThrow(/Could not read/);
   });
 });
