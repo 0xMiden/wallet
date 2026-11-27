@@ -434,7 +434,7 @@ test('runs the live model job only from a manual dispatch that picks a suite', (
   const [before, live = ''] = workflow.split('\n  live:\n');
   assert.ok(live.includes("if: github.event_name == 'workflow_dispatch' && inputs.suite != 'none'\n"));
   assert.ok(live.includes('environment: command-ai-eval\n'));
-  assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY_EVAL }}\n'));
+  assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}\n'));
   assert.ok(live.includes('--require-live'));
   assert.ok(!before.includes('secrets.') && !before.includes('--require-live'));
   assert.ok(/\n {6}suite:\n(?: {8}.*\n)*? {8}default: none\n/.test(before));

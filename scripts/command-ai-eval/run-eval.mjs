@@ -71,7 +71,9 @@ export function parseResetMs(value) {
 
 export function paceDelayMs(headers, lastPromptTokens) {
   const remaining = headers.get('x-ratelimit-remaining-tokens');
-  if (remaining === null || Number(remaining) >= lastPromptTokens + PACE_TOKEN_MARGIN) return 0;
+  // Live traffic shares the account, so a suite never takes more than half of the bucket.
+  const half = Number(headers.get('x-ratelimit-limit-tokens') ?? 0) / 2;
+  if (remaining === null || Number(remaining) >= Math.max(half, lastPromptTokens + PACE_TOKEN_MARGIN)) return 0;
   return parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
 }
 
