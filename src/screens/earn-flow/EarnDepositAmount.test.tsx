@@ -812,7 +812,9 @@ describe('user-visible deposit amount reports', () => {
     act(() => jest.advanceTimersByTime(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['unknownTokenScale', 'inline', { kind: 'token_scale', tokenScaleProducer: 'select_amount' }]
+    ]);
     act(() => jest.advanceTimersByTime(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });
