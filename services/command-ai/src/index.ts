@@ -1,6 +1,7 @@
 import helpFacts from '../../../src/lib/command-ai/help-facts.json';
 import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
 
+import { keepsStaleId } from './follow-up';
 import helpCards from './help-cards.json';
 import {
   type HelpDataset,
@@ -658,6 +659,13 @@ async function handleCompile(
       ? JSON.stringify({ utterance: redactedText, previousHelpTopic: helpContext })
       : redactedText;
 
+  // "No command found", for a reply the app must not get. The app shows it as an error and applies nothing.
+  const noCommand = (path: 'refused' | 'declined') => {
+    console.warn(JSON.stringify({ event: `compile_${path}`, model }));
+    onTrace?.({ path, picked: [], unknownIds: [], served: null });
+    return jsonResponse({ output: NO_COMMAND }, 200);
+  };
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), COMMAND_AI_TIMEOUT_MS);
 
@@ -706,11 +714,7 @@ async function handleCompile(
     if (!res.ok) {
       // The app sends a typed clarification reply without its snapshot first, and sends the snapshot only after a
       // reply. A short one like "public" can be impossible to shape, so that request says it found no command.
-      if (!snapshot && (await isUnshapedReply(res))) {
-        console.warn(JSON.stringify({ event: 'compile_refused', model }));
-        onTrace?.({ path: 'refused', picked: [], unknownIds: [], served: null });
-        return jsonResponse({ output: NO_COMMAND }, 200);
-      }
+      if (!snapshot && (await isUnshapedReply(res))) return noCommand('refused');
       throw compilationFailed();
     }
 
@@ -727,6 +731,7 @@ async function handleCompile(
     if (!isRecord(output)) {
       throw compilationFailed();
     }
+    if (snapshot && keepsStaleId(output, snapshot, redactedText)) return noCommand('declined');
     if (helpContext === undefined) return compiled(output, model);
 
     const help = answerHelp(output, redactedText, dataset);
@@ -788,7 +793,7 @@ async function dispatch(request: Request, env: Env, options: ServiceOptions): Pr
 }
 
 export interface HelpTrace {
-  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written' | 'refused';
+  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written' | 'refused' | 'declined';
   picked: string[];
   unknownIds: string[];
   /** The card the user got: the first cited one for written text. */
