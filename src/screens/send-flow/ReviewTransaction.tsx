@@ -330,7 +330,13 @@ export const ReviewTransaction: React.FC = () => {
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const {
+    data: balanceData,
+    isLoading: balancesLoading,
+    readFailed: balanceReadFailed,
+    balanceReadInFlight,
+    mutate: retryBalanceRead
+  } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   // Loaded here too: a review held for want of the document resolves only once one arrives.
   const bridgeConfig = useBridgeConfigSnapshot();
@@ -349,6 +355,7 @@ export const ReviewTransaction: React.FC = () => {
   const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
+  const burnBalancesLoading = isUsdcxBurn && balancesLoading;
   const burnFee = useBurnFeeReserve(
     isUsdcxBurn && publicKey && bridgeNetworkObj
       ? {
@@ -357,10 +364,9 @@ export const ReviewTransaction: React.FC = () => {
         }
       : undefined
   );
-  const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
+  const measuredBurnFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
     if (
       !isUsdcxBurn ||
-      !nativeScaleKnown ||
       burnFee.status !== 'measured' ||
       burnFee.reserve === undefined ||
       !burnFee.faucetId ||
@@ -368,8 +374,11 @@ export const ReviewTransaction: React.FC = () => {
     )
       return undefined;
     return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
-  }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
+  }, [isUsdcxBurn, burnFee]);
+  const burnNetworkFeeBudget = nativeScaleKnown ? measuredBurnFeeBudget : undefined;
   const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
+  const waitingForBurnFeeScale =
+    burnBalancesLoading && !nativeScaleKnown && isCurrentUsdcxFeeBudget(measuredBurnFeeBudget);
   useUserVisibleError(isUsdcxBurn && burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null, 'review');
   const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
@@ -679,10 +688,8 @@ export const ReviewTransaction: React.FC = () => {
     },
     [publicKey, readSpendingLimit, isCurrentSubmission, calendarTarget]
   );
-  // `token` is undefined until balances load; an absent token is handled by the
-  // deep-link guard below, so only a LOADED token with an unreadable scale
-  // blocks the CTA.
-  const scaleIsUnknown = token !== undefined && !token.scaleIsKnown;
+  // The initial USDCx balance can be a placeholder with unverified metadata.
+  const scaleIsUnknown = !burnBalancesLoading && token !== undefined && !token.scaleIsKnown;
 
   // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
   // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
@@ -1138,7 +1145,7 @@ export const ReviewTransaction: React.FC = () => {
       (command && sendAdmission?.status === 'pending')
     )
       return;
-    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
+    if (isSubmitting || burnBalancesLoading || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
       setSubmitErrorId('unknownTokenScale');
@@ -1201,6 +1208,7 @@ export const ReviewTransaction: React.FC = () => {
     assessSpendingLimit,
     isBridge,
     isSubmitting,
+    burnBalancesLoading,
     openUnpricedChallenge,
     publicKey,
     runBridgeSend,
@@ -1241,13 +1249,14 @@ export const ReviewTransaction: React.FC = () => {
       isUsdcxBurn && amountBaseUnits !== undefined
         ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum)
         : undefined;
-    const burnValidationErrorId = !isUsdcxBurn
-      ? undefined
-      : amountBaseUnits === undefined || amountBaseUnits <= 0n
-        ? 'usdcxInvalidAmount'
-        : minimumBurnShortfall
-          ? 'usdcxBelowMinimumBurn'
-          : undefined;
+    const burnValidationErrorId =
+      !isUsdcxBurn || !token
+        ? undefined
+        : amountBaseUnits === undefined || amountBaseUnits <= 0n
+          ? 'usdcxInvalidAmount'
+          : minimumBurnShortfall
+            ? 'usdcxBelowMinimumBurn'
+            : undefined;
     const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
 
     // Deep-link guards — after all hooks. Address/amount are checkable
@@ -1293,7 +1302,9 @@ export const ReviewTransaction: React.FC = () => {
     })();
     const tokenInvalid =
       isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
-      (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
+      (!burnBalancesLoading &&
+        !!balanceData &&
+        (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
     const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
     const reviewError = scaleIsUnknown
       ? t('unknownTokenScale')
@@ -1418,7 +1429,7 @@ export const ReviewTransaction: React.FC = () => {
       (command && sendAdmission?.status === 'pending') ||
       scaleIsUnknown ||
       amountExceedsPrecision ||
-      (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
+      (isUsdcxBurn && (burnBalancesLoading || !token || !!burnValidationError || !burnFeeReady)) ||
       (isNearIntents && nearIntentsQuote.status !== 'ready') ||
       recallInvalid;
     const ReviewLayout = command ? CommandSendReview : SendStepLayout;
@@ -1440,6 +1451,26 @@ export const ReviewTransaction: React.FC = () => {
           }}
           footer={
             <div className="flex flex-col gap-2">
+              {burnBalancesLoading && balanceReadFailed && (
+                <Notice
+                  tone="negative"
+                  errorId="tokenDetailBalanceUnavailable"
+                  role="alert"
+                  trailing={
+                    <Button
+                      type="button"
+                      size="sm"
+                      title={t('retry')}
+                      variant={ButtonVariant.Secondary}
+                      onClick={retryBalanceRead}
+                      disabled={balanceReadInFlight}
+                      data-testid="review-balance-retry"
+                    />
+                  }
+                >
+                  {t('tokenDetailBalanceUnavailable')}
+                </Notice>
+              )}
               {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
                 <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
               )}
@@ -1582,7 +1613,13 @@ export const ReviewTransaction: React.FC = () => {
                         />
                       ) : (
                         <span role="status">
-                          {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                          {t(
+                            waitingForBurnFeeScale
+                              ? 'loading'
+                              : burnFee.status === 'pending'
+                                ? 'usdcxBurnFeeMeasuring'
+                                : 'usdcxBurnFeeUnavailable'
+                          )}
                         </span>
                       )}
                     </DetailRow>

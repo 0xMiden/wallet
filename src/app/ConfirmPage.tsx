@@ -24,6 +24,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
+import type { ConfirmApprovalFailureOrigin } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 import useSafeState from 'lib/ui/useSafeState';
@@ -391,7 +392,11 @@ const ConfirmDAppForm: FC = () => {
   );
 
   const [error, setError] = useSafeState<any>(null);
-  const [errorId, setErrorId] = useSafeState<UserErrorId | null>(null);
+  const [errorReport, setErrorReport] = useSafeState<{
+    id: UserErrorId;
+    origin?: ConfirmApprovalFailureOrigin;
+  } | null>(null);
+  const errorId = errorReport?.id ?? null;
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
@@ -405,12 +410,16 @@ const ConfirmDAppForm: FC = () => {
   const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
 
   const confirm = useCallback(
-    async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
+    async (
+      confirmed: boolean,
+      spendingLimitAuthenticated?: true,
+      origin: ConfirmApprovalFailureOrigin = confirmed ? 'approve' : 'decline'
+    ) => {
       setError(null);
       try {
         // An existing permission's consent was given when its session was saved, so its answer and Retry skip the box.
         if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked && !autoApproved) {
-          setErrorId('confirmError');
+          setErrorReport({ id: 'confirmError' });
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed, spendingLimitAuthenticated);
@@ -425,11 +434,22 @@ const ConfirmDAppForm: FC = () => {
         await new Promise(res => setTimeout(res, 300));
         setError(err);
         if (!confirmed || !requirePrivateDataCheckbox || isPrivateDataChecked || autoApproved) {
-          setErrorId(err?.message == null ? 'smthWentWrong' : 'raw_confirm_approval_failed');
+          const id = err?.message == null ? 'smthWentWrong' : 'raw_confirm_approval_failed';
+          setErrorReport(payload.type === 'connect' && id === 'raw_confirm_approval_failed' ? { id, origin } : { id });
         }
       }
     },
-    [onConfirm, setError, setErrorId, requirePrivateDataCheckbox, isPrivateDataChecked, autoApproved, settleApproval, t]
+    [
+      onConfirm,
+      setError,
+      setErrorReport,
+      requirePrivateDataCheckbox,
+      isPrivateDataChecked,
+      autoApproved,
+      settleApproval,
+      payload.type,
+      t
+    ]
   );
 
   // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
@@ -445,7 +465,7 @@ const ConfirmDAppForm: FC = () => {
   useEffect(() => {
     if (payload.type !== 'connect' || !payload.existingPermission || existingPermissionAnsweredRef.current) return;
     existingPermissionAnsweredRef.current = true;
-    void confirm(true);
+    void confirm(true, undefined, 'automatic_reconnect');
   }, [payload, confirm]);
 
   // A new Auto permission on a private account needs the consent box: Connect waits for the tick
@@ -635,7 +655,15 @@ const ConfirmDAppForm: FC = () => {
             requireConsent={requirePrivateDataCheckbox}
             consentChecked={isPrivateDataChecked}
             onConsentChange={setIsPrivateDataChecked}
-            error={error ? { message: error?.message ?? t('smthWentWrong'), errorId } : undefined}
+            error={
+              transactionError && {
+                ...transactionError,
+                diagnostics:
+                  errorReport?.origin === undefined
+                    ? undefined
+                    : { kind: 'confirm_approval_failure', confirmApprovalFailureOrigin: errorReport.origin }
+              }
+            }
           />
         ) : payload.type === 'sign' || payload.type === 'loginSign' ? (
           <SignatureRequest payload={payload} payloadError={payloadError} error={transactionError} />

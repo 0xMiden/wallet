@@ -1,11 +1,21 @@
+import type { TokenPriceInfo } from 'lib/prices/binance';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+
 import {
   applyChipSelection,
+  applyPatchToDraft,
   carryForwardAmount,
   compileOutputToResolution,
+  createClarificationSnapshot,
   resolveDraftToAction,
   type OrchestratorWalletContext
 } from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
+
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual('lib/token-list/runtime'),
+  peekTokenPriceAssets: jest.fn()
+}));
 
 const VALID_MIDEN_ALICE = 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62';
 const VALID_EVM_ALICE_WORK = '0x023230000000000000000000000000000000a9f1';
@@ -102,6 +112,52 @@ function createContext(): OrchestratorWalletContext {
 }
 
 describe('command-ai orchestrator', () => {
+  describe('dollar sends', () => {
+    function resolveDollarSend(quote?: TokenPriceInfo) {
+      const ctx = createContext();
+      jest.mocked(peekTokenPriceAssets).mockReturnValueOnce(new Map([['faucet-eth', 'ETH']]));
+      const { map } = redactPrompt('send $50 of ETH to Alice', { contacts: ctx.contacts });
+
+      return compileOutputToResolution(
+        {
+          op: 'set_intent',
+          action: 'send',
+          amount: { kind: 'fiat_ref', ref: 'FIAT_AMT_1', currency: 'USD' },
+          asset: 'ETH',
+          to_asset: null,
+          from_chain: null,
+          to_chain: null,
+          recipient_ref: 'CONTACT_1',
+          provider: null,
+          note_type: null,
+          earn_op: null
+        },
+        map,
+        { ...ctx, tokenPrices: quote ? { ETH: quote } : {} }
+      );
+    }
+
+    const marketQuote: TokenPriceInfo = { price: 2500, change24h: 0, percentageChange24h: 0, kind: 'market' };
+
+    it('returns a quote error when only the balance row has a price', () => {
+      expect(resolveDollarSend()).toMatchObject({ kind: 'error', messageKey: 'commandAiFiatPriceUnavailable' });
+    });
+
+    it('returns a quote error when the verified market quote is more than ten minutes old', () => {
+      expect(resolveDollarSend({ ...marketQuote, observedAt: Date.now() - 11 * 60_000 })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiFiatPriceUnavailable'
+      });
+    });
+
+    it('drafts the amount using a fresh verified market quote', () => {
+      expect(resolveDollarSend({ ...marketQuote, observedAt: Date.now() })).toMatchObject({
+        kind: 'handoff',
+        handoff: { action: 'send', draft: { amount: '0.02', tokenId: 'faucet-eth' } }
+      });
+    });
+  });
+
   it('resolves "send 10 MIDEN to Alice" directly to /send/review with prefilled draft', () => {
     const ctx = createContext();
     const { map } = redactPrompt('send 10 MIDEN to Alice', { contacts: ctx.contacts });
@@ -647,5 +703,426 @@ describe('command-ai orchestrator', () => {
     expect(step2Handoff.handoff.draft.payAmount).toBe('0.005');
     expect(step2Handoff.handoff.draft.payTokenId).toBe('faucet-eth');
     expect(step2Handoff.handoff.draft.receiveTokenId).toBe('faucet-usdcx');
+  });
+
+  describe('bridge request with no matching route', () => {
+    const inRoute = (id: string, symbol: string, network: string, provider = 'agglayer') => ({
+      id,
+      provider,
+      mode: 'receive' as const,
+      sourceSymbol: symbol,
+      sourceNetwork: network,
+      destinationSymbol: symbol === 'USDC' ? 'USDCx' : symbol,
+      destinationNetwork: 'miden-testnet'
+    });
+    const usdc = inRoute('in-usdc', 'USDC', 'sepolia', 'xreserve');
+    const eth = inRoute('in-eth', 'ETH', 'base-sepolia');
+    const out = {
+      id: 'out-usdcx',
+      provider: 'xreserve',
+      mode: 'send' as const,
+      sourceSymbol: 'USDCx',
+      sourceNetwork: 'miden-testnet',
+      destinationSymbol: 'USDC',
+      destinationNetwork: 'sepolia'
+    };
+    const context = () => ({ ...createContext(), bridgeRoutes: [usdc, eth, out] });
+    const request = (draft: Partial<Parameters<typeof resolveDraftToAction>[0]>) =>
+      resolveDraftToAction(
+        { action: 'bridge', amount: '5', ...draft },
+        redactPrompt('bridge', { contacts: [] }).map,
+        context()
+      );
+    const expectNoRoute = (res: ReturnType<typeof request>, offered: string[]) => {
+      if (res.kind !== 'clarifying') throw new Error(`expected a clarification, got ${res.kind}`);
+      expect(res.questionKey).toBe('commandAiBridgeNoRoute');
+      expect(res.chips.map(chip => chip.id)).toEqual(offered);
+      return res;
+    };
+
+    it.each([
+      ['an unlisted asset', { assetQuery: 'WBTC', toChain: 'miden' }, ['in-usdc', 'in-eth']],
+      ['an asset and network that never meet', { assetQuery: 'ETH', fromChain: 'sepolia' }, ['in-usdc', 'in-eth']],
+      ['an unlisted source network', { fromChain: 'solana', toChain: 'miden' }, ['in-usdc', 'in-eth']],
+      [
+        'an unlisted destination pair',
+        { assetQuery: 'USDC', toAssetQuery: 'ETH', toChain: 'miden' },
+        ['in-usdc', 'in-eth']
+      ],
+      [
+        'a provider that does not serve it',
+        { assetQuery: 'ETH', provider: 'epoch', toChain: 'miden' },
+        ['in-usdc', 'in-eth']
+      ],
+      // One other route must still be offered, never picked for the user.
+      [
+        'an asset with a single other route',
+        { assetQuery: 'USDCx', fromChain: 'miden', toChain: 'solana' },
+        ['out-usdcx']
+      ],
+      ['a route that left the catalog', { routeId: 'gone' }, ['in-usdc', 'in-eth', 'out-usdcx']]
+    ])('says there is no route for %s and offers the others', (_label, draft, offered) => {
+      expect(expectNoRoute(request(draft), offered).slot).toBe('route');
+    });
+
+    it('does not carry an amount over to a different asset', () => {
+      const res = expectNoRoute(request({ assetQuery: 'WBTC', tokenId: 'faucet-wbtc', toChain: 'miden' }), [
+        'in-usdc',
+        'in-eth'
+      ]);
+      const next = applyChipSelection(res, res.chips[1]!, context());
+      if (next.kind !== 'clarifying') throw new Error(`expected a clarification, got ${next.kind}`);
+      expect(next.slot).toBe('amount');
+      expect(next.draft.amount).toBeUndefined();
+      expect(next.draft.tokenId).toBeUndefined();
+    });
+
+    it('keeps the amount when the chosen route moves the requested asset', () => {
+      const res = expectNoRoute(request({ assetQuery: 'ETH', fromChain: 'sepolia' }), ['in-usdc', 'in-eth']);
+      const next = applyChipSelection(res, res.chips[1]!, context());
+      if (next.kind !== 'handoff' || next.handoff.action !== 'bridge') throw new Error('expected a bridge handoff');
+      expect(next.handoff.draft).toMatchObject({ route: 'in-eth', amount: '5' });
+    });
+
+    it('still reports unavailable when there is no route at all', () => {
+      const res = resolveDraftToAction(
+        { action: 'bridge', amount: '5' },
+        redactPrompt('bridge', { contacts: [] }).map,
+        { ...createContext(), bridgeRoutes: [] }
+      );
+      expect(res).toMatchObject({ kind: 'error', messageKey: 'commandAiBridgeUnavailable' });
+    });
+
+    const patch = (fields: Partial<Record<'asset' | 'to_asset' | 'from_chain' | 'to_chain', string>>) => ({
+      op: 'patch_slots' as const,
+      patch: {
+        action: null,
+        amount: null,
+        asset: null,
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null,
+        ...fields
+      }
+    });
+
+    it.each([{ asset: 'WBTC' }, { to_asset: 'WBTC' }, { from_chain: 'solana' }, { to_chain: 'solana' }])(
+      'drops the chosen route when a follow-up changes it to %o',
+      fields => {
+        const res = compileOutputToResolution(patch(fields), redactPrompt('x', { contacts: [] }).map, context(), {
+          action: 'bridge',
+          routeId: 'in-eth',
+          assetQuery: 'ETH',
+          fromChain: 'base-sepolia',
+          toChain: 'miden-testnet'
+        });
+        expect(res).toMatchObject({ kind: 'clarifying', questionKey: 'commandAiBridgeNoRoute' });
+      }
+    );
+
+    it('reads a network written with spaces or a mainnet suffix', () => {
+      const intent = (from_chain: string) =>
+        compileOutputToResolution(
+          { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain, to_chain: 'Miden Testnet' },
+          redactPrompt('x', { contacts: [] }).map,
+          context()
+        );
+      expect(intent('Base Sepolia')).toMatchObject({
+        kind: 'clarifying',
+        slot: 'amount',
+        draft: { routeId: 'in-eth' }
+      });
+      expect(
+        compileOutputToResolution(
+          { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain: 'Ethereum Mainnet', to_chain: null },
+          redactPrompt('x', { contacts: [] }).map,
+          { ...createContext(), bridgeRoutes: [inRoute('main-eth', 'ETH', 'ethereum'), usdc] }
+        )
+      ).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { routeId: 'main-eth' } });
+    });
+
+    const intent = (from_chain: string, bridgeRoutes: ReturnType<typeof context>['bridgeRoutes']) =>
+      compileOutputToResolution(
+        { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain, to_chain: 'Miden Testnet' },
+        redactPrompt('x', { contacts: [] }).map,
+        { ...createContext(), bridgeRoutes }
+      );
+
+    it.each([
+      ['a Miden network no route is on', { toChain: 'miden-devnet' }],
+      ['a bridge from Miden to Miden', { fromChain: 'miden', toChain: 'miden' }]
+    ])('says there is no route for %s', (_label, draft) => {
+      expect(expectNoRoute(request(draft), ['in-usdc', 'in-eth']).slot).toBe('route');
+    });
+
+    it('does not take a testnet route for a stated mainnet', () => {
+      const res = intent('Base Mainnet', [usdc, eth]);
+      expect(res).toMatchObject({ kind: 'clarifying', slot: 'route', questionKey: 'commandAiBridgeNoRoute' });
+    });
+
+    it('does not take a testnet route when a follow-up states mainnet', () => {
+      const res = compileOutputToResolution(
+        patch({ from_chain: 'Base Mainnet' }),
+        redactPrompt('x', { contacts: [] }).map,
+        context(),
+        { action: 'bridge', routeId: 'in-eth', fromChain: 'base-sepolia', toChain: 'miden-testnet' }
+      );
+      expect(res).toMatchObject({ kind: 'clarifying', slot: 'route', questionKey: 'commandAiBridgeNoRoute' });
+    });
+
+    it('selects the mainnet route for a stated mainnet and keeps the testnet variant for a bare name', () => {
+      const base = inRoute('main-base', 'ETH', 'base');
+      expect(intent('Base Mainnet', [base, eth])).toMatchObject({ draft: { routeId: 'main-base' } });
+      expect(intent('base', [usdc, eth])).toMatchObject({ draft: { routeId: 'in-eth' } });
+      const miden = { ...usdc, id: 'main-miden', destinationNetwork: 'miden-mainnet' };
+      expect(
+        resolveDraftToAction(
+          { action: 'bridge', amount: '5', toChain: 'miden-mainnet' },
+          redactPrompt('bridge', { contacts: [] }).map,
+          { ...createContext(), bridgeRoutes: [miden, eth] }
+        )
+      ).toMatchObject({ handoff: { draft: { route: 'main-miden' } } });
+    });
+
+    it('names a send network without the mainnet suffix', () => {
+      const res = compileOutputToResolution(
+        {
+          ...patch({}).patch,
+          op: 'set_intent',
+          action: 'send',
+          amount: { kind: 'exact_ref', ref: 'AMT_1' },
+          asset: 'USDCx',
+          to_chain: 'Ethereum Mainnet',
+          recipient_ref: 'CONTACT_1'
+        },
+        redactPrompt('send 2 USDCx to Alice Work', { contacts: createContext().contacts }).map,
+        createContext()
+      );
+      expect(res).toMatchObject({ handoff: { draft: { bridgeNetwork: 'ethereum' } } });
+    });
+  });
+});
+
+describe('createClarificationSnapshot', () => {
+  const ids = [
+    `contact:${VALID_MIDEN_ALICE}`,
+    `account:${VALID_EVM_ALICE_WORK}`,
+    'faucet-of-a-held-token',
+    'mtst1owner-1-lender-market'
+  ];
+
+  it('sends numbered option ids and only common-ticker symbols', () => {
+    const snapshot = createClarificationSnapshot(
+      { action: 'swap', assetQuery: 'PEPE', tokenId: 'faucet-of-a-held-token', toAssetQuery: 'usdcx' },
+      'amount',
+      ids
+    );
+
+    expect(snapshot.allowedOptionIds).toEqual(['option_1', 'option_2', 'option_3', 'option_4']);
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: 'usdcx' });
+    const sent = JSON.stringify(snapshot);
+    for (const localValue of [...ids, 'PEPE']) expect(sent).not.toContain(localValue);
+  });
+
+  it('applies the same rule to the target symbol', () => {
+    const snapshot = createClarificationSnapshot({ action: 'swap', toAssetQuery: 'PEPE' }, 'amount', []);
+
+    expect(snapshot.draft).toMatchObject({ asset: null, to_asset: null });
+  });
+});
+
+describe('the token id behind a bridge route', () => {
+  const empty = redactPrompt('', { contacts: [] }).map;
+  const route = (provider: string) => ({
+    id: `testnet:${provider}:usdcx:sepolia:send`,
+    provider,
+    mode: 'send' as const,
+    sourceSymbol: 'USDCx',
+    sourceNetwork: 'miden-testnet',
+    destinationSymbol: 'USDC',
+    destinationNetwork: 'sepolia'
+  });
+  const context = (...providers: string[]): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-usdcx-other',
+          tokenSlug: 'USDCx',
+          balance: 5,
+          balanceBaseUnits: '5000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'USDCx', name: 'Other USDCx', decimals: 6 }
+        },
+        {
+          tokenId: 'faucet-usdc',
+          tokenSlug: 'USDC',
+          balance: 7,
+          balanceBaseUnits: '7000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 }
+        }
+      ],
+      externalEvmAddress: VALID_EVM_ALICE_WORK,
+      bridgeRoutes: providers.map(route)
+    };
+  };
+  // USDC names these routes by their destination, while their source asset is USDCx.
+  const held = {
+    action: 'bridge' as const,
+    assetQuery: 'USDC',
+    tokenId: 'faucet-usdc',
+    fromChain: 'miden',
+    toChain: 'sepolia'
+  };
+
+  it('is dropped when a bridge chip names a different source symbol', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const asked = resolveDraftToAction(held, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    const picked = applyChipSelection(asked, asked.chips[1]!, ctx);
+
+    expect(picked).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { assetQuery: 'USDCx' } });
+    if (picked.kind !== 'clarifying') return;
+    expect(picked.draft.tokenId).toBeUndefined();
+  });
+
+  it('does not pick the balance for a max amount when it holds a different asset', () => {
+    const res = resolveDraftToAction({ ...held, amountIsMax: true }, empty, context('xreserve'));
+
+    expect(res).toMatchObject({ kind: 'handoff', handoff: { draft: { amount: '1000' } } });
+  });
+
+  it('stays selected when the route source symbol is the same asset', () => {
+    const ctx = context('agglayer', 'xreserve');
+    const draft = { ...held, assetQuery: 'usdcx', tokenId: 'faucet-usdcx-other', amountIsMax: true };
+    const asked = resolveDraftToAction(draft, empty, ctx);
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+
+    expect(applyChipSelection(asked, asked.chips[1]!, ctx)).toMatchObject({
+      kind: 'handoff',
+      handoff: { draft: { amount: '5' } }
+    });
+  });
+});
+
+describe('a follow-up that names an asset', () => {
+  const noPatch = {
+    action: null,
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const base = {
+    action: 'swap' as const,
+    assetQuery: 'PEPE',
+    tokenId: 'faucet-pepe',
+    toAssetQuery: 'ZORK',
+    toTokenId: 'faucet-zork'
+  };
+  const empty = redactPrompt('', { contacts: [] }).map;
+
+  it('drops the old token ids when the assets change', () => {
+    const next = applyPatchToDraft(base, { ...noPatch, asset: 'USDC', to_asset: 'MIDEN' }, empty);
+
+    expect(next).toMatchObject({ assetQuery: 'USDC', toAssetQuery: 'MIDEN' });
+    expect(next.tokenId).toBeUndefined();
+    expect(next.toTokenId).toBeUndefined();
+  });
+
+  it('compares and stores a padded symbol without its padding', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: ' PEPE ', to_asset: ' ZORK ' }, empty)).toMatchObject({
+      assetQuery: 'PEPE',
+      tokenId: 'faucet-pepe',
+      toAssetQuery: 'ZORK',
+      toTokenId: 'faucet-zork'
+    });
+    const changed = applyPatchToDraft(base, { ...noPatch, asset: ' USDC ' }, empty);
+    expect(changed).toMatchObject({ assetQuery: 'USDC', toTokenId: 'faucet-zork' });
+    expect(changed.tokenId).toBeUndefined();
+  });
+
+  it('keeps the token id when the same symbol is repeated or no asset is named', () => {
+    expect(applyPatchToDraft(base, { ...noPatch, asset: 'pepe' }, empty)).toMatchObject({
+      tokenId: 'faucet-pepe',
+      toTokenId: 'faucet-zork'
+    });
+    expect(applyPatchToDraft(base, noPatch, empty)).toMatchObject({ tokenId: 'faucet-pepe' });
+  });
+});
+
+// The whole path of a follow-up: the typed symbol is a placeholder, resolution restores it into the
+// draft, and the snapshot built from that draft must not carry it.
+describe('the follow-up snapshot after an unlisted token was typed', () => {
+  const slots = {
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const context = (): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-foo',
+          tokenSlug: 'FOO',
+          balance: 50,
+          balanceBaseUnits: '50000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'FOO', name: 'Foo', decimals: 6 }
+        }
+      ],
+      swapTokens: [...base.swapTokens, { symbol: 'FOO', faucetId: 'faucet-foo', decimals: 6 }]
+    };
+  };
+  const heldNicheTickers = [{ symbol: 'FOO', tokenId: 'faucet-foo' }];
+
+  it.each([
+    [
+      'asset',
+      'send 5 FOO',
+      { action: 'send' as const, amount: { kind: 'exact_ref' as const, ref: 'AMT_1' }, asset: 'TOKEN_1' },
+      { asset: null }
+    ],
+    [
+      'to_asset',
+      'swap MIDEN to FOO',
+      { action: 'swap' as const, asset: 'MIDEN', to_asset: 'TOKEN_1' },
+      { asset: 'MIDEN', to_asset: null }
+    ]
+  ])('leaves it out of %s', (_side, typed, intent, expected) => {
+    const { redactedText, map } = redactPrompt(typed, { contacts: [], heldNicheTickers });
+    expect(redactedText).toContain('<TOKEN_1>');
+    const asked = compileOutputToResolution({ op: 'set_intent', ...slots, ...intent }, map, context());
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    expect([asked.draft.assetQuery, asked.draft.toAssetQuery]).toContain('FOO');
+
+    const snapshot = createClarificationSnapshot(asked.draft, asked.slot, asked.allowedOptionIds);
+
+    expect(snapshot.draft).toMatchObject(expected);
+    expect(JSON.stringify(snapshot)).not.toMatch(/foo/i);
   });
 });

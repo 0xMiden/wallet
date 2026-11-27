@@ -128,7 +128,7 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
 
   // Priority 1: Addresses — Miden bech32 (including partial prefixes), hex (4+ hex chars), ENS, BTC/Solana literals.
   const addrPatterns = [
-    /\b(?:mm1|mtst1|mdev1|mlcl1)[0-9a-zA-Z_]{4,}\b/g,
+    /\b(?:mm1|mtst1|mdev1|mlcl1)[0-9a-zA-Z_]{4,}\b/gi,
     /\b0x[0-9a-fA-F]{4,}\b/gi,
     /\b[0-9a-f]{64}\b/gi,
     /\b[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9-]{2,})*\.eth\b/gi,
@@ -141,6 +141,29 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
       const raw = match[0];
       const start = match.index ?? 0;
       spans.push({ start, end: start + raw.length, priority: 1, kind: 'ADDR', raw });
+    }
+  }
+
+  // Saved addresses and own account ids, matched literally: no pattern above covers every format
+  // (a NEAR account name, for one). The placeholder covers the whole typed token around a hit, so a
+  // longer name such as `sub.name.near` never resolves to the saved one. A saved value of letters only
+  // is skipped, and one without a dot must be hit as a whole word, so neither takes over ordinary
+  // words. `raw` stays as typed, since some formats are case-sensitive.
+  const typedTokens = [...input.matchAll(/[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?/g)];
+  for (const { address } of ctx.contacts) {
+    if (!address || /^[A-Za-z]+$/.test(address.trim())) continue;
+    const dotted = address.trim().includes('.');
+    for (const match of input.matchAll(new RegExp(escapeRegExp(address), 'gi'))) {
+      let start = match.index ?? 0;
+      let end = start + match[0].length;
+      if (!dotted && !(isWordBoundaryChar(input[start - 1]) && isWordBoundaryChar(input[end]))) continue;
+      for (const token of typedTokens) {
+        const tokenEnd = token.index + token[0].length;
+        if (token.index >= end || tokenEnd <= start) continue;
+        start = Math.min(start, token.index);
+        end = Math.max(end, tokenEnd);
+      }
+      spans.push({ start, end, priority: 1, kind: 'ADDR', raw: input.slice(start, end) });
     }
   }
 
@@ -158,6 +181,13 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
       const start = match.index ?? 0;
       const end = start + match[0].length;
       if (!isWordBoundaryChar(input[start - 1]) || !isWordBoundaryChar(input[end])) continue;
+      // Part of a longer dotted name: keep the whole of what was typed, never this contact.
+      const around = typedTokens.find(token => token.index <= start && token.index + token[0].length >= end);
+      if (around && around[0].length > match[0].length && around[0].includes('.')) {
+        const tokenEnd = around.index + around[0].length;
+        spans.push({ start: around.index, end: tokenEnd, priority: 2, kind: 'ADDR', raw: around[0] });
+        continue;
+      }
       spans.push({ start, end, priority: 2, kind: 'CONTACT', raw: match[0], contact });
     }
   }
@@ -207,7 +237,7 @@ export function redactPrompt(input: string, ctx: RedactionContext): RedactionRes
 
   // Priority 5: Held niche tokens outside the liquid ticker allowlist.
   for (const token of nicheTokens) {
-    const rx = new RegExp(`(?<![A-Za-z_])${escapeRegExp(token.symbol.trim())}\\b`, 'gi');
+    const rx = new RegExp(`(?<![A-Za-z_])${escapeRegExp(token.symbol.trim())}(?![A-Za-z0-9_])`, 'gi');
     for (const match of input.matchAll(rx)) {
       const start = match.index ?? 0;
       spans.push({ start, end: start + match[0].length, priority: 5, kind: 'TOKEN', raw: match[0], token });

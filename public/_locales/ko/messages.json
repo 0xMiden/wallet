@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "서비스가 켜져 있을 때는 원격 서버에서 거래 증명이 생성됩니다. 이 경우 속도가 더 빠르고, 기기에 대용량 파일을 다운로드할 필요가 없으며, 사용자의 키가 기기 밖으로 유출되지 않습니다. 서비스가 꺼져 있거나 이용 불가능한 경우에는 지갑이 로컬에서 증명을 수행합니다. 이 경우 프라이버시는 더 보장되지만 속도가 느리고, 대용량의 파일을 한 번만 다운로드해야 합니다.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "기본적으로 켜져 있습니다. 켜져 있을 때, 지갑은 증명을 생성하기 위해 거래 내역을 원격 서비스로 전송합니다. 꺼져 있을 때, 지갑은 기기에서 로컬로 거래를 증명합니다. 단, 브리지 인출 및 'Earn' 예금은 예외로, 이 경우 여전히 해당 원격 서비스를 시도합니다. 서비스가 이용 불가능할 경우, 로컬 증명이 가능합니다.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "이체",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian은 <b>사용자의 지갑에서 발생하는 모든 거래</b>를 확인하여, 자가 보관(self-custody)을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian은 <b>사용자의 거래 승인을 돕는</b> 독립적인 서비스입니다. Guardian은 사용자의 계정 및 결제 내역을 확인할 수 있습니다.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "기능",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "자금을 직접 이체하세요. 개인 정보에 접근하세요. 다른 사람과 공유하지 않는 한 잔액을 확인할 수 있습니다.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "자금을 직접 이동하십시오.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "전환하는 건 간단합니다",
@@ -10498,6 +10498,10 @@
   "commandAiBridgeUnavailable": {
     "message": "현재 매칭 가능한 브리지 경로는 없습니다.",
     "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "해당 경로는 존재하지 않습니다. 다른 경로 중 하나를 선택하십시오:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
   },
   "commandAiSwapUnavailable": {
     "message": "현재 해당 통화 쌍에 대해서는 스왑을 이용할 수 없습니다.",

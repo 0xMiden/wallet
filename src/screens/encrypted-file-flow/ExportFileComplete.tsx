@@ -13,7 +13,8 @@ import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
+import type { BackupExportFailureStage } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -55,6 +56,8 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   const { t } = useTranslation();
   const { exportWalletBackupMaterial } = useMidenContext();
 
+  const currentExportStage = useRef<BackupExportFailureStage>('snapshot');
+
   const getExportFile = useCallback(async () => {
     const backupMaterial = await exportWalletBackupMaterial(walletPassword).catch(error => {
       // A backend message is never shown: it is untranslated and can carry
@@ -71,6 +74,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         accountName ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc'
       );
     });
+    currentExportStage.current = 'file_preparation';
     // The accounts and the miden-client dump come from the backend's one
     // serialized turn, so they cannot describe two different wallets. The wallet
     // transaction dump is taken after that turn on purpose: it is display history
@@ -134,6 +138,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       }
     } else {
       // On desktop, use standard download approach
+      currentExportStage.current = 'browser_handoff';
       const encoder = new TextEncoder();
       const fileBytes = encoder.encode(fileContent);
       const blob = new Blob([new Uint8Array(fileBytes)], { type: 'application/json' });
@@ -156,7 +161,15 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   const [exportState, setExportState] = useState<'pending' | 'success' | 'error' | 'cancelled'>('pending');
   const [exportFailureMessage, setExportFailureMessage] = useState<string>();
   const [exportFailureId, setExportFailureId] = useState<UserErrorId>('encryptedWalletFileExportFailedDesc');
-  useUserVisibleError(exportState === 'error' ? exportFailureId : null, 'inline');
+  const [exportFailureStage, setExportFailureStage] = useState<BackupExportFailureStage>();
+  useUserVisibleError(
+    exportState === 'error' ? exportFailureId : null,
+    'inline',
+    undefined,
+    exportFailureStage === undefined
+      ? undefined
+      : { kind: 'backup_export_failure', backupExportFailureStage: exportFailureStage }
+  );
   // Set only on the cancelled path, where the encrypted file is already written
   // and re-sharing it costs nothing beyond re-opening the sheet.
   const sharedFileUriRef = useRef<string | undefined>(undefined);
@@ -192,9 +205,10 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           return;
         }
         setExportFailureMessage(error instanceof BackupSnapshotError ? error.publicMessage : undefined);
-        setExportFailureId(
-          error instanceof BackupSnapshotError ? error.publicMessageId : 'encryptedWalletFileExportFailedDesc'
-        );
+        const id = error instanceof BackupSnapshotError ? error.publicMessageId : 'encryptedWalletFileExportFailedDesc';
+        setExportFailureId(id);
+        if (id === 'encryptedWalletFileExportFailedDesc' && isExtension() && !isMobile())
+          setExportFailureStage(currentExportStage.current);
         setExportState('error');
       }
     );

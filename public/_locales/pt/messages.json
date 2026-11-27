@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "Quando ativado, as provas de transação são geradas em servidores remotos — de forma mais rápida, sem a necessidade de um download pesado para o seu dispositivo, e suas chaves nunca saem dele. Quando desativado, ou se o serviço estiver indisponível, a carteira gera as provas localmente: é mais privado, mas mais lento e requer um download único e pesado.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "Ativado por padrão. Quando ativado, a carteira envia detalhes da transação a um serviço remoto para gerar comprovantes. Quando desativado, a carteira comprova as transações localmente no seu dispositivo, exceto retiradas via bridge e depósitos do Earn, que ainda tentam usar esse serviço remoto. Se o serviço estiver indisponível, a comprovação local estará disponível.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "Transferência",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Um Guardian é um serviço independente que <b>confirma todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Um Guardian é um serviço independente que <b>ajuda a autorizar suas transações</b>. Seu Guardian pode ver os detalhes da sua conta e dos seus pagamentos.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "O que ele faz",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Gerencie seus fundos por conta própria. Acesse suas informações privadas. Veja seus saldos, a menos que você os compartilhe.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "Transfira seus fundos por conta própria.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Mudar é fácil",
@@ -10506,6 +10506,10 @@
   "commandAiBridgeUnavailable": {
     "message": "Não há nenhuma rota de ponte de correspondência disponível no momento.",
     "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "Não há rota para isso. Escolha uma das outras rotas:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
   },
   "commandAiSwapUnavailable": {
     "message": "A troca não está disponível para esse par no momento.",

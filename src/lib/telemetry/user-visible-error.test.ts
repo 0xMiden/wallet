@@ -253,6 +253,8 @@ const uiCases = [
   ['submissionUnanswered', 'status_screen', { kind: 'submission_feedback', submissionFeedbackBranch: 'grpc_unknown' }],
   ['raw_pending_activity_retry_failed', 'notice', { kind: 'pending_retry', pendingRetryReason: 'guardian_hold' }],
   ['invalidMidenAccountId', 'inline', { kind: 'recipient_validation', recipientValidationStage: 'decoder_throw' }],
+  ['unknownTokenScale', 'inline', { kind: 'token_scale', tokenScaleProducer: 'send_amount' }],
+  ['unknownTokenScale', 'inline', { kind: 'token_scale', tokenScaleProducer: 'select_amount' }],
   ['usdcxBurnFeeUnavailable', 'field', { kind: 'burn_fee', burnFeeFailure: 'dry_run_failed' }],
   [
     'mainnetAccessCheckFailed',
@@ -322,6 +324,28 @@ it('rejects partial or unknown feature evidence and never reads getters', () => 
       'featureUnavailableFeature'
     );
   }
+  expect(getter).not.toHaveBeenCalled();
+});
+
+it('omits invalid token scale evidence without changing the visible error identity', () => {
+  const getter = jest.fn(() => 'send_amount');
+  const valid = { kind: 'token_scale', tokenScaleProducer: 'send_amount' };
+  const privateContext = 'faucet 0xdeadbeef amount 12345.678';
+  for (const [surface, evidence] of [
+    ['review', valid],
+    ['inline', { kind: 'token_scale' }],
+    ['inline', { ...valid, tokenScaleProducer: privateContext }],
+    ['inline', { ...valid, rawError: privateContext }],
+    ['inline', Object.defineProperty({ kind: 'token_scale' }, 'tokenScaleProducer', { get: getter })]
+  ] as const) {
+    _resetUserVisibleErrorLimitsForTest();
+    Reflect.apply(reportUserVisibleError, undefined, ['unknownTokenScale', surface, evidence]);
+    const root = jest.mocked(captureCrash).mock.calls.at(-1)?.[0];
+    expect(root).toBeInstanceOf(Error);
+    expect((root as Error).message).toBe(`User-visible error: unknownTokenScale; surface ${surface}`);
+    expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: 'unknownTokenScale', userErrorSurface: surface });
+  }
+  expect(captureCrash).toHaveBeenCalledTimes(5);
   expect(getter).not.toHaveBeenCalled();
 });
 

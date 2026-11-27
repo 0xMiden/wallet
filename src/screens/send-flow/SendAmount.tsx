@@ -104,8 +104,15 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   const feeShortfall = error === 'insufficientFeeAsset';
   const amountError =
     error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
+  const amountErrorDiagnostics: UiEvidenceInput | undefined =
+    error === 'invalidAmount'
+      ? { kind: 'invalid_amount', invalidAmountProducer: embedded ? 'command_send' : 'send_step' }
+      : errorDiagnostics;
   useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
-  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
+  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline', undefined, {
+    kind: 'token_scale',
+    tokenScaleProducer: 'send_amount'
+  });
 
   // An EVM network or a NEAR Intents chain (Solana, Bitcoin, NEAR). `NetworkLogo` finds each mark by its id.
   const bridgeNetwork = network && network !== 'miden' ? getSendNetwork(network) : undefined;
@@ -138,7 +145,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
-        errorDiagnostics={errorDiagnostics}
+        errorDiagnostics={amountErrorDiagnostics}
         showDivider={false}
         data-testid="send-amount-input"
         onValueChange={value => {

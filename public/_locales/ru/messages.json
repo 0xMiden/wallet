@@ -2608,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "В режиме «включено» подтверждения транзакций генерируются на удаленных серверах — это быстрее, не требует загрузки большого объема данных на ваше устройство, и ваши ключи никогда не покидают его. В режиме «выключено» или если сервис недоступен, кошелек генерирует подтверждения локально: это более конфиденциально, но медленнее и требует однократной загрузки большого объема данных.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "Включено по умолчанию. Когда функция включена, кошелек отправляет детали транзакций на удалённый сервис для генерации доказательств. Когда функция выключена, кошелек подтверждает транзакции локально на вашем устройстве, за исключением выводов через мост и депозитов в программе «Earn», для которых по-прежнему используется этот удалённый сервис. Если сервис недоступен, доступно локальное подтверждение.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "Перевод",
@@ -3675,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian — это независимый сервис, который <b>подтверждает каждую транзакцию</b> из вашего кошелька, создавая дополнительную защиту без потери самостоятельного хранения.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian — это независимый сервис, который <b>помогает авторизовать ваши транзакции</b>. Ваш Guardian может просматривать данные вашего счёта и платежей.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Для чего это нужно",
@@ -3691,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Самостоятельно распоряжайтесь своими средствами. Получайте доступ к личным данным. Просматривайте свои остатки на счетах, если вы не предоставили к ним доступ другим пользователям.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "Самостоятельно перемещайте свои средства.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Переключение не представляет труда",
@@ -10502,6 +10502,10 @@
   "commandAiBridgeUnavailable": {
     "message": "В данный момент нет доступного маршрута сопоставления.",
     "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "Для этого нет подходящего варианта. Выберите один из других вариантов:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
   },
   "commandAiSwapUnavailable": {
     "message": "Своп для этой пары в данный момент недоступен.",

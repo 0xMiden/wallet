@@ -102,4 +102,87 @@ describe('command-ai privacy redactor', () => {
     expect(niche.map.amounts.AMT_1).toBe('10');
     expect(niche.map.tokens.TOKEN_1?.tokenId).toBe('faucet-zork');
   });
+
+  it.each([
+    ['a NEAR account name', 'friend.near', 'friend.near'],
+    ['an upper-case Miden address', 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62', 'MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62'],
+    ['an upper-case address no pattern covers', 'tb1qexampleaddress0000000000', 'TB1QEXAMPLEADDRESS0000000000']
+  ])('redacts a saved address typed as %s', (_label, saved, typed) => {
+    const res = redactPrompt(`send 1 usdc to ${typed}.`, {
+      contacts: [{ id: 'c-saved', name: 'Zed', address: saved }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>.');
+    expect(res.map.addrs.ADDR_1).toBe(typed);
+  });
+
+  it.each([
+    'friend.near-sub',
+    'bob.friend.near',
+    'friend.near.testnet',
+    'friend.near..testnet',
+    'Friend.Near-Sub',
+    'myfriend.near'
+  ])('keeps the whole typed token around a saved address: %s', typed => {
+    const res = redactPrompt(`send 1 usdc to ${typed}.`, {
+      contacts: [{ id: 'c-saved', name: 'friend', address: 'friend.near' }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>.');
+    expect(res.map.addrs).toEqual({ ADDR_1: typed });
+  });
+
+  it('leaves punctuation around a saved address out of its placeholder', () => {
+    const res = redactPrompt('send to ...friend.near.', {
+      contacts: [{ id: 'c-saved', name: 'Zed', address: 'friend.near' }]
+    });
+    expect(res.redactedText).toBe('send to ...<ADDR_1>.');
+    expect(res.map.addrs).toEqual({ ADDR_1: 'friend.near' });
+  });
+
+  it.each([
+    ['eth', 'what is my ETH balance?', 'what is my ETH balance?'],
+    ['eth', 'send 1 eth to bob', 'send <AMT_1> eth to bob'],
+    ['eth', 'send ethereum to bob', 'send ethereum to bob'],
+    ['eth', 'the method works', 'the method works'],
+    ['eth', 'send 1eth to alice', 'send <AMT_1>eth to alice'],
+    ['near', 'send 1 usdc to friend.near.', 'send <AMT_1> usdc to friend.near.'],
+    ['a1', 'send a1token to bob', 'send a1token to bob']
+  ])('does not let the short saved address %s take over words in: %s', (address, prompt, expected) => {
+    const res = redactPrompt(prompt, { contacts: [{ id: 'c-word', name: 'Legacy', address }] });
+    expect(res.redactedText).toBe(expected);
+    expect(res.map.addrs).toEqual({});
+  });
+
+  it.each([
+    ['a1', 'send 1 usdc to a1.', 'send <AMT_1> usdc to <ADDR_1>.', 'a1'],
+    ['eth', 'swap $125.50 of usdc to vitalik.eth', 'swap <FIAT_AMT_1> of usdc to <ADDR_1>', 'vitalik.eth']
+  ])('with saved address %s still redacts an address in: %s', (address, prompt, expected, raw) => {
+    const res = redactPrompt(prompt, { contacts: [{ id: 'c-word', name: 'Legacy', address }] });
+    expect(res.redactedText).toBe(expected);
+    expect(res.map.addrs).toEqual({ ADDR_1: raw });
+  });
+
+  it('redacts an upper-case Miden address that is not saved', () => {
+    const res = redactPrompt('send to MTST1AP2T7NSJAUSQSGR57C58S2NQQG9F8M62', { contacts: [] });
+    expect(res.redactedText).toBe('send to <ADDR_1>');
+  });
+
+  it('redacts a held symbol that ends in punctuation', () => {
+    const res = redactPrompt('send 5 WIF$ now', {
+      contacts,
+      heldNicheTickers: [{ symbol: 'WIF$', tokenId: 'faucet-wif' }]
+    });
+    expect(res.redactedText).toBe('send <AMT_1> <TOKEN_1> now');
+  });
+
+  it('does not resolve a saved contact name that is only part of a longer dotted name', () => {
+    const saved = [{ id: 'c-friend', name: 'Friend', address: 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62' }];
+
+    const longer = redactPrompt('send 1 usdc to friend.near.testnet', { contacts: saved });
+    expect(longer.redactedText).toBe('send <AMT_1> usdc to <ADDR_1>');
+    expect(longer.map.addrs).toEqual({ ADDR_1: 'friend.near.testnet' });
+    expect(longer.map.contacts).toEqual({});
+
+    const sentenceEnd = redactPrompt('send 1 usdc to Friend.', { contacts: saved });
+    expect(sentenceEnd.redactedText).toBe('send <AMT_1> usdc to <CONTACT_1>.');
+  });
 });

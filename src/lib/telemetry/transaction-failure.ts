@@ -1,6 +1,6 @@
 import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 
-import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { isOperationAbortedError, OFFSCREEN_TRANSPORT_REASONS } from 'lib/miden/back/offscreen-codec';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import {
   causeChain,
@@ -628,6 +628,14 @@ function offscreenAbortFacts(link: unknown, kill: PipelineKill): string {
     OFFSCREEN_OP_STARTED,
     'unavailable'
   );
+  if (kill === 'offscreen_aborted_transport') {
+    const transportReason = closedFact(
+      () => safeOwnDiagnosticData(safeOwnDiagnosticData(link, 'facts'), 'transportReason'),
+      OFFSCREEN_TRANSPORT_REASONS,
+      'unknown'
+    );
+    return `${kill}; op start reported ${started}; transport reason ${transportReason}`;
+  }
   if (kill !== 'offscreen_aborted_deadline' && kill !== 'offscreen_aborted_deadline_no_kill') {
     return `${kill}; op start reported ${started}`;
   }
@@ -903,6 +911,7 @@ const CLOSED_NAMES: ReadonlySet<string> = new Set<string>([
   ...OFFSCREEN_DEADLINE_TIMERS,
   ...OFFSCREEN_DEADLINE_KILLERS,
   ...OFFSCREEN_OP_STARTED,
+  ...OFFSCREEN_TRANSPORT_REASONS,
   ...EXECUTION_CAUSES,
   ...SIGNING_STEPS,
   ...CONFIRMING_STEPS,

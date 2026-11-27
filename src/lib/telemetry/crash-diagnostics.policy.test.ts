@@ -63,9 +63,13 @@ import { SUBMIT_ENDPOINTS, SUBMIT_GRPC_STATUSES } from './transaction-failure';
 import {
   FEATURE_UNAVAILABLE_FEATURES,
   FEATURE_UNAVAILABLE_REASONS,
+  CONFIRM_APPROVAL_FAILURE_ORIGINS,
   SUBMISSION_FEEDBACK_BRANCHES,
   PENDING_RETRY_REASONS,
   RECIPIENT_VALIDATION_STAGES,
+  TOKEN_SCALE_PRODUCERS,
+  INVALID_AMOUNT_PRODUCERS,
+  BACKUP_EXPORT_FAILURE_STAGES,
   BACKUP_NETWORK_FAILURE_STAGES,
   GUARDIAN_OUTAGE_REASONS
 } from './ui-producer-diagnostics';
@@ -203,11 +207,15 @@ it('states the retention of the diagnostic records once, apart from the 90 days 
 it.each([
   ['featureUnavailableFeature', FEATURE_UNAVAILABLE_FEATURES],
   ['featureUnavailableReason', FEATURE_UNAVAILABLE_REASONS],
+  ['confirmApprovalFailureOrigin', CONFIRM_APPROVAL_FAILURE_ORIGINS],
   ['submissionFeedbackBranch', SUBMISSION_FEEDBACK_BRANCHES],
   ['submissionRejectedEndpoint', SUBMIT_ENDPOINTS],
   ['submissionRejectedStatus', SUBMIT_GRPC_STATUSES],
   ['pendingRetryReason', PENDING_RETRY_REASONS],
   ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
+  ['tokenScaleProducer', TOKEN_SCALE_PRODUCERS],
+  ['invalidAmountProducer', INVALID_AMOUNT_PRODUCERS],
+  ['backupExportFailureStage', BACKUP_EXPORT_FAILURE_STAGES],
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES],
   ['guardianOutageReason', GUARDIAN_OUTAGE_REASONS]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {

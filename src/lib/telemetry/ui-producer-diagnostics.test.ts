@@ -167,6 +167,57 @@ it('refuses private, inherited, accessor and trapped backup evidence and clears 
   expect(JSON.stringify(snapshotCrashDiagnostics(root))).not.toContain(canary);
 });
 
+it.each(['snapshot', 'file_preparation', 'browser_handoff'])(
+  'retains only the closed backup export %s stage on the generic inline warning',
+  stage => {
+    const id = 'encryptedWalletFileExportFailedDesc';
+    const value = { kind: 'backup_export_failure', backupExportFailureStage: stage };
+    const root = new Error('synthetic export failure details');
+    annotateCrash(root, { userErrorId: id, userErrorSurface: 'inline' });
+    annotateUiProducer(root, id, 'inline', value);
+
+    expect(validateUiEvidence(id, 'inline', value)).toEqual(value);
+    expect(snapshotCrashDiagnostics(root)).toEqual({
+      userErrorId: id,
+      userErrorSurface: 'inline',
+      backupExportFailureStage: stage
+    });
+  }
+);
+
+it('discards backup export stage evidence with a wrong pair, unknown value, or extra field', () => {
+  const id = 'encryptedWalletFileExportFailedDesc';
+  const canary = 'synthetic export failure details';
+  const value = { kind: 'backup_export_failure', backupExportFailureStage: 'snapshot' };
+  expect(validateUiEvidence('encryptedWalletFileExportFailedAccount', 'inline', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'notice', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'inline', { ...value, backupExportFailureStage: canary })).toBeUndefined();
+  const root = new Error(canary);
+  annotateCrash(root, { userErrorId: id, userErrorSurface: 'inline' });
+  annotateUiProducer(root, id, 'inline', value);
+  annotateUiProducer(root, id, 'inline', { ...value, detail: canary });
+  expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'inline' });
+});
+
+it('keeps confirmation origin on its exact notice and drops other input', () => {
+  const id = 'raw_confirm_approval_failed';
+  const value = { kind: 'confirm_approval_failure', confirmApprovalFailureOrigin: 'decline' };
+  expect(validateUiEvidence(id, 'inline', value)).toBeUndefined();
+  expect(validateUiEvidence('confirmError', 'notice', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'notice', { ...value, confirmApprovalFailureOrigin: 'private' })).toBeUndefined();
+
+  const root = new Error('synthetic confirmation failure');
+  annotateCrash(root, { userErrorId: id, userErrorSurface: 'notice' });
+  annotateUiProducer(root, id, 'notice', value);
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: id,
+    userErrorSurface: 'notice',
+    confirmApprovalFailureOrigin: 'decline'
+  });
+  annotateUiProducer(root, id, 'notice', { ...value, detail: 'private' });
+  expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'notice' });
+});
+
 it('attaches only the closed Guardian outage reason to its inline banner', () => {
   const id = 'connectivityGuardianBody';
   const reason = { kind: 'guardian_outage', guardianOutageReason: 'request_timeout_fuse' };
