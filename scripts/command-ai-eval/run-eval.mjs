@@ -320,7 +320,10 @@ export function replyShape(generation) {
 
 /** COMMAND_AI_EVAL_ONLY runs the named case ids only. */
 export const onlyCases = (items, only = process.env.COMMAND_AI_EVAL_ONLY ?? '') => {
-  const ids = only.split(',').map(id => id.trim()).filter(Boolean);
+  const ids = only
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean);
   return ids.length === 0 ? items : items.filter(item => ids.includes(item.id));
 };
 

@@ -693,7 +693,13 @@
     },
     "r.both.other": {
       "text": "A current Encrypted Wallet File and its password can restore a standard account, and private keys you saved may help; never send them to anyone, including support.",
-      "src": ["wallet@6d0acae70:docs/tos/index.md", "https://support.miden.xyz/", "wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx", "owner:wallet#2359"]
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "https://support.miden.xyz/",
+        "wallet@6d0acae70:docs/support/index.md",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx",
+        "owner:wallet#2359"
+      ]
     },
     "r.both.gone": {
       "text": "If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access.",
@@ -725,7 +731,11 @@
     },
     "r.fp.file": {
       "text": "A current Encrypted Wallet File and its password can restore a standard account, but not from this screen.",
-      "src": ["wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx", "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/SelectImportType.tsx", "owner:wallet#2359"]
+      "src": [
+        "wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/SelectImportType.tsx",
+        "owner:wallet#2359"
+      ]
     },
     "r.fp.nowords": {
       "text": "Without your words, do not sign out; contact support at support.miden.xyz.",
