@@ -756,7 +756,8 @@ for (const [name, broken, message] of [
   ['an unknown help topic', { helpContext: 'Guardian' }, /bad helpContext/],
   ['a missing forbidden list', { forbidCards: undefined }, /forbidCards must be a list/],
   ['a missing cluster', { cluster: '' }, /missing cluster/],
-  ['a repeated id', { id: 'held-near_miss-0' }, /repeated id/]
+  ['a repeated id', { id: 'held-near_miss-0' }, /repeated id/],
+  ['a P0 case without a forbidden card', { priority: 'P0' }, /a P0 case needs a forbidden card/]
 ]) {
   test(`refuses a holdout with ${name}`, context => {
     const cases = holdoutCases();

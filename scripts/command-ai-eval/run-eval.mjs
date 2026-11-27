@@ -370,6 +370,7 @@ function selectionCaseErrors(cases) {
     if ((item.class === 'answerable') !== item.cards?.length > 0) {
       errors.push('cards must be listed exactly for answerable cases');
     }
+    if (item.priority === 'P0' && !item.forbidCards?.length) errors.push('a P0 case needs a forbidden card');
     return errors.map(error => `${item.id || `case ${index}`}: ${error}`);
   });
 }
