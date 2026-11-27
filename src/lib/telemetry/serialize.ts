@@ -1,4 +1,6 @@
 import {
+  isDiscoveryFeature,
+  TELEMETRY_DISCOVERY_ACTIONS,
   TELEMETRY_NAV_SOURCES,
   TELEMETRY_SCREENS,
   TELEMETRY_SURFACES,
@@ -27,6 +29,9 @@ export const WIRE_KEYS: readonly string[] = [
   'surface',
   'order',
   'complete',
+  'feature',
+  'entryPoint',
+  'discoveryAction',
   'appVersion',
   'platform',
   'network'
@@ -47,6 +52,22 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
     platform: context.platform,
     network: context.network
   };
+
+  if (event.phase === 'discovery') {
+    if (
+      isDiscoveryFeature(event.entryPoint, event.feature) &&
+      TELEMETRY_DISCOVERY_ACTIONS.includes(event.discoveryAction) &&
+      TELEMETRY_SURFACES.includes(event.surface) &&
+      typeof event.runId === 'string' &&
+      /^[A-Za-z0-9_-]{21}$/.test(event.runId)
+    ) {
+      payload.feature = event.feature;
+      payload.entryPoint = event.entryPoint;
+      payload.discoveryAction = event.discoveryAction;
+      payload.surface = event.surface;
+    }
+    return payload;
+  }
 
   if (event.phase === 'visit') {
     // Every value is a prop the event name or the dashboard groups by, and the offscreen forward is untyped at the

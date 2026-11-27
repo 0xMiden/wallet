@@ -7611,8 +7611,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Hangi ekranları açtığınızı ve her birinin ne kadar süreyle görünür kaldığını, oraya nasıl ulaştığınızı, hangi pencereyi kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve platformunuzu paylaşır; böylece sorunları giderebiliriz. Asla anahtarlarınızı, kurtarma ifadesini, şifrenizi, adreslerinizi, bakiyelerinizi, tutarlarınızı veya işlem içeriklerinizi paylaşmaz. Diğer uygulamalar veya siteler üzerinden izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri aracılarına satılmaz veya paylaşılmaz. Hata raporları her durumda gönderilir: hata ve kodda nerede meydana geldiği bilgisi, hassas verilerin kaldırılması için temizlenmiş olarak, sizin veya cihazınızın kimliğini ortaya çıkarmayacak şekilde. Bunu istediğiniz zaman değiştirebilirsiniz.",
-    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Hangi ekranları açtığınızı ve her birinin ne kadar süreyle görünür kaldığını, oraya nasıl ulaştığınızı, hangi özellik kontrollerini gördüğünüzü veya seçtiğinizi, hangi pencereyi kullandığınızı, nerede takıldığınızı, genel hata kategorilerini, uygulama sürümünü ve platformunuzu paylaşın; böylece sorunları giderebiliriz. Asla anahtarlarınız, kurtarma ifadesi, şifreniz, adresleriniz, bakiyeleriniz, tutarlarınız veya işlem içeriklerinizi toplamaz. Diğer uygulamalar veya sitelerde izleme yapılmaz, hiçbir bilgi reklam amaçlı kullanılmaz ve hiçbir bilgi veri aracılarına satılmaz veya paylaşılmaz. Çökme raporları her durumda gönderilir: hata ve kodda nerede meydana geldiği bilgileri, hassas verilerin kaldırılması için temizlenmiş olarak, sizin veya cihazınızın kimliğini ortaya çıkarmayacak şekilde. Bunu istediğiniz zaman değiştirebilirsiniz.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Kullanım verilerini paylaşın",
@@ -7631,8 +7631,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Hangi ekranları açtığınız ve her birinin ne kadar süreyle görünür kaldığı, oraya nasıl ulaştığınız, hangi pencereyi kullandığınız, nerede takıldığınız, genel hata kategorileri, uygulama sürümü ve kullandığınız platform.",
-    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Hangi ekranları açtığınız ve her birinin ne kadar süreyle görünür kaldığı, oraya nasıl ulaştığınız, hangi özellik kontrollerini gördüğünüz veya seçtiğiniz, hangi pencereyi kullandığınız, nerede takıldığınız, genel hata kategorileri, uygulama sürümü ve kullandığınız platform.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
