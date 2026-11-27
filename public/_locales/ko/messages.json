@@ -860,6 +860,127 @@
     "message": "부하 분산을 수행할 수 없습니다.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "잔액을 새로 고칠 수 없습니다. 마지막으로 확인된 잔액을 표시합니다.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "$network$에서 $symbol$의 환율을 1.00 USD로 고정했습니다.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$의 $provider$에서 $network$를 통한 가격, $retrievedAt$에 업데이트됨.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "$network$상의 Vault USD 가치, $retrievedAt$에 업데이트됨.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "USD 가격은 최신 정보가 아닙니다.",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "$network$상의 $provider$에서 제공된 $symbol$의 최신 가격($retrievedAt$)은 10분 이상 경과되었으며, 총계에서 제외되었습니다.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "$network$($retrievedAt$)의 마지막 볼트 USD 가치는 10분 이상 경과했으며, 총계에서 제외되었습니다.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "최종 USD 가격은 10분 이상 지난 것이며, 총계에서 제외됩니다.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "USD 가격 미제공",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "$network$에서는 검증된 USD 가격이 제공되지 않습니다.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "USD 가격을 불러올 수 없습니다. 새로고침될 때까지 잔액 합계에는 USD 가치가 포함되지 않습니다.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "이 토큰은 테스트넷에서 폐기되었으며 전송할 수 없습니다.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "토큰을 전송하기 전에 ‘토큰 정보’에서 토큰 소수점 자릿수를 설정하십시오.",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "송금할 수 있는 잔액이 없습니다.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "아직 송금할 수 있는 잔액이 없습니다. 먼저 보류 중인 이체를 수락하십시오.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "부하 분산을 수행할 수 없습니다. 전송하기 전에 다시 시도하십시오.",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",

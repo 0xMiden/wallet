@@ -860,6 +860,127 @@
     "message": "Impossible d’équilibrer la charge.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Impossible d'actualiser le solde. Affichage du dernier solde confirmé.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Taux fixe de 1,00 USD pour $symbol$ sur $network$.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "Cours de $symbol$ provenant de $provider$ sur $network$, mis à jour à $retrievedAt$.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Valeur en USD du coffre-fort sur $network$, mise à jour à $retrievedAt$.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "Le cours en USD n’est plus à jour",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "Le dernier cours de $symbol$ provenant de $provider$ sur $network$ ($retrievedAt$) date de plus de 10 minutes et est masqué dans les totaux.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "La dernière valeur en USD du coffre-fort sur $network$ ($retrievedAt$) date de plus de 10 minutes et n’apparaît pas dans les totaux.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "Le dernier cours en USD date de plus de 10 minutes et n’apparaît pas dans les totaux.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "Prix en USD indisponible",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "Aucun cours vérifié en USD n’est disponible sur $network$.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Impossible de charger le cours en USD. Les soldes totaux n’incluent pas la valeur en USD tant que la page n’est pas actualisée.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "Ce jeton est retiré du Testnet et ne peut pas être envoyé.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Définissez les décimales des jetons dans les informations sur les jetons avant l’envoi.",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "Aucun solde disponible à envoyer.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "Aucun solde disponible à envoyer pour le moment. Acceptez d’abord les virements en attente.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Impossible d’équilibrer la charge. Veuillez réessayer avant d’envoyer.",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID : $id$",
     "englishSource": "ID: $id$",

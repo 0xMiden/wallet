@@ -25,9 +25,17 @@ export const token = {
   }
 };
 
-const priceInfo = { price: 1234.5678, change24h: -29.6296, percentageChange24h: -2.4, kind: 'market' as const };
+const priceInfo = {
+  price: 1234.5678,
+  change24h: -29.6296,
+  percentageChange24h: -2.4,
+  observedAt: params.has('stalePrice') ? Date.now() - 11 * 60_000 : Date.now(),
+  provider: 'binance' as const,
+  kind: 'market' as const
+};
 const storeState = {
-  tokenPrices: { ETH: priceInfo },
+  tokenPrices: params.has('priceError') ? {} : { ETH: priceInfo },
+  tokenPricesStatus: params.has('priceError') ? ('error' as const) : ('ready' as const),
   tokenMetadataOverrides: {},
   setTokenMetadataOverride: async () => undefined,
   clearTokenMetadataOverride: async () => undefined
@@ -42,6 +50,7 @@ export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
   isLoading: params.has('unavailable'),
   readFailed: params.has('unavailable'),
+  balanceRefreshFailed: params.has('refreshFailed'),
   balanceReadInFlight: params.has('updating')
 });
 export const useAllTokensBaseMetadata = () => (params.has('missing') ? {} : { [tokenId]: token.metadata });

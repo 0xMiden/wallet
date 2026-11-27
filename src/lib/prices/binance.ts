@@ -1,12 +1,14 @@
 import axios from 'axios';
 
 import { fixedQuote } from './fixed';
-import type { PriceKind } from './source';
+import type { PriceKind, PriceProvider } from './source';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://data-api.binance.vision/api/v3';
 
 export interface TokenPriceInfo {
+  /** Exchange feed that supplied a live market quote (`binance` or `kraken`). */
+  provider?: PriceProvider;
   /** Retrieval time in milliseconds; missing timestamps cannot authorize USD entry. */
   observedAt?: number;
   price: number;

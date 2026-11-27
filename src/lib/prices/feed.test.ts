@@ -10,6 +10,8 @@ const fallback = jest.mocked(kraken);
 const mockPriceNow = 1800000000000;
 jest.spyOn(Date, 'now').mockReturnValue(mockPriceNow);
 const dollars = { observedAt: mockPriceNow, price: 1, change24h: 0, percentageChange24h: 0, kind: 'market' as const };
+const binanceDollars = { ...dollars, provider: 'binance' as const };
+const krakenDollars = { ...dollars, provider: 'kraken' as const };
 
 beforeEach(() => {
   jest.resetAllMocks();
@@ -24,7 +26,7 @@ beforeEach(() => {
 
 it('keeps Binance bulk requests and does not query Kraken for supported assets', async () => {
   primary.fetchTokenPrices.mockResolvedValueOnce({ SOL: dollars });
-  expect(await fetchTokenPrices(['SOL'])).toEqual({ SOL: dollars });
+  expect(await fetchTokenPrices(['SOL'])).toEqual({ SOL: binanceDollars });
   expect(primary.fetchTokenPrices).toHaveBeenCalledWith(['SOL']);
   expect(fallback.findKrakenUsdMarket).not.toHaveBeenCalled();
   expect(fallback.fetchKrakenPrices).not.toHaveBeenCalled();
@@ -35,10 +37,10 @@ it('batches Kraken USD markets after Binance confirms they are absent', async ()
   fallback.findKrakenUsdMarket.mockImplementation(async symbol => `${symbol}USD`);
   fallback.fetchKrakenPrices.mockResolvedValue({ PYUSD: dollars, FALLBACK: dollars });
   expect(await fetchTokenPrices(['PYUSD', 'FALLBACK', 'PYUSD', 'SOL'])).toEqual({
-    USDT: dollars,
-    USDC: dollars,
-    PYUSD: dollars,
-    FALLBACK: dollars
+    USDT: binanceDollars,
+    USDC: binanceDollars,
+    PYUSD: krakenDollars,
+    FALLBACK: krakenDollars
   });
   expect(fallback.findKrakenUsdMarket).toHaveBeenCalledTimes(2);
   expect(fallback.fetchKrakenPrices).toHaveBeenCalledWith(
@@ -64,7 +66,7 @@ it('caches an unsupported market but retries a failed Kraken lookup', async () =
   await fetchTokenPrices(['ABSENT', 'RETRY']);
   fallback.findKrakenUsdMarket.mockResolvedValueOnce('RETRYUSD');
   fallback.fetchKrakenPrices.mockResolvedValueOnce({ RETRY: dollars });
-  expect((await fetchTokenPrices(['ABSENT', 'RETRY'])).RETRY).toEqual(dollars);
+  expect((await fetchTokenPrices(['ABSENT', 'RETRY'])).RETRY).toEqual(krakenDollars);
   expect(fallback.findKrakenUsdMarket.mock.calls.map(([symbol]) => symbol)).toEqual(['ABSENT', 'RETRY', 'RETRY']);
 });
 
@@ -72,7 +74,7 @@ it('keeps Binance quotes when Kraken fails', async () => {
   primary.isListedSymbol.mockReturnValue(false);
   fallback.findKrakenUsdMarket.mockResolvedValueOnce('FAILUREUSD');
   fallback.fetchKrakenPrices.mockRejectedValueOnce(new Error('offline'));
-  expect(await fetchTokenPrices(['FAILURE'])).toEqual({ USDT: dollars, USDC: dollars });
+  expect(await fetchTokenPrices(['FAILURE'])).toEqual({ USDT: binanceDollars, USDC: binanceDollars });
 });
 
 it('ignores invalid price symbols', async () => {
@@ -190,19 +192,20 @@ describe('feed output over a fixed symbol set', () => {
 
   it('quotes each symbol from the first source that lists it, all stamped with one retrieval time', async () => {
     const prices = await fetchTokenPrices(SYMBOLS);
-    const market = (price: number) => ({
+    const market = (price: number, provider: 'binance' | 'kraken') => ({
       price,
       change24h: 0.1,
       percentageChange24h: 1,
       observedAt: mockPriceNow,
-      kind: 'market'
+      kind: 'market',
+      provider
     });
     expect(prices).toEqual({
-      USDT: market(1),
-      USDC: market(1),
-      SOL: market(150),
-      KPAIRA: market(0.9998),
-      KPAIRB: market(2)
+      USDT: market(1, 'binance'),
+      USDC: market(1, 'binance'),
+      SOL: market(150, 'binance'),
+      KPAIRA: market(0.9998, 'kraken'),
+      KPAIRB: market(2, 'kraken')
     });
     expect(Object.keys(prices)).toEqual(['USDT', 'USDC', 'SOL', 'KPAIRA', 'KPAIRB']);
     // Binance sees every symbol; Kraken only those Binance ruled out and the feed can send it, with a pair.

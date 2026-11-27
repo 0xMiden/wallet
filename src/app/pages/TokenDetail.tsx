@@ -1,4 +1,4 @@
-import React, { FC, useRef, useState } from 'react';
+import React, { FC, useEffect, useId, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
@@ -45,9 +45,13 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
+import { quoteExpiryMs, usdQuoteStatus } from 'lib/prices/amount';
 import { basketChange24h, basketKlines } from 'lib/prices/basket';
 import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { fetchKlineSeries } from 'lib/prices/feed';
+import type { PriceProvider } from 'lib/prices/source';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
+import { isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
@@ -92,6 +96,126 @@ type TokenDetailProps = {
   tokenId: string;
 };
 
+type DisplayQuoteState = 'ready' | 'loading' | 'stale' | 'unavailable';
+
+const BALANCE_STATE_KEYS = {
+  unavailable: 'tokenDetailBalanceUnavailable',
+  updating: 'tokenDetailBalanceUpdating',
+  refreshFailed: 'tokenDetailBalanceRefreshFailed'
+} as const;
+
+function findByFaucetId<T>(map: Record<string, T>, tokenId: string, canonicalId: string): T | undefined {
+  if (map[tokenId] !== undefined) return map[tokenId];
+  for (const [id, value] of Object.entries(map)) {
+    if (normalizedFaucetId(id) === canonicalId) return value;
+  }
+  return undefined;
+}
+
+const PROVIDER_LABELS: Record<PriceProvider, string> = {
+  binance: 'Binance',
+  kraken: 'Kraken'
+};
+
+function providerLabel(provider: unknown): string | undefined {
+  for (const [key, label] of Object.entries(PROVIDER_LABELS)) {
+    if (key === provider) return label;
+  }
+  return undefined;
+}
+
+function resolveQuoteContext(
+  state: DisplayQuoteState,
+  quote: TokenPriceInfo | undefined,
+  priceSymbol: string | undefined,
+  networkLabel: string,
+  tokenPricesStatus: 'loading' | 'ready' | 'error' | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): { tone: 'neutral' | 'warning'; role: 'note' | 'status'; title?: string; body: string } | null {
+  if (state === 'loading') return null;
+
+  if (state === 'ready' && quote?.kind === 'fixed' && priceSymbol) {
+    return {
+      tone: 'neutral',
+      role: 'note',
+      body: t('tokenDetailFixedQuoteContext', { symbol: priceSymbol, network: networkLabel })
+    };
+  }
+
+  if (state === 'ready' || state === 'stale') {
+    const isStale = state === 'stale';
+    const meta: { tone: 'neutral' | 'warning'; role: 'note' | 'status'; title?: string } = isStale
+      ? { tone: 'warning', role: 'status', title: t('tokenDetailQuoteStaleTitle') }
+      : { tone: 'neutral', role: 'note' };
+    const retrievedAt =
+      quote?.observedAt !== undefined && Number.isFinite(quote.observedAt)
+        ? new Date(quote.observedAt).toLocaleString()
+        : undefined;
+    const provider = quote?.kind === 'market' ? providerLabel(quote.provider) : undefined;
+
+    if (retrievedAt && quote?.kind === 'market' && provider && priceSymbol) {
+      return {
+        ...meta,
+        body: t(isStale ? 'tokenDetailQuoteStaleMarketBody' : 'tokenDetailMarketQuoteContext', {
+          symbol: priceSymbol,
+          provider,
+          network: networkLabel,
+          retrievedAt
+        })
+      };
+    }
+    if (retrievedAt && quote?.kind === 'basket') {
+      return {
+        ...meta,
+        body: t(isStale ? 'tokenDetailQuoteStaleBasketBody' : 'tokenDetailBasketQuoteContext', {
+          network: networkLabel,
+          retrievedAt
+        })
+      };
+    }
+    if (isStale) {
+      return { ...meta, body: t('tokenDetailQuoteStaleBody') };
+    }
+  }
+
+  if (priceSymbol && tokenPricesStatus === 'error') {
+    return {
+      tone: 'warning',
+      role: 'status',
+      title: t('tokenDetailQuoteUnavailableTitle'),
+      body: t('tokenDetailQuoteLoadError')
+    };
+  }
+
+  return {
+    tone: 'neutral',
+    role: 'status',
+    title: t('tokenDetailQuoteUnavailableTitle'),
+    body: t('tokenDetailQuoteUnavailableBody', { network: networkLabel })
+  };
+}
+
+function resolveSendDisabledReason(params: {
+  retired: boolean;
+  balance: number | null;
+  balanceReadFailed: boolean;
+  scaleIsKnown: boolean;
+  hasPendingNotes: boolean;
+}): { tone: 'neutral' | 'warning'; messageKey: string } | null {
+  if (params.retired) return { tone: 'warning', messageKey: 'tokenDetailSendRetired' };
+  if (params.balance === null) {
+    return params.balanceReadFailed ? { tone: 'warning', messageKey: 'tokenDetailSendBalanceUnavailable' } : null;
+  }
+  if (!params.scaleIsKnown) return { tone: 'neutral', messageKey: 'tokenDetailSendUnknownScale' };
+  if (params.balance <= 0) {
+    return {
+      tone: 'neutral',
+      messageKey: params.hasPendingNotes ? 'tokenDetailSendPendingOnly' : 'tokenDetailSendNoBalance'
+    };
+  }
+  return null;
+}
+
 /** A hairline between two of the page's sections, with the body's 20px either side. */
 const SectionDivider: FC = () => (
   <div aria-hidden="true" className="h-px shrink-0 bg-hairline" data-testid="token-detail-section-divider" />
@@ -133,21 +257,28 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
+  const sendReasonId = useId();
   const allTokensMetadata = useAllTokensBaseMetadata();
   const {
     data: balances,
     isLoading: balancesLoading,
     readFailed: balanceReadFailed,
+    balanceRefreshFailed,
     balanceReadInFlight
   } = useAllBalances(account.publicKey, allTokensMetadata);
   const { representedItems, listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'all');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const tokenPricesStatus = useWalletStore(s => s.tokenPricesStatus);
   // Reads the stored feed run into this realm, so quoteMayArrive knows what it already ruled out.
   useCachedDisplayQuotes();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const nativeFaucetId = useMidenFaucetId();
 
-  const token = balances?.find(b => b.tokenId === tokenId);
-  const metadata = token?.metadata || allTokensMetadata[tokenId];
+  const canonicalTokenId = normalizedFaucetId(tokenId);
+  const effectiveNetwork = getEffectiveNetworkName();
+  const scopeKey = `${account.publicKey}:${effectiveNetwork}:${canonicalTokenId}`;
+  const token = balances?.find(b => normalizedFaucetId(b.tokenId) === canonicalTokenId);
+  const metadata = token?.metadata ?? findByFaucetId(allTokensMetadata, tokenId, canonicalTokenId);
   const symbol = metadata?.symbol || t('unknown');
   const title = midenTokenLabel(bridgeConfig, tokenId, symbol);
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
@@ -157,27 +288,55 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const priceSymbol = priceSymbolFor(tokenId, symbol);
   const displayQuote = quotedPrice(tokenPrices, priceSymbol);
   const quote = displayQuote?.kind === 'nominal' ? undefined : displayQuote;
-  const fiatValue = balance === null || !quote ? null : balance * quote.price;
+  const rawQuoteStatus = usdQuoteStatus(quote);
+  const verifiedSource = quote?.kind !== 'market' || providerLabel(quote.provider) !== undefined;
+  const quoteReady = rawQuoteStatus === 'ready' && verifiedSource;
+  const quoteStale = rawQuoteStatus === 'stale' && verifiedSource;
+  useQuoteClock(quoteReady ? quoteExpiryMs(quote) : undefined);
+
+  const quoteLoading =
+    !quote &&
+    Boolean(priceSymbol) &&
+    tokenPricesStatus !== 'error' &&
+    tokenPricesStatus !== 'ready' &&
+    quoteMayArrive(tokenId, symbol) &&
+    !pricesLoaded(tokenPrices, [priceSymbol]);
+  const displayQuoteState: DisplayQuoteState = quoteReady
+    ? 'ready'
+    : quoteLoading
+      ? 'loading'
+      : quoteStale
+        ? 'stale'
+        : 'unavailable';
+
   // `balance` was divided by the placeholder's guessed decimals upstream, so for
-  // an unresolved faucet it is not this user's holding — and the fiat figure
+  // an unresolved faucet it is not this user's holding -- and the fiat figure
   // below is that same wrong number multiplied by a price. The hero is the most
   // emphatic number in the wallet; an em dash says "not known" where a rendered
   // quantity would say "this is what you have".
   const scaleIsKnown = hasKnownScale(metadata);
+  const rawFiatValue =
+    scaleIsKnown && balance !== null && balance >= 0 && Number.isFinite(balance) && quoteReady && quote
+      ? balance * quote.price
+      : null;
+  const fiatValue = rawFiatValue !== null && Number.isFinite(rawFiatValue) ? rawFiatValue : null;
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
+  useEffect(() => {
+    setUnverifiedSheetOpen(false);
+  }, [scopeKey]);
+
   // History hides the consume row of every represented note, so all of them go to it; only this
   // token's cards are drawn on this page.
-  const isThisToken = (item: PendingActivityItem) =>
-    normalizedFaucetId(item.note.faucetId) === normalizedFaucetId(tokenId);
+  const isThisToken = (item: PendingActivityItem) => normalizedFaucetId(item.note.faucetId) === canonicalTokenId;
   const drawnTokenPendingItems = listItems.filter(isThisToken);
   const toClaim = pendingTotal(representedItems.filter(isThisToken), ['pending', 'failed']);
   const claiming = pendingTotal(representedItems.filter(isThisToken), ['claiming']);
   const hasClaimingNote = representedItems.some(item => isThisToken(item) && item.status === 'claiming');
   // The amount stays the last confirmed one. Before any amount has landed (the skeleton) a failed first
-  // read says so plainly. Once an amount shows, the store clears its failure flag by design, so a
-  // refresh that fails leaves the amount as it was and only an active read is worth saying.
+  // read says so plainly. Once an amount shows, an active refresh reports updating and a failed refresh
+  // warns that the shown figure comes from the last confirmed read.
   const balanceState =
     balance === null
       ? balanceReadFailed
@@ -185,7 +344,24 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
         : undefined
       : balanceReadInFlight || hasClaimingNote
         ? 'updating'
-        : undefined;
+        : balanceRefreshFailed
+          ? 'refreshFailed'
+          : undefined;
+  const quoteContext = resolveQuoteContext(
+    displayQuoteState,
+    quote,
+    priceSymbol,
+    t(effectiveNetwork),
+    tokenPricesStatus,
+    t
+  );
+  const sendReason = resolveSendDisabledReason({
+    retired: isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId),
+    balance,
+    balanceReadFailed,
+    scaleIsKnown,
+    hasPendingNotes: Boolean(toClaim || claiming)
+  });
 
   const handleBack = () => goBack();
 
@@ -239,9 +415,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               </div>
             }
             subtitle={
-              // The dash while prices load; no line once they have and none quotes this token.
-              scaleIsKnown &&
-              (quote || (quoteMayArrive(tokenId, symbol) && !pricesLoaded(tokenPrices, [priceSymbol]))) ? (
+              // The dash while prices load; hidden when stale or unavailable so stale/missing quotes never read as zero.
+              scaleIsKnown && (displayQuoteState === 'ready' || displayQuoteState === 'loading') ? (
                 <UsdAmount amount={fiatValue} animated grouping={false} />
               ) : undefined
             }
@@ -261,8 +436,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
                 </p>
               )}
               {balanceState && (
-                <p role="status" data-testid="token-detail-balance-state">
-                  {t(balanceState === 'unavailable' ? 'tokenDetailBalanceUnavailable' : 'tokenDetailBalanceUpdating')}
+                <p
+                  role="status"
+                  className={balanceState === 'refreshFailed' ? 'text-center text-pending-tint-ink' : undefined}
+                  data-testid="token-detail-balance-state"
+                >
+                  {t(BALANCE_STATE_KEYS[balanceState])}
                 </p>
               )}
             </div>
@@ -289,6 +468,20 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </div>
           )}
 
+          {quoteContext && (
+            <Notice
+              variant="inline"
+              tone={quoteContext.tone}
+              errorId={null}
+              role={quoteContext.role}
+              title={quoteContext.title}
+              className="-mt-2"
+              data-testid="token-detail-quote-context"
+            >
+              {quoteContext.body}
+            </Notice>
+          )}
+
           <div className="flex gap-2.5">
             {/* The pair names the two flows it opens, so each takes that flow's colour, like the
                 tab bar's icons: Send blue, Receive green. Labels are the 19px bold CTA face, which
@@ -296,6 +489,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <Button
               variant={ButtonVariant.Primary}
               accent="send"
+              disabled={balance === null || sendReason !== null}
+              aria-describedby={sendReason ? sendReasonId : undefined}
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
               data-testid="token-detail-send"
               className="min-w-0 flex-1 max-w-none"
@@ -315,22 +510,36 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {/* Only the nominal rate has no price, no move and no line. A basket's value is a dollar figure from its vault.
-              Its move and line follow its tokens. */}
+          {sendReason && (
+            <Notice
+              id={sendReasonId}
+              variant="inline"
+              tone={sendReason.tone}
+              errorId={null}
+              role="status"
+              className="-mt-3"
+              data-testid="token-detail-send-reason"
+            >
+              {t(sendReason.messageKey)}
+            </Notice>
+          )}
+
+          {/* Only fresh market or basket quotes drive a spot price and chart; stale or unavailable quotes stay hidden. */}
           <SectionDivider />
 
-          {quote?.kind === 'market' && priceSymbol && (
+          {quoteReady && quote?.kind === 'market' && priceSymbol && (
             <>
-              <PriceChart symbol={priceSymbol} priceInfo={quote} />
+              <PriceChart key={`${scopeKey}:${priceSymbol}`} symbol={priceSymbol} priceInfo={quote} />
               <SectionDivider />
             </>
           )}
 
           {/* A basket priced from its vault: its line and move are its tokens', weighted by the vault's mix, and the
               mix itself follows. */}
-          {quote?.kind === 'basket' && quote.composition && priceSymbol && (
+          {quoteReady && quote?.kind === 'basket' && quote.composition && priceSymbol && (
             <>
               <BasketPriceChart
+                key={`${scopeKey}:${priceSymbol}`}
                 symbol={priceSymbol}
                 priceInfo={quote}
                 composition={quote.composition}
@@ -342,7 +551,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </>
           )}
 
-          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} metadata={metadata} />
+          <TokenInfo key={scopeKey} tokenId={tokenId} address={account.publicKey} metadata={metadata} />
 
           <SectionDivider />
 
@@ -584,13 +793,14 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
   const info = testnetTokenInfo(bridgeConfig, tokenId);
   const description = info ? t(info.descriptionKey) : metadata?.description;
+  const canonicalTokenId = normalizedFaucetId(tokenId);
   const nativeFaucetId = useMidenFaucetId();
   // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
   const canEdit =
-    nativeFaucetId !== null &&
-    normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId) &&
-    canOverrideMetadata(tokenId);
-  const hasOverride = useWalletStore(s => s.tokenMetadataOverrides[tokenId] !== undefined);
+    nativeFaucetId !== null && canonicalTokenId !== normalizedFaucetId(nativeFaucetId) && canOverrideMetadata(tokenId);
+  const hasOverride = useWalletStore(
+    s => findByFaucetId(s.tokenMetadataOverrides, tokenId, canonicalTokenId) !== undefined
+  );
   const edited = canEdit && hasOverride;
   const [editOpen, setEditOpen] = useState(false);
   const [editSession, setEditSession] = useState(0);

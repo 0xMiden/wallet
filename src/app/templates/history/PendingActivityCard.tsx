@@ -9,6 +9,7 @@ import { GuardianHoldNotice } from 'components/GuardianHoldNotice';
 import { ActivityRow } from 'components/ui/ActivityRow';
 import { Card } from 'components/ui/Card';
 import { Notice } from 'components/ui/Notice';
+import type { Status } from 'components/ui/StatusBadge';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { reducedMotionTransition, springs, useMotion, usePreset } from 'lib/animation';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
@@ -222,6 +223,9 @@ export const PendingActivityCard = ({
     rows.push({ key: 'received', label: t('activityReceivedOn'), value: formatDateTime(note.receivedAt) });
   }
 
+  const rowStatus: Status =
+    status === 'failed' ? 'failed' : held ? 'unconfirmed' : status === 'unavailable' ? 'unavailable' : 'pending';
+
   const headerRow = (
     <ActivityRow
       testId="pending-activity-row"
@@ -236,7 +240,7 @@ export const PendingActivityCard = ({
         symbol: tokenLabel,
         direction: 'positive'
       }}
-      status="pending"
+      status={rowStatus}
     />
   );
 
