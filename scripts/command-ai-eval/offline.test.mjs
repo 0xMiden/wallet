@@ -1281,7 +1281,9 @@ test('waits for a checker 429 reset before it asks again', async context => {
     service: evaluation.createEvalWorker()
   });
   assert.deepEqual(run.invalid, []);
-  assert.deepEqual(waits, [20000, 20000]);
+  // The limiter waits what is left of the hold, so a millisecond spent since the 429 shortens it.
+  assert.equal(waits.length, 2);
+  for (const wait of waits) assert.ok(wait > 19950 && wait <= 20000, `waited ${wait} ms`);
 });
 
 test('stops a suite after three runs in a row stay technical failures', async context => {
