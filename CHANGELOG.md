@@ -3,6 +3,8 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
+- [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
+- [FIX][extension] Show the expand arrow on the Bread Command bar.
 - [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
 - [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
 - [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
