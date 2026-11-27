@@ -598,6 +598,14 @@
       "text": "Some payments or history may not come back right away, or at all.",
       "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
     },
+    "r.dev.file": {
+      "text": "A current Encrypted Wallet File and password can restore your account.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/SelectImportType.tsx",
+        "owner:wallet#2359"
+      ]
+    },
     "r.dev.stolen": {
       "text": "If the old device was stolen, ask me about a stolen device.",
       "src": ["owner:wallet#2359", "wallet@6d0acae70:public/_locales/en/en.json"]
@@ -818,8 +826,12 @@
       "src": ["wallet@6d0acae70:docs/tos/index.md"]
     },
     "r.wf.limit": {
-      "text": "Do not rely on it to get your account back; keep your 12 words written down.",
-      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+      "text": "A current file and password can restore a standard account; keep your 12 words.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx",
+        "owner:wallet#2359"
+      ]
     },
     "r.wf.share": {
       "text": "Never send the file or its password to anyone, including support.",
@@ -2393,11 +2405,11 @@
       "mode": "write",
       "urgent": false,
       "lead": [],
-      "facts": ["r.dev.how", "r.dev.steps", "r.dev.role", "r.dev.fee", "r.dev.stolen"],
+      "facts": ["r.dev.how", "r.dev.steps", "r.dev.role", "r.dev.fee", "r.dev.stolen", "r.dev.file"],
       "limit": ["r.dev.need", "g.restoreonly", "r.dev.partial"],
       "required": ["r.dev.need", "g.restoreonly", "r.dev.partial"],
       "forbid": [],
-      "answer": "On a new device, install Bread and choose \"Recover your account\". Choose \"Import with recovery phrase\", enter your 12 words, then choose \"Import via Guardian\". If asked, \"Make this device the main one\" removes other devices; \"Add this device\" keeps all, even a lost one. If the old device was stolen, ask me about a stolen device. Some payments or history may not come back right away, or at all. Restoring this way needs your 12 words and an online Guardian with a current copy of your account. A restore with only your 12 words cannot switch away from a Guardian that is down or refuses."
+      "answer": "On a new device, install Bread and choose \"Recover your account\". Choose \"Import with recovery phrase\", enter your 12 words, then choose \"Import via Guardian\". If asked, \"Make this device the main one\" removes other devices; \"Add this device\" keeps all, even a lost one. Some payments or history may not come back right away, or at all. Restoring this way needs your 12 words and an online Guardian with a current copy of your account. A restore with only your 12 words cannot switch away from a Guardian that is down or refuses. A current Encrypted Wallet File and password can restore your account."
     },
     {
       "id": "recovery_phrase",
@@ -2553,7 +2565,7 @@
       "limit": ["r.wf.read", "r.wf.limit"],
       "required": ["r.wf.read", "r.wf.limit"],
       "forbid": ["\\bwallet file (is enough|will restore|always restores)\\b"],
-      "answer": "An Encrypted Wallet File is an extra backup that you save yourself and lock with a password. It holds account data and, if your 12 words were stored in Bread, those words too. It can also hold keys for some imported accounts. It is a copy of your account as it was when you saved it. It does not hold a Guardian account's everyday key, so after restoring you may still need your Guardian. Never send the file or its password to anyone, including support. Anyone with the file and its password can read what is inside. Do not rely on it to get your account back; keep your 12 words written down."
+      "answer": "An Encrypted Wallet File is an extra backup that you save yourself and lock with a password. It holds account data and, if your 12 words were stored in Bread, those words too. It can also hold keys for some imported accounts. It is a copy of your account as it was when you saved it. It does not hold a Guardian account's everyday key, so after restoring you may still need your Guardian. Never send the file or its password to anyone, including support. Anyone with the file and its password can read what is inside. A current file and password can restore a standard account; keep your 12 words."
     },
     {
       "id": "multi_device",

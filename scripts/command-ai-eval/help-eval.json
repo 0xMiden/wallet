@@ -1121,7 +1121,7 @@
       "an extra backup you save and lock with a password",
       "a copy as of when saved",
       "never share it",
-      "do not rely on it"
+      "a current file and password can restore a standard account"
     ],
     "mustNot": [
       "says the file replaces the Guardian",
@@ -1144,7 +1144,7 @@
       "an extra backup you save and lock with a password",
       "a copy as of when saved",
       "never share it",
-      "do not rely on it"
+      "a current file and password can restore a standard account"
     ],
     "mustNot": [
       "says the file replaces the Guardian",
