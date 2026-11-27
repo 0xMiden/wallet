@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 /**
- * Headless Chrome benchmark for the home-carousel swipe.
+ * Headless Chrome benchmark for the Home panes: the swipe, where the panes
+ * still page on one, and the tab taps.
  *
  * This is a proxy for a thumb, not a phone. It opens the mobile bundle, creates
- * a mock wallet once, and drives the real carousel with CDP touches on a
- * steady clock. One pass swipes from Overview through to Swap. The default run
- * is six passes. The main thread is slowed (`--throttle`, default 4) so a
- * fast laptop shows the stalls a phone would. The score lives in
- * `home-swipe-score.mjs`: the track has to land on the next page and stay with
- * the finger. A smooth frame trace that does not move still counts as a miss.
+ * a mock wallet once, and drives the real panes with CDP touches on a steady
+ * clock. A swipe pass swipes from Overview through to Swap; a tap pass taps the
+ * Home tabs from Overview through to Swap and jumps back. The default run is six
+ * passes of each. The main thread is slowed (`--throttle`, default 4) so a
+ * fast laptop shows the stalls a phone would. The scores live in
+ * `home-swipe-score.mjs`: the panes have to land on the target and move without
+ * stalling. A smooth frame trace that does not move still counts as a miss.
+ *
+ * A side whose panes do not page on a swipe records no swipe samples. It says
+ * so after proving it: one sideways drag before the passes, and one on another
+ * pane in every tap pass, must move no pane and change no route.
  *
  * Loop:
  *   node scripts/home-swipe-bench.mjs --label baseline --rebuild
@@ -40,9 +46,25 @@ import { fileURLToPath } from 'node:url';
 
 import { chromium } from '@playwright/test';
 
-import { analyzeSwipe, frameHealth, HOME_PATHS, homePath, judge, median, summarize } from './home-swipe-score.mjs';
+import {
+  analyzeSwipe,
+  analyzeTap,
+  frameHealth,
+  HOME_PATHS,
+  homePath,
+  judge,
+  median,
+  summarize,
+  summarizeTaps,
+  TAP_PATH
+} from './home-swipe-score.mjs';
 
 const INP_TAPS = 6;
+const TAB_INP_TAPS = 6;
+const HOME_IDS = ['overview', 'send', 'receive', 'earn', 'swap'];
+const TAP_CAPTURE_MS = 900;
+const INTERRUPT_AFTER_MS = 120;
+const SWIPE_REMOVED = 'verified: 0px travel, route unchanged';
 const LIST_RUNS = 3;
 const COPY_ADDRESS = '[data-testid="balance-card-copy-address"]';
 
@@ -112,6 +134,7 @@ const RECORDER = `
       for (const entry of list.getEntries()) {
         P.input.push({
           name: entry.name,
+          startTime: entry.startTime,
           delay: entry.processingStart - entry.startTime,
           duration: entry.duration
         });
@@ -119,29 +142,73 @@ const RECORDER = `
     }).observe({ type: 'event', durationThreshold: 16 });
   } catch { /* event timing missing */ }
 
-  // The workflow runs this harness on base too, so it reads both pagers: the
-  // native scroll-snap pager, and the older framer drag pager whose track
-  // transform is the whole position.
+  // The workflow runs this harness on base too. A base with the scroll-snap
+  // pager is read through it; a side without one has no pager at all.
   P.findPager = () => {
     const scroller = document.querySelector('[data-home-pager]');
-    if (scroller) return { container: scroller, track: scroller.querySelector('[data-home-track]'), native: true };
-    const container = document.querySelector('div.touch-pan-y');
-    return container ? { container, track: container.firstElementChild, native: false } : null;
+    return scroller ? { container: scroller, track: scroller.querySelector('[data-home-track]') } : null;
+  };
+  P.pane = id => document.querySelector('[data-home-page="' + id + '"]');
+  P.tabPane = () => P.pane('overview')?.closest('[data-tab-pane]') ?? null;
+  // What is drawn: the rect through the unpatched getter, so the rects counter
+  // stays the page's own, and the opacity of the pane and every ancestor up to
+  // its tab pane. A pane hidden by visibility draws nothing.
+  P.paneState = id => {
+    const el = P.pane(id);
+    if (!el) return null;
+    const rect = orig.call(el);
+    let opacity = 1;
+    if (el.checkVisibility && !el.checkVisibility({ visibilityProperty: true })) opacity = 0;
+    else {
+      const stop = el.closest('[data-tab-pane]');
+      for (let node = el; node; node = node.parentElement) {
+        opacity *= Number(getComputedStyle(node).opacity);
+        if (node === stop) break;
+      }
+    }
+    return { left: rect.left, width: rect.width, opacity };
+  };
+  P.tabBox = () => {
+    const tab = P.tabPane();
+    if (!tab) return null;
+    const rect = orig.call(tab);
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  };
+  P.allPanes = () => [...document.querySelectorAll('[data-home-page]')].map(el => ({
+    id: el.getAttribute('data-home-page'),
+    ...P.paneState(el.getAttribute('data-home-page'))
+  }));
+  const running = el => !!el && el.getAnimations().some(animation => animation.playState === 'running');
+  /** The end state of a switch: the target alone drawn and live, nothing still moving. */
+  P.landed = id => {
+    const tab = P.tabBox();
+    const target = P.pane(id);
+    if (!tab || !target) return false;
+    const state = P.paneState(id);
+    if (state.opacity < 0.99 || target.closest('[inert]') || Math.abs(state.left - tab.left) > 2) return false;
+    for (const el of document.querySelectorAll('[data-home-page]')) {
+      if (running(el)) return false;
+      if (el.style.pointerEvents === 'none' || el.style.willChange) return false;
+      if (el === target) continue;
+      if (!el.closest('[inert]') && P.paneState(el.getAttribute('data-home-page')).opacity > 0) return false;
+    }
+    return !running(document.querySelector('[data-home-track]'));
+  };
+  P.tabRect = index => {
+    const tabs = document.querySelectorAll('[data-home-actions] [role="tab"]');
+    const tab = tabs[index];
+    if (!tab || tabs.length !== 5) return null;
+    const rect = orig.call(tab);
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, count: tabs.length };
   };
   P.findTrack = () => P.findPager()?.track ?? null;
   P.readX = pager => {
     if (!pager || !pager.track) return null;
     const transform = getComputedStyle(pager.track).transform;
     const x = !transform || transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41;
-    // The native pager moves by scrolling. Its track only carries the short
-    // transform of a programmatic flip, so the two add up to what is painted.
-    return pager.native ? x - pager.container.scrollLeft : x;
-  };
-  P.box = () => {
-    const container = P.findPager()?.container;
-    if (!container) return null;
-    const rect = container.getBoundingClientRect();
-    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    // The pager moves by scrolling. Its track only carries the short transform
+    // of a programmatic flip, so the two add up to what is painted.
+    return x - pager.container.scrollLeft;
   };
   P.hit = (x, y) => {
     const el = document.elementFromPoint(x, y);
@@ -152,9 +219,11 @@ const RECORDER = `
       className: String(el.className || '').slice(0, 80)
     };
   };
-  P.start = () => {
+  P.start = panes => {
     P.frames = [];
     P.xs = [];
+    P.panes = panes || null;
+    P.paneFrames = [];
     P.pings = [];
     P.loafs = [];
     P.input = [];
@@ -178,6 +247,7 @@ const RECORDER = `
       pending = null;
       P.frames.push(t);
       P.xs.push(P.readX(pager));
+      if (P.panes) P.paneFrames.push(P.panes.map(id => P.paneState(id)));
     };
     const step = t => {
       if (!P.recording || gen !== P.generation) return;
@@ -202,6 +272,7 @@ const RECORDER = `
     return {
       frames: P.frames,
       xs: P.xs,
+      paneFrames: P.paneFrames,
       pings: P.pings,
       loafs: P.loafs,
       input: P.input,
@@ -401,7 +472,7 @@ async function snapshot(page) {
       welcome: !!document.querySelector('[data-testid="onboarding-welcome"]'),
       confirm: !!document.querySelector('[data-testid="onboarding-confirmation"]'),
       unlock: !!document.querySelector('[data-testid="unlock-passcode"]'),
-      track: !!document.querySelector('[data-home-pager], div.touch-pan-y'),
+      panes: !!document.querySelector('[data-home-page]'),
       hash: location.hash,
       text: (document.body?.innerText || '').slice(0, 180)
     };
@@ -425,11 +496,11 @@ async function reachHome(page) {
     const snap = await snapshot(page);
     if (Date.now() - lastLog > 15_000) {
       console.log(
-        `waiting for home: status=${snap.status} welcome=${snap.welcome} confirm=${snap.confirm} unlock=${snap.unlock} track=${snap.track}`
+        `waiting for home: status=${snap.status} welcome=${snap.welcome} confirm=${snap.confirm} unlock=${snap.unlock} panes=${snap.panes}`
       );
       lastLog = Date.now();
     }
-    if (snap.track && snap.status === 2) {
+    if (snap.panes && snap.status === 2) {
       console.log(`home ready ${snap.hash || '(no hash)'}`);
       return snap;
     }
@@ -468,44 +539,6 @@ async function reachHome(page) {
   throw new Error(`home not reached: ${JSON.stringify(await snapshot(page))}`);
 }
 
-async function dispatchPointer(page, type, x, y) {
-  return page.evaluate(
-    ({ type, x, y }) => {
-      const probe = window.__PERF__;
-      if (type === 'pointerdown') {
-        probe.gestureTarget = document.elementFromPoint(x, y) || probe.findTrack();
-      }
-      const target = probe.gestureTarget || probe.findTrack();
-      if (!target) return;
-      // Framer follows pointer events. Chrome claims a trusted touch on the
-      // overview scroller for itself and never delivers the pointermoves, so a
-      // finger made of touch events slides nothing. These are the events the
-      // carousel actually listens to, stamped on the runner's clock.
-      target.dispatchEvent(
-        new PointerEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-          pointerId: 1,
-          pointerType: 'touch',
-          isPrimary: true,
-          clientX: x,
-          clientY: y,
-          screenX: x,
-          screenY: y,
-          buttons: type === 'pointerup' ? 0 : 1,
-          pressure: type === 'pointerup' ? 0 : 0.5
-        })
-      );
-      // The page's clock, taken after the handler ran. A timestamp from the
-      // runner would include the trip into the page and blame the harness for
-      // the wait.
-      return performance.now();
-    },
-    { type, x, y }
-  );
-}
-
 /** Maps the runner's clock onto the page's. The midpoint splits the round trip. */
 async function pageClockOffset(page) {
   const sent = performance.now();
@@ -520,12 +553,8 @@ async function dispatchTouch(cdp, offset, type, x, y) {
   return performance.now() + offset;
 }
 
-/**
- * A native scroller ignores synthetic pointer events, so the scroll-snap pager
- * gets real touches. The framer pager keeps the pointer events above: Chrome
- * hands its trusted touches to the overview scroller.
- */
-async function driveSwipe(page, cdp, box, native) {
+/** A native scroller ignores synthetic pointer events, so the swipe is made of real touches. */
+async function driveSwipe(page, cdp, box) {
   const y = Math.round(box.top + box.height * 0.78);
   const x0 = Math.round(box.left + box.width * 0.8);
   const x1 = Math.round(box.left + box.width * 0.22);
@@ -533,11 +562,9 @@ async function driveSwipe(page, cdp, box, native) {
   const stepMs = 8;
   const steps = Math.round(durationMs / stepMs);
   const events = [];
-  const offset = native ? await pageClockOffset(page) : 0;
+  const offset = await pageClockOffset(page);
   const send = (phase, x) =>
-    native
-      ? dispatchTouch(cdp, offset, { down: 'touchStart', move: 'touchMove', up: 'touchEnd' }[phase], x, y)
-      : dispatchPointer(page, { down: 'pointerdown', move: 'pointermove', up: 'pointerup' }[phase], x, y);
+    dispatchTouch(cdp, offset, { down: 'touchStart', move: 'touchMove', up: 'touchEnd' }[phase], x, y);
 
   events.push({ t: await send('down', x0), x: x0, type: 'down' });
 
@@ -554,6 +581,7 @@ async function driveSwipe(page, cdp, box, native) {
   return { events, point: { x: x0, y } };
 }
 
+/** Waits until the route is the page and the page alone is drawn, whatever moves the panes. */
 async function settlePage(page, index) {
   const path = HOME_PATHS[index];
   if (index === 0) {
@@ -564,22 +592,80 @@ async function settlePage(page, index) {
   const deadline = Date.now() + 8000;
   let last = null;
   while (Date.now() < deadline) {
-    last = await page.evaluate(step => {
-      const pager = window.__PERF__.findPager();
-      const width = pager?.container.clientWidth ?? 0;
-      return {
-        hash: location.hash,
-        x: window.__PERF__.readX(pager),
-        width,
-        expected: -step * width
-      };
-    }, index);
-    if (homePath(last.hash) === path && last.x != null && last.width > 0 && Math.abs(last.x - last.expected) < 2) {
-      return last;
-    }
+    last = await page.evaluate(
+      id => ({ hash: location.hash, landed: window.__PERF__.landed(id), panes: window.__PERF__.allPanes() }),
+      HOME_IDS[index]
+    );
+    if (homePath(last.hash) === path && last.landed) return last;
     await sleep(40);
   }
   throw new Error(`${path} did not settle: ${JSON.stringify(last)}`);
+}
+
+/** A trusted tap on the Home tab at `index`, at its live centre. Returns touchEnd on the page clock. */
+async function tapTab(page, cdp, index) {
+  const point = await page.evaluate(i => window.__PERF__.tabRect(i), index);
+  if (!point) throw new Error(`Home tab ${index} is missing`);
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+  const offset = await pageClockOffset(page);
+  await dispatchTouch(cdp, offset, 'touchStart', x, y);
+  await sleep(50);
+  return dispatchTouch(cdp, offset, 'touchEnd', x, y);
+}
+
+/** Every pane's drawn state, the route and the page's own scroll, for the swipe probe and guard. */
+async function homeState(page) {
+  return page.evaluate(() => ({ hash: location.hash, panes: window.__PERF__.allPanes(), scrollX: window.scrollX }));
+}
+
+function unchanged(before, after) {
+  if (homePath(before.hash) !== homePath(after.hash) || after.scrollX !== 0) return false;
+  return before.panes.every((pane, i) => {
+    const next = after.panes[i];
+    return (
+      next &&
+      next.id === pane.id &&
+      Math.abs(next.left - pane.left) <= 1 &&
+      Math.abs(next.width - pane.width) <= 1 &&
+      Math.abs(next.opacity - pane.opacity) <= 0.01
+    );
+  });
+}
+
+/** The swipe drag on the pane at `index`, then the same wait a scored swipe gets. */
+async function probeSwipe(page, cdp, index) {
+  const box = await page.evaluate(id => {
+    const el = window.__PERF__.pane(id);
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  }, HOME_IDS[index]);
+  if (!box || box.width < 50) throw new Error(`${HOME_IDS[index]} pane has no size: ${JSON.stringify(box)}`);
+  const before = await homeState(page);
+  await driveSwipe(page, cdp, box);
+  await sleep(900);
+  return { before, after: await homeState(page) };
+}
+
+/** Slowest Event Timing entry of each unthrottled tap between Overview and Send. */
+async function measureTabInp(page, cdp) {
+  const samples = [];
+  for (let tap = 0; tap < TAB_INP_TAPS; tap++) {
+    const target = tap % 2 === 0 ? 1 : 0;
+    await page.evaluate(() => window.__PERF__.start());
+    const t0 = await tapTab(page, cdp, target);
+    await sleep(300);
+    const raw = await page.evaluate(() => window.__PERF__.stop());
+    const durations = (raw.input || [])
+      .filter(entry => Number.isFinite(entry.duration) && entry.startTime >= t0 - 400 && entry.startTime <= t0 + 300)
+      .map(entry => entry.duration);
+    const duration = durations.length ? Math.max(...durations) : 16;
+    samples.push(duration);
+    console.log(`tab tap ${tap + 1}/${TAB_INP_TAPS}  ${duration.toFixed(0)}ms`);
+    await settlePage(page, target);
+  }
+  return samples;
 }
 
 async function measureInp(page) {
@@ -802,20 +888,33 @@ async function measure(args) {
       );
     }
 
-    const box = await page.evaluate(() => window.__PERF__.box());
-    const native = await page.evaluate(() => !!window.__PERF__.findPager()?.native);
-    console.log(`pager ${native ? 'native scroll-snap, CDP touches' : 'framer drag, pointer events'}`);
-    if (!box || box.width < 50) throw new Error(`swipe container has no size: ${JSON.stringify(box)}`);
+    const box = await page.evaluate(() => {
+      const rect = window.__PERF__.pane('overview').getBoundingClientRect();
+      return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    });
+    if (!box || box.width < 50) throw new Error(`overview pane has no size: ${JSON.stringify(box)}`);
     const hit = await page.evaluate(({ x, y }) => window.__PERF__.hit(x, y), {
       x: Math.round(box.left + box.width * 0.8),
       y: Math.round(box.top + box.height * 0.78)
     });
 
+    // One drag decides which side this is. A pager pages on it; panes without
+    // one must not move at all, and anything in between is a broken run.
+    const hasPager = await page.evaluate(() => !!window.__PERF__.findPager());
+    const probe = await probeSwipe(page, cdp, 0);
+    const paged = homePath(probe.after.hash) === HOME_PATHS[1];
+    let swipeRemoved = null;
+    if (!hasPager && unchanged(probe.before, probe.after)) swipeRemoved = SWIPE_REMOVED;
+    else if (!hasPager || !paged) {
+      throw new Error(`the swipe probe neither paged nor left the panes alone: ${JSON.stringify(probe)}`);
+    }
+    console.log(swipeRemoved ? `no swipe: ${swipeRemoved}` : 'pager: native scroll-snap, CDP touches');
+
     const swipeOnce = async () => {
       const routeBefore = await page.evaluate(() => location.hash);
       await page.evaluate(() => window.__PERF__.start());
       await sleep(50);
-      const finger = await driveSwipe(page, cdp, box, native);
+      const finger = await driveSwipe(page, cdp, box);
       await sleep(900);
       const raw = await page.evaluate(() => window.__PERF__.stop());
       if (!raw.trackFound) throw new Error('carousel track was not on the page');
@@ -857,22 +956,114 @@ async function measure(args) {
       return pass;
     };
 
-    console.log('warmup pass');
-    await runPass('warmup');
-
     const swipes = [];
-    for (let rep = 0; rep < args.reps; rep++) {
-      swipes.push(...(await runPass(`pass ${rep + 1}/${args.reps}`)));
+    if (!swipeRemoved) {
+      console.log('warmup pass');
+      await runPass('warmup');
+      for (let rep = 0; rep < args.reps; rep++) {
+        swipes.push(...(await runPass(`pass ${rep + 1}/${args.reps}`)));
+      }
     }
+
+    const tapOnce = async (from, to) => {
+      const fromId = HOME_IDS[HOME_PATHS.indexOf(from)];
+      const toIndex = HOME_PATHS.indexOf(to);
+      const toId = HOME_IDS[toIndex];
+      await page.evaluate(ids => window.__PERF__.start(ids), [fromId, toId]);
+      await sleep(50);
+      const t0 = await tapTab(page, cdp, toIndex);
+      await sleep(TAP_CAPTURE_MS);
+      const raw = await page.evaluate(
+        id => ({ ...window.__PERF__.stop(), landed: window.__PERF__.landed(id), tab: window.__PERF__.tabBox() }),
+        toId
+      );
+      const tap = analyzeTap({
+        frames: raw.frames,
+        leave: raw.paneFrames.map(frame => frame[0]),
+        enter: raw.paneFrames.map(frame => frame[1]),
+        tabLeft: raw.tab?.left ?? 0,
+        tabWidth: raw.tab?.width ?? 0,
+        t0,
+        landed: raw.landed && homePath(raw.route) === to,
+        pings: raw.pings,
+        inputDelays: (raw.input || []).map(entry => entry.delay)
+      });
+      return { ...tap, from, to, route: raw.route };
+    };
+
+    // A second tap 120ms into a switch has to land; it is checked, not scored.
+    const interruptOnce = async () => {
+      await settlePage(page, 0);
+      await tapTab(page, cdp, 1);
+      await sleep(INTERRUPT_AFTER_MS);
+      await tapTab(page, cdp, 2);
+      const deadline = Date.now() + TAP_CAPTURE_MS;
+      while (Date.now() < deadline) {
+        if (await page.evaluate(() => location.hash.startsWith('#/receive') && window.__PERF__.landed('receive')))
+          return true;
+        await sleep(20);
+      }
+      return false;
+    };
+
+    const tapPass = async (label, passIndex) => {
+      const interrupted = await interruptOnce();
+      await settlePage(page, 0);
+      const taps = [];
+      let guarded = null;
+      for (let step = 1; step < TAP_PATH.length; step++) {
+        const tap = await tapOnce(TAP_PATH[step - 1], TAP_PATH[step]);
+        taps.push(tap);
+        console.log(
+          `${label}  tap ${tap.from} -> ${tap.to}  feel ${tap.tapFeel}  first ${tap.firstFrameMs}ms  settle ${tap.settleMs}ms  dropped ${tap.droppedFrames}  both ${tap.bothVisibleFrames}  ${tap.landed ? 'landed' : `missed ${tap.route}`}`
+        );
+        const index = HOME_PATHS.indexOf(TAP_PATH[step]);
+        await settlePage(page, index).catch(() => {});
+        // The panes without a swipe get a sideways drag on a different pane each pass.
+        if (swipeRemoved && guarded === null && index === passIndex % HOME_PATHS.length) {
+          const check = await probeSwipe(page, cdp, index);
+          guarded = unchanged(check.before, check.after);
+          if (!guarded) console.log(`swipe guard moved something on ${HOME_IDS[index]}: ${JSON.stringify(check)}`);
+        }
+      }
+      return { taps, interrupted, guarded };
+    };
+
+    console.log('tap warmup pass');
+    const warm = await tapPass('tap warmup', 0);
+    const taps = [];
+    const interrupts = { landed: 0, of: 0 };
+    const swipeGuards = { passed: 0, of: 0 };
+    let tapFailures = warm.interrupted && warm.guarded !== false ? 0 : 1;
+    for (let rep = 0; rep < args.reps; rep++) {
+      const pass = await tapPass(`tap pass ${rep + 1}/${args.reps}`, rep);
+      taps.push(...pass.taps);
+      interrupts.of += 1;
+      if (pass.interrupted) interrupts.landed += 1;
+      else tapFailures += 1;
+      if (pass.guarded !== null) {
+        swipeGuards.of += 1;
+        if (pass.guarded) swipeGuards.passed += 1;
+        else tapFailures += 1;
+      } else if (swipeRemoved) tapFailures += 1;
+    }
+    const tapSummary = summarizeTaps(taps);
+    console.log(
+      `taps landed ${tapSummary.landed}/${tapSummary.taps}  feel ${tapSummary.medianTapFeel}  first ${tapSummary.medianFirstFrameMs}ms  settle ${tapSummary.medianSettleMs}ms  dropped ${tapSummary.droppedFrames}  both-visible ${tapSummary.bothVisibleFrames}  interrupts ${interrupts.landed}/${interrupts.of}  guards ${swipeGuards.passed}/${swipeGuards.of}`
+    );
 
     await settlePage(page, 0);
     // The 200ms and 500ms tap bands, and a 25ms dropped frame, are real-time
-    // numbers. The carousel keeps the 4× throttle so its stalls stay visible.
+    // numbers. The swipe and tab taps keep the 4× throttle so their stalls stay visible.
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
     await sleep(200);
     const inp = await measureInp(page);
+    const tabInp = await measureTabInp(page, cdp);
     const list = await measureList(page, cdp);
     console.log(`inp max ${Math.max(...inp).toFixed(0)}ms  taps ${inp.map(value => value.toFixed(0)).join(', ')}`);
+    console.log(
+      `tab inp max ${Math.max(...tabInp).toFixed(0)}ms  taps ${tabInp.map(value => value.toFixed(0)).join(', ')}`
+    );
     console.log(
       `list dropped ${list.dropped.map(value => value.toFixed(1)).join(', ')}%  p95 ${list.p95.map(value => value.toFixed(1)).join(', ')}ms`
     );
@@ -892,7 +1083,12 @@ async function measure(args) {
       trace: swipes[0]?.trace ?? [],
       swipes: swipes.map(({ loafs: _loafs, trace: _trace, ...rest }) => rest),
       loafs: loafLeaders(swipes),
-      summary: summarize(swipes)
+      summary: summarize(swipes),
+      swipeRemoved,
+      taps,
+      tapSummary,
+      interrupts,
+      swipeGuards
     };
     appendFileSync(RESULTS, `${JSON.stringify(record)}\n`);
     if (args.summary) {
@@ -904,7 +1100,20 @@ async function measure(args) {
           throttle: record.throttle,
           dpr: record.dpr,
           idleMedianFrameMs: record.idleMedianFrameMs,
-          samples: record.swipes.map(swipe => swipe.feel),
+          samples: swipeRemoved ? null : record.swipes.map(swipe => swipe.feel),
+          swipeRemoved,
+          tapFeel: taps.map(tap => tap.tapFeel),
+          tapFirstFrame: taps.map(tap => tap.firstFrameMs),
+          tapSettle: taps.map(tap => tap.settleMs),
+          tapDropped: taps.map(tap => tap.droppedFrames),
+          tapTotals: {
+            reversals: tapSummary.reversals,
+            stallFrames: tapSummary.stallFrames,
+            bothVisibleFrames: tapSummary.bothVisibleFrames
+          },
+          interrupts,
+          swipeGuards,
+          tabInp,
           inp,
           listDropped: list.dropped,
           listP95: list.p95,
@@ -916,6 +1125,10 @@ async function measure(args) {
     printReport(record);
     if (errors.length) console.log(`console errors during the run: ${errors.slice(-5).join(' | ')}`);
     if (swipes.some(swipe => !Number.isFinite(swipe.feel))) return 1;
+    if (!swipeRemoved && swipes.length !== args.reps * boundaries) return 1;
+    if (tapFailures > 0 || tapSummary.landed !== tapSummary.taps) return 1;
+    if (taps.length !== args.reps * (TAP_PATH.length - 1) || taps.some(tap => !Number.isFinite(tap.tapFeel))) return 1;
+    if (tabInp.length !== TAB_INP_TAPS || tabInp.some(value => !Number.isFinite(value))) return 1;
     if (inp.length !== INP_TAPS || inp.some(value => !Number.isFinite(value))) return 1;
     if (list.dropped.length !== LIST_RUNS || list.p95.length !== LIST_RUNS) return 1;
     return record.summary.commits === record.summary.swipes ? 0 : 1;
@@ -937,7 +1150,9 @@ if (args.help) {
   console.log(
     'node scripts/home-swipe-bench.mjs [--label name] [--throttle 4] [--reps 6] [--dpr 2] [--rebuild] [--summary file]'
   );
-  console.log('--reps is the number of passes from Overview to Swap. Each pass is four swipes.');
+  console.log(
+    '--reps is the number of passes from Overview to Swap: four swipes, where the panes page on one, and five tab taps.'
+  );
   console.log('node scripts/home-swipe-bench.mjs --compare <baseline-label> <candidate-label>');
   process.exit(0);
 }
