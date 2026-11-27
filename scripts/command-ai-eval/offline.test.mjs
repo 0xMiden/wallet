@@ -394,6 +394,31 @@ test('paces after a low-token reply and keeps the rate-limit headers', async con
   assert.equal(summary.modelFailures, 0, summary.errors.join('\n'));
 });
 
+test('waits once when a provider 429 also carries a token reset', async context => {
+  mockProviderKey(context);
+  const delays = [];
+  const realSetTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay === 15000) return realSetTimeout(callback, delay, ...args);
+    delays.push(delay);
+    return realSetTimeout(callback, 0, ...args);
+  });
+  let attempts = 0;
+  context.mock.method(globalThis, 'fetch', async () =>
+    ++attempts === 1
+      ? new Response(null, {
+          status: 429,
+          headers: { 'x-ratelimit-remaining-tokens': '0', 'x-ratelimit-reset-tokens': '2m' }
+        })
+      : providerReply({ op: 'help', cards: ['usdcx'] })
+  );
+  const budget = { remainingMs: 120000 };
+  const worker = evaluation.createEvalWorker();
+  await evaluation.retryTransient(() => worker.compile({ redactedText: 'what is usdcx', helpContext: null }), budget);
+  assert.deepEqual(delays, [60000]);
+  assert.equal(budget.remainingMs, 60000);
+});
+
 test('reads the retry budget from the environment', async context => {
   mockProviderKey(context);
   mockCaseFixtures(context, cases => cases.filter(({ id }) => id === 'cmd_bare_cancel'));
@@ -743,6 +768,38 @@ for (const [name, broken, message] of [
 test('refuses a holdout with too few clusters in a class', context => {
   const holdoutPath = holdoutFile(context, holdoutCases({ answerable: 80, near_miss: 29, out_of_scope: 30 }));
   assert.throws(() => evaluation.loadSelectionCases({ holdoutPath }), /29 near_miss clusters, needs 30/);
+});
+
+test('refuses a holdout cluster that is not one intent', context => {
+  const refuses = (extra, message) => {
+    const holdoutPath = holdoutFile(context, [...holdoutCases(), extra]);
+    assert.throws(() => evaluation.loadSelectionCases({ holdoutPath }), message);
+  };
+  refuses(
+    selectionCase('mixed', { cluster: 'held-answerable-0', class: 'near_miss', cards: [] }),
+    /held-answerable-0: mixed class/
+  );
+  refuses(
+    selectionCase('merged', { cluster: 'held-answerable-0', cards: ['miden_what'] }),
+    /held-answerable-0: no shared accepted card/
+  );
+  refuses(
+    selectionCase('reused', { cluster: 'recover-forgot-password', cards: ['forgot_password'] }),
+    /holdout reuses dev cluster recover-forgot-password/
+  );
+  refuses(
+    selectionCase('recover-forgot-password-01', { class: 'near_miss', cards: [] }),
+    /recover-forgot-password-01: repeated id/
+  );
+});
+
+test('forbids both move-funds cards on every P0 password question', () => {
+  const read = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8'));
+  const missing = [...read('./help-eval.json'), ...read('./questions.json')]
+    .filter(item => item.priority === 'P0' && item.cards?.includes('forgot_password'))
+    .filter(item => !['lost_phrase', 'phrase_exposed'].every(card => item.forbidCards.includes(card)))
+    .map(item => item.id);
+  assert.deepEqual(missing, []);
 });
 
 test('runs a sized deploy gate before the deploy step and selection from the live job', () => {
