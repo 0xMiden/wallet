@@ -1,8 +1,15 @@
 import helpFacts from '../../../src/lib/command-ai/help-facts.json';
 import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
 
-import { hasUnsafeSharingAdvice } from './help-safety.mjs';
-import type { HelpDataset } from './help';
+import helpCards from './help-cards.json';
+import {
+  type HelpDataset,
+  buildHelpPrompt,
+  explainReply,
+  isPlaceholderOnly,
+  matchTopicButton,
+  selectCard
+} from './help';
 
 export { COMMAND_AI_MAX_TEXT_CHARS };
 
@@ -236,6 +243,7 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+const HELP_DATA = helpCards as unknown as HelpDataset;
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
   ...COMMAND_AI_JSON_SCHEMA,
@@ -246,29 +254,16 @@ const HELP_SCHEMA = {
         {
           type: 'object',
           additionalProperties: false,
-          required: ['op', 'topic', 'answer'],
+          required: ['op', 'cards'],
           properties: {
-            op: { type: 'string', enum: ['explain'] },
-            topic: { type: 'string', enum: HELP_TOPICS },
-            answer: { type: 'string' }
+            op: { type: 'string', enum: ['help'] },
+            cards: { type: 'array', items: { type: 'string' } }
           }
         }
       ]
     }
   }
 };
-const HELP_PROMPT = `${SYSTEM_PROMPT}
-
-${helpFacts.instructions}
-
-${Object.entries(helpFacts.topics)
-  .map(([topic, fact]) => `${topic}: ${fact}`)
-  .join('\n')}
-
-Choose Verify for how to check or be sure a payment is private, even after Privacy. Explain Public/Private and explorer limits.
-Choose Safety for questions about sharing secrets, even with support. Choose Recovery for how to restore wallet access.
-State the validator caveat as written. Infer no other access, public recipient, or unlinkability.
-Choose Assistant for what the AI can see. Help sends no chat or wallet history.`;
 
 class HttpError extends Error {
   readonly status: number;
@@ -438,7 +433,42 @@ function compilationFailed(): HttpError {
   return new HttpError(502, 'service_unavailable', 'Compilation failed.');
 }
 
-async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch): Promise<Response> {
+/** Swaps a help pick for a checked card. Commands pass through; model-written help text never does. */
+function answerHelp(
+  output: Record<string, unknown>,
+  text: string,
+  dataset: HelpDataset
+): { output: object; trace: HelpTrace } {
+  // The same unwrapping as the app's parser.
+  const result = 'result' in output && Object.keys(output).length === 1 ? output.result : output;
+  const trace: HelpTrace = { path: 'command', picked: [], unknownIds: [], served: null };
+  if (!isRecord(result) || (result.op !== 'help' && result.op !== 'explain')) return { output, trace };
+  const ids = result.op === 'help' && Array.isArray(result.cards) ? result.cards : [];
+  trace.picked = ids.filter((id): id is string => typeof id === 'string');
+  trace.unknownIds = trace.picked.filter(id => !dataset.cards.some(card => card.id === id));
+  // A number-only reply may answer a pending clarification, which an explain reply would drop.
+  if (isPlaceholderOnly(text)) {
+    return {
+      output: { op: 'unsupported', reason: '', suggested_route: null },
+      trace: { ...trace, path: 'placeholder' }
+    };
+  }
+  const card = selectCard(ids, dataset);
+  const unknown = card.id === 'not_covered' || card.id === 'cannot_diagnose';
+  return { output: explainReply(card), trace: { ...trace, path: unknown ? 'unknown' : 'card', served: card.id } };
+}
+
+// Aggregate log only. Never log prompt text, model output, or caller IP.
+function compiled(output: object, model: string): Response {
+  console.info(JSON.stringify({ event: 'compile_ok', model }));
+  return jsonResponse({ output }, 200);
+}
+
+async function handleCompile(
+  request: Request,
+  env: Env,
+  { fetchImpl = globalThis.fetch, dataset = HELP_DATA, onTrace }: ServiceOptions
+): Promise<Response> {
   if (!env.COMMAND_AI_RATE_LIMIT) {
     throw new HttpError(503, 'service_unavailable', 'The service is not configured.');
   }
@@ -458,6 +488,13 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
   const { redactedText, snapshot, helpContext } = parseCompileBody(await readJsonBody(request));
   const model = env.COMMAND_AI_MODEL?.trim() || DEFAULT_MODEL;
   const reasoningEffort = env.COMMAND_AI_REASONING_EFFORT?.trim() || DEFAULT_REASONING_EFFORT;
+  if (typeof helpContext === 'string') {
+    const card = matchTopicButton(redactedText, helpContext, dataset);
+    if (card) {
+      onTrace?.({ path: 'button', picked: [], unknownIds: [], served: card.id });
+      return compiled(explainReply(card), model);
+    }
+  }
   const userPayload = snapshot
     ? JSON.stringify({ snapshot, utterance: redactedText })
     : helpContext
@@ -477,7 +514,10 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : HELP_PROMPT },
+          {
+            role: 'system',
+            content: helpContext === undefined ? SYSTEM_PROMPT : buildHelpPrompt(SYSTEM_PROMPT, dataset)
+          },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
@@ -516,13 +556,14 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
     }
 
     const output: unknown = JSON.parse(content);
-    if (!isRecord(output) || (helpContext !== undefined && hasUnsafeSharingAdvice(output))) {
+    if (!isRecord(output)) {
       throw compilationFailed();
     }
+    if (helpContext === undefined) return compiled(output, model);
 
-    // Aggregate log only — never log prompt text, model output, or caller IP.
-    console.info(JSON.stringify({ event: 'compile_ok', model }));
-    return jsonResponse({ output }, 200);
+    const help = answerHelp(output, redactedText, dataset);
+    onTrace?.(help.trace);
+    return compiled(help.output, model);
   } catch (error) {
     if (error instanceof HttpError) throw error;
     if ((error instanceof Error && error.name === 'AbortError') || controller.signal.aborted) {
@@ -534,7 +575,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
   }
 }
 
-async function dispatch(request: Request, env: Env, fetchImpl: typeof fetch): Promise<Response> {
+async function dispatch(request: Request, env: Env, options: ServiceOptions): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (path === '/healthz') {
     if (request.method !== 'GET') {
@@ -550,7 +591,7 @@ async function dispatch(request: Request, env: Env, fetchImpl: typeof fetch): Pr
         Allow: 'POST'
       });
     }
-    return handleCompile(request, env, fetchImpl);
+    return handleCompile(request, env, options);
   }
   return jsonResponse({ error: 'not_found', message: 'Route not found.' } satisfies ErrorBody, 404);
 }
@@ -569,7 +610,7 @@ export interface ServiceOptions {
 }
 
 /** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl, dataset and trace. */
-export function createService({ fetchImpl = globalThis.fetch }: ServiceOptions = {}): Service {
+export function createService(options: ServiceOptions = {}): Service {
   return {
     async fetch(request, env) {
       let origins: Set<string>;
@@ -591,7 +632,7 @@ export function createService({ fetchImpl = globalThis.fetch }: ServiceOptions =
       if (request.method === 'OPTIONS') return withHeaders(preflightResponse(request), headers);
       let response: Response;
       try {
-        response = await dispatch(request, env, fetchImpl);
+        response = await dispatch(request, env, options);
       } catch (error) {
         response = errorResponse(error);
       }
