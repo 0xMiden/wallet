@@ -40,7 +40,11 @@ async function captureCompactSend(page: Page, info: TestInfo, name: string): Pro
   const actions = page.locator('[data-home-actions="true"]');
   await actions.getByRole('tab', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-home-page="send"]:not([inert])')).toBeInViewport({ ratio: 0.95 });
-  await expect(page.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(0);
+  await expect(page.locator('[data-home-page="overview"]')).toHaveAttribute('inert', '');
+  const launcherOutsideHome = page
+    .getByRole('button', { name: 'Open fullscreen' })
+    .and(page.locator('button:not([data-home-page="overview"][inert] button)'));
+  await expect(launcherOutsideHome).toHaveCount(0);
   await captureCommand(page, info, name);
   await actions.getByRole('tab', { name: 'Home', exact: true }).click();
 }
