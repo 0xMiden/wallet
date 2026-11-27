@@ -274,6 +274,7 @@ const SpendingLimits: FC = () => {
           {authenticating ? (
             <StrictActionAuthentication
               reason={t('spendingLimitAuthenticationReason')}
+              purpose="change-spending-limit"
               onResult={handleAuthentication}
             />
           ) : (

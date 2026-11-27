@@ -59,6 +59,7 @@ import {
   exportAccountFile,
   revealViewKey,
   revealPrivateKey,
+  revealHotKey,
   revealPublicKey,
   removeAccount,
   importAccount,
@@ -247,6 +248,11 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 const mockUnlocked = jest.fn();
+
+const mockDiscardRevealApproval = jest.fn(async (..._args: unknown[]) => {});
+jest.mock('lib/biometric', () => ({
+  discardRevealApproval: (...args: unknown[]) => mockDiscardRevealApproval(...args)
+}));
 
 jest.mock('./store', () => ({
   store: {
@@ -562,6 +568,15 @@ describe('actions', () => {
   });
 
   describe('lock', () => {
+    it('drops every reveal approval and closes open prompts', async () => {
+      mockDiscardRevealApproval.mockClear();
+
+      await lock();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockDiscardRevealApproval.mock.calls).toEqual([[]]);
+    });
+
     it('calls locked', async () => {
       await lock();
 
@@ -1940,8 +1955,8 @@ describe('actions', () => {
       const { Vault: MockVault } = jest.requireMock('lib/miden/back/vault');
       MockVault.verifyProtector.mockResolvedValueOnce(undefined);
 
-      await expect(verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
-      expect(MockVault.verifyProtector).toHaveBeenCalledWith('secret');
+      await expect(verifyStrictActionAuthentication('secret', 'remove-device')).resolves.toBeUndefined();
+      expect(MockVault.verifyProtector).toHaveBeenCalledWith('secret', 'remove-device');
     });
   });
 
@@ -2915,6 +2930,18 @@ describe('actions', () => {
 
     it('importWatchOnlyAccount is a no-op stub', () => {
       expect(() => importWatchOnlyAccount('vk')).not.toThrow();
+    });
+  });
+
+  describe('revealHotKey', () => {
+    it('gives the vault the stored hot public key, so one approval can be bound to it', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.revealHotKey = jest.fn().mockResolvedValue('PAIR');
+      (mockStoreState as { accounts?: unknown[] }).accounts = [{ publicKey: 'acc-1', hotPublicKey: '02ab' }];
+
+      await expect(revealHotKey('acc-1', undefined)).resolves.toBe('PAIR');
+
+      expect(Vault.revealHotKey).toHaveBeenCalledWith('acc-1', undefined, '02ab');
     });
   });
 

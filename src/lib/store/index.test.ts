@@ -575,13 +575,16 @@ describe('useWalletStore', () => {
         hardware: false,
         password: true
       });
-      await expect(useWalletStore.getState().verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      await expect(
+        useWalletStore.getState().verifyStrictActionAuthentication('secret', 'switch-guardian')
+      ).resolves.toBeUndefined();
       expect(mockRequest).toHaveBeenNthCalledWith(1, {
         type: WalletMessageType.GetStrictAuthenticationProtectorsRequest
       });
       expect(mockRequest).toHaveBeenNthCalledWith(2, {
         type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
-        credential: 'secret'
+        credential: 'secret',
+        purpose: 'switch-guardian'
       });
     });
   });

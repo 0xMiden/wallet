@@ -2401,5 +2401,17 @@
   "replaceWalletEraseWarning": "Upewnij się, że masz swoją obecną frazę odzyskiwania lub kopię zapasową, jeśli nadal ich potrzebujesz. Tej operacji nie można cofnąć.",
   "eraseAndRestoreWallet": "Usuń i przywróć portfel",
   "eraseAndCreateWallet": "Usuń i utwórz portfel",
-  "backToUnlock": "Wróć do logowania"
+  "backToUnlock": "Wróć do logowania",
+  "authReasonUnlock": "Odblokuj swój portfel",
+  "authReasonViewRecoveryPhrase": "Wyświetl swoją frazę odzyskiwania",
+  "authReasonRevealPrivateKey": "Ujawnij swój klucz prywatny",
+  "authReasonRevealEverydayKey": "Ujawnij swój klucz codziennego użytku",
+  "authReasonExportAccountFile": "Eksportuj plik swojego konta",
+  "authReasonExportWalletFile": "Wyeksportuj plik portfela",
+  "authReasonChangeSpendingLimit": "Zmień limit wydatków",
+  "authReasonOverLimitTransaction": "Zatwierdź transakcję przekraczającą Twój limit",
+  "authReasonRemoveDevice": "Usuń urządzenie",
+  "authReasonSwitchGuardian": "Zmień swój Guardian",
+  "authReasonSetUp": "Skonfiguruj zabezpieczenia portfela",
+  "encryptedWalletFileDescriptionExportAuth": "Podczas tworzenia pliku zostaniesz poproszony o uwierzytelnienie."
 }

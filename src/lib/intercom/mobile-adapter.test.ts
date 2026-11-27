@@ -323,11 +323,12 @@ describe('MobileIntercomAdapter', () => {
       const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
       const verified = await adapter.request({
         type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
-        credential: '123456'
+        credential: '123456',
+        purpose: 'remove-device'
       });
 
       expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
-      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('123456');
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('123456', 'remove-device');
       expect(protectors).toEqual({
         type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
         protectors: { hardware: true, password: false }

@@ -13,14 +13,24 @@ const mockDevices = [
   { commitment: otherDeviceCommitment, current: false }
 ];
 const mockState = { currentAccount: { publicKey: 'account' }, seedPhraseStatus: 'stored' };
+let mockAuthenticationPurpose: string | undefined;
 
 jest.mock('components/StrictActionAuthentication', () => ({
-  StrictActionAuthentication: ({ onResult }: { onResult: (result: 'authenticated' | 'cancelled') => void }) => (
-    <>
-      <button onClick={() => onResult('authenticated')}>Authenticate</button>
-      <button onClick={() => onResult('cancelled')}>Cancel authentication</button>
-    </>
-  )
+  StrictActionAuthentication: ({
+    onResult,
+    purpose
+  }: {
+    onResult: (result: 'authenticated' | 'cancelled') => void;
+    purpose: string;
+  }) => {
+    mockAuthenticationPurpose = purpose;
+    return (
+      <>
+        <button onClick={() => onResult('authenticated')}>Authenticate</button>
+        <button onClick={() => onResult('cancelled')}>Cancel authentication</button>
+      </>
+    );
+  }
 }));
 jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -44,6 +54,7 @@ jest.mock('lib/woozie', () => ({ navigate: (...args: string[]) => mockNavigate(.
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAuthenticationPurpose = undefined;
   mockConfirm.mockResolvedValue(true);
   mockState.seedPhraseStatus = 'stored';
 });
@@ -61,6 +72,7 @@ it('explains the phrase prompt when the phrase is absent and queues the selected
   expect(screen.getByText('deviceRecoveryRequired')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'revokeDevice' }));
   await screen.findByRole('button', { name: 'Authenticate' });
+  expect(mockAuthenticationPurpose).toBe('remove-device');
   expect(mockInitiate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Authenticate' }));
   await waitFor(() => expect(mockInitiate).toHaveBeenCalledWith('account', otherDeviceCommitment, false, {}));

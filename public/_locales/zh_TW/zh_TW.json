@@ -2405,5 +2405,17 @@
   "replaceWalletEraseWarning": "如果您仍需要目前的錢包，請確認手邊保有目前的恢復短語或備份。此操作無法復原。",
   "eraseAndRestoreWallet": "清除並還原錢包",
   "eraseAndCreateWallet": "清除並建立錢包",
-  "backToUnlock": "返回登入"
+  "backToUnlock": "返回登入",
+  "authReasonUnlock": "解鎖您的錢包",
+  "authReasonViewRecoveryPhrase": "檢視您的恢復短語",
+  "authReasonRevealPrivateKey": "揭露您的私鑰",
+  "authReasonRevealEverydayKey": "揭露您的日常金鑰",
+  "authReasonExportAccountFile": "匯出您的帳戶檔案",
+  "authReasonExportWalletFile": "匯出您的錢包檔案",
+  "authReasonChangeSpendingLimit": "變更您的消費限額",
+  "authReasonOverLimitTransaction": "批准超出限額的交易",
+  "authReasonRemoveDevice": "移除裝置",
+  "authReasonSwitchGuardian": "切換您的Guardian",
+  "authReasonSetUp": "設定錢包安全性",
+  "encryptedWalletFileDescriptionExportAuth": "建立檔案時，系統將要求您進行身分驗證。"
 }

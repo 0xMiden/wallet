@@ -202,6 +202,12 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat('tr').openLinkAction).toBe('Aç');
   });
 
+  it('names the Turkish private-key prompt as a reveal', () => {
+    expect(loadFlat('tr').authReasonRevealPrivateKey).toBe('Özel anahtarınızı ifşa edin');
+    expect(msg(loadMessages('tr'), 'authReasonRevealPrivateKey')).toBe('Özel anahtarınızı ifşa edin');
+    expect(enSource['authReasonRevealPrivateKey']).toBe('Reveal your private key');
+  });
+
   it('renders the Japanese "Continue" action as 続ける, not 続きを読む (read more), in the bundle the UI reads', () => {
     expect(loadFlat('ja').continue).toBe('続ける');
   });

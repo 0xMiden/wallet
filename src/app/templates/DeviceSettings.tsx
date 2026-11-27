@@ -119,7 +119,11 @@ const DeviceSettings: React.FC = () => {
     return (
       <SubPageLayout data-testid="device-revoke-auth" onBack={() => setAuthTarget(null)}>
         <p className="text-caption text-muted break-all">{authTarget.commitment}</p>
-        <StrictActionAuthentication reason={t('deviceRevokeAuthentication')} onResult={authenticateAndRevoke} />
+        <StrictActionAuthentication
+          reason={t('deviceRevokeAuthentication')}
+          purpose="remove-device"
+          onResult={authenticateAndRevoke}
+        />
       </SubPageLayout>
     );
 
