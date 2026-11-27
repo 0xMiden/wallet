@@ -2316,6 +2316,17 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
     expect(screen.getByTestId('token-detail-hero').querySelector('p')).toBeNull();
   });
 
+  it('exits quote loading to unavailable once tokenPricesStatus settles ready without a quote', () => {
+    renderPage({ tokenPrices: {}, tokenPricesStatus: 'ready' });
+
+    expect(screen.getByTestId('token-detail-hero').querySelector('p')).toBeNull();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    const context = screen.getByTestId('token-detail-quote-context');
+    expect(context).toHaveAttribute('data-tone', 'neutral');
+    expect(context).toHaveTextContent('tokenDetailQuoteUnavailableTitle');
+    expect(context).toHaveTextContent('tokenDetailQuoteUnavailableBody');
+  });
+
   it('values a confirmed genuine zero balance as $0.00 when a fresh quote is ready and explains disabled Send', () => {
     renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 0, metadata: { symbol: 'ETH', decimals: 8 } }] });
 

@@ -321,6 +321,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
     !quote &&
     Boolean(priceSymbol) &&
     tokenPricesStatus !== 'error' &&
+    tokenPricesStatus !== 'ready' &&
     quoteMayArrive(tokenId, symbol) &&
     !pricesLoaded(tokenPrices, [priceSymbol]);
   const displayQuoteState: DisplayQuoteState = quoteReady
