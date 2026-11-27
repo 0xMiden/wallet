@@ -441,6 +441,7 @@ test('runs the live model job only from a manual dispatch that picks a suite', (
   assert.ok(live.includes('GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}\n'));
   assert.ok(!workflow.includes('GROQ_API_KEY_EVAL'));
   for (const [suite, flags] of [
+    ['measure', '--measure --require-live'],
     ['writing-checker-dev', '--writing-checker --dev-only --require-live'],
     ['writing-checker', '--writing-checker --require-live'],
     ['writing-dev', '--writing --dev-only --require-live'],
@@ -1302,3 +1303,98 @@ for (const [name, spoil, message] of [
     assert.throws(() => evaluation.scoreWriting(world), message);
   });
 }
+
+/** A provider whose router bucket reports `routerTokens` and `routerRequests` on its nth reply. */
+function mockLimits(
+  context,
+  {
+    routerTokens = () => 240000,
+    routerRequests = n => 100000 - n,
+    smallUsage = { prompt_tokens: 1500, completion_tokens: 500 },
+    routerPrompt = 3300,
+    writer,
+    headers = true
+  } = {}
+) {
+  let routerReplies = 0;
+  const models = [];
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    models.push(body.model);
+    const name = body.response_format.json_schema.name;
+    const limits = (tokens, requests) =>
+      headers
+        ? {
+            'x-ratelimit-limit-tokens': '250000',
+            'x-ratelimit-remaining-tokens': String(tokens),
+            'x-ratelimit-limit-requests': '500000',
+            'x-ratelimit-remaining-requests': String(requests)
+          }
+        : {};
+    if (name === 'bread_command_intent') {
+      routerReplies += 1;
+      return completion(
+        { result: { op: 'help', cards: ['guardian_what'] } },
+        {
+          headers: limits(routerTokens(routerReplies), routerRequests(routerReplies)),
+          usage: { prompt_tokens: routerPrompt, completion_tokens: 40 }
+        }
+      );
+    }
+    const options = { headers: limits(200000, 90000), usage: smallUsage };
+    if (name === 'bread_help_answer') {
+      return writer?.() ?? completion({ answerable: false, sentences: [] }, options);
+    }
+    return completion({ supported: true, answers: true }, options);
+  });
+  return models;
+}
+
+const measure = () => evaluation.runMeasure();
+
+test('measures each call and proves separate buckets from one clean attempt', async context => {
+  mockProviderKey(context);
+  const models = mockLimits(context);
+  const report = await measure();
+  assert.deepEqual(report.failures, []);
+  assert.equal(report.separation.proven, true);
+  assert.equal(report.separation.attempts.length, 1);
+  assert.deepEqual(models, [ROUTER, SMALL, SMALL, ROUTER, ...Array(5).fill(SMALL), ROUTER]);
+  assert.equal(report.router.promptTokens, 3300);
+  assert.equal(report.writer.completionTokens, 500);
+  assert.equal(report.checker.headers['x-ratelimit-limit-tokens'], '250000');
+  assert.equal(typeof report.checker.latencyMs, 'number');
+});
+
+for (const [name, options] of [
+  ['the daily request counts move together', { routerRequests: n => 100000 - n * 6 }],
+  // Replies 2 and 3 bracket the five small calls: a shared bucket is down by their 10,000 tokens too.
+  ['the router bucket pays for the small calls', { routerTokens: n => 240000 - (n > 2 ? 13812 : 0) * (n % 2) }],
+  ['the small calls are too few to tell', { smallUsage: { prompt_tokens: 600, completion_tokens: 100 } }],
+  ['the provider sends no limits', { headers: false }]
+]) {
+  test(`proves nothing when ${name}`, async context => {
+    mockProviderKey(context);
+    mockLimits(context, options);
+    const report = await measure();
+    assert.equal(report.separation.proven, false);
+    assert.equal(report.separation.attempts.length, 3);
+    assert.deepEqual(report.failures, ['no proof that the writer and checker leave the router quota alone']);
+  });
+}
+
+test('repeats a spoiled separation attempt, since live traffic only causes a false fail', async context => {
+  mockProviderKey(context);
+  mockLimits(context, { routerRequests: n => 100000 - (n === 3 ? 20 : n) });
+  const report = await measure();
+  assert.equal(report.separation.proven, true);
+  assert.equal(report.separation.attempts.length, 2);
+});
+
+test('fails the measure on a rejected schema or a router prompt over 3,600 tokens', async context => {
+  mockProviderKey(context);
+  mockLimits(context, { routerPrompt: 3601, writer: () => new Response(null, { status: 400 }) });
+  const { failures } = await measure();
+  assert.ok(failures.includes('the router prompt is 3601 tokens, over 3600'));
+  assert.ok(failures.includes('the writer call failed with HTTP 400'));
+});

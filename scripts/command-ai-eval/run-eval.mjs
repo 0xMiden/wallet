@@ -1196,6 +1196,8 @@ export async function runEval({
   };
 }
 
+export const runMeasure = async () => ({ separation: { attempts: [] }, failures: [] });
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--require-live') && !process.env.GROQ_API_KEY?.trim()) {
     throw new Error('The live evaluation requires its model credential.');
