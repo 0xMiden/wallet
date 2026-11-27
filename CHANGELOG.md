@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
 - [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
 - [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
 - [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
