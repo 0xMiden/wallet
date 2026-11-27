@@ -366,8 +366,10 @@ function applyAssetSlot(
   const symbol = resolveAssetRef(value, map).trim();
   const [queryKey, idKey] =
     field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
-  // A different asset must not keep the old token id: resolution prefers the id over the symbol.
-  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  // Resolution prefers the id, so another symbol must drop it. A repeated symbol keeps it: a held
+  // ticker's placeholder always names the first holding, not necessarily the one the user picked.
+  if (!isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  else target[idKey] ??= nicheId;
   target[queryKey] = symbol;
 }
 
@@ -418,9 +420,8 @@ export function applyPatchToDraft(
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
   const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
   if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
-    // A chosen route (and a held token) answers the old request, not the changed one.
+    // A chosen route answers the old request, not the changed one.
     next.routeId = undefined;
-    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
   }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
@@ -981,7 +982,8 @@ function resolveSwapFlow(
   if (!receive) {
     const partners = getSwapPartners(offer.faucetId);
     const choices = partners.length > 0 ? partners : ctx.swapTokens.filter(t => t.faucetId !== offer.faucetId);
-    if (choices.length === 1) {
+    // A named token that is not listed must not turn into the only partner.
+    if (choices.length === 1 && !draft.toAssetQuery) {
       receive = choices[0];
     } else if (choices.length > 1) {
       const chips: ClarificationChip[] = choices.slice(0, 5).map(tok => ({
