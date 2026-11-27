@@ -93,6 +93,7 @@ jobs:
               ;;
             selection-dev) node scripts/command-ai-eval/run-eval.mjs --selection --dev-only --require-live ;;
             selection) node scripts/command-ai-eval/run-eval.mjs --selection --require-live ;;
+            measure) node scripts/command-ai-eval/run-eval.mjs --measure --require-live ;;
             writing-checker-dev) node scripts/command-ai-eval/run-eval.mjs --writing-checker --dev-only --require-live ;;
             writing-checker) node scripts/command-ai-eval/run-eval.mjs --writing-checker --require-live ;;
             writing-dev) node scripts/command-ai-eval/run-eval.mjs --writing --dev-only --require-live ;;

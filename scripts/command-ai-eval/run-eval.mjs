@@ -984,6 +984,99 @@ export function scoreWriting({ summaries, grading, knockoutGrading, cases }) {
   };
 }
 
+const MEASURE_ATTEMPTS = 3;
+const MEASURE_SMALL_CALLS = 5;
+const MEASURE_TIMEOUT_MS = 20000;
+// The router's completion cap, which the provider may hold against the bucket until the reply is counted.
+const ROUTER_OUTPUT_CAP = 512;
+
+/**
+ * One call of each kind, then the proof that the writer and checker have their own quota: five of their calls
+ * between two router calls must move neither the router's daily requests nor its tokens. Run it unpaced.
+ */
+export async function runMeasure({ service = createEvalWorker({ paced: false }) } = {}) {
+  const { writerInput, checkerInput, CHECKER_RULES } = loadHelpWrite();
+  const { WRITER, CHECKER, isVerdict } = loadWorker();
+  const data = helpDataset();
+  const { writer, checker } = data.writing;
+  const card = data.cards.find(item => item.id === 'guardian_what');
+  const question = 'what is a guardian';
+  const failures = [];
+
+  const routerCall = async () => {
+    try {
+      await service.compile({ redactedText: question, helpContext: null });
+    } catch (error) {
+      failures.push(`the router call failed: ${error?.message}`);
+    }
+    return service.stats.last[service.model];
+  };
+  const input = writerInput([card], data, question, null);
+  const sentences = [{ facts: [card.facts[0]], text: data.facts[card.facts[0]].text }];
+  const smallCall = (role, model, system, user) =>
+    service.call({
+      model,
+      system,
+      user,
+      name: role.name,
+      schema: role.schema,
+      maxTokens: role.maxTokens,
+      timeoutMs: MEASURE_TIMEOUT_MS
+    });
+  const writerCall = () => smallCall(WRITER, writer, input.system, input.user);
+
+  const router = await routerCall();
+  if (router.promptTokens > MAX_PROMPT_TOKENS) {
+    failures.push(`the router prompt is ${router.promptTokens} tokens, over ${MAX_PROMPT_TOKENS}`);
+  }
+  const record = (name, model, accepted) => {
+    const last = service.stats.last[model];
+    if (!accepted) failures.push(`the ${name} call failed with HTTP ${last?.status}`);
+    return last;
+  };
+  const written = record('writer', writer, (await writerCall()) !== undefined);
+  const verdict = await smallCall(
+    CHECKER,
+    checker,
+    CHECKER_RULES,
+    checkerInput(sentences, input, data, question, null)
+  );
+  const checked = record('checker', checker, isVerdict(verdict));
+
+  const smallTokens = () => {
+    const usage = service.stats.models[writer];
+    return usage.promptTokens + usage.completionTokens;
+  };
+  const attempts = [];
+  let proven = false;
+  while (!proven && attempts.length < MEASURE_ATTEMPTS) {
+    const before = await routerCall();
+    const spentBefore = smallTokens();
+    await Promise.all(Array.from({ length: MEASURE_SMALL_CALLS }, writerCall));
+    const spent = smallTokens() - spentBefore;
+    const after = await routerCall();
+    const read = (reply, name) => Number(reply.headers[`x-ratelimit-${name}`] ?? Number.NaN);
+    const elapsedMs = after.respondedAt - before.respondedAt;
+    const attempt = {
+      requestsApart: Math.abs(read(before, 'remaining-requests') - read(after, 'remaining-requests')),
+      tokenDrop: read(before, 'remaining-tokens') - read(after, 'remaining-tokens'),
+      reservation: after.promptTokens + ROUTER_OUTPUT_CAP,
+      smallTokens: spent,
+      refill: (read(after, 'limit-tokens') / 60) * (elapsedMs / 1000),
+      elapsedMs
+    };
+    // Daily requests refill slowly. The tokens tell only if a shared bucket's drop could not hide in the refill.
+    proven =
+      attempt.requestsApart <= 1 &&
+      attempt.smallTokens > attempt.reservation + attempt.refill &&
+      attempt.tokenDrop <= attempt.reservation;
+    attempts.push(attempt);
+  }
+  if (!proven) failures.push('no proof that the writer and checker leave the router quota alone');
+
+  return { router, writer: written, checker: checked, separation: { proven, attempts }, failures };
+}
+
 const GATE_HELP_ACCURACY = 0.9;
 
 function matchesExpected(parsed, expected) {
@@ -1196,8 +1289,6 @@ export async function runEval({
   };
 }
 
-export const runMeasure = async () => ({ separation: { attempts: [] }, failures: [] });
-
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--require-live') && !process.env.GROQ_API_KEY?.trim()) {
     throw new Error('The live evaluation requires its model credential.');
@@ -1216,7 +1307,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   let failed;
   const scoreAt = process.argv.indexOf('--writing-score');
-  if (scoreAt > 0) {
+  if (process.argv.includes('--measure')) {
+    if (offlineOnly) throw new Error('This run needs a model credential.');
+    // Neither paced nor guarded: it is what shows whether any other suite may run.
+    const report = { meta: evalMeta({ suite: 'measure' }), ...(await runMeasure()) };
+    writeSummary(report);
+    console.log(JSON.stringify(report, null, 2));
+    failed = report.failures.length > 0;
+  } else if (scoreAt > 0) {
     const read = name => JSON.parse(readFileSync(path.join(process.argv[scoreAt + 1], `${name}.json`), 'utf8'));
     const summaries = Object.fromEntries(Object.entries(SCORED_SUITES).map(([key, name]) => [key, read(name)]));
     // A results commit changes no hashed file, so the summaries must still match this checkout.
