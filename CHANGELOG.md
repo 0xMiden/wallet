@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
 - [FIX][all] Distinguish a still-active retry attempt from a missing acknowledgement in opt-in reports.
 - [FIX][all] Identify whether standard Send or Command Send showed an invalid amount warning in opt-in reports.
 - [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.
