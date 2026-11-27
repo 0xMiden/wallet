@@ -13,6 +13,7 @@ import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, MidenA
 import type { RedactedClarificationSnapshot } from './client';
 import type { LocalQueryResult } from './local-query';
 import {
+  DEFAULT_LIQUID_TICKERS,
   resolveAmountRef,
   resolveAssetRef,
   resolveNicheTokenId,
@@ -349,6 +350,11 @@ function applyAmountExpr(amount: AmountExpr | null, map: RedactionMap, target: H
   }
 }
 
+/** The same trim and case folding that symbol resolution uses. */
+function isSameSymbol(a: string | undefined, b: string): boolean {
+  return a?.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 function applyAssetSlot(
   value: string | null,
   map: RedactionMap,
@@ -357,14 +363,12 @@ function applyAssetSlot(
 ): void {
   if (!value) return;
   const nicheId = resolveNicheTokenId(value, map);
-  const symbol = resolveAssetRef(value, map);
-  if (field === 'asset') {
-    target.assetQuery = symbol;
-    if (nicheId) target.tokenId = nicheId;
-  } else {
-    target.toAssetQuery = symbol;
-    if (nicheId) target.toTokenId = nicheId;
-  }
+  const symbol = resolveAssetRef(value, map).trim();
+  const [queryKey, idKey] =
+    field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
+  // A different asset must not keep the old token id: resolution prefers the id over the symbol.
+  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  target[queryKey] = symbol;
 }
 
 function hydrateSlots(slots: IntentSlots, map: RedactionMap): HydratedIntentDraft {
@@ -435,6 +439,15 @@ export function applyPatchToDraft(
   return next;
 }
 
+/** Only common-ticker symbols, which the redactor leaves as typed, go into a follow-up request. */
+function publicSymbol(symbol: string | undefined): string | null {
+  return symbol && DEFAULT_LIQUID_TICKERS.has(symbol.trim().toUpperCase()) ? symbol : null;
+}
+
+/**
+ * The draft state a follow-up request carries. The draft holds restored local values and the option
+ * ids are local keys, so each field is chosen here and the ids are numbered per request.
+ */
 export function createClarificationSnapshot(
   draft: HydratedIntentDraft,
   missingSlot: string,
@@ -442,11 +455,12 @@ export function createClarificationSnapshot(
 ): RedactedClarificationSnapshot {
   return {
     missingSlot,
-    allowedOptionIds,
+    // Numbered per request. No response field refers to an option, so nothing maps them back.
+    allowedOptionIds: allowedOptionIds.map((_, index) => `option_${index + 1}`),
     draft: {
       action: draft.action,
-      asset: draft.assetQuery ?? null,
-      to_asset: draft.toAssetQuery ?? null,
+      asset: publicSymbol(draft.assetQuery),
+      to_asset: publicSymbol(draft.toAssetQuery),
       from_chain: draft.fromChain ?? null,
       to_chain: draft.toChain ?? null,
       hasAmount: Boolean(draft.amount || draft.amountFraction || draft.amountIsMax || draft.fiatUsdAmount),
@@ -771,7 +785,7 @@ function bridgeRouteCarries(route: BridgeRouteSummary, asset: string): boolean {
   return bridgeSymbolMatches(route.sourceSymbol, asset) || bridgeSymbolMatches(route.destinationSymbol, asset);
 }
 
-function bridgeRouteChips(routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
+function bridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
   const labels = bridgeClarificationLabels(routes);
   return routes.map((route, index) => ({
     id: route.id,
@@ -782,14 +796,16 @@ function bridgeRouteChips(routes: readonly BridgeRouteSummary[]): ClarificationC
       provider: route.provider,
       fromChain: route.sourceNetwork,
       toChain: route.destinationNetwork,
-      assetQuery: route.sourceSymbol
+      assetQuery: route.sourceSymbol,
+      // The chip merge keeps the draft's token id unless the patch overwrites it.
+      ...(isSameSymbol(draft.assetQuery, route.sourceSymbol) ? {} : { tokenId: undefined })
     }
   }));
 }
 
 /** Offered after a request that no route serves: the user picks one, nothing is picked for them. */
 function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
-  return bridgeRouteChips(routes).map((chip, index) => {
+  return bridgeRouteChips(draft, routes).map((chip, index) => {
     const keepsAsset = !draft.assetQuery || bridgeRouteCarries(routes[index]!, draft.assetQuery);
     return {
       ...chip,
@@ -865,7 +881,7 @@ function resolveBridgeFlow(
 
   // Clarification needed when multiple bridge routes/providers remain eligible.
   if (candidates.length > 1) {
-    const chips = bridgeRouteChips(candidates.slice(0, 6));
+    const chips = bridgeRouteChips(draft, candidates.slice(0, 6));
     return {
       kind: 'clarifying',
       slot: 'provider',
@@ -879,7 +895,9 @@ function resolveBridgeFlow(
 
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
-  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, draft.tokenId, ctx.balances);
+  const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
+  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
   if (!amount) {
