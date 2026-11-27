@@ -37,11 +37,11 @@ const EXPECTED = `
   wallet_file Recovery
   multi_device Recovery
   unlock_lock Wallet
-  stay_safe Safety B
+  stay_safe Safety BC
   secrets_scams Safety UP
   phrase_exposed Safety UP
   device_stolen Safety UP
-  unexpected_tokens Safety P
+  unexpected_tokens Safety PC
   send_receive Wallet
   send_addresses Wallet
   notes_what Notes B
@@ -83,7 +83,7 @@ const EXPECTED = `
   finality_blocking Wallet
   mainnet_testnet Network B
   bread_overview Wallet B
-  assistant_sees Assistant B
+  assistant_sees Assistant BC
   apps_connect Wallet
   platforms Wallet
   invite_code Wallet
@@ -139,7 +139,7 @@ it('has exactly the listed cards with their topics and flags', () => {
     checked: count('checked'),
     write: count('write'),
     urgent: data.cards.filter(card => card.urgent).length
-  }).toEqual({ cards: 73, ids: 73, fixed: 10, checked: 7, write: 56, urgent: 7 });
+  }).toEqual({ cards: 73, ids: 73, fixed: 10, checked: 10, write: 53, urgent: 7 });
 });
 
 it('resolves every fact reference, uses every fact and cites a public source for each', () => {
@@ -305,7 +305,7 @@ it('claims no download for proving on the device', () => {
 const WORD_FOR_WORD = `
   lost_phrase lost_phrase_and_device forgot_password reset_reinstall secrets_scams phrase_exposed
   device_stolen send_stuck_failed not_covered cannot_diagnose guardian_see privacy_overview privacy_check
-  who_sees_payment validators delegated_proving swap_bridge_privacy
+  who_sees_payment validators delegated_proving swap_bridge_privacy stay_safe unexpected_tokens assistant_sees
 `
   .trim()
   .split(/\s+/);
@@ -313,8 +313,8 @@ const WORD_FOR_WORD = `
 describe('writing switch', () => {
   const QUALIFIED = ['openai/gpt-oss-20b'];
 
-  it('keeps the 17 word-for-word cards out of writing', () => {
-    expect(WORD_FOR_WORD).toHaveLength(17);
+  it('keeps the 20 word-for-word cards out of writing', () => {
+    expect(WORD_FOR_WORD).toHaveLength(20);
     expect(data.cards.filter(card => card.mode !== 'write').map(card => card.id)).toEqual(
       data.cards.filter(card => WORD_FOR_WORD.includes(card.id)).map(card => card.id)
     );
@@ -324,13 +324,6 @@ describe('writing switch', () => {
     // The commit that enables cards changes this to the exact graded list, with its run ids.
     expect(data.writing).toEqual({ writer: QUALIFIED[0], checker: QUALIFIED[0], cards: [] });
     for (const model of [data.writing?.writer, data.writing?.checker]) expect(model).not.toBe(DEFAULT_MODEL);
-  });
-
-  // Safety and who-can-see cards stay word for word until the owner rules on these three.
-  it('lists none of the safety and who-can-see cards that are held back', () => {
-    for (const id of ['assistant_sees', 'stay_safe', 'unexpected_tokens']) {
-      expect(data.writing?.cards).not.toContain(id);
-    }
   });
 
   it('lists only distinct write cards', () => {

@@ -1020,9 +1020,7 @@ test('runs every write card on and reruns only a technical failure', async conte
   assert.equal(sent.length, 2 + 3 + 3);
 });
 
-const HELD = ['assistant_sees', 'stay_safe', 'unexpected_tokens'];
-
-test('never writes a held-back safety card, even with every write card on', async context => {
+test('never writes a safety or who-can-see card, even with every write card on', async context => {
   mockProviderKey(context);
   const sent = mockWriting(context, { cards: ['stay_safe'] });
   const { results } = await evaluation.runWriting({
@@ -1326,13 +1324,7 @@ test('passes a run that meets every bar and lists the cards to enable', () => {
   const score = evaluation.scoreWriting(scoreWorld());
   assert.deepEqual(score.failures, []);
   assert.equal(score.report.writtenClusters, 150);
-  assert.deepEqual(
-    score.allowlist,
-    writeCardIds()
-      .slice(0, 50)
-      .filter(id => !HELD.includes(id))
-  );
-  assert.ok(HELD.every(id => !(id in score.report.cards)));
+  assert.deepEqual(score.allowlist, writeCardIds().slice(0, 50));
 });
 
 test('holds written precision to 143 of 150 clusters', () => {
