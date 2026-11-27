@@ -94,7 +94,9 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string, isCurrent:
           const current = () => active && isCurrent() && matchesBalanceScope(syncData);
           void Promise.all([
             updateBalancesFromSyncData(accountPublicKey, syncData.vaultAssets, syncData.balanceSnapshot, current),
-            primeCachedDisplayQuotes(current).catch(() => undefined),
+            // Awaited so a quick prime reaches the first frame; on the session's guard, not the race's, so a slow one still
+            // fills its network- and list-keyed entry when it lands.
+            primeCachedDisplayQuotes(isCurrent).catch(() => undefined),
             import('app/hooks/useHiddenTokens').then(({ primeHiddenTokens }) =>
               primeHiddenTokens(network, accountPublicKey)
             ),
