@@ -5,6 +5,7 @@ Standalone, stateless Cloudflare Worker that compiles privacy-redacted wallet pr
 ## Endpoints
 
 - `GET /healthz` — returns `{ ok: true, revision }` with `Cache-Control: private, no-store`.
+- A request with a `snapshot`, the follow-up to a clarification question, also tells the model to wrap its reply in `result` and to list every patch key; without that the provider refuses its replies.
 - `POST /v1/compile` validates `{ redactedText, snapshot? }` for existing commands, or `{ redactedText, helpContext }` to enable help. The help context is null or the previous public topic ID. Help requests cannot include a snapshot. Both use the existing Groq structured output and share the same rate limit.
 
 ## Help answers

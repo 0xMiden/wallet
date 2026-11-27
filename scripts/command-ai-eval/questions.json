@@ -375,6 +375,54 @@
     }
   },
   {
+    "id": "patch-provider-control",
+    "prompt": "use epoch and make it 400",
+    "expectedRedacted": "use epoch and make it <AMT_1>",
+    "snapshot": {
+      "missingSlot": "provider",
+      "allowedOptionIds": ["epoch", "agglayer", "xreserve"],
+      "draft": {
+        "action": "bridge",
+        "asset": "USDC",
+        "to_asset": null,
+        "from_chain": "ethereum",
+        "to_chain": "miden",
+        "hasAmount": true,
+        "hasRecipient": false,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": "patch_slots"
+    }
+  },
+  {
+    "id": "patch-amount-control",
+    "prompt": "actually change the amount to 12.5",
+    "expectedRedacted": "actually change the amount to <AMT_1>",
+    "snapshot": {
+      "missingSlot": "recipient",
+      "allowedOptionIds": [],
+      "draft": {
+        "action": "send",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": true,
+        "hasRecipient": false,
+        "provider": null,
+        "note_type": "private",
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": "patch_slots"
+    }
+  },
+  {
     "id": "balance-control",
     "prompt": "what is my balance?",
     "expectedRedacted": "what is my balance?",

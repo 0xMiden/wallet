@@ -269,6 +269,10 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+// A clarification follow-up gets bare or partial patches without this, and the provider refuses them. Sent only with
+// a snapshot, so every other request stays as it was.
+const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
+
 const HELP_DATA = helpCards as unknown as HelpDataset;
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
@@ -660,7 +664,11 @@ async function handleCompile(
         messages: [
           {
             role: 'system',
-            content: helpContext === undefined ? SYSTEM_PROMPT : buildHelpPrompt(SYSTEM_PROMPT, dataset)
+            content: snapshot
+              ? `${SYSTEM_PROMPT}\n\n${SNAPSHOT_RULES}`
+              : helpContext === undefined
+                ? SYSTEM_PROMPT
+                : buildHelpPrompt(SYSTEM_PROMPT, dataset)
           },
           { role: 'user', content: userPayload }
         ],
