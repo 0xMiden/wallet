@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Tout afficher",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ à réclamer",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ réclamation",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Mise à jour du solde",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Impossible d’équilibrer la charge.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID : $id$",
     "englishSource": "ID: $id$",
@@ -3669,10 +3705,6 @@
     "message": "Réseau Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Changer de réseau",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Fournisseur",
     "englishSource": "Provider"
@@ -3696,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "À",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "via $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Aucun jeton trouvé",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Actif, réseau et fournisseur",
@@ -7448,8 +7493,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Indiquez-nous quelles parties du Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme, afin que nous puissions corriger ce qui ne fonctionne pas. Ne communiquez jamais vos clés, votre phrase de récupération, votre mot de passe, vos adresses, vos soldes, vos montants ou le contenu de vos transactions. Aucun suivi sur d’autres applications ou sites, aucune donnée utilisée à des fins publicitaires, et rien n’est vendu ni partagé avec des courtiers en données. Les rapports d’erreur sont envoyés dans tous les cas : l’erreur et son emplacement dans le code, expurgés pour supprimer les données sensibles, sans aucun identifiant vous concernant ou concernant votre appareil. Vous pouvez modifier ces paramètres à tout moment.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Les informations recueillies concernent les écrans que vous ouvrez et la durée pendant laquelle chacun reste visible, la manière dont vous y êtes parvenu, la fenêtre que vous utilisez, les endroits où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme, afin que nous puissions corriger ce qui ne fonctionne pas. En aucun cas vos clés, votre phrase de récupération, votre mot de passe, vos adresses, vos soldes, vos montants ou le contenu de vos transactions. Aucun suivi sur d’autres applications ou sites, aucune donnée utilisée à des fins publicitaires, et rien n’est vendu ni partagé avec des courtiers en données. Les rapports d’erreur sont envoyés dans tous les cas : l’erreur et son emplacement dans le code, expurgés pour supprimer les données sensibles, sans aucun identifiant vous concernant ou concernant votre appareil. Vous pouvez modifier ces paramètres à tout moment.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Partager les données d’utilisation",
@@ -7468,8 +7513,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Précisez quelles fonctionnalités de Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Quels écrans vous ouvrez et combien de temps chacun reste visible, comment vous y êtes parvenu, quelle fenêtre vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -8156,6 +8201,14 @@
   "activityAcceptingTransfer": {
     "message": "Acceptation…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "Demande en attente",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Demande en attente. Le portefeuille réessaiera automatiquement.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "Transferts",
@@ -10574,5 +10627,350 @@
   "commandAiSamplePrompt6": {
     "message": "Combien d’USDCx ai-je envoyé ce mois-ci ?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "Le nom de milieu n’est pas disponible sur ce réseau.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Adresse ou nom de famille",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Saisissez une adresse ou un nom.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Adresse de la résolution : $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Nom de la transaction de réception",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "Recherche de ce nom…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Aucun compte n’utilise ce nom",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Impossible de trouver ce nom. Réessayez.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Nom de famille",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Réclamer un nom",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Obtenez votre propre nom de domaine $suffix$, qui vous appartiendra pour toujours",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Réclamer un nom",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "votrenom",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Réservez un nom auquel les gens peuvent envoyer des",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Masquer",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Réclamez un nom à tout moment",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "votrenom",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1 à 21 caractères · uniquement a–z et 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ est disponible",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ est déjà pris",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Entrez un nom",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Utilisez 21 caractères maximum",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "N’utilisez que les lettres a à z et les chiffres 0 à 9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Vérification en cours…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Impossible de vérifier ce nom. Réessayez.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name n'accepte pas de nouveaux noms pour le moment",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Le prix a changé. Vérifiez le nouveau prix et réessayez.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Prix · longueur $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Frais de réseau",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Frais de transaction maximaux",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Total",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Redirige vers",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Solde après",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "L'inscription est définitive. Le nom est associé à ce compte et le prix n'est pas remboursé.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Il n’y a pas assez de MIDEN. Il vous faut « $amount$ ».",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "$name$s sur les réclamations · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Demande envoyée",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Nom émis et publié par Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Ajouter cela à votre compte",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "Quelqu’un d’autre a utilisé ce nom en premier.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Le registre n’a pas traité la demande dans les délais.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Le registre n’a pas pu traiter la demande.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "La transaction demandée a échoué. Aucun nom n’a été enregistré.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Le nom a été émis, mais son ajout à votre compte a échoué.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Réessayer la réclamation",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Réclamer des «$name$»…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Terminé",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Détenu",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Réclamer",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Échec",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Pas encore dans le registre",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Cela se résume à ce compte",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "Vous n'avez pas encore de nom de milieu",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Choisissez un autre nom",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Nom principal",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Vos noms",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Vérification du registre…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Redirige vers un autre compte",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Enregistrement du nom",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Enregistrement du nom",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "$name$ enregistré",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "$name$ reçues",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Afficher le statut",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Nom",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Registre",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "note d’inscription",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Phase",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

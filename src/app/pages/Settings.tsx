@@ -18,6 +18,8 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
+import { MidenNameClaimSlot, useMidenNameClaimOffer } from 'app/templates/MidenNameClaimSlot';
+import MidenNameSettings from 'app/templates/MidenNameSettings';
 import PasskeyUnlockSettings from 'app/templates/PasskeyUnlockSettings';
 import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
@@ -26,6 +28,7 @@ import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
@@ -33,6 +36,7 @@ import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayou
 // page's test suite mocks only partially.
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isExcludedFromWalletFile } from 'lib/miden/backup-file';
+import { isMidenNameSupported } from 'lib/miden/name/config';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
@@ -139,6 +143,8 @@ type Tab = {
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
   requiresActivatedHotKey?: boolean;
+  /** Hide the row and the route on a network with no Miden Name deployment. */
+  requiresMidenName?: boolean;
   /**
    * A row that only ever performs an action from the menu - it has no sub-page, so its
    * `Component` is `() => null`. Such a tab must NOT resolve as a route: the generic
@@ -182,6 +188,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'language',
         Component: LanguageSettings,
         testID: SettingsSelectors.LanguageButton
+      },
+      {
+        slug: 'miden-name',
+        titleI18nKey: 'midenName',
+        Component: MidenNameSettings,
+        testID: SettingsSelectors.MidenNameButton,
+        requiresMidenName: true
       }
     ]
   },
@@ -410,6 +423,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
   const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => !isExcludedFromWalletFile(a)));
+  const midenNameOffer = useMidenNameClaimOffer();
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.
@@ -419,6 +433,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.standardOnly && isGuardianAccount) return false;
       if (tab.requiresFileBackup && !walletNeedsFileBackup) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      if (tab.requiresMidenName && !isMidenNameSupported()) return false;
       if (tab.requiresPlatformUnlock && !showPasskeySettings) return false;
       return true;
     },
@@ -542,7 +557,16 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         to={isExternal || handleClick ? undefined : `/settings/${tab.slug}`}
         href={isExternal ? tab.slug : undefined}
         onClick={isExternal ? undefined : handleClick}
-        value={tab.slug === 'language' ? languageLabel : undefined}
+        value={
+          tab.slug === 'language' ? (
+            languageLabel
+          ) : tab.slug === 'miden-name' && midenNameOffer.canClaim && midenNameOffer.dismissed ? (
+            // Once the slot at the top is closed, the offer lives on here.
+            <Pill size="sm" tone="neutral" data-testid="miden-name-claim-pill">
+              {t('midenNameClaimAnyTime')}
+            </Pill>
+          ) : undefined
+        }
         chevron
         data-testid={tab.testID}
       />
@@ -571,6 +595,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
 
   const menu = (
     <>
+      {midenNameOffer.canClaim && !midenNameOffer.dismissed && (
+        <MidenNameClaimSlot onDismiss={midenNameOffer.dismiss} />
+      )}
       {tabGroups.map(group => (
         <section key={group.titleI18nKey}>
           {/* h2: the only heading above these is the page title the header

@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Показать всё",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ для получения",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ Получение $symbol$",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Обновление баланса",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Не удалось выполнить балансировку нагрузки.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -3669,10 +3705,6 @@
     "message": "Сеть Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Смена сети",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Провайдер",
     "englishSource": "Provider"
@@ -3696,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "Чтобы",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "через $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Токенов не найдено",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Актив, сеть и провайдер",
@@ -7448,8 +7493,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Сообщайте, какими частями Wallet вы пользуетесь, где возникают затруднения, общие категории ошибок, версию приложения и вашу платформу, чтобы мы могли исправить неисправности. Ни в коем случае не сообщайте свои ключи, фразу восстановления, пароль, адреса, остатки, суммы или содержание транзакций. Мы не отслеживаем ваши действия в других приложениях или на сайтах, не используем данные в рекламных целях и не продаем их, а также не передаем брокерам данных. Отчеты о сбоях отправляются в любом случае: информация об ошибке и месте её возникновения в коде очищается от конфиденциальных данных и не содержит идентификаторов ни вас, ни вашего устройства. Вы можете изменить эти настройки в любое время.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Информация о том, какие экраны вы открываете и как долго каждый из них остается видимым, как вы туда попали, какое окно используете, где у вас возникают затруднения, общие категории ошибок, версия приложения и ваша платформа — всё это позволяет нам исправлять неисправности. Никогда не собираются ваши ключи, фраза восстановления, пароль, адреса, балансы, суммы или содержание транзакций. Мы не отслеживаем ваши действия в других приложениях или на сайтах, не используем данные для рекламы и не продаем их, а также не передаем брокерам данных. Отчеты о сбоях отправляются в любом случае: информация об ошибке и месте её возникновения в коде очищается от конфиденциальных данных и не содержит идентификаторов ни вас, ни вашего устройства. Вы можете изменить эти настройки в любое время.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Поделитесь данными об использовании",
@@ -7468,8 +7513,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Какие части Wallet вы используете, где у вас возникают затруднения, общие категории ошибок, версия приложения и ваша платформа.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Какие экраны вы открываете и как долго каждый из них остается видимым, как вы туда попали, какое окно используете, где застреваете, общие категории ошибок, версию приложения и вашу платформу.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -8156,6 +8201,14 @@
   "activityAcceptingTransfer": {
     "message": "Принятие…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "Заявка в очереди",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Заявка поставлена в очередь. Кошелек повторит попытку автоматически.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "Переводы",
@@ -10574,5 +10627,350 @@
   "commandAiSamplePrompt6": {
     "message": "Сколько USDCx я отправил в этом месяце?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "Фиминия в этой сети недоступна.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Адрес или отчество",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Введите адрес или имя.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Адрес решения: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Название транзакции получения",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "Ищу информацию об этом названии…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Ни один аккаунт не использует это название",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Не удалось найти это имя. Попытайтесь ещё раз.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Отчество",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Зарегистрировать имя",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Получите свой собственный домен $suffix$, который останется вашим навсегда",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Зарегистрировать имя",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Заявите имя, на которое люди могут отправлять",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Скрыть",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Зарегистрируйте имя в любое время",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 символ · только a–z и 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ доступно",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ уже занято",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Введите имя",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Используйте не более 21 символа",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Используйте только буквы a–z и цифры 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Не удалось проверить это имя. Попробуйте ещё раз.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name в настоящее время не принимает новые названия",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Цена изменилась. Проверьте новую цену и попробуйте ещё раз.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Цена · длина $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Сетевая комиссия",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Максимальная комиссия за транзакцию",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Итого",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Перейти к",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Остаток после",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Регистрация является бессрочной. Имя привязывается к данной учетной записи, и стоимость регистрации не возвращается.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Недостаточно MIDEN. Вам нужна «$amount$».",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Получить вознаграждение $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Запрос отправлен",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Название выпущено и опубликовано компанией Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Добавление средств на ваш счёт",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "Кто-то другой первым придумал это название.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Реестр не обработал запрос вовремя.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Реестр не смог обработать запрос.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Ошибка при обработке запроса. Имя не зарегистрировано.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Имя было выпущено, но добавить его в ваш аккаунт не удалось.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Повторить запрос",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Получение токенов «$name$»…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Готово",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Принадлежит",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Получение средств",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Неудача",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Ещё не внесено в реестр",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Сводится к следующему объяснению",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "У вас пока нет отчества",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Выберите другое название",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Основное название",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Ваши имена",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Проверка реестра…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Перенаправляется на другой аккаунт",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Регистрация названия",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Регистрация названия",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Зарегистрировано на сайте $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Получено: $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Просмотреть статус",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Имя",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Реестр",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Регистрация note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Фаза",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

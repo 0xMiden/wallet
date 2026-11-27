@@ -34,14 +34,15 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { isDustBalance } from 'lib/miden/front/dust';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { useOwnedMidenName } from 'lib/miden/name/registrations';
+import { marketLookupPending, priceSymbolFor, quoteMayArrive, tokenQuote } from 'lib/miden/swap/tokens';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
-import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { selectDisplayQuotes, useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
@@ -259,9 +260,22 @@ const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => 
   );
   const hiddenTokens = sorted.filter(token => isHidden(token.tokenId));
 
-  const totalPriceSymbols = allTokenBalances
-    .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-    .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
+  const totalTokens = allTokenBalances.filter(
+    token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata)
+  );
+  const totalPriceSymbols = totalTokens.map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
+  // Only a held token whose quote may still arrive holds the total for the feed: one no source can price (MICO on
+  // mainnet), a fixed rate, or one already valued holds it back for nothing.
+  const awaitingQuote = totalTokens.some(
+    token =>
+      !tokenQuote(displayQuotes, token.tokenId, token.metadata.symbol) &&
+      quoteMayArrive(token.tokenId, token.metadata.symbol)
+  );
+  const marketLookupHolding = totalTokens.some(
+    token =>
+      !tokenQuote(displayQuotes, token.tokenId, token.metadata.symbol) &&
+      marketLookupPending(token.tokenId, token.metadata.symbol)
+  );
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -374,6 +388,8 @@ const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => 
             sortedTokens={sortedTokens}
             hiddenTokens={hiddenTokens}
             totalPriceSymbols={totalPriceSymbols}
+            awaitingQuote={awaitingQuote}
+            marketLookupHolding={marketLookupHolding}
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
@@ -401,6 +417,8 @@ interface HomeOverviewProps {
   sortedTokens: TokenBalanceData[];
   hiddenTokens: TokenBalanceData[];
   totalPriceSymbols: readonly (string | undefined)[];
+  awaitingQuote: boolean;
+  marketLookupHolding: boolean;
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
@@ -418,6 +436,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   sortedTokens,
   hiddenTokens,
   totalPriceSymbols,
+  awaitingQuote,
+  marketLookupHolding,
   onUnhide,
   account,
   balancesLoading,
@@ -428,11 +448,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
+  // Undefined on a network with no Miden Name deployment.
+  const ownedMidenName = useOwnedMidenName(address);
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
   const numberSymbols = getNumberSymbols();
-  const livePricesReady = pricesLoaded(tokenPrices, totalPriceSymbols);
+  const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
+  const livePricesReady = !marketLookupHolding && (!awaitingQuote || pricesStatus === 'ready');
   const usesCachedTotal = totalPriceSymbols.some(
     symbol => symbol !== undefined && displayQuotes[symbol] !== tokenPrices[symbol]
   );
@@ -445,11 +468,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
     : null;
   const now = Date.now();
   const totalReady = usesCachedTotal
-    ? !balancesLoading &&
-      hiddenReady &&
-      snapshot?.capturedAt !== undefined &&
-      snapshot.capturedAt <= now &&
-      now - snapshot.capturedAt <= 15 * 60_000
+    ? !balancesLoading && hiddenReady && snapshot?.capturedAt !== undefined && snapshot.capturedAt <= now
     : livePricesReady;
   return (
     <>
@@ -459,6 +478,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
+            accountAlias={ownedMidenName ? formatMidenName(ownedMidenName) : undefined}
             // The dash when there is no total to show: the live feed has not loaded and a cached
             // total is not ready (balances still loading, hidden tokens unread, or the rows are
             // not this account's snapshot), or tokens are held and none can be valued (Balance

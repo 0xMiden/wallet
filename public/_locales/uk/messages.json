@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "Переглянути все",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ для отримання",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ вилучення",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Оновлення балансу",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Не вдалося виконати балансування навантаження.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -3669,10 +3705,6 @@
     "message": "Мережа Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Зміна мережі",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Провайдер",
     "englishSource": "Provider"
@@ -3696,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "До",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "через $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Токени не знайдено",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Актив, мережа та провайдер",
@@ -7446,8 +7491,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Повідомляйте, якими частинами гаманця ви користуєтеся, де виникають проблеми, загальні категорії помилок, версію додатка та вашу платформу, щоб ми могли виправити те, що не працює. Ніколи не повідомляйте свої ключі, фразу відновлення, пароль, адреси, залишки, суми або зміст транзакцій. Ми не відстежуємо ваші дії в інших додатках чи на сайтах, не використовуємо дані для реклами та не продаємо їх і не передаємо брокерам даних. Звіти про збій надсилаються в будь-якому разі: інформація про помилку та місце її виникнення в коді очищується для видалення конфіденційних даних, без ідентифікаторів вас чи вашого пристрою. Ви можете змінити це в будь-який час.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Інформація про те, які екрани ви відкриваєте і як довго кожен з них залишається видимим, як ви туди потрапили, яке вікно використовуєте, де виникають затримки, загальні категорії помилок, версія додатка та ваша платформа — все це дозволяє нам виправити те, що не працює. Ніколи — ваші ключі, фраза відновлення, пароль, адреси, залишки на рахунках, суми або зміст транзакцій. Ми не відстежуємо ваші дії в інших додатках чи на сайтах, не використовуємо дані для реклами та не продаємо чи не передаємо їх брокерам даних. Звіти про збій надсилаються в будь-якому разі: інформація про помилку та місце її виникнення в коді, очищена від конфіденційних даних, без ідентифікаторів вас чи вашого пристрою. Ви можете змінити ці налаштування в будь-який час.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Поділіться даними про використання",
@@ -7466,8 +7511,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Які функції гаманця ви використовуєте, де виникають труднощі, загальні категорії помилок, версія додатка та ваша платформа.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Які екрани ви відкриваєте і як довго кожен з них залишається видимим, як ви туди потрапили, яке вікно використовуєте, де у вас виникають труднощі, загальні категорії помилок, версія додатка та ваша платформа.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -8154,6 +8199,14 @@
   "activityAcceptingTransfer": {
     "message": "Прийняття…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "Заявка в черзі",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Запит поставлено в чергу. Гаманець автоматично спробує виконати його знову.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "Перекази",
@@ -10572,5 +10625,350 @@
   "commandAiSamplePrompt6": {
     "message": "Скільки USDCx я надіслав цього місяця?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "Посереднє ім’я у цій мережі недоступне.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Адреса або середнє ім’я",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Введіть адресу або ім’я.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Адреса, що вирішила проблему: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Назва транзакції отримання",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "Шукаю цю назву…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Жоден обліковий запис не використовує цю назву",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Не вдалося знайти це ім’я. Спробуйте ще раз.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Ім’я",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Зареєструвати ім’я",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Отримайте власне ім’я у домені $suffix$, яке належатиме вам назавжди",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Зареєструвати ім’я",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Зареєструйте ім’я, на яке люди можуть надсилати",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Сховати",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Зареєструйте ім’я в будь-який час",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 символ · лише a–z та 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ доступно",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ вже зайнято",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Введіть ім’я",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Використовуйте не більше 21 символу",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Використовуйте лише літери a–z та цифри 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Не вдалося перевірити цю назву. Спробуйте ще раз.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name наразі не приймає нових назв",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Ціна змінилася. Перевірте нову ціну та спробуйте ще раз.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Ціна · довжина $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Мережева комісія",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Максимальна комісія за транзакцію",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Разом",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Переходить до",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Залишок після",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Реєстрація є безстроковою. Ім’я прив’язується до цього облікового запису, а вартість не повертається.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN — замало. Потрібні «$amount$».",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Отримати виплату $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Запит надіслано",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Назва видана та опублікована компанією Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Додавання до вашого рахунку",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "Цю назву першим придумав хтось інший.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Реєстр не встиг вчасно обробити запит.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Реєстр не зміг обробити запит.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Транзакція запиту завершилася невдало. Ім’я не зареєстровано.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Ім’я було зареєстровано, але додати його до вашого облікового запису не вдалося.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Повторити запит",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Отримання $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Готово",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Належить",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Отримання",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Не вдалося",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Ще не внесено до реєстру",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Відноситься до цього рахунку",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "У вас ще немає імені Miden",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Виберіть іншу назву",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Основна назва",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Ваші імена",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Перевірка реєстру…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Перенаправлення на інший рахунок",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Реєстрація імені",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Реєстрація імені",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Зареєстровано на $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Отримано $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Переглянути стан",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Ім’я",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Реєстр",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Реєстрація note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Етап",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

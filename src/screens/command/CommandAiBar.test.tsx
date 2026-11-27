@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { generateMnemonic } from '@miden/hd-key';
+import type { BridgeRoute } from 'lib/bridge/core/routes';
 import { CommandAiClientError, compileCommandPrompt } from 'lib/command-ai/client';
 import { containsCommandSecret } from 'lib/command-ai/help';
 import { executeLocalLedgerQuery } from 'lib/command-ai/local-query';
@@ -51,30 +52,33 @@ jest.mock('lib/command-ai/local-query', () => {
   };
 });
 
+let mockBridgeRoutes: Pick<BridgeRoute, 'id' | 'provider' | 'mode' | 'source' | 'destination'>[] | undefined;
+
 jest.mock('lib/bridge/catalog', () => ({
-  deriveBridgeRoutes: () => [
-    {
-      id: 'testnet:epoch:usdc:faucet-usdcx:receive',
-      provider: 'epoch',
-      mode: 'receive',
-      source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
-      destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
-    },
-    {
-      id: 'testnet:agglayer:usdc:faucet-usdcx:receive',
-      provider: 'agglayer',
-      mode: 'receive',
-      source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
-      destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
-    },
-    {
-      id: 'testnet:xreserve:usdc:faucet-usdcx:receive',
-      provider: 'xreserve',
-      mode: 'receive',
-      source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
-      destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
-    }
-  ]
+  deriveBridgeRoutes: () =>
+    mockBridgeRoutes ?? [
+      {
+        id: 'testnet:epoch:usdc:faucet-usdcx:receive',
+        provider: 'epoch',
+        mode: 'receive',
+        source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
+        destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
+      },
+      {
+        id: 'testnet:agglayer:usdc:faucet-usdcx:receive',
+        provider: 'agglayer',
+        mode: 'receive',
+        source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
+        destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
+      },
+      {
+        id: 'testnet:xreserve:usdc:faucet-usdcx:receive',
+        provider: 'xreserve',
+        mode: 'receive',
+        source: { kind: 'erc20', network: 'sepolia', symbol: 'USDC', decimals: 6, address: '0x1' },
+        destination: { kind: 'miden', network: 'miden-testnet', symbol: 'USDCx', decimals: 6, faucetId: 'faucet-usdcx' }
+      }
+    ]
 }));
 
 let mockEarnVaultCatalog: unknown[] | null = null;
@@ -100,9 +104,34 @@ jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="t
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: () => [true, jest.fn()]
 }));
+// Rows the figure shows from an older proof: no action may resolve an amount from them.
+const mockFigureRows: TokenBalanceData[] = [
+  {
+    tokenId: 'figure-only',
+    tokenSlug: 'FIG',
+    metadata: { symbol: 'FIG', name: 'Figure', decimals: 6 },
+    balance: 1,
+    balanceBaseUnits: '1000000',
+    fiatPrice: 0,
+    change24h: 0
+  }
+];
+let mockPortfolioAssets: unknown[] = [];
+const mockWalletDataBalances: unknown[] = [];
+jest.mock('./command-ai-context', () => {
+  const actual = jest.requireActual<typeof import('./command-ai-context')>('./command-ai-context');
+  return {
+    ...actual,
+    useCommandAiWalletData: (...args: Parameters<typeof actual.useCommandAiWalletData>) => {
+      mockWalletDataBalances.push(args[1]);
+      return actual.useCommandAiWalletData(...args);
+    }
+  };
+});
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
-    assets: [],
+    assets: mockPortfolioAssets,
+    actionBalances: [],
     allocation: [],
     tokenPrices: {},
     value: '0',
@@ -154,7 +183,10 @@ jest.mock('utils/miden', () => {
 });
 
 beforeEach(() => {
+  mockPortfolioAssets = [];
+  mockWalletDataBalances.length = 0;
   jest.clearAllMocks();
+  mockBridgeRoutes = undefined;
   mockEarnVaultCatalog = null;
   mockMidenUsdcFaucetId = null;
   const account: WalletAccount = {
@@ -809,8 +841,12 @@ describe('CommandAiBar', () => {
   it('morphs cleanly between 1-line input and multi-line composer', () => {
     renderBar();
     expect(screen.getByTestId('command-ai-input').tagName).toBe('INPUT');
+    // The chevron files set fill="none" on their root: without a fill here the toggle draws nothing.
+    const chevron = () => screen.getByTestId('command-ai-morph-toggle').querySelector('svg');
+    expect(chevron()).toHaveAttribute('fill', 'currentColor');
     fireEvent.click(screen.getByTestId('command-ai-morph-toggle'));
     expect(screen.getByTestId('command-ai-input').tagName).toBe('TEXTAREA');
+    expect(chevron()).toHaveAttribute('fill', 'currentColor');
     fireEvent.click(screen.getByTestId('command-ai-morph-toggle'));
     expect(screen.getByTestId('command-ai-input').tagName).toBe('INPUT');
   });
@@ -875,7 +911,7 @@ describe('CommandAiBar', () => {
     expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('command-ai-chip-testnet:epoch:usdc:faucet-usdcx:receive')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('command-ai-chip-testnet:agglayer:usdc:faucet-usdcx:receive'));
+    fireEvent.click(screen.getByRole('button', { name: 'USDC → USDCx · agglayer (sepolia → miden-testnet)' }));
     expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
     expect(readDraft()('bridge')).toMatchObject({
@@ -884,6 +920,66 @@ describe('CommandAiBar', () => {
       amount: '500',
       autoReview: true
     });
+  });
+
+  it.each(['receive', 'send'] as const)('disambiguates duplicate bridge route labels in %s mode', async mode => {
+    const provider = mode === 'receive' ? 'agglayer' : 'epoch';
+    const first = '0xaaaaa' + '1'.repeat(31) + 'bbbb';
+    const second = '0xaaaaa' + '2'.repeat(31) + 'bbbb';
+    const distinct = '0xccccc' + '0'.repeat(31) + 'dddd';
+    const miden = {
+      kind: 'miden',
+      network: 'miden-testnet',
+      symbol: 'ETH',
+      decimals: 18,
+      faucetId: 'faucet-eth'
+    } as const;
+    const routeId = (address?: string) => `testnet:${provider}:${address ?? 'native'}:faucet-eth:${mode}`;
+    mockBridgeRoutes = [undefined, first, second, distinct].map(address => {
+      const evm = {
+        ...(address ? ({ kind: 'erc20', address } as const) : ({ kind: 'native' } as const)),
+        network: 'sepolia',
+        symbol: 'ETH',
+        decimals: 18
+      };
+      return {
+        id: routeId(address),
+        provider,
+        mode,
+        source: mode === 'receive' ? evm : miden,
+        destination: mode === 'receive' ? miden : evm
+      };
+    });
+    const toChain = mode === 'receive' ? 'miden' : 'sepolia';
+    jest.mocked(compileCommandPrompt).mockResolvedValue({
+      op: 'set_intent',
+      action: 'bridge',
+      amount: { kind: 'exact_ref', ref: 'AMT_1' },
+      asset: 'ETH',
+      to_asset: null,
+      from_chain: null,
+      to_chain: toChain,
+      recipient_ref: null,
+      provider: null,
+      note_type: null,
+      earn_op: null
+    });
+    const { readDraft } = renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    fireEvent.change(input, { target: { value: `bridge 500 eth to ${toChain}` } });
+    fireEvent.submit(input.closest('form')!);
+
+    const chips = within(await screen.findByTestId('command-ai-clarification'));
+    const direction = mode === 'receive' ? 'sepolia → miden-testnet' : 'miden-testnet → sepolia';
+    const label = `ETH → ETH · ${provider} (${direction})`;
+    const firstChip = chips.getByRole('button', { name: `${label} ${first}` });
+    expect(chips.getByRole('button', { name: `${label} ${second}` })).toBeInTheDocument();
+    expect(chips.getByRole('button', { name: `${label} 0xccccc…dddd` })).toBeInTheDocument();
+    expect(chips.getByRole('button', { name: label })).toBeInTheDocument();
+
+    fireEvent.click(firstChip);
+    expect(readDraft()('bridge')).toMatchObject({ route: routeId(first) });
+    expect(compileCommandPrompt).toHaveBeenCalledTimes(1);
   });
 
   it('shows contact prefix disambiguation for 0x02323 without padding hex', async () => {
@@ -1024,6 +1120,7 @@ describe('CommandAiBar', () => {
   });
 
   it('shows multi-step plan card with animated Bread mascot, steps through Bridge -> Swap, and supports Stop', async () => {
+    mockPortfolioAssets = mockFigureRows;
     _setSwapTokensForTest([
       { symbol: 'USDCx', faucetId: 'faucet-usdcx', decimals: 6 },
       { symbol: 'MIDEN', faucetId: 'faucet-miden', decimals: 6 }
@@ -1084,6 +1181,9 @@ describe('CommandAiBar', () => {
           </CommandAiPlanProvider>
         </CommandDraftProvider>
       );
+      // The banner resolves the next step from current-proof balances, never the figure's older rows.
+      expect(screen.getByTestId('command-ai-plan-banner')).toBeInTheDocument();
+      expect(mockWalletDataBalances).not.toContain(mockFigureRows);
 
       // Advance to Step 2 -> opens Swap prefilled with carried amount 50.
       fireEvent.click(screen.getByTestId('command-ai-plan-banner-next'));

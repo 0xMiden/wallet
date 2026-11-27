@@ -3,9 +3,37 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
+- [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
+- [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.
+- [CHANGE][all] Answer an assistant clarification that has a single option with that option instead of asking, except for the recipient, where choosing it stays your click.
+- [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.
+- [FEATURE][all] When you share usage data, also report which screen you are on and how long it is visible (overview, send, receive, funding, swap, earn, explore, activity, me), with how you got there and whether it ran in the popup, side panel, full page or app, never a page address, account, contact, amount or anything typed, and describe it in the consent text and privacy policy (#1969, first slice).
+- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
+- [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, keeps every claim note represented in token history, and lists the latest five activity rows with a See all link to Activity.
+- [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
+- [FIX][extension] Show the expand arrow on the Bread Command bar.
+- [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
+- [FIX][all] Clarify what Bread Command shares when answering a help question.
+- [FIX][all] Show when Claim All is waiting for an automatic retry.
+- [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
+- [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
+- [FIX][all] Give Bread Command clearer guidance for questions about sharing recovery phrases.
+- [FIX][all] Make Bread Command name the public sender account and the wallet’s Public and Private payment choices.
+- [FIX][ci] Update the mainnet nightly test for the larger default runner.
+- [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
+- [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
+- [FIX][all] Show failed Activity claims and when they can be retried.
+- [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
+- [FIX][ci] Align the cached solver registry test with the token list readiness field.
 
 ## 1.18.2 (TBD)
 
+- [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
 - [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
 - [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
 - [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.

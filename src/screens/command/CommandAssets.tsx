@@ -14,7 +14,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
-import { useWalletStore } from 'lib/store';
+import { DISPLAY_QUOTE_MAX_AGE_MS } from 'lib/prices/display-feed';
 
 export function CommandAssets({
   assets,
@@ -29,7 +29,6 @@ export function CommandAssets({
 }): React.ReactElement {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const pricesReady = useWalletStore(state => state.tokenPricesStatus === 'ready');
   const search = query.trim().toLowerCase();
   const matchingAssets =
     current && search
@@ -76,8 +75,8 @@ export function CommandAssets({
                 ? BigInt(baseUnits)
                 : undefined;
             const now = Date.now();
+            // The headline's rule: a fixed rate, or a live or remembered quote within the display window.
             const available =
-              pricesReady &&
               known &&
               quote &&
               quote.kind !== 'nominal' &&
@@ -85,7 +84,7 @@ export function CommandAssets({
               quote.price > 0 &&
               Number.isFinite(asset.balance) &&
               (quote.kind === 'fixed' ||
-                (quote.observedAt && quote.observedAt <= now && now - quote.observedAt <= 15 * 60_000));
+                (quote.observedAt && quote.observedAt <= now && now - quote.observedAt <= DISPLAY_QUOTE_MAX_AGE_MS));
             return (
               <ListRow
                 key={asset.tokenId}
