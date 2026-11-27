@@ -36,12 +36,15 @@ export function useCommandAiWalletData(
     return list;
   }, [settingsContacts, accounts]);
 
+  // Placeholders cover every stored row: `assets` leaves out hidden tokens and is empty when the
+  // balance proof is old, and a typed symbol is replaced in both cases.
+  const storedRows = useWalletStore(state => state.balances[scope.accountId]);
   const heldNicheTickers = useMemo(
     () =>
-      assets
+      [...assets, ...(storedRows ?? [])]
         .filter(a => a.metadata.symbol && !DEFAULT_LIQUID_TICKERS.has(a.metadata.symbol.trim().toUpperCase()))
         .map(a => ({ symbol: a.metadata.symbol, tokenId: a.tokenId })),
-    [assets]
+    [assets, storedRows]
   );
 
   const getWalletContext = useCallback(
