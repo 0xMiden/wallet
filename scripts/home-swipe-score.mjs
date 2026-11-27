@@ -321,3 +321,14 @@ export function judge(baseline, candidate) {
     reason: `within noise (${baseline.medianFeel} -> ${candidate.medianFeel})`
   };
 }
+
+/** Home tab taps, in order. */
+export const TAP_PATH = ['/', '/send', '/receive', '/earn', '/swap', '/'];
+
+export function analyzeTap() {
+  return { tapFeel: 1000, landed: false, firstFrameMs: 700, settleMs: 700, droppedFrames: 0, worstFrameMs: 0, stallFrames: 0, reversals: 0, blockExcessMs: 0, slowInputMaxMs: 0, bothVisibleFrames: 0 };
+}
+
+export function summarizeTaps(taps) {
+  return { taps: taps.length, landed: 0, medianTapFeel: 0, medianFirstFrameMs: 0, medianSettleMs: 0, droppedFrames: 0, reversals: 0, stallFrames: 0, bothVisibleFrames: 0 };
+}

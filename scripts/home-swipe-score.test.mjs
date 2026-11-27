@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-import { analyzeSwipe, frameHealth, homePath, judge, summarize } from './home-swipe-score.mjs';
+import { analyzeSwipe, analyzeTap, frameHealth, homePath, judge, summarize, summarizeTaps, TAP_PATH } from './home-swipe-score.mjs';
 
 function framesOf(count, step = 16) {
   return Array.from({ length: count }, (_, i) => i * step);
@@ -248,4 +248,145 @@ test('legacy framer pager position is the track translateX', () => {
 
   assert.equal(view.ctx.__PERF__.xs[0], -80, 'legacy framer pager position is the track translateX');
   assert.equal(view.ctx.__PERF__.trackFound, true);
+});
+
+const W = 600;
+const tapFrames = (step = 1000 / 120) => {
+  const frames = [];
+  for (let t = -50; t <= 900; t += step) frames.push(Math.round(t * 100) / 100);
+  return frames;
+};
+const easeOut = x => 1 - (1 - x) ** 3;
+const clamp01 = x => Math.min(1, Math.max(0, x));
+
+function slideTap(durationMs = 380) {
+  const frames = tapFrames();
+  const e = t => easeOut(clamp01(t / durationMs));
+  return {
+    frames,
+    leave: frames.map(t => ({ left: -W * e(t), width: W, opacity: 1 })),
+    enter: frames.map(t => ({ left: W - W * e(t), width: W, opacity: 1 })),
+    tabLeft: 0,
+    tabWidth: W,
+    t0: 0,
+    landed: true
+  };
+}
+
+function fadeTap() {
+  const frames = tapFrames();
+  return {
+    frames,
+    leave: frames.map(t => ({ left: 0, width: W, opacity: 1 - clamp01(t / 90) })),
+    enter: frames.map(t => {
+      const k = easeOut(clamp01((t - 90) / 170));
+      return { left: 12 * (1 - k), width: W, opacity: k };
+    }),
+    tabLeft: 0,
+    tabWidth: W,
+    t0: 0,
+    landed: true
+  };
+}
+
+test('a tab slide lands, scores low and shows both panes while it moves', () => {
+  const result = analyzeTap(slideTap());
+  assert.equal(result.landed, true);
+  assert.equal(result.reversals, 0);
+  assert.equal(result.stallFrames, 0);
+  assert.ok(result.tapFeel < 20, `feel ${result.tapFeel}`);
+  assert.ok(result.firstFrameMs > 0 && result.firstFrameMs < 17, `first ${result.firstFrameMs}`);
+  assert.ok(result.settleMs > 250 && result.settleMs <= 380, `settle ${result.settleMs}`);
+  assert.ok(result.bothVisibleFrames > 20, `both ${result.bothVisibleFrames}`);
+});
+
+test('a fade-through is monotonic, never stalls and never shows both panes', () => {
+  const result = analyzeTap(fadeTap());
+  assert.equal(result.landed, true);
+  assert.equal(result.reversals, 0);
+  assert.equal(result.stallFrames, 0);
+  assert.equal(result.bothVisibleFrames, 0);
+  assert.ok(result.settleMs > 200 && result.settleMs <= 260, `settle ${result.settleMs}`);
+  assert.ok(result.firstFrameMs < 17, `first ${result.firstFrameMs}`);
+});
+
+test('an instant swap has no stall and its first frame is its settle', () => {
+  const frames = tapFrames();
+  const at = t => (t >= 16 ? 1 : 0);
+  const result = analyzeTap({
+    frames,
+    leave: frames.map(t => ({ left: 0, width: W, opacity: 1 - at(t) })),
+    enter: frames.map(t => ({ left: 0, width: W, opacity: at(t) })),
+    tabLeft: 0,
+    tabWidth: W,
+    t0: 0,
+    landed: true
+  });
+  assert.equal(result.stallFrames, 0);
+  assert.equal(result.firstFrameMs, result.settleMs);
+  assert.equal(result.bothVisibleFrames, 0);
+});
+
+test('a mid-flight freeze is a stall', () => {
+  const sample = slideTap();
+  const frozen = sample.frames.findIndex(t => t >= 100);
+  for (let i = frozen; i < frozen + 6; i++) {
+    sample.leave[i] = sample.leave[frozen - 1];
+    sample.enter[i] = sample.enter[frozen - 1];
+  }
+  const result = analyzeTap(sample);
+  assert.ok(result.stallFrames >= 6, `stalls ${result.stallFrames}`);
+  assert.ok(result.tapFeel >= 90, `feel ${result.tapFeel}`);
+});
+
+test('overshoot after 0.9 is not a reversal, a jump back before it is', () => {
+  const frames = tapFrames();
+  const overshoot = t => {
+    const x = clamp01(t / 260);
+    return x < 0.8 ? (x / 0.8) * 1.04 : 1.04 - ((x - 0.8) / 0.2) * 0.04;
+  };
+  const make = shape => ({
+    frames,
+    leave: frames.map(() => ({ left: 0, width: W, opacity: 0 })),
+    enter: frames.map(t => ({ left: 0, width: W, opacity: shape(t) })),
+    tabLeft: 0,
+    tabWidth: W,
+    t0: 0,
+    landed: true
+  });
+  assert.equal(analyzeTap(make(overshoot)).reversals, 0);
+  const jumpBack = t => {
+    const x = clamp01(t / 260);
+    return x > 0.4 && x < 0.5 ? 0.2 : x;
+  };
+  assert.ok(analyzeTap(make(jumpBack)).reversals >= 1);
+});
+
+test('a tap that did not land scores as a miss ahead of smoothness', () => {
+  const result = analyzeTap({ ...fadeTap(), landed: false });
+  assert.equal(result.landed, false);
+  assert.ok(result.tapFeel >= 1000);
+  assert.equal(analyzeTap({ frames: [0, 1] }).landed, false);
+});
+
+test('dropped frames count only inside the fixed window after the tap', () => {
+  const sample = fadeTap();
+  const frames = [...sample.frames];
+  const late = frames.findIndex(t => t >= 750);
+  for (let i = late; i < frames.length; i++) frames[i] += 40;
+  const early = frames.findIndex(t => t >= 120);
+  for (let i = early; i < frames.length; i++) frames[i] += 40;
+  const result = analyzeTap({ ...sample, frames });
+  assert.equal(result.droppedFrames, 1);
+  assert.ok(result.worstFrameMs > 40);
+});
+
+test('summarizeTaps totals the counts and takes medians', () => {
+  const taps = [analyzeTap(slideTap()), analyzeTap(fadeTap()), analyzeTap(fadeTap())];
+  const summary = summarizeTaps(taps);
+  assert.equal(summary.taps, 3);
+  assert.equal(summary.landed, 3);
+  assert.equal(summary.bothVisibleFrames, taps[0].bothVisibleFrames);
+  assert.equal(summary.medianSettleMs, taps[1].settleMs);
+  assert.deepEqual(TAP_PATH, ['/', '/send', '/receive', '/earn', '/swap', '/']);
 });

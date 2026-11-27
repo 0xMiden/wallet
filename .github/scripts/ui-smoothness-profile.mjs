@@ -20,6 +20,11 @@
  * home carousel in `scripts/home-swipe-score.mjs` (`HOME_PATHS`); the two have
  * to stay the same length, because this file is what decides how many samples
  * a run must contain and the bench is what produces them.
+ *
+ * The tab taps are scored apart from the swipe. A pass taps `tapPath` from its
+ * first name on, so it is one tap fewer than the names, and the last tap is the
+ * four-page jump back. The list is `TAP_PATH` in `scripts/home-swipe-score.mjs`.
+ * The tap floors are not calibrated yet.
  */
 export const DEFAULT_PROFILE = Object.freeze({
   /** Same-build feel medians on ubuntu-latest differed by up to 41%. */
@@ -35,10 +40,24 @@ export const DEFAULT_PROFILE = Object.freeze({
   inpGoodMs: 200,
   inpPoorMs: 500,
   /** Scrolls of the settings list. Each scroll reports dropped-frame percent and p95 frame time. */
-  listRuns: 3
+  listRuns: 3,
+  tapPasses: 6,
+  tapPath: Object.freeze(['Overview', 'Send', 'Receive', 'Earn', 'Swap', 'Overview']),
+  /** Trusted taps between the Overview and Send tabs, at 1x. The reported number is the slowest. */
+  tabInpTaps: 6,
+  tapFeelThresholdPct: 50,
+  tapFirstFrameThresholdPct: 50,
+  tapSettleThresholdPct: 50,
+  tapDroppedThresholdPct: 50,
+  tabInpThresholdPct: 50
 });
 
 /** Feel samples a judged run contains. A shorter run is refused. */
 export function sampleCount(profile = DEFAULT_PROFILE) {
   return profile.passes * (profile.pageNames.length - 1);
+}
+
+/** Tab-tap samples a judged run contains. A shorter run is refused. */
+export function tapSampleCount(profile = DEFAULT_PROFILE) {
+  return profile.tapPasses * (profile.tapPath.length - 1);
 }
