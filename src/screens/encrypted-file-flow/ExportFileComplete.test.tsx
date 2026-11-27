@@ -96,8 +96,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 }));
 
 const mockIsMobile = jest.fn();
+const mockIsExtension = jest.fn();
 
 jest.mock('lib/platform', () => ({
+  isExtension: () => mockIsExtension(),
   isMobile: () => mockIsMobile()
 }));
 
@@ -176,6 +178,7 @@ describe('ExportFileComplete', () => {
     mockExportDb.mockResolvedValue('WALLET_DB_DUMP');
     mockMidenClientExportDb.mockResolvedValue('MIDEN_DB_DUMP');
     mockGetMidenClient.mockResolvedValue({ exportDb: mockMidenClientExportDb });
+    mockIsExtension.mockReturnValue(true);
     mockIsMobile.mockReturnValue(false);
     mockWriteFile.mockResolvedValue({ uri: 'file:///cache/my-wallet.json' });
     mockShare.mockResolvedValue(undefined);
@@ -735,6 +738,24 @@ describe('ExportFileComplete', () => {
         consoleErrorSpy.mockRestore();
       }
     });
+
+    it.each([false, true])('keeps the stage out of non-extension export warnings on mobile=%s', async mobile => {
+      mockIsExtension.mockReturnValue(false);
+      mockIsMobile.mockReturnValue(mobile);
+      mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error('synthetic export failure details'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await act(async () => {
+          renderComponent();
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileExportFailedDesc');
+        dwellForError();
+        expectDisplayReport('encryptedWalletFileExportFailedDesc', 'inline');
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
     it('does not report pending export progress', async () => {
       mockExportWalletBackupMaterial.mockReturnValue(new Promise(() => {}));
       await act(async () => {

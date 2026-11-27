@@ -67,6 +67,7 @@ import {
   PENDING_RETRY_REASONS,
   RECIPIENT_VALIDATION_STAGES,
   TOKEN_SCALE_PRODUCERS,
+  BACKUP_EXPORT_FAILURE_STAGES,
   BACKUP_NETWORK_FAILURE_STAGES,
   GUARDIAN_OUTAGE_REASONS
 } from './ui-producer-diagnostics';
@@ -210,6 +211,7 @@ it.each([
   ['pendingRetryReason', PENDING_RETRY_REASONS],
   ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
   ['tokenScaleProducer', TOKEN_SCALE_PRODUCERS],
+  ['backupExportFailureStage', BACKUP_EXPORT_FAILURE_STAGES],
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES],
   ['guardianOutageReason', GUARDIAN_OUTAGE_REASONS]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {
