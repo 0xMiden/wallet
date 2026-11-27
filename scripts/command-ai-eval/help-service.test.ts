@@ -676,37 +676,39 @@ describe('written answers', () => {
 });
 
 describe('take-back questions', () => {
-  const routerCalls = (fetchMock: ReturnType<typeof setup>['fetchMock']) =>
-    fetchMock.mock.calls.filter(call => String((call[1] as RequestInit).body).includes('bread_command_intent'));
   const sendAll = { result: { op: 'set_intent', action: 'send', amount: { kind: 'max' }, recipient_ref: 'CONTACT_1' } };
 
-  it.each(['I want my money back from <CONTACT_1>', 'cancel my last payment'])(
-    'serves the take-back card without asking the router: %s',
-    async redactedText => {
-      const { fetchMock, traces, service } = setup(sendAll);
-      const { status, body } = await compile(service, { redactedText, helpContext: null });
-      expect(status).toBe(200);
-      expect(routerCalls(fetchMock)).toHaveLength(0);
-      expect((body.output as { op: string }).op).toBe('explain');
-      expect(traces[0]?.picked).toEqual(['cancel_take_back']);
-    }
-  );
+  it.each([
+    ['I want my money back from <CONTACT_1>', sendAll],
+    ['cancel my last payment', { result: { op: 'cancel' } }],
+    ['cancel my last payment', { op: 'cancel' }]
+  ])('replaces the router action with the take-back card: %s', async (redactedText, routed) => {
+    const { fetchMock, traces, service } = setup(routed);
+    const { status, body } = await compile(service, { redactedText, helpContext: null });
+    expect(status).toBe(200);
+    expect(JSON.parse(upstream(fetchMock)).response_format.json_schema.name).toBe('bread_command_intent');
+    expect((body.output as { op: string }).op).toBe('explain');
+    expect(traces[0]?.picked).toEqual(['cancel_take_back']);
+  });
 
-  it('still sends a send command to the router', async () => {
-    const { fetchMock, service } = setup(sendAll);
+  it("keeps the router's own help pick", async () => {
+    const { traces, service } = setup({ result: { op: 'help', cards: ['wrong_address'] } });
+    await compile(service, { redactedText: 'i sent to the wrong address, reverse it', helpContext: null });
+    expect(traces[0]?.picked).toEqual(['wrong_address']);
+  });
+
+  it('keeps a send command', async () => {
+    const { service } = setup(sendAll);
     const { body } = await compile(service, { redactedText: 'send <AMT_1> back to <CONTACT_1>', helpContext: null });
-    expect(routerCalls(fetchMock)).toHaveLength(1);
     expect(body.output).toEqual(sendAll);
   });
 
-  it('leaves requests without help or with a snapshot to the router', async () => {
-    for (const extra of [
-      {},
-      { snapshot: { missingSlot: 'note_type', allowedOptionIds: ['private', 'public'], draft: { action: 'send' } } }
-    ]) {
-      const { fetchMock, service } = setup({ result: { op: 'cancel' } });
-      await compile(service, { redactedText: 'cancel my last payment', ...extra });
-      expect(routerCalls(fetchMock)).toHaveLength(1);
+  it('keeps the router answer without help or with a snapshot', async () => {
+    const snapshot = { missingSlot: 'note_type', allowedOptionIds: ['private', 'public'], draft: { action: 'send' } };
+    for (const extra of [{}, { snapshot }]) {
+      const { service } = setup({ result: { op: 'cancel' } });
+      const { body } = await compile(service, { redactedText: 'cancel my last payment', ...extra });
+      expect(body.output).toEqual({ result: { op: 'cancel' } });
     }
   });
 });

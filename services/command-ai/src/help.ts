@@ -32,21 +32,22 @@ export interface HelpDataset {
 
 export const HELP_RULES = `Help:
 - For a question about Bread, Miden or a feature, a problem report, or anything about safety or lost
-  access, return help with up to 2 card ids, best first. If no card answers it, use not_covered, not
-  unsupported. For an error or money problem that no card matches, use cannot_diagnose.
-- How to do something is help; asking to do it is an action; what the user already did is a ledger
-  query. For mixed help and action, return help only. Showing or getting your own address or QR code
-  is set_intent receive. A how-to question is help even when it names a token, chain or amount.
+  access, return help with up to 2 card ids, best first. If no card answers it, use not_covered. For
+  an error or money problem with no card, use cannot_diagnose.
+- How to do something is help; asking to do it is an action. How much you spent, received or hold,
+  or past payments, is query_ledger. For mixed help and action, return help only. Showing or
+  getting your own address or QR code is set_intent receive. A "how do I" question is help even when
+  it names a token, chain or amount.
 - A card must state the fact asked, not just share its subject; else not_covered.
 - In help, a question never gets unsupported, trivia and phrase export included. unsupported is only
-  for asking Bread to do something it cannot do.
+  for asking Bread to do what it cannot.
 - <AMT_n> hides any number, including a word count, days or a time.
 - "cancel" or "never mind" is cancel. "cancel my last payment" and getting back a sent payment are help.
 - A short reply that could answer a pending question (a name, address, amount, "public", "private",
   "the first one", a network or provider) is not help. A bare amount or provider choice can use
   patch_slots.
 - previousHelpTopic only resolves follow-up references.
-- When several apply, order them: a secret asked for or exposed, a destructive step, a possible
+- If several apply, order them: a secret asked for or exposed, a destructive step, a possible
   double payment, an explanation.
 Cards:`;
 
@@ -91,6 +92,19 @@ export function isTypedReply(text: string): boolean {
   const used = rest.match(/[\p{L}\p{N}]+/gu) ?? [];
   const hasValue = text.search(PLACEHOLDER) >= 0 || used.some(word => CHOICES.has(word));
   return hasValue && used.every(word => CHOICES.has(word) || EDIT_WORDS.has(word));
+}
+
+// Getting back a payment already made.
+const TAKE_BACK =
+  /\b(?:money back|refund|revers\w*|undo\w*|reclaim\w*|(?:take|get) (?:\S+ ){0,3}back)\b|\b(?:cancel|undo|revers\w*|revoke)\b.*\b(?:last|previous|recent|sent|already|made|earlier|yesterday)\b/i;
+// A command or another flow: an amount, a payer's verb, a refund to someone, a swap, bridge or Earn, or access.
+const NOT_TAKE_BACK =
+  /<(?:FIAT_)?AMT_\d+>|^\W*(?:send|pay|give|transfer|return|move|swap|bridge|withdraw|deposit)\b|\brefund <|\b(?:swap|bridge|earn|deposit|withdraw\w*|stake|wallet|account|access|phrase|device|phone)\b/i;
+
+/** The card for a question or request to get back a payment already made, or `undefined` when it is not one. */
+export function takeBackCards(text: string): string[] | undefined {
+  const wanted = text.normalize('NFKC').replace(/\s+/g, ' ');
+  return TAKE_BACK.test(wanted) && !NOT_TAKE_BACK.test(wanted) ? ['cancel_take_back'] : undefined;
 }
 
 const UNKNOWN = new Set(['not_covered', 'cannot_diagnose']);

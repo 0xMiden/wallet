@@ -107,6 +107,8 @@ async function send(
   );
 }
 
+const HELP_SYSTEM = `${SYSTEM_PROMPT}\n\nA set_intent or set_plan step lists all of these keys, each unset one set to null, and its action is never null: action, amount, asset, to_asset, from_chain, to_chain, recipient_ref, provider, note_type, earn_op. A patch_slots patch holds its keys inside patch.`;
+
 describe('command-ai standalone Worker', () => {
   it('routes opted-in help questions to checked cards without sending a draft or changing the legacy schema', async () => {
     const output = { result: { op: 'help', cards: ['privacy_overview'] } };
@@ -140,7 +142,7 @@ describe('command-ai standalone Worker', () => {
       utterance: 'Can people see the payment amount?',
       previousHelpTopic: 'Privacy'
     });
-    expect(help.messages[0].content).toBe(buildHelpPrompt(SYSTEM_PROMPT, HELP_DATA));
+    expect(help.messages[0].content).toBe(buildHelpPrompt(HELP_SYSTEM, HELP_DATA));
     expect(legacy.messages[0].content).toBe(SYSTEM_PROMPT);
     expect(JSON.stringify(help.response_format)).toContain('"help"');
     expect(JSON.stringify(legacy.response_format)).not.toContain('"help"');
@@ -171,7 +173,7 @@ describe('command-ai standalone Worker', () => {
     expect(withoutPrompt).not.toContain('snapshot');
     expect(withoutPrompt).not.toContain('missingSlot');
     expect(withoutPrompt).not.toContain('previousHelpTopic');
-    expect(body.messages[0].content).toBe(buildHelpPrompt(SYSTEM_PROMPT, HELP_DATA));
+    expect(body.messages[0].content).toBe(buildHelpPrompt(HELP_SYSTEM, HELP_DATA));
     expect(JSON.stringify(body.response_format)).toContain('"help"');
   });
 

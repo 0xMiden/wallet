@@ -10,7 +10,8 @@ import {
   isTypedReply,
   type HelpCard,
   matchTopicButton,
-  selectCards
+  selectCards,
+  takeBackCards
 } from './help';
 import {
   CHECKER_RULES,
@@ -278,6 +279,7 @@ const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare co
 const SLOT_RULES = `A set_intent or set_plan step lists all of these keys, each unset one set to null, and its action is never null: ${INTENT_SLOT_REQUIRED.join(', ')}. A patch_slots patch holds its keys inside patch.`;
 
 const NO_COMMAND = { op: 'unsupported', reason: '', suggested_route: null };
+const TAKE_BACK_OVERRIDES = new Set<unknown>(['cancel', 'set_intent', 'set_plan']);
 
 const HELP_DATA = helpCards as unknown as HelpDataset;
 const HELP_TOPICS = Object.keys(helpFacts.topics);
@@ -737,7 +739,11 @@ async function handleCompile(
     if (snapshot && keepsStaleId(output, snapshot, redactedText)) return noCommand('declined');
     if (helpContext === undefined) return compiled(output, model);
 
-    const help = answerHelp(output, redactedText, dataset);
+    // The router sent "cancel my last payment" to cancel and "my money back from <CONTACT_1>" to a send of
+    // everything. Only such an action is replaced; a help pick of its own stays.
+    const routed = isRecord(output.result) ? output.result : output;
+    const takeBack = TAKE_BACK_OVERRIDES.has(routed.op) ? takeBackCards(redactedText) : undefined;
+    const help = answerHelp(takeBack ? { result: { op: 'help', cards: takeBack } } : output, redactedText, dataset);
     // Writing spends another model's quota only: on the router's own, it would starve every command.
     const cards = [dataset.writing.writer, dataset.writing.checker].includes(model)
       ? []

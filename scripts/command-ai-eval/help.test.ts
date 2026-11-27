@@ -171,7 +171,7 @@ describe('buildHelpPrompt', () => {
     'How to do something is help',
     'Showing or getting your own address or QR code is set_intent receive',
     'A "how do I" question is help even when it names a token, chain or amount',
-    'How much you spent, received or hold, or your past payments, is query_ledger',
+    'How much you spent, received or hold, or past payments, is query_ledger',
     'the fact asked',
     'never gets unsupported',
     'hides any number',
@@ -223,6 +223,9 @@ describe('takeBackCards', () => {
     'bridge it back to ethereum',
     'take my money back out of earn',
     'withdraw my deposit back',
-    'how much did I spend last month?'
-  ])('leaves it to the router: %s', text => expect(takeBackCards(text)).toBeUndefined());
+    'how much did I spend last month?',
+    'I lost my phone. how do I get my wallet back?',
+    'is my seed phrase enough to get everything back?',
+    'can anyone get me back into my account?'
+  ])('is not a take-back: %s', text => expect(takeBackCards(text)).toBeUndefined());
 });
