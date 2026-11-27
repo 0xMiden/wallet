@@ -122,11 +122,11 @@ const guardianRefusal = (status: number, statusText: string, code: string | null
     rawCode
   });
 
-const hotKeyRejection = async (message: string, code?: string): Promise<unknown> => {
+const hotKeyRejection = async (message: string, code?: string, data?: unknown): Promise<unknown> => {
   jest.mocked(isIOS).mockReturnValueOnce(true);
-  jest
-    .mocked(HotKey.signWithHotKey)
-    .mockRejectedValueOnce(Object.assign(new Error(message), code === undefined ? {} : { code }));
+  jest.mocked(HotKey.signWithHotKey).mockRejectedValueOnce(
+    Object.assign(new Error(message), code === undefined ? {} : { code }, data === undefined ? {} : { data })
+  );
   return signHotDigest('tag:wrapped', '0x01').catch((error: unknown) => error);
 };
 
@@ -778,6 +778,60 @@ it('reports a hot-key plugin rejection by its code and nothing it says', async (
   const message = await reportedMessage();
   expect(message).toContain('; point pipeline; hot_key; hot key code USER_CANCELLED. ');
   expect(message).not.toContain('Authentication cancelled');
+});
+
+it.each(['parameters_refused', 'decrypt_rejected', 'mixed', 'unknown'])(
+  'reports the native UNWRAP_FAILED category %s without forwarding other details',
+  async unwrapFailure => {
+    const error = await hotKeyRejection('synthetic native message', 'UNWRAP_FAILED', {
+      unwrapFailure,
+      extra: 'synthetic private detail'
+    });
+    reportTransactionFailure({ type: 'consume', error: new Error('claim failed', { cause: error }) });
+    const message = await reportedMessage();
+    expect(message).toContain(`; hot_key; hot key code UNWRAP_FAILED; unwrap failure ${unwrapFailure}. `);
+    expect(message).not.toContain('synthetic native message');
+    expect(message).not.toContain('synthetic private detail');
+  }
+);
+
+it.each([
+  ['missing data', undefined],
+  ['a string outside the allowlist', { unwrapFailure: 'mixed synthetic private detail' }],
+  ['an object instead of a string', { unwrapFailure: { message: 'synthetic private detail' } }],
+  ['an inherited category', Object.create({ unwrapFailure: 'mixed' })]
+])('omits the native unwrap category for %s', async (_name, data) => {
+  const error = await hotKeyRejection('synthetic native message', 'UNWRAP_FAILED', data);
+  reportTransactionFailure({ type: 'consume', error });
+  const message = await reportedMessage();
+  expect(message).toContain('; hot_key; hot key code UNWRAP_FAILED. ');
+  expect(message).not.toContain('synthetic private detail');
+});
+
+it('omits the native unwrap category without evaluating an accessor', async () => {
+  const readCategory = jest.fn(() => 'mixed');
+  const data = Object.defineProperty({}, 'unwrapFailure', { get: readCategory });
+  const error = await hotKeyRejection('synthetic native message', 'UNWRAP_FAILED', data);
+  reportTransactionFailure({ type: 'consume', error });
+  expect(await reportedMessage()).toContain('; hot_key; hot key code UNWRAP_FAILED. ');
+  expect(readCategory).not.toHaveBeenCalled();
+});
+
+it('omits the native unwrap category for a different native rejection code', async () => {
+  const error = await hotKeyRejection('synthetic native message', 'USER_CANCELLED', { unwrapFailure: 'mixed' });
+  reportTransactionFailure({ type: 'consume', error });
+  expect(await reportedMessage()).toContain('; hot_key; hot key code USER_CANCELLED. ');
+});
+
+it('omits the unwrap category for an unmarked lookalike error', async () => {
+  const error = Object.assign(new Error('synthetic ordinary error'), {
+    code: 'UNWRAP_FAILED',
+    data: { unwrapFailure: 'mixed', extra: 'synthetic private detail' }
+  });
+  reportTransactionFailure({ type: 'consume', error });
+  const message = await reportedMessage();
+  expect(message).not.toContain('unwrap failure');
+  expect(message).not.toContain('synthetic private detail');
 });
 
 it.each([
