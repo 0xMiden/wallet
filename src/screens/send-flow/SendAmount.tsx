@@ -15,6 +15,7 @@ import { TokenAmount } from 'components/ui/TokenAmount';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
+import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -96,6 +97,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
+  const availableBalance = token && scaleIsKnown ? balanceLowerBound(token.balance, token.decimals) : 0;
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
@@ -190,7 +192,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   {scaleIsKnown ? (
                     <TokenAmount
                       key={token.id}
-                      amount={token.balance}
+                      amount={availableBalance}
                       prefix={`${t('available')} `}
                       minimumFractionDigits={4}
                       rounding="down"
@@ -201,7 +203,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   )}
                   {scaleIsKnown && (
                     <TokenUsdValue
-                      amount={token.balance}
+                      amount={availableBalance}
                       faucetId={token.id}
                       symbol={token.name}
                       className="block text-caption text-muted"
