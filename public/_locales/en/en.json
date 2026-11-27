@@ -2406,5 +2406,17 @@
   "replaceWalletEraseWarning": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone.",
   "eraseAndRestoreWallet": "Erase and restore wallet",
   "eraseAndCreateWallet": "Erase and create wallet",
-  "backToUnlock": "Back to sign in"
+  "backToUnlock": "Back to sign in",
+  "authReasonUnlock": "Unlock your wallet",
+  "authReasonViewRecoveryPhrase": "View your recovery phrase",
+  "authReasonRevealPrivateKey": "Reveal your private key",
+  "authReasonRevealEverydayKey": "Reveal your everyday key",
+  "authReasonExportAccountFile": "Export your account file",
+  "authReasonExportWalletFile": "Export your wallet file",
+  "authReasonChangeSpendingLimit": "Change your spending limit",
+  "authReasonOverLimitTransaction": "Approve a transaction over your limit",
+  "authReasonRemoveDevice": "Remove a device",
+  "authReasonSwitchGuardian": "Switch your Guardian",
+  "authReasonSetUp": "Set up wallet security",
+  "encryptedWalletFileDescriptionExportAuth": "You will be asked to authenticate when the file is created."
 }

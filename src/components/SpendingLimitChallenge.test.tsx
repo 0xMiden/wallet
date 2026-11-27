@@ -34,6 +34,7 @@ jest.mock('lib/ui/drawer', () => ({
 }));
 
 let mockRealAuthentication = false;
+let mockAuthenticationPurpose: string | undefined;
 const mockGetProtectors = jest.fn();
 const mockVerify = jest.fn();
 jest.mock('lib/store', () => ({
@@ -48,10 +49,11 @@ jest.mock('lib/platform', () => ({
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('./StrictActionAuthentication', () => ({
-  StrictActionAuthentication: ({ onResult, reason }: any) => {
+  StrictActionAuthentication: ({ onResult, reason, purpose }: any) => {
+    mockAuthenticationPurpose = purpose;
     if (mockRealAuthentication) {
       const RealAuthentication = jest.requireActual('./StrictActionAuthentication').StrictActionAuthentication;
-      return <RealAuthentication reason={reason} onResult={onResult} />;
+      return <RealAuthentication reason={reason} purpose={purpose} onResult={onResult} />;
     }
     return (
       <div data-testid="strict-authentication">
@@ -114,6 +116,7 @@ describe('SpendingLimitChallenge', () => {
     expect(screen.getByText('$10.00')).toBeInTheDocument();
     expect(screen.getByText('spendingLimitChangeInSettings')).toBeInTheDocument();
     expect(screen.getByText('spendingLimitTransactionAuthenticationReason')).toBeInTheDocument();
+    expect(mockAuthenticationPurpose).toBe('over-limit-transaction');
     expect(screen.queryByText('spendingLimitPriceUnavailable')).not.toBeInTheDocument();
   });
 
@@ -296,6 +299,7 @@ describe('spending-limit presentation telemetry', () => {
       fireEvent.click(screen.getByRole('button', { name: 'continue' }));
     });
     expect(onResult).toHaveBeenCalledTimes(1);
+    expect(mockVerify).toHaveBeenCalledWith('private password', 'over-limit-transaction');
     act(() => jest.advanceTimersByTime(1000));
     expect(mockReport.mock.calls).toEqual([]);
   });
