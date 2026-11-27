@@ -120,7 +120,7 @@ const UNKNOWN_ANSWERS = {
   not_covered:
     "I don't know the answer to that. For help with your wallet, go to support.miden.xyz. Never share your recovery phrase.",
   cannot_diagnose:
-    "I can't tell what went wrong from here. Don't reset or delete Bread. If it was a payment, don't send it again until you have opened it in Activity and read its message. For help, go to support.miden.xyz. Never share your recovery phrase."
+    "I can't tell what went wrong from here. Don't reset or delete Bread. If it was a payment, don't send it again while you are unsure what happened to it. Open it in Activity and read its message. For help, go to support.miden.xyz. Never share your recovery phrase."
 };
 
 const text = (id: string): string => data.facts[id]?.text ?? `(missing fact ${id})`;
