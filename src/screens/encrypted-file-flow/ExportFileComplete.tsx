@@ -178,10 +178,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     };
   }, []);
 
-  useEffect(() => {
-    if (exportStartedRef.current) return;
-    exportStartedRef.current = true;
-
+  const runExport = useCallback(() => {
     getExportFile().then(
       () => {
         if (mountedRef.current) setExportState('success');
@@ -202,6 +199,18 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       }
     );
   }, [getExportFile]);
+
+  useEffect(() => {
+    if (exportStartedRef.current) return;
+    exportStartedRef.current = true;
+    runExport();
+  }, [runExport]);
+
+  // The prompt is asked from this screen, so a cancelled or failed one is retried here.
+  const handleTryAgain = useCallback(() => {
+    setExportState('pending');
+    runExport();
+  }, [runExport]);
 
   // Re-opens the sheet for the file already on disk. Deliberately does NOT
   // re-run `getExportFile`: the mnemonic reveal, key derivation and encryption
@@ -277,7 +286,18 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     return (
       <SubPageLayout
         data-testid="export-file-complete"
-        footer={<Button className={actionButton} title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />}
+        footerLayout="stack"
+        footer={
+          <>
+            <Button
+              className={actionButton}
+              title={t('tryAgain')}
+              variant={ButtonVariant.Primary}
+              onClick={handleTryAgain}
+            />
+            <Button className={actionButton} title={t('done')} variant={ButtonVariant.Secondary} onClick={onDone} />
+          </>
+        }
       >
         <div role="alert" className="flex flex-1 flex-col">
           <OutcomeHero

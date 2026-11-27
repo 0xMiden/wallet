@@ -34,11 +34,11 @@ jest.mock('screens/generating-transaction/components', () => ({
 
 jest.mock('components/Button', () => ({
   Button: ({ onClick, title }: { onClick?: () => void; title: string }) => (
-    <button data-testid="done-button" onClick={onClick}>
+    <button data-testid={`${title}-button`} onClick={onClick}>
       {title}
     </button>
   ),
-  ButtonVariant: { Primary: 'Primary' }
+  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
 // Keep the legacy fields until the RED run proves the old exporter still uses
@@ -520,6 +520,26 @@ describe('ExportFileComplete', () => {
     expect(screen.queryByText('recursive use of an object')).not.toBeInTheDocument();
     consoleErrorSpy.mockRestore();
   });
+
+  it.each(['Authentication cancelled', 'Authentication failed'])(
+    'retries a failed export in place after "%s"',
+    async message => {
+      const onDone = jest.fn();
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error(message));
+      mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error(message));
+      renderComponent({ onDone });
+
+      fireEvent.click(await screen.findByTestId('tryAgain-button'));
+      fireEvent.click(await screen.findByTestId('tryAgain-button'));
+
+      await screen.findByText('encryptedWalletFileExportedTitle1');
+      expect(mockExportWalletBackupMaterial.mock.calls).toEqual([['wallet-pass'], ['wallet-pass'], ['wallet-pass']]);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(onDone).not.toHaveBeenCalled();
+      jest.mocked(console.error).mockRestore();
+    }
+  );
 
   it('still offers a way out of the failure screen', async () => {
     mockExportWalletBackupMaterial.mockRejectedValue(new Error('quota exceeded'));
