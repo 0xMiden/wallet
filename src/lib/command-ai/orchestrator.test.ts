@@ -1,3 +1,6 @@
+import type { TokenPriceInfo } from 'lib/prices/binance';
+import { peekTokenPriceAssets } from 'lib/token-list/runtime';
+
 import {
   applyChipSelection,
   carryForwardAmount,
@@ -6,6 +9,11 @@ import {
   type OrchestratorWalletContext
 } from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
+
+jest.mock('lib/token-list/runtime', () => ({
+  ...jest.requireActual('lib/token-list/runtime'),
+  peekTokenPriceAssets: jest.fn()
+}));
 
 const VALID_MIDEN_ALICE = 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62';
 const VALID_EVM_ALICE_WORK = '0x023230000000000000000000000000000000a9f1';
@@ -102,6 +110,52 @@ function createContext(): OrchestratorWalletContext {
 }
 
 describe('command-ai orchestrator', () => {
+  describe('dollar sends', () => {
+    function resolveDollarSend(quote?: TokenPriceInfo) {
+      const ctx = createContext();
+      jest.mocked(peekTokenPriceAssets).mockReturnValueOnce(new Map([['faucet-eth', 'ETH']]));
+      const { map } = redactPrompt('send $50 of ETH to Alice', { contacts: ctx.contacts });
+
+      return compileOutputToResolution(
+        {
+          op: 'set_intent',
+          action: 'send',
+          amount: { kind: 'fiat_ref', ref: 'FIAT_AMT_1', currency: 'USD' },
+          asset: 'ETH',
+          to_asset: null,
+          from_chain: null,
+          to_chain: null,
+          recipient_ref: 'CONTACT_1',
+          provider: null,
+          note_type: null,
+          earn_op: null
+        },
+        map,
+        { ...ctx, tokenPrices: quote ? { ETH: quote } : {} }
+      );
+    }
+
+    const marketQuote: TokenPriceInfo = { price: 2500, change24h: 0, percentageChange24h: 0, kind: 'market' };
+
+    it('returns a quote error when only the balance row has a price', () => {
+      expect(resolveDollarSend()).toMatchObject({ kind: 'error', messageKey: 'commandAiFiatPriceUnavailable' });
+    });
+
+    it('returns a quote error when the verified market quote is more than ten minutes old', () => {
+      expect(resolveDollarSend({ ...marketQuote, observedAt: Date.now() - 11 * 60_000 })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiFiatPriceUnavailable'
+      });
+    });
+
+    it('drafts the amount using a fresh verified market quote', () => {
+      expect(resolveDollarSend({ ...marketQuote, observedAt: Date.now() })).toMatchObject({
+        kind: 'handoff',
+        handoff: { action: 'send', draft: { amount: '0.02', tokenId: 'faucet-eth' } }
+      });
+    });
+  });
+
   it('resolves "send 10 MIDEN to Alice" directly to /send/review with prefilled draft', () => {
     const ctx = createContext();
     const { map } = redactPrompt('send 10 MIDEN to Alice', { contacts: ctx.contacts });
