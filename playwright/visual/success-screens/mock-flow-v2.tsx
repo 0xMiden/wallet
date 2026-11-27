@@ -241,7 +241,7 @@ export const ProcessingV2: FC<{
   token?: ProtoToken;
   bridge?: BridgeSend;
   onDone: () => void;
-}> = ({ amount, address, name, token = PROTO_TOKENS[0]!, bridge, onDone }) => {
+}> = ({ address, name, token = PROTO_TOKENS[0]!, bridge, onDone }) => {
   const steps = bridge ? bridgeSteps(bridge) : PRIVATE_SEND_GUARDIAN_STEPS;
   const [active, setActive] = useState(0);
   const complete = active >= steps.length;

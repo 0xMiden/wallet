@@ -75,14 +75,26 @@ export const UnreadDot: React.FC<UnreadDotProps> = ({
   useEffect(() => {
     mounted.current = true;
   }, []);
+  const shown = useRef(false);
+  const pops = useRef(false);
+  if (unread && !shown.current) pops.current = mounted.current;
+  shown.current = unread;
   if (!unread) return null;
+
+  if (!pops.current) {
+    return (
+      <span data-testid={dataTestId} data-placement={placement} className={cn(dotVariants({ placement }), className)}>
+        <span className="sr-only">{label}</span>
+      </span>
+    );
+  }
 
   return (
     <motion.span
       data-testid={dataTestId}
       data-placement={placement}
       className={cn(dotVariants({ placement }), className)}
-      initial={mounted.current ? { ...pop.initial, scale: 0.5 } : false}
+      initial={{ ...pop.initial, scale: 0.5 }}
       animate={pop.animate}
       transition={transition}
     >

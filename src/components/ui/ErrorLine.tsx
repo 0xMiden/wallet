@@ -44,28 +44,38 @@ export const ErrorLine: React.FC<ErrorLineProps> = ({
 }) => {
   useUserVisibleError(children ? errorId : null, 'inline', undefined, errorDiagnostics);
   const reveal = usePreset('reveal');
-  // Only a message that arrives after mount opens; the first render draws whatever is there.
+  // Only a message that arrives after mount opens; one that is there on the first render is drawn
+  // as the plain line, with no wrapper around it.
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
   }, []);
+  const shown = useRef(false);
+  const opens = useRef(false);
+  if (children && !shown.current) opens.current = mounted.current;
+  shown.current = Boolean(children);
   if (!children) return null;
+
+  const line = (
+    <p
+      role={role}
+      data-testid={dataTestId}
+      className={cn('px-1 text-caption wrap-anywhere text-negative-ink select-text', className)}
+    >
+      {children}
+    </p>
+  );
+  if (!opens.current) return line;
 
   return (
     // The wrapper owns the height, so the caller's margins on the line open with it.
     <motion.div
       className="overflow-hidden"
-      initial={mounted.current ? reveal.initial : false}
+      initial={reveal.initial}
       animate={reveal.animate}
       transition={reveal.transition}
     >
-      <p
-        role={role}
-        data-testid={dataTestId}
-        className={cn('px-1 text-caption wrap-anywhere text-negative-ink select-text', className)}
-      >
-        {children}
-      </p>
+      {line}
     </motion.div>
   );
 };
