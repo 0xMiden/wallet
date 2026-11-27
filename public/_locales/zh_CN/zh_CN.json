@@ -2304,5 +2304,7 @@
   "commandAiSamplePrompt3": "总结我上周的活动",
   "commandAiSamplePrompt4": "让 10 USDCx 以最高效的方式获利",
   "commandAiSamplePrompt5": "将 1 ETH 转入，兑换为 USDCx，并存入高收益金库",
-  "commandAiSamplePrompt6": "这个月我发送了多少USDCx？"
+  "commandAiSamplePrompt6": "这个月我发送了多少USDCx？",
+  "depositFlowRelayReverted": "该存款交易在链上失败，因此未进行任何跨链转账。您的资金仍留在您的存款地址中。",
+  "depositFlowRelayExpired": "该笔存款未在截止时间前发送。您的资金仍存于您的存款地址中。请重试。"
 }

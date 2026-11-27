@@ -76,7 +76,8 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   const counting = state === 'locked' && withdrawableAt !== undefined && withdrawableAt > nowSec();
   const now = useNowSec(counting);
   const secondsLeft = withdrawableAt === undefined ? undefined : secondsUntilWithdrawable(withdrawableAt, now);
-  const isSponsor = connected && sponsorWalletRefusal(address, lock.sponsorAddress) === undefined;
+  // A sponsor that is the relay address of an account of this wallet needs no connected wallet.
+  const isSponsor = sponsorWalletRefusal(connected ? address : undefined, lock.sponsorAddress) === undefined;
 
   const run = useCallback(
     async (action: RecoveryAction, operation: () => Promise<unknown>) => {

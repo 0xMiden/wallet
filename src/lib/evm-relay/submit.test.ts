@@ -23,6 +23,7 @@ import {
   relayErrorAction
 } from './errors';
 import type { RelayReviewedFee } from './guards';
+import { watchOpenRelayJobs } from './open-jobs';
 import {
   MAX_RELAY_BATCH_CALLS,
   RELAY_DEADLINE_SECONDS,
@@ -939,5 +940,109 @@ describe('resume', () => {
     h.jobs = ['succeeded'];
     expect(await h.submitter.resume(recorded)).toEqual({ id: recorded.id, hash: hashOf('f1') });
     expect(recorded).toEqual({ chainId: CHAIN.chainId, id: digestOf(submitted(h)), deadline: DEADLINE });
+  });
+});
+
+describe('check', () => {
+  const JOB: RelayJobRef = { chainId: CHAIN.chainId, id: OTHER_JOB, deadline: START_SECONDS - 60 };
+  const notFound = new RelayApiError('not_found', 404, 'no');
+
+  it.each<RelayJobState>(['succeeded', 'reverted', 'expired', 'pending'])(
+    'gives a %s job with its hash after one read, with no wait and no signature',
+    async state => {
+      const h = harness();
+      h.jobs = [state];
+      expect(await h.submitter.check({ ...JOB, id: upperHex(OTHER_JOB) })).toEqual({ state, hash: hashOf('f1') });
+      expect(h.jobQueries).toEqual([{ id: OTHER_JOB, chainId: CHAIN.chainId }]);
+      expect(h.sleeps).toHaveLength(0);
+      expect(h.signRequests).toHaveLength(0);
+    }
+  );
+
+  it.each([
+    ['before the deadline', START_SECONDS + 600],
+    ['at the end of the grace time', START_SECONDS - RELAY_RESUME_GRACE_SECONDS]
+  ])('keeps a job that the relay does not know unknown %s', async (_name, deadline) => {
+    const h = harness();
+    h.jobs = [notFound];
+    expect(await h.submitter.check({ ...JOB, deadline })).toEqual({ state: 'unknown', cause: notFound });
+  });
+
+  it('reports a job that the relay does not know as not submitted one second after the grace time', async () => {
+    const h = harness();
+    h.jobs = [notFound];
+    const deadline = START_SECONDS - RELAY_RESUME_GRACE_SECONDS - 1;
+    expect(await h.submitter.check({ ...JOB, deadline })).toEqual({ state: 'not-submitted' });
+  });
+
+  it.each<[string, JobAnswer]>([
+    ['a failed read', new RelayUnavailableError('network', 'down')],
+    ['an answer for another job id', { id: hashOf('0c'), state: 'succeeded', txHash: hashOf('f1') }]
+  ])('keeps the job unknown after %s, also long after the deadline', async (_name, answer) => {
+    const h = harness();
+    h.jobs = [answer];
+    const checked = await h.submitter.check({ ...JOB, deadline: 0 });
+    expect(checked.state).toBe('unknown');
+  });
+
+  it('gives the guard error of an answer for another job as the cause', async () => {
+    const h = harness();
+    h.jobs = [{ id: hashOf('0c'), state: 'succeeded', txHash: hashOf('f1') }];
+    expect(await h.submitter.check(JOB)).toEqual({ state: 'unknown', cause: expect.any(RelayMismatchError) });
+  });
+
+  it.each<[string, RelayJobRef]>([
+    ['another chain', { ...JOB, chainId: 1 }],
+    ['an id that is not a hash', { ...JOB, id: '0x12' }],
+    ['a deadline that is not an integer', { ...JOB, deadline: 1.5 }]
+  ])('refuses a job with %s and reads nothing', async (_name, job) => {
+    const h = harness();
+    expect(await failure(h.submitter.check(job))).toBeInstanceOf(TypeError);
+    expect(h.jobQueries).toHaveLength(0);
+  });
+});
+
+describe('the open jobs of a submit', () => {
+  it('reports a job whose outcome is not known to a watch of its chain and address only', async () => {
+    const h = harness();
+    h.posts = [new RelayUnavailableError('timeout', 'slow')];
+    h.jobs = [new RelayApiError('not_found', 404, 'no')];
+    const own = watchOpenRelayJobs(CHAIN.chainId, upperHex(RELAY));
+    const otherChain = watchOpenRelayJobs(1, RELAY);
+    const otherAddress = watchOpenRelayJobs(CHAIN.chainId, TARGET);
+    expect(await failure(h.submitter.submit([CALL]))).toBeInstanceOf(RelayUnknownOutcomeError);
+    expect(own.jobs()).toEqual([refOf(h)]);
+    expect(otherChain.jobs()).toEqual([]);
+    expect(otherAddress.jobs()).toEqual([]);
+    [own, otherChain, otherAddress].forEach(watch => watch.stop());
+  });
+
+  it('reports a job that is still pending after the wait limit', async () => {
+    const h = harness();
+    h.posts = ['pending'];
+    h.jobs = ['pending'];
+    const watch = watchOpenRelayJobs(CHAIN.chainId, RELAY);
+    expect(await failure(h.submitter.submit([CALL]))).toBeInstanceOf(RelayStillPendingError);
+    expect(watch.jobs()).toEqual([refOf(h)]);
+    watch.stop();
+  });
+
+  it('reports no final job and no refusal, and nothing after the watch stops', async () => {
+    const h = harness();
+    h.posts = ['reverted'];
+    const watch = watchOpenRelayJobs(CHAIN.chainId, RELAY);
+    expect(await failure(h.submitter.submit([CALL]))).toBeInstanceOf(RelayRevertedError);
+    h.posts = [new RelayApiError('bad_signature', 400, 'no')];
+    expect(await failure(h.submitter.submit([CALL]))).toMatchObject({ code: 'bad_signature' });
+    expect(watch.jobs()).toEqual([]);
+    watch.stop();
+    h.posts = [new RelayUnavailableError('timeout', 'slow')];
+    h.jobs = [new RelayApiError('not_found', 404, 'no')];
+    expect(await failure(h.submitter.submit([CALL]))).toBeInstanceOf(RelayUnknownOutcomeError);
+    expect(watch.jobs()).toEqual([]);
+  });
+
+  it('refuses a watch of an address that is not valid', () => {
+    expect(() => watchOpenRelayJobs(CHAIN.chainId, '0x12')).toThrow(TypeError);
   });
 });

@@ -9,7 +9,15 @@ import {
   RelayUnavailableError,
   type RelayErrorCode
 } from './errors';
-import type { RelayAccount, RelayGasMode, RelayJob, RelayJobState, RelayQuote, RelayTokenBalance } from './types';
+import type {
+  RelayAccount,
+  RelayGasMode,
+  RelayJob,
+  RelayJobState,
+  RelayQuote,
+  RelayService,
+  RelayTokenBalance
+} from './types';
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
@@ -146,6 +154,32 @@ export function parseRelayAccount(body: unknown, tokens: readonly Address[] = []
     feeTokens,
     allowedTargets: readAllowedTargets(value.allowedTargets),
     balances
+  };
+}
+
+/** A chain id list: positive safe integers, strictly ascending (so each id is there one time). */
+function readChainIds(value: unknown): number[] {
+  if (!Array.isArray(value)) throw malformed('chains');
+  const chains: number[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isSafeInteger(entry) || entry <= 0) throw malformed('a chain id');
+    const last = chains[chains.length - 1];
+    if (last !== undefined && entry <= last) throw malformed('chains');
+    chains.push(entry);
+  }
+  return chains;
+}
+
+/**
+ * The body of `GET /v1/chains`. Throws `RelayUnavailableError` when the body does not match: a field with a wrong
+ * type, an unknown mode, or a chain list that is not strictly ascending. Unknown fields are ignored.
+ */
+export function parseRelayService(body: unknown): RelayService {
+  const value = record(body, 'the service');
+  return {
+    mode: readMode(value.mode),
+    executor: readAddress(value.executor, 'executor'),
+    chains: readChainIds(value.chains)
   };
 }
 

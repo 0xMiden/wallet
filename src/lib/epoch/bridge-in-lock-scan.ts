@@ -6,6 +6,7 @@ import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { type EpochToken, selectEpochChainIds, selectEpochTokens } from 'lib/remote-config/values';
+import { useWalletStore } from 'lib/store';
 
 import { epochRpcChain } from './client';
 
@@ -199,10 +200,14 @@ export async function scanLockedBridgeFunds(addresses: readonly Address[]): Prom
 }
 
 /**
- * The EVM address of every Fast bridge-in row, once each, in the order of the rows. A row restored from a backup is
- * not used: its contents come from the file.
+ * The relay address of the current account first, then the EVM address of every Fast bridge-in row, once each, in the
+ * order of the rows. A row restored from a backup is not used: its contents come from the file. The relay address is
+ * scanned even while the relay is off: a lock that it sponsors holds the user's funds all the same.
  */
 export async function collectBridgeInSponsors(): Promise<Address[]> {
+  const relayAddress = useWalletStore.getState().currentAccount?.relayEvmAddress;
+  const relay =
+    relayAddress !== undefined && isAddress(relayAddress, { strict: false }) ? [getAddress(relayAddress)] : [];
   const rows = await Repo.transactions.where('type').equals('bridged-receive').toArray();
   const sponsors = rows.flatMap(row => {
     const inputs: IBridgedReceiveExtraInputs | undefined = row.type === 'bridged-receive' ? row.extraInputs : undefined;
@@ -211,7 +216,7 @@ export async function collectBridgeInSponsors(): Promise<Address[]> {
     if (!isAddress(inputs.sourceAddress, { strict: false })) return [];
     return [getAddress(inputs.sourceAddress)];
   });
-  return [...new Set(sponsors)];
+  return [...new Set([...relay, ...sponsors])];
 }
 
 /** The addresses to scan: the connected EVM wallet first, then the bridge-in addresses, each once. */

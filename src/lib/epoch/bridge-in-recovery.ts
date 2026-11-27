@@ -11,6 +11,7 @@ import { resolveCompactAddress } from '@epoch-protocol/epoch-intents-sdk/dist/se
 import { type Address, type Hex, isAddress, isHex } from 'viem';
 
 import { bridgeOperationOf, hasBridgeOperation } from 'lib/bridge/operation';
+import { findRelaySource } from 'lib/evm-relay/source';
 import { registerPendingBridgeIn } from 'lib/miden/activity/bridge-in';
 import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -19,7 +20,13 @@ import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { epochLockedDepositState, nowSec, readCompactLockBalance } from './bridge-in-lock';
 import { compactLockToken } from './bridge-in-lock-scan';
-import { buildEpochWalletClient, epochChain, getEvmConnection, switchWebWalletChain } from './client';
+import {
+  buildEpochWalletClient,
+  epochChain,
+  getEvmConnection,
+  getEvmSourceConnection,
+  switchWebWalletChain
+} from './client';
 import {
   clearForcedWithdrawalRecord,
   type CompactLockRef,
@@ -77,11 +84,15 @@ async function readLockedDeposit(txId: string): Promise<LockedDepositRow> {
   return { inputs, lock, sponsor: lock.sponsorAddress };
 }
 
-/** Why the connected EVM wallet cannot sign for `sponsor`, or undefined when it is the sponsor. */
+/**
+ * Why the connected EVM wallet cannot sign for `sponsor`, or undefined when it is the sponsor. A sponsor that is the
+ * relay address of an account of this wallet needs no connected wallet: the relay sends for it.
+ */
 export function sponsorWalletRefusal(
   connectedAddress: string | undefined,
   sponsor: string
 ): Extract<LockedDepositErrorReason, 'walletDisconnected' | 'wrongAccount'> | undefined {
+  if (findRelaySource(sponsor) !== null) return undefined;
   if (!connectedAddress) return 'walletDisconnected';
   if (connectedAddress.toLowerCase() !== sponsor.toLowerCase()) return 'wrongAccount';
   return undefined;
@@ -104,17 +115,20 @@ function assertSponsorWallet(connectedAddress: string | undefined, sponsor: stri
  * The SDK on the connected EVM wallet. Refuse when no wallet is connected or when it is not the sponsor: only the
  * sponsor can register or withdraw the deposit. Move a web wallet to the deposit chain first. The wallet can change
  * its account while it switches chain, so check the sponsor again after the switch, and bind the SDK to the sponsor.
+ *
+ * A sponsor that is the relay address of an account of this wallet needs no external wallet and no chain switch: the
+ * SDK sends through the relay provider on the deposit chain.
  */
 export async function connectSponsorSdk(
   lock: Pick<CompactLockRef, 'sponsorAddress' | 'chainId'>,
   allocatorUrl: string
 ): Promise<EpochIntentSDK> {
   const sponsor = sponsorOf(lock);
-  let connection = await getEvmConnection();
+  let connection = await getEvmSourceConnection(sponsor, lock.chainId);
   assertSponsorWallet(connection.address, sponsor);
-  if (!connection.isNative && connection.chainId !== lock.chainId) {
+  if (!connection.isRelay && !connection.isNative && connection.chainId !== lock.chainId) {
     await switchWebWalletChain(lock.chainId);
-    connection = await getEvmConnection();
+    connection = await getEvmSourceConnection(sponsor, lock.chainId);
     assertSponsorWallet(connection.address, sponsor);
     if (connection.chainId !== lock.chainId) {
       throw new LockedDepositError('wrongChain', 'Switch the EVM wallet to the network of this deposit.');

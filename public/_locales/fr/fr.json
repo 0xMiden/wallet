@@ -2300,5 +2300,7 @@
   "commandAiSamplePrompt3": "Résumez mon activité de la semaine dernière",
   "commandAiSamplePrompt4": "Faites fructifier 10 USDCx de la manière la plus efficace possible",
   "commandAiSamplePrompt5": "Transférez 1 ETH, échangez-le contre de l’USDCx et placez-le dans le coffre-fort « Top Earn ».",
-  "commandAiSamplePrompt6": "Combien d’USDCx ai-je envoyé ce mois-ci ?"
+  "commandAiSamplePrompt6": "Combien d’USDCx ai-je envoyé ce mois-ci ?",
+  "depositFlowRelayReverted": "La transaction de dépôt a échoué sur la chaîne, donc rien n’a été transféré. Vos fonds se trouvent toujours à votre adresse de dépôt.",
+  "depositFlowRelayExpired": "Le dépôt n’a pas été envoyé avant l’expiration du délai. Vos fonds se trouvent toujours à votre adresse de dépôt. Veuillez réessayer."
 }

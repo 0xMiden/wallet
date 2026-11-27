@@ -10572,5 +10572,13 @@
   "commandAiSamplePrompt6": {
     "message": "Bu ay ne kadar USDCx gönderdim?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "Para yatırma işlemi zincir üzerinde başarısız oldu, bu nedenle hiçbir şey köprülenmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "Para yatırma işlemi, süre sınırı dolmadan gönderilmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Lütfen tekrar deneyin.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }

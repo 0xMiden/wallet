@@ -2304,5 +2304,7 @@
   "commandAiSamplePrompt3": "지난주 내 활동 요약",
   "commandAiSamplePrompt4": "10 USDCx를 가장 효율적인 방법으로 수익 창출하기",
   "commandAiSamplePrompt5": "1 ETH를 브리지하여 USDCx로 스왑한 후, 최고 수익 금고에 예치하세요.",
-  "commandAiSamplePrompt6": "이번 달에 USDCx를 얼마나 보냈나요?"
+  "commandAiSamplePrompt6": "이번 달에 USDCx를 얼마나 보냈나요?",
+  "depositFlowRelayReverted": "입금 거래가 온체인에서 실패했기 때문에, 아무것도 브릿지되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다.",
+  "depositFlowRelayExpired": "입금은 마감 시간 전에 전송되지 않았습니다. 귀하의 자금은 여전히 입금 주소에 있습니다. 다시 시도해 주십시오."
 }

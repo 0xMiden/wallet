@@ -11,6 +11,7 @@ import type { BatchCall } from './batch';
 import { fetchRelayQuote, type RelayQuoteQuery } from './client';
 import { RelayUnavailableError } from './errors';
 import { assertRelayQuoteMatches, type RelayReviewedFee } from './guards';
+import type { RelaySource } from './source';
 import type { RelayQuote } from './types';
 
 export interface QuoteRelayFeeOptions {
@@ -32,7 +33,7 @@ export interface QuoteRelayFeeOptions {
  * The quote is valid until its `validUntil`. The relay decides again from its own simulation when it gets the batch.
  */
 export async function quoteRelayFee(
-  from: { address: Address } | Address,
+  from: RelaySource | Address,
   chainId: number,
   calls: readonly BatchCall[],
   feeToken: Address,

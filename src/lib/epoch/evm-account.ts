@@ -102,7 +102,7 @@ export function buildVaultEvmWalletClient(
   // SDK builds its OWN publicClients from `walletClient.chain.rpcUrls.default`
   // (e.g. getWalletGaslessStatus reads the 7702 delegation there), so the chain
   // must point at the local Anvil or those reads hit the public RPC. Mirrors
-  // `withE2eRpc` in client.ts (the deposit path).
+  // `withWalletRpc` in lib/evm/rpc-chain.ts (the deposit path).
   const chain = e2eRpc
     ? { ...executionChain, rpcUrls: { ...executionChain.rpcUrls, default: { http: [e2eRpc] } } }
     : executionChain;

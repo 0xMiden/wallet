@@ -15,7 +15,10 @@ jest.mock('./bridge', () => ({}));
 const mockConnection = jest.fn();
 const mockGetSdk = jest.fn();
 
-jest.mock('./client', () => ({ getEvmConnection: () => mockConnection() }));
+jest.mock('./client', () => ({
+  getEvmConnection: () => mockConnection(),
+  getEvmSourceConnection: () => mockConnection()
+}));
 jest.mock('./sdk', () => ({ getEpochSdk: () => mockGetSdk() }));
 jest.mock('lib/miden/activity/bridge-in', () => ({
   registerPendingBridgeIn: jest.fn(),

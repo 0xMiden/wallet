@@ -330,6 +330,23 @@ describe('reconcileBridgedReceives', () => {
     );
   });
 
+  it('keeps open an AggLayer row whose relay job was stored before its POST', async () => {
+    rows.push({
+      id: 'relayed',
+      type: 'bridged-receive',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: {
+        provider: 'agglayer',
+        phase: 'submitting',
+        relayJob: { chainId: 11155111, id: `0x${'ab'.repeat(32)}`, deadline: 1_900_000_000 }
+      }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
   // A USDCx row closes like its Agglayer sibling: with no hash and no flow left to write one, it can never progress.
   it.each([
     ['the direct route', {}, 'unrecorded'],

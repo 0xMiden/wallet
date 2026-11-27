@@ -6,7 +6,7 @@
  * The submitter never signs a second batch while the first one can still execute: before each POST it gives the job
  * to the caller (`onJob`), and after a POST whose outcome is not known it reads the job instead of signing again.
  */
-import { zeroAddress, zeroHash, type Address, type Hex } from 'viem';
+import { zeroAddress, zeroHash, type Address, type Hash, type Hex } from 'viem';
 
 import type { RelayChainConfig } from 'lib/remote-config/schema';
 import type { RelaySignedAuthorization, RelaySignRequest, RelaySignResult } from 'lib/shared/types';
@@ -29,6 +29,7 @@ import {
   RelayRevertedError,
   RelayStillPendingError,
   RelayUnknownOutcomeError,
+  openRelayJobError,
   relayErrorAction,
   relaySubmitFailure
 } from './errors';
@@ -41,6 +42,7 @@ import {
   relayFeeToken,
   type RelayReviewedFee
 } from './guards';
+import { reportOpenRelayJob } from './open-jobs';
 import { lowerAddress, lowerHash } from './parse';
 import type { RelayAccount, RelayJob, RelayJobRef, RelayResult, RelaySubmission } from './types';
 
@@ -61,6 +63,11 @@ export const MAX_STALE_RETRIES = 2;
  * refuses a deadline less than 60 seconds ahead, and Calibur refuses a batch after its deadline.
  */
 export const RELAY_RESUME_GRACE_SECONDS = 120;
+/**
+ * The relay deletes a final job this long after it became final. A read after that can find no job that executed: a
+ * caller that knows the earliest time of the POST does not trust `not-submitted` from then plus this time.
+ */
+export const RELAY_FINAL_JOB_RETENTION_SECONDS = 24 * 60 * 60;
 
 const EVEN_HEX = /^0x(?:[0-9a-fA-F]{2})*$/;
 const UINT256_LIMIT = 1n << 256n;
@@ -98,6 +105,23 @@ export interface RelaySubmitterOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/**
+ * One read of a job that an earlier submit recorded through `onJob`:
+ * - `succeeded`, `reverted`, `expired`, `pending`: the relay knows the job. `hash` is the job's last transaction hash
+ *   (the mined hash of a final job, the relayer's cancel transaction of an `expired` job).
+ * - `unknown`: the outcome is still not known. The relay does not know the job and the deadline plus
+ *   `RELAY_RESUME_GRACE_SECONDS` is not past, or the read failed (`cause`). Read again later.
+ * - `not-submitted`: the relay does not know the job and the deadline plus `RELAY_RESUME_GRACE_SECONDS` is past. The
+ *   batch can no longer execute.
+ */
+export type RelayJobCheck =
+  | { state: 'succeeded'; hash: Hash }
+  | { state: 'reverted'; hash: Hex }
+  | { state: 'expired'; hash: Hex }
+  | { state: 'pending'; hash: Hex }
+  | { state: 'unknown'; cause: unknown }
+  | { state: 'not-submitted' };
+
 export interface RelaySubmitter {
   readonly chainId: number;
   readonly address: Address;
@@ -105,6 +129,8 @@ export interface RelaySubmitter {
   submit(calls: BatchCall[], options?: RelaySubmitOptions): Promise<RelayResult>;
   /** Follows a job that an earlier submit recorded through `onJob`. */
   resume(job: RelayJobRef): Promise<RelayResult>;
+  /** Reads a job that an earlier submit recorded through `onJob` once, with no wait. It signs nothing. */
+  check(job: RelayJobRef): Promise<RelayJobCheck>;
 }
 
 /** A POST that the relay refused: the job was not stored. It never leaves this module. */
@@ -406,29 +432,51 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
       const reviewed = fee === undefined ? undefined : { token: relayFeeToken(fee.token), amount: fee.amount };
       return relay(checked, { ...submitOptions, fee: reviewed });
     };
-    const result = queue.then(run, run);
+    const result = queue.then(run, run).catch((error: unknown) => {
+      // A flow that cannot read the typed error (a library that drops the cause) reads the open job from a watch.
+      const open = openRelayJobError(error);
+      if (open !== undefined) reportOpenRelayJob(address, open.job);
+      throw error;
+    });
     queue = result.catch(() => undefined);
     return result;
   }
 
   /**
-   * Reads the job by id. Found: follows it to a final state. Not found: `RelayUnknownOutcomeError` until
-   * `RELAY_RESUME_GRACE_SECONDS` after the deadline, then `RelayNotSubmittedError`. Any other failed read:
-   * `RelayUnknownOutcomeError`.
+   * Reads the job by id once. Found: its state and hash. Not found: `unknown` until `RELAY_RESUME_GRACE_SECONDS`
+   * after the deadline, then `not-submitted`. Any other failed read, an answer for another job included: `unknown`.
    */
-  async function resume(job: RelayJobRef): Promise<RelayResult> {
+  async function check(job: RelayJobRef): Promise<RelayJobCheck> {
     const ref = checkedRef(job);
     let current: RelayJob;
     try {
       current = await readJob(ref);
     } catch (error) {
       if (isNotFound(error) && now() / 1000 > ref.deadline + RELAY_RESUME_GRACE_SECONDS) {
-        throw new RelayNotSubmittedError(ref);
+        return { state: 'not-submitted' };
       }
-      throw new RelayUnknownOutcomeError(ref, error);
+      return { state: 'unknown', cause: error };
     }
-    return followJob(ref, current);
+    return { state: current.state, hash: current.txHash };
   }
 
-  return { chainId, address, submit, resume };
+  /**
+   * Reads the job by id (`check`). Found: follows it to a final state. Not found: `RelayUnknownOutcomeError` until
+   * `RELAY_RESUME_GRACE_SECONDS` after the deadline, then `RelayNotSubmittedError`. Any other failed read:
+   * `RelayUnknownOutcomeError`.
+   */
+  async function resume(job: RelayJobRef): Promise<RelayResult> {
+    const ref = checkedRef(job);
+    const checked = await check(ref);
+    switch (checked.state) {
+      case 'unknown':
+        throw new RelayUnknownOutcomeError(ref, checked.cause);
+      case 'not-submitted':
+        throw new RelayNotSubmittedError(ref);
+      default:
+        return followJob(ref, { id: ref.id, state: checked.state, txHash: checked.hash });
+    }
+  }
+
+  return { chainId, address, submit, resume, check };
 }

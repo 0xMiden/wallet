@@ -13,6 +13,7 @@ import {
   RelayApiError,
   RelayProviderRpcError,
   RelayRefusedError,
+  RelayRevertedError,
   RelayUnavailableError,
   RelayUnknownOutcomeError
 } from './errors';
@@ -361,6 +362,16 @@ describe('sendCalls', () => {
     const h = harness();
     expect(await failure(h.provider.sendCalls(calls))).toMatchObject({ code: -32602 });
     expect(h.accountQueries).toBe(0);
+  });
+
+  // Calibur runs the batch with `revertOnFailure`: a failed inner call reverts the whole transaction, whose receipt the
+  // relay reads, so the job is `reverted` and `sendCalls` rejects with the mined hash instead of giving it.
+  it('rejects a reverted batch with RelayRevertedError, which carries the mined hash', async () => {
+    const h = harness();
+    h.posts = ['reverted'];
+    const error = await failure(h.provider.sendCalls([APPROVE, CALL]));
+    expect(error).toBeInstanceOf(RelayRevertedError);
+    expect(error).toMatchObject({ txHash: hashOf('a1') });
   });
 
   it('passes on a relay error as it is', async () => {

@@ -37,6 +37,7 @@ const mockUpdatePhase = jest.fn();
 jest.mock('./bridge', () => ({ buildEVMToMidenIntent: (...args: unknown[]) => mockBuildIntent(...args) }));
 jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
+  getEvmSourceConnection: () => mockConnection(),
   switchWebWalletChain: jest.fn()
 }));
 jest.mock('./sdk', () => ({ getEpochSdk: async () => ({}) }));

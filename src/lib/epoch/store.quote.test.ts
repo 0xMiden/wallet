@@ -10,8 +10,21 @@ jest.mock('./bridge', () => ({
   getEVMToMidenQuote: (...args: unknown[]) => mockGetEVMToMidenQuote(...args),
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args)
 }));
-jest.mock('./client', () => ({ getEvmConnection: async () => ({ address: '0xowner', isNative: true }) }));
-jest.mock('./sdk', () => ({ getEpochSdk: async () => ({}) }));
+interface MockConnection {
+  address: string;
+  isNative: boolean;
+  isRelay?: boolean;
+  chainId?: number;
+}
+const mockSourceConnection = jest.fn(
+  async (..._args: unknown[]): Promise<MockConnection> => ({ address: '0xowner', isNative: true })
+);
+const mockGetEpochSdk = jest.fn(async (_opts?: unknown) => ({}));
+jest.mock('./client', () => ({
+  getEvmConnection: async () => ({ address: '0xowner', isNative: true }),
+  getEvmSourceConnection: (...args: unknown[]) => mockSourceConnection(...args)
+}));
+jest.mock('./sdk', () => ({ getEpochSdk: (opts?: unknown) => mockGetEpochSdk(opts) }));
 jest.mock('lib/miden/activity/bridge-in', () => ({
   registerPendingBridgeIn: jest.fn(),
   resolveBridgeInNoteId: jest.fn()
@@ -198,6 +211,20 @@ describe('Epoch quote actions apply only the latest request', () => {
     expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', error: null });
     expect(quotedAmount()).toBe('2000000');
     expect(console.error).toHaveBeenCalledWith('[epoch] quoteMidenToEVM failed (superseded)', timeout);
+  });
+
+  it('quotes a relay source with the SDK of the relay address, and an external wallet with no bound account', async () => {
+    const relay = '0x00000000000000000000000000000000000000aa';
+    mockGetEVMToMidenQuote.mockResolvedValue(depositQuote('1'));
+    mockSourceConnection.mockResolvedValueOnce({ address: relay, isNative: false, isRelay: true, chainId: 11155111 });
+    mockGetEpochSdk.mockClear();
+
+    await useEpochStore.getState().quoteEVMToMiden({ ...depositParams('1'), evmSourceAddress: relay }, relay);
+    expect(mockSourceConnection).toHaveBeenLastCalledWith(relay, 11155111);
+    expect(mockGetEpochSdk).toHaveBeenLastCalledWith({ chainId: 11155111, account: relay });
+
+    await useEpochStore.getState().quoteEVMToMiden(depositParams('1'), '0xowner');
+    expect(mockGetEpochSdk).toHaveBeenLastCalledWith({ chainId: 11155111 });
   });
 
   it('drops a quote that answers after a reset', async () => {

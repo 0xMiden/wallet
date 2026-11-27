@@ -34,8 +34,14 @@ const mockSdk = jest.fn();
 const mockCompact = jest.fn();
 const mockBuildAllocation = jest.fn();
 jest.mock('./sdk', () => ({ getEpochSdk: (...args: unknown[]) => mockSdk(...args) }));
+jest.mock('lib/evm-relay/source', () => ({ findRelaySource: () => null }));
 jest.mock('./client', () => ({
   getEvmConnection: async () => ({
+    address: '0x1111111111111111111111111111111111111111',
+    chainId: 11155111,
+    isNative: false
+  }),
+  getEvmSourceConnection: async () => ({
     address: '0x1111111111111111111111111111111111111111',
     chainId: 11155111,
     isNative: false

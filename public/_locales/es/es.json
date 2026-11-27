@@ -2296,5 +2296,7 @@
   "commandAiSamplePrompt3": "Resume mi actividad de la semana pasada",
   "commandAiSamplePrompt4": "Haz que 10 USDCx generen beneficios de la forma más eficiente",
   "commandAiSamplePrompt5": "Transfiere 1 ETH, cámbialo a USDCx y guárdalo en la caja fuerte de mayor rentabilidad",
-  "commandAiSamplePrompt6": "¿Cuánto USDCx he enviado este mes?"
+  "commandAiSamplePrompt6": "¿Cuánto USDCx he enviado este mes?",
+  "depositFlowRelayReverted": "La transacción de depósito ha fallado en la cadena, por lo que no se ha transferido nada. Tus fondos siguen estando en tu dirección de depósito.",
+  "depositFlowRelayExpired": "El depósito no se envió antes de que venciera el plazo. Tus fondos siguen en tu dirección de depósito. Inténtalo de nuevo."
 }

@@ -1,3 +1,7 @@
+import { RelayApiError, RelayStillPendingError, RelayUnknownOutcomeError } from 'lib/evm-relay/errors';
+import { reportOpenRelayJob } from 'lib/evm-relay/open-jobs';
+import type { RelayJobRef } from 'lib/evm-relay/types';
+
 import type { EVMToMidenQuote } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { useEpochStore } from './store';
@@ -17,6 +21,7 @@ const mockConnection = jest.fn();
 const mockSwitchWebWalletChain = jest.fn();
 jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
+  getEvmSourceConnection: (...args: unknown[]) => mockConnection(...args),
   switchWebWalletChain: (...args: unknown[]) => mockSwitchWebWalletChain(...args)
 }));
 const mockGetEpochSdk = jest.fn(async (_opts?: { allocatorUrl?: string }) => ({}));
@@ -209,6 +214,177 @@ it('fails the tracking row at the execute, with what failed it, when the deposit
   expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
     error: 'Wallet did not switch',
     failure: { step: 'epoch_execute', cause }
+  });
+});
+
+describe('a relay source', () => {
+  const RELAY = '0x00000000000000000000000000000000000000aa';
+  const relayQuote: EVMToMidenQuote = { ...quote, params: { ...quote.params, evmSourceAddress: RELAY } };
+  const relayConnection = { address: RELAY, chainId: 11155111, isNative: false, isRelay: true };
+
+  beforeEach(() => {
+    mockConnection.mockReset().mockResolvedValue(relayConnection);
+  });
+
+  it('reads the reviewed source, switches no wallet chain, and binds the SDK to the relay address', async () => {
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+
+    expect(mockConnection).toHaveBeenCalledWith(RELAY, 11155111);
+    expect(mockSwitchWebWalletChain).not.toHaveBeenCalled();
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: RELAY, chainId: 11155111 }));
+    expect(mockRegister).toHaveBeenCalledWith(RELAY, 'nonce-1', expect.anything());
+  });
+
+  it('reports a refused solve with no wallet request client', async () => {
+    mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: 'refused' });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+
+    expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+      error: 'refused',
+      failure: { step: 'epoch_solve', cause: 'refused' }
+    });
+  });
+
+  it('polls the intent status of the relay address with the relay SDK', async () => {
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    mockGetEpochSdk.mockClear();
+
+    await useEpochStore.getState().poll();
+
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: RELAY, chainId: 11155111 }));
+  });
+
+  describe('a relay send whose outcome is not known', () => {
+    const JOB: RelayJobRef = { chainId: 11155111, id: `0x${'ab'.repeat(32)}`, deadline: 1_900_000_000 };
+    const SDK_TEXT = 'An unknown RPC error occurred.\n\nDetails: relay: the outcome of the batch is not known';
+
+    /** The SDK as it is: the submitter reports the open job, and the SDK gives back its own text alone. */
+    function sdkLosesTheCause(job: RelayJobRef, address = RELAY, extra: Record<string, unknown> = {}) {
+      mockBuildIntent.mockImplementation(async () => {
+        reportOpenRelayJob(address, job);
+        return { taskTypeString: 'bridge', intentData: {}, error: SDK_TEXT, ...extra };
+      });
+    }
+
+    beforeEach(() => {
+      useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+    });
+
+    it('keeps the row open with the job that the relay reported, when the SDK drops the cause', async () => {
+      sdkLosesTheCause(JOB);
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledTimes(1);
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'submitting', { relayJob: JOB });
+      expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: SDK_TEXT });
+      expect(mockRegister).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, Error]>([
+      ['a still-pending job', new RelayStillPendingError(JOB, `0x${'c1'.repeat(32)}`)],
+      ['a job whose outcome is not known', new RelayUnknownOutcomeError(JOB)]
+    ])('keeps the row open for %s in the cause chain of a thrown error', async (_name, relayError) => {
+      mockBuildIntent.mockRejectedValue(new Error('wrapped', { cause: new Error('rpc', { cause: relayError }) }));
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledTimes(1);
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'submitting', { relayJob: JOB });
+    });
+
+    it('keeps the row open with the reported job when the build throws with the text alone', async () => {
+      mockBuildIntent.mockImplementation(async () => {
+        reportOpenRelayJob(RELAY, JOB);
+        throw new Error(SDK_TEXT);
+      });
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'submitting', { relayJob: JOB });
+      expect(mockUpdatePhase).not.toHaveBeenCalledWith('row-1', 'failed', expect.anything());
+    });
+
+    it('lets the stranded rule decide when the lock already shows the deposit', async () => {
+      sdkLosesTheCause(JOB, RELAY, {
+        strandedDeposit: { lockId: '42', amount: '99', tokenAddress: '0x0000000000000000000000000000000000000002' }
+      });
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith(
+        'row-1',
+        'failed',
+        expect.objectContaining({
+          epochLockedDeposit: expect.objectContaining({ lockId: '42', sponsorAddress: RELAY })
+        })
+      );
+      expect(mockUpdatePhase).not.toHaveBeenCalledWith('row-1', 'submitting', expect.anything());
+    });
+
+    it.each<[string, RelayJobRef, string]>([
+      ['another chain', { ...JOB, chainId: 84532 }, RELAY],
+      ['another address', JOB, '0x00000000000000000000000000000000000000bb']
+    ])('still fails the row for an open job of %s', async (_name, job, address) => {
+      sdkLosesTheCause(job, address);
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', expect.objectContaining({ error: SDK_TEXT }));
+    });
+
+    it('still fails the row on a relay refusal, thrown or as text', async () => {
+      const refusal = new RelayApiError('bad_signature', 400, 'no');
+      mockBuildIntent.mockRejectedValue(new Error('wrapped', { cause: refusal }));
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', {
+        error: 'wrapped',
+        failure: { step: 'epoch_execute', cause: expect.any(Error) }
+      });
+    });
+
+    it('does not carry an open job of an earlier attempt into the next one', async () => {
+      sdkLosesTheCause(JOB);
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+      // A report after the attempt ended reaches no watch.
+      reportOpenRelayJob(RELAY, JOB);
+      mockUpdatePhase.mockClear();
+      mockBuildIntent.mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, error: 'refused' });
+      useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote: relayQuote });
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', expect.objectContaining({ error: 'refused' }));
+    });
+
+    it('watches nothing for an external wallet', async () => {
+      mockConnection.mockResolvedValue({ address: RELAY, isNative: true });
+      sdkLosesTheCause(JOB);
+
+      await useEpochStore.getState().executeEVMToMiden('row-1');
+
+      expect(mockUpdatePhase).toHaveBeenCalledWith('row-1', 'failed', expect.objectContaining({ error: SDK_TEXT }));
+    });
+  });
+
+  it('binds no account for an external wallet, and none for a source that is not an address', async () => {
+    mockConnection.mockResolvedValue({ address: '0xowner', isNative: true });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
+
+    mockGetEpochSdk.mockClear();
+    mockConnection.mockResolvedValue({ ...relayConnection, address: '0xowner' });
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    expect(mockGetEpochSdk).toHaveBeenCalledWith({ chainId: 11155111, allocatorUrl: 'https://allocator.document' });
   });
 });
 
