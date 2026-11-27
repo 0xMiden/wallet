@@ -133,7 +133,8 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset } = {})
         : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
           ? `provider finish ${finishReason}`
           : undefined;
-      const delayMs = paceDelayMs(response.headers, stats.promptTokens);
+      // A 429 is waited for once, by retryTransient, which charges that wait to the retry budget.
+      const delayMs = response.status === 429 ? 0 : paceDelayMs(response.headers, stats.promptTokens);
       if (delayMs > 0) {
         stats.pacedMs += delayMs;
         await new Promise(resolve => setTimeout(resolve, delayMs));
