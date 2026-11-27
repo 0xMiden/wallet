@@ -2405,7 +2405,7 @@
   "backToUnlock": "Girişe geri dön",
   "authReasonUnlock": "Cüzdanınızın kilidini açın",
   "authReasonViewRecoveryPhrase": "Kurtarma ifadesini görüntüleyin",
-  "authReasonRevealPrivateKey": "Özel anahtarınızı ifşa etmeyin",
+  "authReasonRevealPrivateKey": "Özel anahtarınızı ifşa edin",
   "authReasonRevealEverydayKey": "Günlük anahtarınızı açıklayın",
   "authReasonExportAccountFile": "Hesap dosyanızı dışa aktarın",
   "authReasonExportWalletFile": "Cüzdan dosyanızı dışa aktarın",

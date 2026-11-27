@@ -11129,7 +11129,7 @@
     "englishSource": "View your recovery phrase"
   },
   "authReasonRevealPrivateKey": {
-    "message": "Özel anahtarınızı ifşa etmeyin",
+    "message": "Özel anahtarınızı ifşa edin",
     "englishSource": "Reveal your private key"
   },
   "authReasonRevealEverydayKey": {
