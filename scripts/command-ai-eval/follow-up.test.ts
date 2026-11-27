@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 // App 1.18.2 end to end: its snapshot request, the Worker, its reply parser and orchestrator, then the screen step.
-import { describe, expect, it } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -27,6 +27,11 @@ it.each([
 ])('keeps %s as app 1.18.2 shipped it', (file, blob) => {
   const contents = readFileSync(path.join(__dirname, 'app-1.18.2', file));
   expect(createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex')).toBe(blob);
+});
+
+beforeEach(() => {
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'info').mockImplementation(() => {});
 });
 
 const ALICE = 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62';

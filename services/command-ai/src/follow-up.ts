@@ -29,6 +29,8 @@ export function keepsStaleId(
   const draft = isRecord(snapshot.draft) ? snapshot.draft : {};
   const changes = (key: string) => patch[key] !== null && lower(patch[key]) !== lower(draft[key]);
 
+  // A patch that changes nothing asks the same question again, dropping whatever the reply said.
+  if (Object.values(patch).every(value => value === null)) return true;
   // A new action would carry the old one's ids with it.
   if (changes('action')) return true;
   if (draft.action === 'bridge' && ROUTE.some(changes)) return true;
@@ -40,8 +42,9 @@ export function keepsStaleId(
   });
   if (replaced) return true;
 
-  // A token the reply names but the patch leaves out would be dropped without a word.
-  const known = [...ASSETS.map(key => draft[key]), ...ASSETS.map(key => patch[key])].map(lower);
+  // A token the reply names but the patch leaves out would be dropped without a word. Only the pending pay token may
+  // go unrepeated: it is what a typed amount is in.
+  const known = [draft.asset, ...ASSETS.map(key => patch[key])].map(lower);
   const named = utterance.replace(PLACEHOLDERS, ' ').match(/[A-Za-z0-9]+/g) ?? [];
   if (named.some(word => DEFAULT_LIQUID_TICKERS.has(word.toUpperCase()) && !known.includes(word.toLowerCase()))) {
     return true;
