@@ -335,6 +335,22 @@ const HOLDOUT_PATH = path.join(__dirname, 'help-holdout.json');
 const MIN_HOLDOUT_CLUSTERS = { answerable: 80, near_miss: 30, out_of_scope: 30 };
 const CASE_CLASSES = ['answerable', 'near_miss', 'out_of_scope', 'action', 'fragment'];
 
+// A cluster is scored once, so it must be one intent, never shared with the dev questions.
+function selectionClusterErrors(dev, holdout) {
+  const devClusters = new Set(dev.map(item => item.cluster));
+  const reused = [...new Set(holdout.map(item => item.cluster))]
+    .filter(name => name && devClusters.has(name))
+    .map(name => `holdout reuses dev cluster ${name}`);
+  const cases = [...dev, ...holdout];
+  const merged = [...new Set(cases.map(item => item.cluster))].filter(Boolean).flatMap(name => {
+    const [first, ...rest] = cases.filter(item => item.cluster === name);
+    if (rest.some(item => item.class !== first.class)) return [`${name}: mixed class`];
+    const shared = first.cards?.filter(id => rest.every(item => item.cards?.includes(id)));
+    return first.class === 'answerable' && !shared?.length ? [`${name}: no shared accepted card`] : [];
+  });
+  return [...reused, ...merged];
+}
+
 // A mistyped id, card or class drops its case out of a bar without a word, so the run refuses it.
 function selectionCaseErrors(cases) {
   const cards = new Set(helpDataset().cards.map(card => card.id));
@@ -361,12 +377,14 @@ function selectionCaseErrors(cases) {
 /** The selection questions. Only a dev run may go without the holdout, which tuning must never see. */
 export function loadSelectionCases({ devOnly = false, holdoutPath = HOLDOUT_PATH } = {}) {
   const dev = readJson('help-eval.json');
-  const errors = selectionCaseErrors(dev);
   let holdout = [];
   if (!devOnly) {
     if (!existsSync(holdoutPath)) throw new Error('help-holdout.json is missing. Tune with --dev-only.');
     holdout = JSON.parse(readFileSync(holdoutPath, 'utf8'));
-    errors.push(...selectionCaseErrors(holdout));
+  }
+  // Checked together, so a holdout id cannot repeat a dev id.
+  const errors = [...selectionCaseErrors([...dev, ...holdout]), ...selectionClusterErrors(dev, holdout)];
+  if (!devOnly) {
     for (const [name, minimum] of Object.entries(MIN_HOLDOUT_CLUSTERS)) {
       const count = new Set(holdout.filter(item => item.class === name).map(item => item.cluster)).size;
       if (count < minimum) errors.push(`holdout has ${count} ${name} clusters, needs ${minimum}`);
