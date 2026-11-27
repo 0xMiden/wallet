@@ -26,9 +26,8 @@ import { expect, test } from '../fixtures/extension';
  * reporting starts at launch independently of usage consent, so `SENTRY_DSN`
  * must be empty to keep crash reports from leaving the runner.
  *
- * Runs on merge to main rather than per-PR: it needs its own build of the
- * extension, and the risk it guards against is a slow one — nobody lands a
- * change to the serializer without the jest tests noticing.
+ * Runs on pull requests that touch telemetry or this harness because it needs
+ * its own extension build.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -225,10 +224,15 @@ test.describe('Usage analytics egress', () => {
       // this step could go quiet for the wrong reason.
       const visited = await page.evaluate(
         ms => {
-          const go = (hash: string) => history.pushState(null, '', `${location.pathname}${hash}`);
+          const go = (hash: string) => window.history.pushState(null, '', `${window.location.pathname}${hash}`);
           go('#/send');
-          const reached = location.hash;
-          return new Promise<string>(resolve => setTimeout(() => (go('#/'), resolve(reached)), ms));
+          const reached = window.location.hash;
+          return new Promise<string>(resolve => {
+            setTimeout(() => {
+              go('#/');
+              resolve(reached);
+            }, ms);
+          });
         },
         Math.floor(ROUTE_DWELL_MS / 3)
       );
@@ -326,7 +330,7 @@ test.describe('Usage analytics egress', () => {
       // including them would collapse every one of them under a single
       // `undefined` key and read as exactly the fusion this is checking for.
       const namesByFlowId = new Map<string, Set<string>>();
-      for (const envelope of sinceReload.filter(e => !/_(settled|visit)$/.test(String(e.eventName)))) {
+      for (const envelope of sinceReload.filter(e => !/_(settled|visit|discovery)$/.test(String(e.eventName)))) {
         const id = String(propsOf(envelope).flowId);
         const name = String(envelope.eventName).replace(/_(started|ended)$/, '');
         namesByFlowId.set(id, (namesByFlowId.get(id) ?? new Set()).add(name));
@@ -375,6 +379,47 @@ test.describe('Usage analytics egress', () => {
         expect(['number', 'undefined']).toContain(typeof props.durationMs);
         expect(props.flowId).toBeUndefined();
       }
+    });
+
+    await test.step('visible features and explicit selections reach the sink with closed labels', async () => {
+      const sidePanel = await extensionContext.newPage();
+      await sidePanel.setViewportSize({ width: 360, height: 640 });
+      await sidePanel.bringToFront();
+      await sidePanel.goto(`chrome-extension://${extensionId}/sidepanel.html#/`, { waitUntil: 'domcontentloaded' });
+      const send = sidePanel.locator('[data-home-actions="true"]').getByRole('tab', { name: 'Send', exact: true });
+      const discovery = () =>
+        received()
+          .map(request => JSON.parse(request.body) as Record<string, unknown>)
+          .filter(envelope => envelope.eventName === 'feature_discovery');
+
+      await expect(send).toBeVisible();
+      await expect.poll(discovery).toContainEqual(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            feature: 'send',
+            entryPoint: 'home_actions',
+            discoveryAction: 'exposed',
+            surface: 'side_panel'
+          })
+        })
+      );
+      const beforeSelection = discovery().length;
+      await send.click();
+      await expect(sidePanel).toHaveURL(/#\/send$/);
+      await expect
+        .poll(() => discovery().slice(beforeSelection))
+        .toContainEqual(
+          expect.objectContaining({
+            props: expect.objectContaining({
+              feature: 'send',
+              entryPoint: 'home_actions',
+              discoveryAction: 'selected',
+              surface: 'side_panel'
+            })
+          })
+        );
+      await sidePanel.close();
+      for (const request of received()) assertEnvelopeShape(request);
     });
 
     await test.step('withdrawing usage consent stops Aptabase egress', async () => {
@@ -467,6 +512,9 @@ const PROPS_KEYS = [
   'surface',
   'order',
   'complete',
+  'feature',
+  'entryPoint',
+  'discoveryAction',
   'network'
 ];
 const VISIT_SCREENS = [
@@ -494,7 +542,7 @@ function assertEnvelopeShape(request: SinkRequest): void {
 
   // Every part comes from a closed literal union in `types.ts`, so anything
   // outside this shape means a free-form string reached the event name.
-  expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended|settled|visit)$/);
+  expect(String(envelope.eventName)).toMatch(/^(?:[a-z_]+_(?:started|ended|settled|visit)|feature_discovery)$/);
   // The session id is an ephemeral per-run nanoid. Asserting its shape is what
   // keeps a persistent or device-derived identifier from being introduced
   // without a test noticing: anything derived from a device would not be 21
@@ -515,16 +563,28 @@ function assertEnvelopeShape(request: SinkRequest): void {
   const shape =
     flowId === undefined ? 'absent' : /^[A-Za-z0-9_-]{21}$/.test(String(flowId)) ? 'nanoid' : `neither: ${flowId}`;
 
-  const pairless = /_(settled|visit)$/.test(String(envelope.eventName));
+  const pairless = /_(settled|visit|discovery)$/.test(String(envelope.eventName));
   expect(shape).toBe(pairless ? 'absent' : 'nanoid');
   // Unconditional by construction: a non-visit event is checked against stand-ins, so the visit contract goes
   // quiet for no event kind.
   const isVisit = String(envelope.eventName).endsWith('_visit');
+  const isDiscovery = envelope.eventName === 'feature_discovery';
   const visitProps = envelope.props as Record<string, unknown>;
   expect(VISIT_SCREENS).toContain(isVisit ? visitProps.screen : VISIT_SCREENS[0]);
   expect(isVisit ? visitProps.screen : 'x').toBe(isVisit ? String(envelope.eventName).replace(/_visit$/, '') : 'x');
   expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(isVisit ? visitProps.navSource : 'initial');
-  expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit ? visitProps.surface : 'popup');
+  expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit || isDiscovery ? visitProps.surface : 'popup');
+  if (isDiscovery) {
+    const featuresByEntry = {
+      bottom_nav: ['overview', 'explore', 'activity', 'me'],
+      home_actions: ['overview', 'send', 'receive', 'earn', 'swap'],
+      receive_tile: ['funding']
+    };
+    expect(Object.keys(visitProps).sort()).toEqual(['discoveryAction', 'entryPoint', 'feature', 'network', 'surface']);
+    expect(Object.keys(featuresByEntry)).toContain(visitProps.entryPoint);
+    expect(featuresByEntry[visitProps.entryPoint as keyof typeof featuresByEntry]).toContain(visitProps.feature);
+    expect(['exposed', 'selected']).toContain(visitProps.discoveryAction);
+  }
   // Holds either way: an absent flow id stringifies to something no 21-character
   // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));

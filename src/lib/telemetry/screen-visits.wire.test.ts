@@ -121,7 +121,16 @@ describe('screen visit on the wire', () => {
     } as unknown as Parameters<typeof sendEvent>[0];
     await sendEvent(discovery, context);
     await sendEvent({ ...discovery, feature: 'me' } as Parameters<typeof sendEvent>[0], context);
-    await sendEvent({ ...discovery, discoveryAction: 'unique-secret' } as Parameters<typeof sendEvent>[0], context);
+    for (const patch of [
+      { discoveryAction: 'unique-secret' },
+      { entryPoint: '__proto__' },
+      { runId: 'secret with a space' },
+      { surface: 'secret-device' }
+    ]) {
+      await sendEvent({ ...discovery, ...patch } as unknown as Parameters<typeof sendEvent>[0], context);
+    }
+    jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+    await sendEvent(discovery, context);
     expect(sent.map(payload => buildEnvelope(payload))).toEqual([
       expect.objectContaining({
         eventName: 'feature_discovery',

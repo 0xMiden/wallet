@@ -567,11 +567,13 @@ describe('feature discovery', () => {
     ]);
   });
 
-  it('qualifies an on-screen bar while keeping the independently hidden bar silent', async () => {
+  it('limits exposure to one per foreground opportunity and keeps independently hidden bars silent', () => {
     jest.useFakeTimers();
     const observe = jest.fn();
     const previousObserver = window.IntersectionObserver;
     const observers: IntersectionObserverCallback[] = [];
+    const visibility = jest.spyOn(document, 'visibilityState', 'get');
+    visibility.mockReturnValue('visible');
     window.IntersectionObserver = jest.fn(callback => {
       observers.push(callback);
       return { observe, disconnect: jest.fn() };
@@ -579,28 +581,55 @@ describe('feature discovery', () => {
     document.body.setAttribute('data-hide-home-actions', '');
     try {
       renderLayout();
-      act(() => {
-        observers.forEach(callback =>
-          callback(
-            [{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
-            {} as IntersectionObserver
-          )
-        );
-        jest.advanceTimersByTime(1000);
+      function showBars(ratio: number) {
+        act(() => {
+          observers.forEach(callback =>
+            callback(
+              [{ isIntersecting: true, intersectionRatio: ratio } as IntersectionObserverEntry],
+              {} as IntersectionObserver
+            )
+          );
+          jest.advanceTimersByTime(1000);
+        });
+      }
+      const events = () => jest.mocked(request).mock.calls.map(([message]) => 'event' in message && message.event);
+      showBars(0.3);
+      expect(events()).toEqual([]);
+      showBars(1);
+      const explore = expect.objectContaining({
+        phase: 'discovery',
+        feature: 'explore',
+        entryPoint: 'bottom_nav',
+        discoveryAction: 'exposed'
       });
-      const events = jest.mocked(request).mock.calls.map(([message]) => 'event' in message && message.event);
-      expect(events).toContainEqual(
-        expect.objectContaining({
-          phase: 'discovery',
-          feature: 'explore',
-          entryPoint: 'bottom_nav',
-          discoveryAction: 'exposed'
-        })
+      expect(events()).toContainEqual(explore);
+      expect(events()).not.toContainEqual(expect.objectContaining({ entryPoint: 'home_actions' }));
+      const initialEvents = events();
+      showBars(1);
+      expect(events()).toEqual(initialEvents);
+
+      visibility.mockReturnValue('hidden');
+      fireEvent(document, new Event('visibilitychange'));
+      showBars(1);
+      expect(events()).toEqual(initialEvents);
+      visibility.mockReturnValue('visible');
+      document.body.removeAttribute('data-hide-home-actions');
+      document.body.setAttribute('data-hide-navbar', '');
+      fireEvent(document, new Event('visibilitychange'));
+      showBars(1);
+      expect(events().slice(initialEvents.length)).toContainEqual(
+        expect.objectContaining({ entryPoint: 'home_actions' })
       );
-      expect(events).not.toContainEqual(expect.objectContaining({ entryPoint: 'home_actions' }));
+      expect(events().slice(initialEvents.length)).not.toContainEqual(
+        expect.objectContaining({ entryPoint: 'bottom_nav' })
+      );
     } finally {
+      visibility.mockReturnValue('hidden');
+      fireEvent(document, new Event('visibilitychange'));
+      visibility.mockRestore();
       window.IntersectionObserver = previousObserver;
       document.body.removeAttribute('data-hide-home-actions');
+      document.body.removeAttribute('data-hide-navbar');
       jest.useRealTimers();
     }
   });

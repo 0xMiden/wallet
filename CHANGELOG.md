@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
 - [FEATURE][all] When you share usage data, also report which screen you are on and how long it is visible (overview, send, receive, funding, swap, earn, explore, activity, me), with how you got there and whether it ran in the popup, side panel, full page or app, never a page address, account, contact, amount or anything typed, and describe it in the consent text and privacy policy (#1969, first slice).
 - [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
 - [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, keeps every claim note represented in token history, and lists the latest five activity rows with a See all link to Activity.

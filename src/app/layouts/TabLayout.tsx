@@ -15,6 +15,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
+import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import CommandLauncher from 'app/layouts/CommandLauncher';
@@ -261,6 +262,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   ];
 
   // Each action's icon is its action colour, the same token its flow's accent aliases (main.css).
+  const swapEnabled = isSwapEnabled();
   const actionItems = [
     {
       id: 'overview',
@@ -283,7 +285,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
-    ...(isSwapEnabled()
+    ...(swapEnabled
       ? [
           {
             id: 'swap',
@@ -298,6 +300,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
   const onScreen = usePageOnScreen();
+  const navDiscovery = useFeatureDiscovery<HTMLDivElement>('bottom_nav', onScreen);
+  const actionDiscovery = useFeatureDiscovery<HTMLDivElement>(
+    'home_actions',
+    onScreen && showActionBar,
+    swapEnabled ? undefined : 'swap'
+  );
 
   // Mobile, Home only: the body paints the status-bar safe area above the
   // app, so the action bar's band is drawn up there by a fixed pseudo-element
@@ -326,6 +334,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     const to = TAB_ROUTES[id];
     if (to && to !== pathname) {
       hapticSelection();
+      navDiscovery.select(id === 'home' ? 'overview' : id);
       navigate(to);
     }
   };
@@ -334,7 +343,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
-    if (to && to !== pathname) navigate(to);
+    if (to && to !== pathname) {
+      actionDiscovery.select(id);
+      navigate(to);
+    }
   };
 
   // Platform-specific sizing:
@@ -359,7 +371,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       {activeAction !== 'overview' && <CommandLauncher />}
-      <div className="shrink-0 relative z-10" data-home-actions="true">
+      <div ref={actionDiscovery.ref} className="shrink-0 relative z-10" data-home-actions="true">
         <HomeActionBar
           items={actionItems}
           activeId={activeAction}
@@ -419,6 +431,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           or stack a higher z-index over it. */}
       <div
         className="absolute bottom-0 left-0 right-0 z-60 pointer-events-none"
+        ref={navDiscovery.ref}
         data-tabbar-footer="true"
         style={{ display: 'flex' }}
       >

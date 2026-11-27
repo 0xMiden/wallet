@@ -1,5 +1,8 @@
 import {
+  TelemetryDiscoveryAction,
+  TelemetryEntryPoint,
   TelemetryErrorKind,
+  TelemetryFeature,
   TelemetryFlow,
   TelemetryNavSource,
   TelemetryNetwork,
@@ -74,7 +77,8 @@ export type AptabaseEventName =
   | `${TelemetryFlow}_started`
   | `${TelemetryFlow}_ended`
   | `${TelemetryOperation}_settled`
-  | `${TelemetryScreen}_visit`;
+  | `${TelemetryScreen}_visit`
+  | 'feature_discovery';
 
 /**
  * Aptabase's `props` is an open object, so the type system cannot do here what
@@ -103,6 +107,9 @@ export interface AptabaseProps {
   surface?: TelemetrySurface;
   order?: number;
   complete?: boolean;
+  feature?: TelemetryFeature;
+  entryPoint?: TelemetryEntryPoint;
+  discoveryAction?: TelemetryDiscoveryAction;
   /**
    * A prop, not a system prop: Aptabase reads only its own system fields, and that allowlist stays the four below.
    */
@@ -152,6 +159,9 @@ export const APTABASE_PROP_KEYS: readonly string[] = [
   'surface',
   'order',
   'complete',
+  'feature',
+  'entryPoint',
+  'discoveryAction',
   'network'
 ];
 
@@ -186,6 +196,7 @@ const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settl
 function eventNameOf(payload: TelemetryWirePayload): string {
   if (payload.phase === 'settled') return `${payload.operation}_settled`;
   if (payload.phase === 'visit') return `${payload.screen}_visit`;
+  if (payload.phase === 'discovery') return 'feature_discovery';
   return `${payload.flow}_${payload.phase}`;
 }
 
@@ -200,6 +211,7 @@ function eventNameOf(payload: TelemetryWirePayload): string {
  * no event, because it lands in a dashboard looking like a real one.
  */
 export function isNameableEvent(payload: TelemetryWirePayload): boolean {
+  if (payload.phase === 'discovery') return payload.feature !== undefined;
   // The subject is checked for presence separately, because a missing one
   // stringifies to `undefined` — which is lower-case letters and would sail
   // through the pattern as a perfectly well-formed `undefined_settled`.
@@ -235,6 +247,9 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   if (payload.surface !== undefined) props.surface = payload.surface;
   if (payload.order !== undefined) props.order = payload.order;
   if (payload.complete !== undefined) props.complete = payload.complete;
+  if (payload.feature !== undefined) props.feature = payload.feature;
+  if (payload.entryPoint !== undefined) props.entryPoint = payload.entryPoint;
+  if (payload.discoveryAction !== undefined) props.discoveryAction = payload.discoveryAction;
 
   return {
     timestamp: now.toISOString(),
