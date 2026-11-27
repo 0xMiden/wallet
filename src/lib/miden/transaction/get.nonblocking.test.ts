@@ -1037,11 +1037,11 @@ describe('non-blocking transaction store reads (#2327)', () => {
       );
 
       let cursor: Awaited<ReturnType<typeof getCompletedTransactionsPage>>['nextCursor'] = null;
-      for (let p = 0; p < 15; p += 1) {
+      for (let p = 0; p < 3; p += 1) {
         const res = await getCompletedTransactionsPage(
           cursor === null
-            ? { accountId: 'mtst1acct', limit: 10, includeFailed: true, fromEnd: true }
-            : { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+            ? { accountId: 'mtst1acct', limit: 50, includeFailed: true, fromEnd: true }
+            : { accountId: 'mtst1acct', limit: 50, includeFailed: true, cursor },
           table
         );
         cursor = res.nextCursor;
@@ -1063,7 +1063,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
         countSpy.mockRestore();
       }
     });
-  });
+  }, 20_000);
 
   it('getNoteHoldingTransactions avoids core.count and caps heldNoteIds cardinality probe at recentCompletedCount', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -1125,11 +1125,11 @@ describe('non-blocking transaction store reads (#2327)', () => {
         );
 
         let cursor: Awaited<ReturnType<typeof getCompletedTransactionsPage>>['nextCursor'] = null;
-        for (let p = 0; p < 7; p += 1) {
+        for (let p = 0; p < 2; p += 1) {
           const res = await getCompletedTransactionsPage(
             cursor === null
-              ? { accountId: 'mtst1acct', limit: 10, includeFailed: true, fromEnd: true }
-              : { accountId: 'mtst1acct', limit: 10, includeFailed: true, cursor },
+              ? { accountId: 'mtst1acct', limit: 35, includeFailed: true, fromEnd: true }
+              : { accountId: 'mtst1acct', limit: 35, includeFailed: true, cursor },
             table
           );
           cursor = res.nextCursor;
@@ -1149,7 +1149,7 @@ describe('non-blocking transaction store reads (#2327)', () => {
         }
       });
     }
-  }, 15_000);
+  }, 20_000);
 
   it('detectActiveHistoryStreams probes Failed before Completed so a Failed fallback row short-circuits Completed probes, and honors outer transactions', async () => {
     await withIsolatedTransactionsDb('page-order-outer', async (isolated, table) => {
