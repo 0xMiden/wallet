@@ -650,6 +650,11 @@ async function onDeadline(op_id: string): Promise<void> {
   const firedTimer = op.timer;
   const isCurrent = () => inFlight.get(op_id) === op && !op.paused && op.timer === firedTimer;
 
+  // A queued delivery check can expire without interrupting the sync ahead of it.
+  if (!op.started && op.method === 'isOutputNoteConsumed') {
+    rejectDeadlineNoKill(op_id, op);
+    return;
+  }
   if (downgradeReadDeadline(op_id, op)) return;
 
   // Either this IS the critical op whose own deadline fired (kill the wedge), or
