@@ -8,8 +8,14 @@ import {
   COMMAND_AI_MAX_SNAPSHOT_BYTES,
   COMMAND_AI_MAX_TEXT_CHARS,
   type Env,
-  createService
+  createService,
+  SYSTEM_PROMPT
 } from '../src/index';
+import { type HelpDataset, buildHelpPrompt, explainReply } from '../src/help';
+import helpCards from '../src/help-cards.json';
+
+const HELP_DATA = helpCards as unknown as HelpDataset;
+const answerFor = (id: string) => explainReply(HELP_DATA.cards.find(card => card.id === id)!);
 
 const ALLOWED_ORIGIN = 'chrome-extension://coajhopfooegmaifelglfboehacldcbo';
 const DEFAULT_ORIGINS = JSON.stringify([
@@ -102,10 +108,8 @@ async function send(
 }
 
 describe('command-ai standalone Worker', () => {
-  it('grounds opted-in help questions without sending a draft or changing the legacy schema', async () => {
-    const output = {
-      result: { op: 'explain', topic: 'Privacy', answer: 'Private notes keep their contents off-chain.' }
-    };
+  it('routes opted-in help questions to checked cards without sending a draft or changing the legacy schema', async () => {
+    const output = { result: { op: 'help', cards: ['privacy_overview'] } };
     const fetchMock = groqOkFetch(output);
     const service = createService({ fetchImpl: fetchMock });
     const { env } = makeEnv();
@@ -114,7 +118,7 @@ describe('command-ai standalone Worker', () => {
       body: { redactedText: 'Can people see the payment amount?', helpContext: 'Privacy' }
     });
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ output });
+    await expect(response.json()).resolves.toEqual({ output: answerFor('privacy_overview') });
     await send(service, env, '/v1/compile', {
       method: 'POST',
       body: { redactedText: 'cancel' }
@@ -136,28 +140,10 @@ describe('command-ai standalone Worker', () => {
       utterance: 'Can people see the payment amount?',
       previousHelpTopic: 'Privacy'
     });
-    const systemPrompt = help.messages[0].content;
-    expect(systemPrompt).toContain('Choose Verify for how to check or be sure a payment is private');
-    expect(systemPrompt).toContain('Choose Safety for questions about sharing secrets, even with support.');
-    expect(systemPrompt).toContain('Choose Recovery for how to restore wallet access.');
-    expect(systemPrompt).toContain('With a private Bread account, your balance and holdings');
-    expect(systemPrompt).toContain('the recipient can read it');
-    expect(systemPrompt).toContain('Never call a transaction anonymous or unlinkable.');
-    expect(systemPrompt).toContain('Your account ID, who sent a note, and the fact that a transaction happened are public.');
-    expect(systemPrompt).toContain('Compare Public and Private in send review.');
-    expect(systemPrompt).toContain('Infer no other access, public recipient, or unlinkability.');
-    expect(systemPrompt).toContain('Declining a transfer cannot cancel or refund it.');
-    expect(systemPrompt).toContain('It hides it on this device. You can restore it from Activity.');
-    expect(systemPrompt).toContain('Do not guess who holds the funds');
-    expect(systemPrompt).toContain('A private account also needs its account data restored.');
-    expect(systemPrompt).not.toContain('Guardian receives encrypted account state');
-    expect(systemPrompt).toContain('Choose Assistant for what the AI can see.');
-    expect(systemPrompt).toContain('Help sends no chat or wallet history.');
-    expect(systemPrompt).toContain("Today all three network validators receive each transaction's private details to check it.");
-    expect(systemPrompt).not.toContain('two of three validators');
-    expect(help.messages[0].content.length - legacy.messages[0].content.length).toBeLessThan(5300);
-    expect(JSON.stringify(help.response_format)).toContain('"explain"');
-    expect(JSON.stringify(legacy.response_format)).not.toContain('"explain"');
+    expect(help.messages[0].content).toBe(buildHelpPrompt(SYSTEM_PROMPT, HELP_DATA));
+    expect(legacy.messages[0].content).toBe(SYSTEM_PROMPT);
+    expect(JSON.stringify(help.response_format)).toContain('"help"');
+    expect(JSON.stringify(legacy.response_format)).not.toContain('"help"');
     const refused = await send(service, env, '/v1/compile', {
       method: 'POST',
       body: { redactedText: 'what is a note?', helpContext: null, snapshot: { missingSlot: 'recipient' } }
@@ -167,9 +153,7 @@ describe('command-ai standalone Worker', () => {
   });
 
   it('accepts a successful first-turn null help request without a draft', async () => {
-    const output = {
-      result: { op: 'explain', topic: 'Miden', answer: 'Miden is a network for digital assets.' }
-    };
+    const output = { result: { op: 'help', cards: ['miden_what'] } };
     const fetchMock = groqOkFetch(output);
     const service = createService({ fetchImpl: fetchMock });
     const { env } = makeEnv();
@@ -178,7 +162,7 @@ describe('command-ai standalone Worker', () => {
       body: { redactedText: 'How does Miden work?', helpContext: null }
     });
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ output });
+    await expect(response.json()).resolves.toEqual({ output: answerFor('miden_what') });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(String(init?.body));
@@ -187,8 +171,8 @@ describe('command-ai standalone Worker', () => {
     expect(withoutPrompt).not.toContain('snapshot');
     expect(withoutPrompt).not.toContain('missingSlot');
     expect(withoutPrompt).not.toContain('previousHelpTopic');
-    expect(body.messages[0].content).toContain('all three network validators receive');
-    expect(JSON.stringify(body.response_format)).toContain('"explain"');
+    expect(body.messages[0].content).toBe(buildHelpPrompt(SYSTEM_PROMPT, HELP_DATA));
+    expect(JSON.stringify(body.response_format)).toContain('"help"');
   });
 
   it('rejects an unknown help topic before calling the provider', async () => {

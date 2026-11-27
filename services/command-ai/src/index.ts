@@ -2,6 +2,7 @@ import helpFacts from '../../../src/lib/command-ai/help-facts.json';
 import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
 
 import { hasUnsafeSharingAdvice } from './help-safety.mjs';
+import type { HelpDataset } from './help';
 
 export { COMMAND_AI_MAX_TEXT_CHARS };
 
@@ -554,8 +555,21 @@ async function dispatch(request: Request, env: Env, fetchImpl: typeof fetch): Pr
   return jsonResponse({ error: 'not_found', message: 'Route not found.' } satisfies ErrorBody, 404);
 }
 
-/** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl. */
-export function createService({ fetchImpl = globalThis.fetch }: { fetchImpl?: typeof fetch } = {}): Service {
+export interface HelpTrace {
+  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder';
+  picked: string[];
+  unknownIds: string[];
+  served: string | null;
+}
+
+export interface ServiceOptions {
+  fetchImpl?: typeof fetch;
+  dataset?: HelpDataset;
+  onTrace?: (trace: HelpTrace) => void;
+}
+
+/** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl, dataset and trace. */
+export function createService({ fetchImpl = globalThis.fetch }: ServiceOptions = {}): Service {
   return {
     async fetch(request, env) {
       let origins: Set<string>;
