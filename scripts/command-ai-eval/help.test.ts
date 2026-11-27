@@ -15,7 +15,8 @@ import {
   isTypedReply,
   matchTopicButton,
   selectCard,
-  selectCards
+  selectCards,
+  takeBackCards
 } from '../../services/command-ai/src/help';
 import context from './eval-context.json';
 import helpEval from './help-eval.json';
@@ -169,7 +170,8 @@ describe('buildHelpPrompt', () => {
     'cannot_diagnose',
     'How to do something is help',
     'Showing or getting your own address or QR code is set_intent receive',
-    'A how-to question is help even when it names a token, chain or amount',
+    'A "how do I" question is help even when it names a token, chain or amount',
+    'How much you spent, received or hold, or your past payments, is query_ledger',
     'the fact asked',
     'never gets unsupported',
     'hides any number',
@@ -185,4 +187,42 @@ describe('buildHelpPrompt', () => {
 
 it('builds the explain reply from the checked answer only', () => {
   expect(explainReply(card('w1', 'write'))).toEqual({ op: 'explain', topic: 'Wallet', answer: 'answer w1' });
+});
+
+describe('takeBackCards', () => {
+  it.each([
+    'I want my money back from <CONTACT_1>',
+    'how do I get money back from a contact?',
+    'cancel my last payment',
+    'Cancel my previous transfer',
+    'can I cancel a payment I already sent?',
+    'can I get a refund?',
+    'how can I reverse a payment?',
+    'undo the transfer I sent to <CONTACT_1>',
+    'reclaim my payment',
+    'can I take back the money I sent?',
+    'is it possible to get my USDCx back from <ADDR_1>?'
+  ])('serves the take-back card for: %s', text => expect(takeBackCards(text)).toEqual(['cancel_take_back']));
+
+  it.each([
+    'cancel',
+    'never mind',
+    'stop',
+    'never mind cancel that',
+    'stop and clear',
+    'cancel the payment',
+    'send <AMT_1> USDC to <CONTACT_1>',
+    'send everything to <CONTACT_1>',
+    'send <AMT_1> back to <CONTACT_1>',
+    'send the money back to <CONTACT_1>',
+    'pay <CONTACT_1> back <AMT_1>',
+    'refund <CONTACT_1> <AMT_1>',
+    'refund <CONTACT_1>',
+    'give <CONTACT_1> his money back',
+    'swap back to USDC',
+    'bridge it back to ethereum',
+    'take my money back out of earn',
+    'withdraw my deposit back',
+    'how much did I spend last month?'
+  ])('leaves it to the router: %s', text => expect(takeBackCards(text)).toBeUndefined());
 });

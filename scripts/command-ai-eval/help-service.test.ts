@@ -674,3 +674,39 @@ describe('written answers', () => {
     expect(enabled.calls).toBe(3);
   });
 });
+
+describe('take-back questions', () => {
+  const routerCalls = (fetchMock: ReturnType<typeof setup>['fetchMock']) =>
+    fetchMock.mock.calls.filter(call => String((call[1] as RequestInit).body).includes('bread_command_intent'));
+  const sendAll = { result: { op: 'set_intent', action: 'send', amount: { kind: 'max' }, recipient_ref: 'CONTACT_1' } };
+
+  it.each(['I want my money back from <CONTACT_1>', 'cancel my last payment'])(
+    'serves the take-back card without asking the router: %s',
+    async redactedText => {
+      const { fetchMock, traces, service } = setup(sendAll);
+      const { status, body } = await compile(service, { redactedText, helpContext: null });
+      expect(status).toBe(200);
+      expect(routerCalls(fetchMock)).toHaveLength(0);
+      expect((body.output as { op: string }).op).toBe('explain');
+      expect(traces[0]?.picked).toEqual(['cancel_take_back']);
+    }
+  );
+
+  it('still sends a send command to the router', async () => {
+    const { fetchMock, service } = setup(sendAll);
+    const { body } = await compile(service, { redactedText: 'send <AMT_1> back to <CONTACT_1>', helpContext: null });
+    expect(routerCalls(fetchMock)).toHaveLength(1);
+    expect(body.output).toEqual(sendAll);
+  });
+
+  it('leaves requests without help or with a snapshot to the router', async () => {
+    for (const extra of [
+      {},
+      { snapshot: { missingSlot: 'note_type', allowedOptionIds: ['private', 'public'], draft: { action: 'send' } } }
+    ]) {
+      const { fetchMock, service } = setup({ result: { op: 'cancel' } });
+      await compile(service, { redactedText: 'cancel my last payment', ...extra });
+      expect(routerCalls(fetchMock)).toHaveLength(1);
+    }
+  });
+});
