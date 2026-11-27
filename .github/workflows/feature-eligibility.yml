@@ -87,6 +87,7 @@ jobs:
           .github/workflows/e2e-bridge.yml
           .github/workflows/e2e-dapp-browser.yml
           .github/workflows/e2e-dapp.yml
+          .github/workflows/e2e-multi-device.yml
           .github/workflows/e2e-resilience.yml
           .github/workflows/e2e-stress.yml
           .github/workflows/e2e-telemetry.yml

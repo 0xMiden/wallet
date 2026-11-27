@@ -69,7 +69,7 @@ jest.mock('lib/store/utils/fetchBalances', () => ({
 // otherwise hold its address into the next test.
 beforeEach(() => {
   fetchingAddresses.clear();
-  useWalletStore.setState({ balanceReadFailed: {}, balanceReadInFlight: {} });
+  useWalletStore.setState({ balanceReadFailed: {}, balanceRefreshFailed: {}, balanceReadInFlight: {} });
 });
 
 describe('useAllBalances infinite loop protection', () => {
@@ -1151,6 +1151,46 @@ describe('the first read for an address (#1123)', () => {
       warn.mockRestore();
     }
   });
+
+  it('exposes balanceRefreshFailed when a refresh rejects over landed balances and clears once landed', async () => {
+    const landedRow: TokenBalanceData = {
+      tokenId: 'tok-1',
+      tokenSlug: 'TOK',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 8 },
+      balance: 4,
+      fiatPrice: 1,
+      change24h: 0
+    };
+    useWalletStore.setState({
+      balances: { 'refresh-fail-address': [landedRow] },
+      balancesLoading: { 'refresh-fail-address': false },
+      balancesLastFetched: { 'refresh-fail-address': 0 }
+    });
+    fetchBalancesMock().mockRejectedValueOnce(new Error('offline'));
+
+    let lastView: ReturnType<typeof useAllBalances> | undefined;
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+    const Consumer = () => {
+      lastView = useAllBalances('refresh-fail-address', {});
+      return <div />;
+    };
+    await act(async () => {
+      testRoot!.render(<Consumer />);
+      await Promise.resolve();
+    });
+
+    expect(lastView?.readFailed).toBe(false);
+    expect(lastView?.balanceRefreshFailed).toBe(true);
+    expect(lastView?.data[0]?.balance).toBe(4);
+
+    fetchBalancesMock().mockResolvedValueOnce([{ ...landedRow, balance: 6 }]);
+    await act(async () => {
+      await lastView!.mutate();
+    });
+    expect(lastView?.balanceRefreshFailed).toBe(false);
+    expect(lastView?.data[0]?.balance).toBe(6);
+  });
 });
 
 describe('extension balance read failures and retries', () => {
@@ -1382,5 +1422,35 @@ describe('extension balance read failures and retries', () => {
     await advance(2_000);
     expect(currentView?.balanceReadInFlight).toBe(false);
     expect(currentView?.readFailed).toBe(false);
+  });
+
+  it('surfaces connectivity-derived refresh failures once balances have landed and clears them when restored', async () => {
+    useWalletStore.setState({
+      balancesLoading: { [address]: false },
+      balancesLastFetched: { [address]: Date.now() },
+      balances: {
+        [address]: [
+          {
+            tokenId: 'token',
+            tokenSlug: 'TOK',
+            metadata: { name: 'Token', symbol: 'TOK', decimals: 8 },
+            balance: 3,
+            fiatPrice: 1,
+            change24h: 0
+          }
+        ]
+      }
+    });
+    jest.mocked(fetchFromStorage).mockResolvedValueOnce(connectivitySnapshot({ node: true }));
+    await mount();
+
+    expect(currentView?.readFailed).toBe(false);
+    expect(currentView?.balanceRefreshFailed).toBe(true);
+
+    const onChange = jest.mocked(onStorageChanged).mock.calls[0]?.[1] as ((value: unknown) => void) | undefined;
+    await act(async () => {
+      onChange?.(connectivitySnapshot());
+    });
+    expect(currentView?.balanceRefreshFailed).toBe(false);
   });
 });

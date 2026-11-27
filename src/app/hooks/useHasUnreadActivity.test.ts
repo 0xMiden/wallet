@@ -338,6 +338,56 @@ describe('useHasUnreadActivity - the account feed rows', () => {
     await transactions.add(tx('claim', { type: 'consume', noteId: 'claimed-note', completedAt: 1 }));
     await waitFor(() => expect(result.current).toBe(true));
   });
+
+  it('observes a new GeneratingTransaction row for account A past >64 Queued rows for account B', async () => {
+    await transactions.bulkAdd(
+      Array.from({ length: 70 }, (_, i) =>
+        tx(`b-queued-${i}`, {
+          accountId: B,
+          status: ITransactionStatus.Queued,
+          completedAt: undefined,
+          initiatedAt: 100 + i
+        })
+      )
+    );
+    const origOpenCursor = transactions.core.openCursor.bind(transactions.core);
+    const origQuery = transactions.core.query.bind(transactions.core);
+    const origCount = transactions.core.count.bind(transactions.core);
+    const seenReadTx = new Set<object>();
+    transactions.core.openCursor = req => {
+      seenReadTx.add(req.trans);
+      return origOpenCursor(req);
+    };
+    transactions.core.query = req => {
+      seenReadTx.add(req.trans);
+      return origQuery(req);
+    };
+    transactions.core.count = req => {
+      seenReadTx.add(req.trans);
+      return origCount(req);
+    };
+    try {
+      const result = await renderUnread();
+      expect(result.current).toBe(false);
+      expect(seenReadTx.size).toBe(1);
+
+      seenReadTx.clear();
+      await transactions.add(
+        tx('a-generating', {
+          accountId: A,
+          status: ITransactionStatus.GeneratingTransaction,
+          completedAt: undefined,
+          initiatedAt: 500
+        })
+      );
+      await waitFor(() => expect(result.current).toBe(true), { timeout: 5000 });
+      expect(seenReadTx.size).toBe(1);
+    } finally {
+      transactions.core.openCursor = origOpenCursor;
+      transactions.core.query = origQuery;
+      transactions.core.count = origCount;
+    }
+  });
 });
 
 describe('useHasUnreadActivity - transfers the claim check found unavailable', () => {

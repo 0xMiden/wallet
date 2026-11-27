@@ -502,6 +502,40 @@ describe('PendingActivityCard', () => {
       expect(bar?.className).not.toMatch(/\bp[xb]-/);
     });
   });
+
+  describe('row status badge', () => {
+    it('shows failed badge beside Retry when the claim failed', () => {
+      renderCard('failed');
+
+      const badge = screen.getByTestId('pending-activity-row-status');
+      expect(badge).toHaveTextContent('failed');
+      expect(badge).toHaveClass('text-negative-tint-ink');
+      expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+    });
+
+    it('shows notConfirmed badge beside Retry when a claim tx is held unconfirmed', () => {
+      renderCard('claiming', { held: true, txId: 'tx-held' });
+
+      const badge = screen.getByTestId('pending-activity-row-status');
+      expect(badge).toHaveTextContent('notConfirmed');
+      expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+    });
+
+    it('shows trackingUnavailable badge when note state is unavailable', () => {
+      renderCard('unavailable');
+
+      expect(screen.getByTestId('pending-activity-row-status')).toHaveTextContent('trackingUnavailable');
+    });
+
+    it('keeps pending badge for pending and active non-held claiming transfers', () => {
+      const { unmount } = renderCard('pending');
+      expect(screen.getByTestId('pending-activity-row-status')).toHaveTextContent('pending');
+      unmount();
+
+      renderCard('claiming');
+      expect(screen.getByTestId('pending-activity-row-status')).toHaveTextContent('pending');
+    });
+  });
 });
 
 describe('PendingActivityCard live failure reporting', () => {

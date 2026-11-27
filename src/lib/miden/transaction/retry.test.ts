@@ -4,6 +4,7 @@ import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 import {
   PROOF_FRESHNESS_UNKNOWN_ERROR,
   STALE_PROOF_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
@@ -11,7 +12,13 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { noteDeliveryWriteCount } from './helper';
+import {
+  markAttemptPreSubmitEnd,
+  noteDeliveryWriteCount,
+  pinGuardianCrossing,
+  recordSubmitCrossing,
+  retractSubmitCrossing
+} from './helper';
 import { __resetNoteDeliverySweepForTests, MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 import {
   RETRY_REFUSAL_COPY,
@@ -459,6 +466,36 @@ describe('requeueFailedTransaction - ambiguous post-submit failures are not repl
     });
   });
 
+  describe('a send that failed on a confirmed pre-submit kill (#2325)', () => {
+    const killedPreSubmitSend = (overrides: Partial<ITransaction & { preSubmitKill?: true }> = {}) =>
+      failedRow({
+        type: 'send',
+        stage: 'proving',
+        transactionId: undefined,
+        error: TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+        preSubmitKill: true,
+        ...overrides
+      } as Partial<ITransaction>);
+
+    it('requeues with no acknowledgement and clears preSubmitKill', async () => {
+      const row = killedPreSubmitSend({ requestBytes: new Uint8Array([9, 9]) });
+      wireRow(row);
+      await requeueFailedTransaction('tx-1');
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.requestBytes).toBeUndefined();
+      expect((row as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    });
+
+    it('still refuses when an unresolved submitEvidence entry remains alongside preSubmitKill', async () => {
+      const row = killedPreSubmitSend({
+        submitEvidence: [{ attemptId: 'a0', capturedAt: 900, source: 'stage' }]
+      });
+      wireRow(row);
+      await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+      expect(row.status).toBe(ITransactionStatus.Failed);
+    });
+  });
+
   // Where the refusal lives, and why it moved. It used to be the PREDICATE, so
   // the Retry button simply never rendered for one of these rows. That is a dead
   // end: nothing on the row ever changes, so the button never comes back, and a
@@ -702,6 +739,27 @@ describe('requeueFailedTransaction - a pinned-bytes send, swap or bridge send th
       }
     }
   );
+
+  it('clears requestBytes and keeps mayHaveSubmitted unset when an offscreen recallable send ends unsent at sending or submitting (#2325)', async () => {
+    for (const stage of ['sending', 'submitting'] as const) {
+      for (const error of [STALE_PROOF_ERROR, PROOF_FRESHNESS_UNKNOWN_ERROR]) {
+        const row = pinned({
+          type: 'send',
+          stage,
+          error,
+          mayHaveSubmitted: undefined,
+          submitEvidence: [{ attemptId: 'a1', capturedAt: 1000, source: 'pin', raisedFlag: true, preSubmitEnd: true }]
+        });
+        wireRow(row);
+
+        await requeueFailedTransaction('tx-1');
+
+        expect(row.status).toBe(ITransactionStatus.Queued);
+        expect(row.requestBytes).toBeUndefined();
+        expect(row.mayHaveSubmitted).toBeUndefined();
+      }
+    }
+  });
 
   it('a consume and a nullifier-listing execute still requeue with no refusal', async () => {
     const consume = failedRow({ type: 'consume' });
@@ -1194,4 +1252,93 @@ it('retains the actual missing-row refusal without replacing its Error or adding
   expect(error).toBeInstanceOf(Error);
   expect(snapshotPendingRetry(error)).toBe('row_missing');
   expect(first).toHaveBeenCalledTimes(1);
+});
+
+describe('requeueFailedTransaction - C-7 raisedFlag ownership across retries (F11)', () => {
+  it('strips stale raisedFlag when proven requeue clears mayHaveSubmitted so a retried attempt can retract pre-submit', async () => {
+    const row = failedRow({
+      id: 'tx-1',
+      type: 'send',
+      stage: 'proving',
+      attemptId: 'a0',
+      error: 'Something broke',
+      mayHaveSubmitted: true,
+      neverCommittedAt: 1000,
+      requestBytes: new Uint8Array([1, 2, 3]),
+      submitEvidence: [
+        {
+          attemptId: 'a0',
+          capturedAt: 950,
+          source: 'pin',
+          guardianProposalNonce: 1,
+          verdict: 'never-committed',
+          raisedFlag: true
+        }
+      ]
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+    expect(row.submitEvidence?.[0]).toMatchObject({ attemptId: 'a0', verdict: 'never-committed' });
+
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.attemptId = 'a1';
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 2 });
+    expect(row.mayHaveSubmitted).toBe(true);
+
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+
+    row.status = ITransactionStatus.Failed;
+    row.error = STALE_PROOF_ERROR;
+    row.stage = 'proving';
+
+    await expect(requeueFailedTransaction('tx-1')).resolves.toBeUndefined();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('strips stale raisedFlag on acknowledged plain-send requeue while preserving prior evidence fields', async () => {
+    const row = failedRow({
+      id: 'tx-1',
+      type: 'send',
+      stage: 'sending',
+      attemptId: 'a0',
+      error: 'Network timeout',
+      mayHaveSubmitted: true,
+      requestBytes: undefined,
+      submitEvidence: [
+        {
+          attemptId: 'a0',
+          capturedAt: 950,
+          source: 'stage',
+          transactionId: '0x01',
+          endedBy: 'out-of-band',
+          endedAt: 980,
+          raisedFlag: true
+        }
+      ]
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a0' } });
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+    expect(row.submitEvidence?.[0]).toMatchObject({
+      attemptId: 'a0',
+      transactionId: '0x01',
+      endedBy: 'out-of-band',
+      endedAt: 980
+    });
+
+    row.status = ITransactionStatus.GeneratingTransaction;
+    row.attemptId = 'a1';
+    await recordSubmitCrossing('tx-1', undefined, { attemptId: 'a1', fromExecute: false });
+    expect(row.mayHaveSubmitted).toBe(true);
+
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
 });

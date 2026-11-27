@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
-import type { ITransaction } from 'lib/miden/db/types';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
@@ -131,8 +133,19 @@ export function CommandPortfolio({
 
   useEffect(() => {
     let cancelled = false;
-    void Repo.transactions
-      .toArray()
+    const loadRows = readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Completed, 'consume'],
+        [ITransactionStatus.Completed, 'bridged-receive'],
+        [ITransactionStatus.Completed, 'earn-withdraw'],
+        [ITransactionStatus.Completed, 'send'],
+        [ITransactionStatus.Completed, 'bridged-send'],
+        [ITransactionStatus.Completed, 'earn-deposit']
+      ]),
+      row => compareAccountIds(row.accountId, stableScope.accountId)
+    );
+    void loadRows
       .then(rows => {
         if (!cancelled) setActivityRows({ key, rows });
       })
@@ -142,7 +155,7 @@ export function CommandPortfolio({
     return () => {
       cancelled = true;
     };
-  }, [key, capturedAt, value]);
+  }, [key, stableScope.accountId, capturedAt, value]);
 
   const activityHistory = useMemo(
     () =>

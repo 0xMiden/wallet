@@ -192,9 +192,16 @@ function mockGuardianAccount(seed: Uint8Array) {
   };
 }
 
-const mockRecoverGuardianAccountByHotKey = jest.fn(
-  async (_hotSecretKeyHex: string, _endpoint: string): Promise<{ accountId: string; hotPublicKey: string }[]> => []
-);
+const mockPrepareGuardianRecoveryByHotKey = jest.fn(async (_hotSecretKeyHex: string, endpoint: string) => ({
+  guardianEndpoint: endpoint,
+  accountIds: [] as string[],
+  hotPublicKey: 'dead',
+  states: [],
+  secretKey: {} as any,
+  recovered: [] as { accountId: string; hotPublicKey: string }[],
+  dispose: jest.fn()
+}));
+const mockAdoptPreparedGuardianHotKeyRecovery = jest.fn(async (prepared: any) => prepared.recovered);
 // The lock hands its callback a hold, and assertWasmHoldCurrent runs the real comparison against it.
 let currentWasmHold: object | null = null;
 const mockRetireUnheldTrap = jest.fn();
@@ -207,12 +214,28 @@ jest.mock('../sdk/miden-client', () => ({
       await mockInsertKey(coldKey);
       return { accountId, keys };
     },
-    recoverGuardianAccountsBySeed: async (deriveColdSeed: (hdIndex: number) => Uint8Array) => {
+    prepareGuardianRecoveryBySeed: async (deriveColdSeed: (hdIndex: number) => Uint8Array, endpoint: string) => {
       const { accountId, keys } = mockGuardianAccount(deriveColdSeed(0));
-      return [{ accountId, hdIndex: 0, coldPublicKey: keys.coldPublicKey, coldSecretKeyHex: keys.coldSecretKeyHex }];
+      return {
+        guardianEndpoint: endpoint,
+        accountIds: [accountId],
+        entries: [{ hdIndex: 0, coldPublicKey: keys.coldPublicKey, coldSecretKeyHex: keys.coldSecretKeyHex }],
+        dispose: jest.fn()
+      };
     },
-    recoverGuardianAccountByHotKey: (hotSecretKeyHex: string, endpoint: string) =>
-      mockRecoverGuardianAccountByHotKey(hotSecretKeyHex, endpoint),
+    adoptPreparedGuardianSeedRecovery: async (prepared: {
+      entries: { hdIndex: number; coldPublicKey: string; coldSecretKeyHex: string }[];
+      accountIds: string[];
+    }) =>
+      prepared.entries.map((entry, idx) => ({
+        accountId: prepared.accountIds[idx]!,
+        hdIndex: entry.hdIndex,
+        coldPublicKey: entry.coldPublicKey,
+        coldSecretKeyHex: entry.coldSecretKeyHex
+      })),
+    prepareGuardianRecoveryByHotKey: (hotSecretKeyHex: string, endpoint: string) =>
+      mockPrepareGuardianRecoveryByHotKey(hotSecretKeyHex, endpoint),
+    adoptPreparedGuardianHotKeyRecovery: (prepared: unknown) => mockAdoptPreparedGuardianHotKeyRecovery(prepared),
     client: {
       accounts: { insert: async () => {} },
       keystore: {
@@ -473,9 +496,15 @@ describe('Vault login keys', () => {
   it('gives a key-QR device the same login key', async () => {
     const loginKey = await vault.loginKeyCommitment(account.publicKey, DOMAIN);
     const keyPair = await Vault.revealHotKey(account.publicKey, 'pw');
-    mockRecoverGuardianAccountByHotKey.mockResolvedValueOnce([
-      { accountId: account.publicKey, hotPublicKey: account.hotPublicKey! }
-    ]);
+    mockPrepareGuardianRecoveryByHotKey.mockResolvedValueOnce({
+      guardianEndpoint: 'https://default.guardian',
+      accountIds: [account.publicKey],
+      hotPublicKey: account.hotPublicKey!,
+      states: [],
+      secretKey: {} as any,
+      recovered: [{ accountId: account.publicKey, hotPublicKey: account.hotPublicKey! }],
+      dispose: jest.fn()
+    });
 
     const device = await Vault.spawnFromHotKey('pw', keyPair);
     expect(await device.fetchSeedPhraseStatus()).toBe('unavailable');

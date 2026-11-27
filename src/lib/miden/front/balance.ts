@@ -84,6 +84,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const balancesLoadingMap = useWalletStore(s => s.balancesLoading);
   const balancesLastFetchedMap = useWalletStore(s => s.balancesLastFetched);
   const balanceReadFailed = useWalletStore(s => s.balanceReadFailed[address] ?? false);
+  const balanceRefreshFailedFromStore = useWalletStore(s => s.balanceRefreshFailed?.[address] ?? false);
   const balanceReadInFlightFromStore = useWalletStore(s => s.balanceReadInFlight[address] ?? false);
   const hasCompletedInitialSync = useWalletStore(s => s.hasCompletedInitialSync);
   const extension = isExtension();
@@ -127,12 +128,12 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;
-  const connectivityFailed =
-    extension &&
-    !readStatus.extensionRetryActive &&
-    !hasLandedBalances &&
-    Boolean(connectivitySnapshot?.network.active || connectivitySnapshot?.node.active);
+  const connectivityOutage = Boolean(connectivitySnapshot?.network.active || connectivitySnapshot?.node.active);
+  const connectivityFailed = extension && !readStatus.extensionRetryActive && !hasLandedBalances && connectivityOutage;
   const readFailed = balanceReadFailed || readStatus.readFailed || connectivityFailed;
+  const balanceRefreshFailed =
+    balanceRefreshFailedFromStore ||
+    (extension && hasLandedBalances && !readStatus.extensionRetryActive && connectivityOutage);
   const balanceReadInFlight = balanceReadInFlightFromStore || readStatus.balanceReadInFlight;
 
   useEffect(() => {
@@ -333,6 +334,7 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     isLoading: balancesLoading,
     isValidating: balancesLoading,
     readFailed,
+    balanceRefreshFailed,
     balanceReadInFlight
   };
 }

@@ -33,11 +33,18 @@ export interface ConfirmationScreenProps {
    */
   creating?: boolean;
   /**
+   * True when Confirmation commits replacement/erasure of an existing signed-in
+   * wallet (e.g. ForgotPassword): replaces "Your wallet is ready" with honest
+   * confirmation copy, warning notice, and secondary Back-to-sign-in action.
+   */
+  replacesExistingWallet?: boolean;
+  /**
    * A recovery shows its own "restoring" and "finish restoring" copy; the
    * create-flow daily reminder is armed only for a create (undefined or `Create`).
    */
   onboardingType?: OnboardingType;
   onSubmit?: () => void;
+  onCancel?: () => void;
   onSwitchToPassword?: () => void;
 }
 
@@ -48,8 +55,10 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   recoveryError,
   recoveryErrorId = 'raw_onboarding_recovery_failed',
   creating = false,
+  replacesExistingWallet = false,
   onboardingType,
   onSubmit,
+  onCancel,
   onSwitchToPassword,
   'data-testid': dataTestId
 }) => {
@@ -79,7 +88,21 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   }
 
   const hasFailure = hasError || hasRecoveryError;
-  const primaryButtonTitle = hasFailure ? t('retry') : t('openWallet');
+  const primaryButtonTitle = hasFailure
+    ? t('retry')
+    : replacesExistingWallet
+      ? t(isRecovery ? 'eraseAndRestoreWallet' : 'eraseAndCreateWallet')
+      : t('openWallet');
+  const heroTitle = hasFailure
+    ? t('smthWentWrong')
+    : replacesExistingWallet
+      ? t('replaceWalletConfirmTitle')
+      : t('yourWalletIsReady');
+  const heroSubtitle = hasFailure
+    ? undefined
+    : replacesExistingWallet
+      ? t(isRecovery ? 'replaceWalletRestoreSubtitle' : 'replaceWalletCreateSubtitle')
+      : t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder');
 
   return (
     <SubPageLayout
@@ -104,17 +127,41 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               isLoading={isLoading}
               disabled={isLoading}
             />
+            {replacesExistingWallet && onCancel && (
+              <Button
+                tabIndex={0}
+                title={t('backToUnlock')}
+                variant={ButtonVariant.Secondary}
+                className="max-w-none"
+                onClick={onCancel}
+                disabled={isLoading}
+                data-testid="onboarding-confirmation-cancel"
+              />
+            )}
           </>
         ) : (
-          <Button
-            tabIndex={0}
-            title={primaryButtonTitle}
-            className="max-w-none"
-            onClick={onSubmit}
-            isLoading={isLoading}
-            disabled={isLoading}
-            data-testid="onboarding-confirmation-submit"
-          />
+          <>
+            <Button
+              tabIndex={0}
+              title={primaryButtonTitle}
+              className="max-w-none"
+              onClick={onSubmit}
+              isLoading={isLoading}
+              disabled={isLoading}
+              data-testid="onboarding-confirmation-submit"
+            />
+            {replacesExistingWallet && onCancel && (
+              <Button
+                tabIndex={0}
+                title={t('backToUnlock')}
+                variant={ButtonVariant.Secondary}
+                className="max-w-none"
+                onClick={onCancel}
+                disabled={isLoading}
+                data-testid="onboarding-confirmation-cancel"
+              />
+            )}
+          </>
         )
       }
     >
@@ -126,16 +173,21 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
           nameAs="h1"
           nameSize="xl"
           visual={<img src={walletReadyPerson} alt="" aria-hidden="true" className="h-auto w-full max-w-[280px]" />}
-          name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
+          name={heroTitle}
           subtitle={
-            hasFailure ? undefined : (
+            heroSubtitle === undefined ? undefined : (
               // Held to a readable measure and balanced, so the sentence breaks into two even lines.
               <span className="mx-auto block max-w-[320px] text-body font-semibold text-balance face-heading">
-                {t(isRecovery ? 'finishRestoringOnOpen' : 'recoveryPhraseSevenDayReminder')}
+                {heroSubtitle}
               </span>
             )
           }
         />
+        {replacesExistingWallet && !hasFailure && (
+          <Notice errorId={null} tone="warning" className="text-left" data-testid="onboarding-replace-wallet-warning">
+            {t('replaceWalletEraseWarning')}
+          </Notice>
+        )}
         {hasFailure && (
           // E2E drivers read a failed attempt here. Retry keeps the submit id, which passImportConfirmation relies on.
           <Notice
