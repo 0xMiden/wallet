@@ -800,7 +800,7 @@ describe('command-ai orchestrator', () => {
       ['a Miden network no route is on', { toChain: 'miden-devnet' }],
       ['a bridge from Miden to Miden', { fromChain: 'miden', toChain: 'miden' }]
     ])('says there is no route for %s', (_label, draft) => {
-      expectNoRoute(request(draft), ['in-usdc', 'in-eth']);
+      expect(expectNoRoute(request(draft), ['in-usdc', 'in-eth']).slot).toBe('route');
     });
 
     it('does not take a testnet route for a stated mainnet', () => {
