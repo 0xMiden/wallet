@@ -889,7 +889,7 @@
       "network": {
         "content": "$3"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$4"
       }
     }
@@ -901,7 +901,7 @@
       "network": {
         "content": "$1"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$2"
       }
     }
@@ -923,7 +923,7 @@
       "network": {
         "content": "$3"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$4"
       }
     }
@@ -935,7 +935,7 @@
       "network": {
         "content": "$1"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$2"
       }
     }

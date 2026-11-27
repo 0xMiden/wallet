@@ -861,12 +861,12 @@
     "englishSource": "Could not load balance."
   },
   "tokenDetailBalanceRefreshFailed": {
-    "message": "Could not refresh balance. Showing last confirmed balance.",
-    "englishSource": "(untranslated)"
+    "message": "无法刷新余额。显示最后一次确认的余额。",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
   },
   "tokenDetailFixedQuoteContext": {
-    "message": "Fixed 1.00 USD rate for $symbol$ on $network$.",
-    "englishSource": "(untranslated)",
+    "message": "$symbol$在$network$上的固定汇率为1.00美元。",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
     "placeholders": {
       "symbol": {
         "content": "$1"
@@ -877,8 +877,8 @@
     }
   },
   "tokenDetailMarketQuoteContext": {
-    "message": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
-    "englishSource": "(untranslated)",
+    "message": "$symbol$在$provider$上的价格，来自$network$，更新于$retrievedAt$。",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
     "placeholders": {
       "symbol": {
         "content": "$1"
@@ -889,30 +889,30 @@
       "network": {
         "content": "$3"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$4"
       }
     }
   },
   "tokenDetailBasketQuoteContext": {
-    "message": "Vault USD value on $network$, updated $retrievedAt$.",
-    "englishSource": "(untranslated)",
+    "message": "$network$上的Vault USD价值，更新于$retrievedAt$。",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
     "placeholders": {
       "network": {
         "content": "$1"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$2"
       }
     }
   },
   "tokenDetailQuoteStaleTitle": {
-    "message": "USD price is out of date",
-    "englishSource": "(untranslated)"
+    "message": "美元价格已过时",
+    "englishSource": "USD price is out of date"
   },
   "tokenDetailQuoteStaleMarketBody": {
-    "message": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
-    "englishSource": "(untranslated)",
+    "message": "来自$provider$在$network$上的$symbol$最新价格（$retrievedAt$）已超过10分钟，且未计入总计。",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
     "placeholders": {
       "symbol": {
         "content": "$1"
@@ -923,34 +923,34 @@
       "network": {
         "content": "$3"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$4"
       }
     }
   },
   "tokenDetailQuoteStaleBasketBody": {
-    "message": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
-    "englishSource": "(untranslated)",
+    "message": "$network$上金库的最新美元价值（$retrievedAt$）已超过10分钟，且未计入总计。",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
     "placeholders": {
       "network": {
         "content": "$1"
       },
-      "retrievedAt": {
+      "retrievedat": {
         "content": "$2"
       }
     }
   },
   "tokenDetailQuoteStaleBody": {
-    "message": "The last USD price is older than 10 minutes and hidden from totals.",
-    "englishSource": "(untranslated)"
+    "message": "最新美元价格已超过10分钟，且不计入总计。",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
   },
   "tokenDetailQuoteUnavailableTitle": {
-    "message": "USD price unavailable",
-    "englishSource": "(untranslated)"
+    "message": "美元价格不可用",
+    "englishSource": "USD price unavailable"
   },
   "tokenDetailQuoteUnavailableBody": {
-    "message": "No verified USD price is available on $network$.",
-    "englishSource": "(untranslated)",
+    "message": "$network$ 上没有可用的经核实的美元价格。",
+    "englishSource": "No verified USD price is available on $network$.",
     "placeholders": {
       "network": {
         "content": "$1"
@@ -958,28 +958,28 @@
     }
   },
   "tokenDetailQuoteLoadError": {
-    "message": "Could not load the USD price. Balance totals exclude USD value until it refreshes.",
-    "englishSource": "(untranslated)"
+    "message": "无法加载美元价格。在刷新前，余额总额不包含美元价值。",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
   },
   "tokenDetailSendRetired": {
-    "message": "This token is retired on Testnet and cannot be sent.",
-    "englishSource": "(untranslated)"
+    "message": "该代币已在测试网（Testnet）上注销，无法发送。",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
   },
   "tokenDetailSendUnknownScale": {
-    "message": "Set token decimals in Token info before sending.",
-    "englishSource": "(untranslated)"
+    "message": "发送前请在“代币信息”中设置代币的小数位数。",
+    "englishSource": "Set token decimals in Token info before sending."
   },
   "tokenDetailSendNoBalance": {
-    "message": "No available balance to send.",
-    "englishSource": "(untranslated)"
+    "message": "无可用余额可转出。",
+    "englishSource": "No available balance to send."
   },
   "tokenDetailSendPendingOnly": {
-    "message": "No available balance to send yet. Accept pending transfers first.",
-    "englishSource": "(untranslated)"
+    "message": "目前尚无可用余额可转出。请先处理待处理的转账。",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
   },
   "tokenDetailSendBalanceUnavailable": {
-    "message": "Could not load balance. Try again before sending.",
-    "englishSource": "(untranslated)"
+    "message": "无法进行负载均衡。请在发送前重试。",
+    "englishSource": "Could not load balance. Try again before sending."
   },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
