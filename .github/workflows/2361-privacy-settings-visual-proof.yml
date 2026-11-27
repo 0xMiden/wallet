@@ -1,0 +1,105 @@
+name: Wallet 2361 privacy settings visual proof
+
+on:
+  push:
+    branches: [ci/2361-privacy-copy-visual-2e8e0f0e]
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CANDIDATE: 2e8e0f0ead04ed98fc5b0123fb5b4ddd9cb920c5
+      OVERLAY_SHA256: 81723e97dad3141154023ff32d8563c4ca77ff1128716ad5bed84d21e7e57393
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Bind exact candidate and overlay
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE"
+          files=(playwright/fixtures/extension.ts playwright/tests/privacy-settings-copy-proof.spec.ts)
+          printf '%s\n' .github/workflows/2361-privacy-settings-visual-proof.yml "${files[@]}" > "$RUNNER_TEMP/allowed"
+          git diff --name-only "$CANDIDATE" HEAD | diff "$RUNNER_TEMP/allowed" -
+          proof="$RUNNER_TEMP/2361-privacy-settings-proof"
+          mkdir "$proof"
+          git diff --full-index --binary --no-color "$CANDIDATE" HEAD -- "${files[@]}" > "$proof/overlay.patch"
+          printf '%s  %s\n' "$OVERLAY_SHA256" "$proof/overlay.patch" | sha256sum --check
+          printf 'proof=%s\nsource=%s\ntree=%s\noverlay_sha256=%s\n' \
+            "$GITHUB_SHA" "$CANDIDATE" "$(git rev-parse "$CANDIDATE^{tree}")" "$OVERLAY_SHA256" \
+            | tee "$proof/source.txt" >> "$GITHUB_STEP_SUMMARY"
+          git checkout --detach "$CANDIDATE"
+          git diff --exit-code
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: yarn install --frozen-lockfile --non-interactive --network-timeout 60000
+      - uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install headless Chromium
+        timeout-minutes: 8
+        run: yarn playwright install --with-deps chromium
+      - name: Build exact mock wallet
+        env:
+          FEATURE_ELIGIBILITY_URL: http://127.0.0.1:8551/v1/eligibility
+          MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8551
+          MIDEN_E2E_TEST: 'true'
+          MIDEN_NETWORK: testnet
+          MIDEN_USE_MOCK_CLIENT: 'true'
+          MIDEN_E2E_DISABLE_SIDEPANEL: 'false'
+          APTABASE_APP_KEY: ''
+          SENTRY_DSN: ''
+        run: |
+          yarn build:chrome
+          test -f dist/chrome_unpacked/manifest.json
+          test -f dist/chrome_unpacked/sidepanel.html
+      - name: Capture settings and drawer
+        env:
+          PRIVACY_COPY_PROOF: 'true'
+          SKIP_EXTENSION_BUILD: 'true'
+        run: |
+          set -euo pipefail
+          proof="$RUNNER_TEMP/2361-privacy-settings-proof"
+          git diff --exit-code
+          git apply --check "$proof/overlay.patch"
+          git apply "$proof/overlay.patch"
+
+          node --input-type=module > "$RUNNER_TEMP/2361-fixture.log" 2>&1 <<'JS' &
+          import { readFile } from 'node:fs/promises';
+          import { createEligibilityFixture } from './scripts/feature-eligibility-fixture.mjs';
+          const policy = await readFile('src/lib/remote-config/testing/testnet.json');
+          const fixture = await createEligibilityFixture({
+            networks: ['testnet'],
+            prelaunchTestnet: true,
+            fetchImpl: async () => new Response(policy)
+          });
+          await fixture.listen(8551);
+          JS
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-connrefused http://127.0.0.1:8551/healthz
+
+          PLAYWRIGHT_JSON_OUTPUT_FILE="$proof/results.json" yarn playwright test \
+            playwright/tests/privacy-settings-copy-proof.spec.ts \
+            --workers=1 --retries=0 --reporter=list,json
+          for name in proving-light proving-dark guardian-light guardian-dark; do
+            shot=$(find test-results -type f -name "$name.png")
+            test -n "$shot"
+            file "$shot" | grep -F 'PNG image data, 380 x 900'
+            cp "$shot" "$proof/"
+          done
+          git apply --reverse "$proof/overlay.patch"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: wallet-2361-privacy-settings-visual
+          path: ${{ runner.temp }}/2361-privacy-settings-proof/
+          if-no-files-found: error
+          retention-days: 7

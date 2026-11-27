@@ -48,9 +48,17 @@ export const test = base.extend<Fixtures>({
     async ({ extensionPath }, use) => {
       const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miden-wallet-pw-'));
 
+      const privacyCopyProof = process.env.PRIVACY_COPY_PROOF === 'true';
       const context = await chromium.launchPersistentContext(userDataDir, {
-        headless: false, // extensions only run in headed Chromium
-        args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+        headless: privacyCopyProof,
+        ...(privacyCopyProof ? { channel: 'chromium' } : {}),
+        args: [
+          `--disable-extensions-except=${extensionPath}`,
+          `--load-extension=${extensionPath}`,
+          ...(privacyCopyProof
+            ? ['--proxy-server=http://127.0.0.1:9', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1']
+            : [])
+        ],
         // Remove --disable-extensions from default args so our extension can load
         ignoreDefaultArgs: ['--disable-extensions']
       });
