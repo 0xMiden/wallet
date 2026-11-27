@@ -80,11 +80,7 @@ import {
   someInCauseChain
 } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
-import {
-  WASM_LOCK_SYNC_WATCHDOG_MS,
-  WasmClientPoisonedError,
-  isWasmClientPoisonedError
-} from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
@@ -449,12 +445,7 @@ export class MultisigService {
         // evicted while it ran, the mutex is already somebody else's and `load()` below -
         // a WASM call on that borrowed client - is the double borrow the lock exists to
         // prevent. Strictly pre-write, so failing here costs a retry and nothing else.
-        if (getCurrentWasmLockHold() !== hold) {
-          throw new WasmClientPoisonedError(
-            'watchdog',
-            new Error('guardian service init abandoned after the client build')
-          );
-        }
+        assertWasmHoldCurrent(hold, 'after the guardian service client build');
         registerGuardianOrigin(guardianEndpoint);
         const multisigClient = new MultisigClient(webClient, {
           guardianEndpoint,

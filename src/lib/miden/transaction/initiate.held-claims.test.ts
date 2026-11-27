@@ -228,12 +228,14 @@ describe("a dApp's consume request for a note another transaction holds", () => 
 describe('the origins a dApp consume request lets wait on its answer (#1416)', () => {
   const origins = async (id: string) => (await Repo.transactions.get(id))?.dappOrigins;
 
-  it('a fresh row lists the requesting origin in the write that creates it', async () => {
+  it('a fresh row records its initiating origin in the write that creates it', async () => {
     const add = jest.spyOn(Repo.transactions, 'add');
     try {
       const id = await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN, 'dapp');
       expect(add).toHaveBeenCalledTimes(1);
-      expect(add).toHaveBeenCalledWith(expect.objectContaining({ id, dappOrigins: [ORIGIN] }));
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({ id, dappOrigins: [ORIGIN], initiatingDappOrigin: ORIGIN })
+      );
       expect(await origins(id)).toEqual([ORIGIN]);
     } finally {
       add.mockRestore();
@@ -244,6 +246,9 @@ describe('the origins a dApp consume request lets wait on its answer (#1416)', (
     const claim = await existingClaim(ITransactionStatus.Queued, []);
     expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN, 'dapp')).toBe(claim);
     expect(await origins(claim)).toEqual([ORIGIN]);
+    expect(await Repo.transactions.get(claim)).not.toEqual(
+      expect.objectContaining({ initiatingDappOrigin: expect.anything() })
+    );
     expect(await Repo.transactions.count()).toBe(1);
   });
 
@@ -252,6 +257,15 @@ describe('the origins a dApp consume request lets wait on its answer (#1416)', (
     await Repo.transactions.put({ ...row, dappOrigins: [OTHER] });
     expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN, 'dapp')).toBe(row.id);
     expect(await origins(row.id)).toEqual([OTHER, ORIGIN]);
+  });
+
+  it('keeps the initiating origin when dedup grants another origin access', async () => {
+    const first = await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, OTHER, 'dapp');
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, ORIGIN, 'dapp')).toBe(first);
+    expect(await Repo.transactions.get(first)).toMatchObject({
+      dappOrigins: [OTHER, ORIGIN],
+      initiatingDappOrigin: OTHER
+    });
   });
 
   it('the same origin asking again is listed once', async () => {

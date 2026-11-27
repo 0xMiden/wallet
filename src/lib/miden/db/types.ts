@@ -1239,6 +1239,8 @@ export interface ITransaction {
    * carry nor restore it.
    */
   dappOrigins?: string[];
+  /** Local Activity attribution to the approved origin that created this row. */
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -1474,6 +1476,8 @@ export interface ITransaction {
   cancelledInFlightAt?: number;
   /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
   submitEvidence?: ISubmitEvidence[];
+  /** True when the row failed on a confirmed pre-submit pipeline kill (#2325). */
+  preSubmitKill?: true;
   /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
@@ -1533,6 +1537,7 @@ export class Transaction implements ITransaction {
   heldNoteIds?: string[];
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1600,6 +1605,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
@@ -1672,6 +1678,7 @@ export class ConsumeTransaction implements ITransaction {
   feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;

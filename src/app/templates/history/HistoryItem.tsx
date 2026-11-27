@@ -14,7 +14,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { Link } from 'lib/woozie';
 
 import { guardianRecoveredActionKey, historyEntryActionTitle } from './guardianHistoryLabels';
-import { IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
@@ -74,6 +74,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
+  const nameTitle =
+    entry.type === HistoryEntryType.CompletedTransaction &&
+    entry.transactionIcon !== 'FAILED' &&
+    !entry.isCancelled &&
+    !entry.isUnconfirmed
+      ? midenNameRowTitle(entry, t)
+      : undefined;
   const title = entry.guardianRecovered
     ? t(
         guardianRecoveredActionKey(entry.txType, {
@@ -86,9 +93,10 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       ? t('faucetRequest')
       : entry.isUnconfirmed
         ? t('notConfirmed')
-        : entry.message === 'Transaction failed'
-          ? t('transactionFailedNotificationTitle')
-          : historyEntryActionTitle(entry, t);
+        : (nameTitle ??
+          (entry.message === 'Transaction failed'
+            ? t('transactionFailedNotificationTitle')
+            : historyEntryActionTitle(entry, t)));
   return (
     <div
       className={classNames(

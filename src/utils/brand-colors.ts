@@ -21,11 +21,13 @@ export const PRIMARY_ORANGE_DARKER = isDevnet ? '#3A4857' : '#652D15';
 export const PILL_ACTIVE = isDevnet ? '#6878A0' : '#E77537';
 export const ACCENT_ORANGE = isDevnet ? '#5E7090' : '#E77537';
 
-// For inline style / SVG usage
-export const PRIMARY_HEX = PRIMARY_500;
+// For inline style / SVG usage. Outside a devnet build the live accent variable carries them, so the testnet
+// recolor in main.css reaches an inline background too.
+const LIVE_ACCENT = 'var(--accent-primary)';
+export const PRIMARY_HEX = isDevnet ? PRIMARY_500 : LIVE_ACCENT;
 export const PRIMARY_HEX_ALPHA = isDevnet ? '#7286A099' : '#E7753799';
 export const PRIMARY_HEX_LIGHT_ALPHA = isDevnet ? 'rgba(114,134,160,0.10)' : 'rgba(231,117,55,0.10)';
-export const ACCENT_HEX = ACCENT_ORANGE;
+export const ACCENT_HEX = isDevnet ? ACCENT_ORANGE : LIVE_ACCENT;
 
 // Focus ring shadow
 export const OUTLINE_SHADOW = isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(231, 117, 55, 0.5)';

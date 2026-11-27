@@ -824,6 +824,42 @@
       }
     }
   },
+  "seeAll": {
+    "message": "모두 보기",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$를 청구하려면",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ 청구",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "잔액 업데이트",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "부하 분산을 수행할 수 없습니다.",
+    "englishSource": "Could not load balance."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -3669,10 +3705,6 @@
     "message": "Miden 네트워크",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "네트워크 변경",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "제공자",
     "englishSource": "Provider"
@@ -3696,6 +3728,19 @@
   "commandBridgeTo": {
     "message": "To",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "출처: $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "토큰을 찾을 수 없음",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "자산, 네트워크 및 제공자",
@@ -4037,8 +4082,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12단어 복구 문구를 알고 있거나 암호화된 백업 파일이 없는 한, 절대로 로그아웃하지 마십시오.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "교체를 확인하기 전까지 현재 지갑은 이 기기에 유지됩니다. 계속하기 전에 12단어 복구 문구, Guardian 키 또는 암호화된 백업 파일을 준비하십시오.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "생체 인증을 통한 잠금 해제가 필요합니다",
@@ -7444,8 +7489,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "월렛의 어떤 부분을 사용하는지, 어디서 문제가 발생하는지, 대략적인 오류 유형, 앱 버전, 사용 중인 플랫폼을 공유해 주시면 문제를 해결할 수 있습니다. 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 절대 공유하지 마십시오. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 중개업체에 판매되거나 공유되는 정보도 없습니다. 충돌 보고서는 오류 내용과 코드 내 발생 위치만 포함되어 전송되며, 민감한 데이터는 제거되고 귀하 또는 귀하의 기기를 식별할 수 있는 정보는 포함되지 않습니다. 이 설정은 언제든지 변경할 수 있습니다.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "어떤 화면을 열었는지, 각 화면이 얼마나 오래 표시되었는지, 해당 화면으로 어떻게 이동했는지, 어떤 창을 사용했는지, 어디서 막혔는지, 광범위한 오류 범주, 앱 버전 및 사용 중인 플랫폼 등의 정보를 수집하여 문제를 해결할 수 있도록 합니다. 절대 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 수집하지 않습니다. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 중개업체에 판매되거나 공유되는 정보도 없습니다. 충돌 보고서는 오류 내용과 코드 내 발생 위치만 포함되어 전송되며, 민감한 데이터는 제거되고 사용자나 기기를 식별할 수 있는 정보는 포함되지 않습니다. 이 설정은 언제든지 변경할 수 있습니다.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "사용 현황 데이터 공유",
@@ -7464,8 +7509,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "지갑의 어떤 부분을 사용하는지, 어디서 막히는지, 대략적인 오류 유형, 앱 버전, 그리고 사용 중인 플랫폼을 알려주세요.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "어떤 화면을 열었는지, 각 화면이 얼마나 오래 표시되었는지, 해당 화면으로 어떻게 이동했는지, 어떤 창을 사용했는지, 어디서 막혔는지, 광범위한 오류 범주, 앱 버전, 그리고 사용 중인 플랫폼.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -10578,5 +10623,378 @@
   "commandAiSamplePrompt6": {
     "message": "이번 달에 USDCx를 얼마나 보냈나요?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "이 네트워크에서는 중간 이름을 사용할 수 없습니다.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "주소 또는 중간 이름",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "주소나 이름을 입력하세요.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "해결된 주소: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "수취 거래 명칭",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "이 이름을 검색해 보니…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "이 이름을 사용하는 계정은 없습니다",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "이 이름을 찾을 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "중간 이름",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "나만의 $suffix$ 이름을 확보하세요. 영원히 여러분의 것입니다",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "사람들이 보낼 수 있는 이름을 지정하십시오.",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "숨기기",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "언제든지 이름을 신청하세요",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21자 · a–z 및 0–9만 허용",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 이용 가능합니다",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 이미 사용 중입니다",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "이름 입력",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "21자 이내로 작성하십시오",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "a–z 및 0–9만 사용하십시오.",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "이 이름을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name은 현재 새로운 이름을 접수하지 않습니다.",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "가격이 변경되었습니다. 새로운 가격을 확인하고 다시 시도해 주십시오.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "가격 · 길이$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "네트워크 수수료",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "최대 거래 수수료",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "합계",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "다음으로",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "잔액:",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "등록은 영구적입니다. 이름은 이 계정에 할당되며, 결제 금액은 환불되지 않습니다.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN만으로는 부족합니다. $amount$가 필요합니다.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "청구 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "요청 전송됨",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Miden Name에서 발행 및 게시한 이름",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "계정에 추가하기",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "등록 기관이 요청을 제때 처리하지 못했습니다.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "레지스트리에서 요청을 처리할 수 없습니다.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "요청한 거래가 실패했습니다. 등록된 이름이 없습니다.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "이름이 발급되었으나, 계정에 추가하는 데 실패했습니다.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "청구 재시도",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$ 청구하기…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "완료",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "소유",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "청구",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "실패",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "아직 레지스트리에 등록되지 않음",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "이 계정으로 해결됨",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "아직 중간 이름이 없습니다",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Claim의 다른 이름",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "주요 명칭",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "사용자 이름",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "레지스트리를 확인 중…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "다른 계정으로 해결됨",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "이름 등록",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "이름 등록",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "등록 번호 $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "수신: $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "상태 보기",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "이름",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "레지스트리",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "등록 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "단계",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "기존 지갑을 교체하시겠습니까?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "이 작업을 수행하면 현재 지갑이 이 기기에서 영구적으로 삭제되고 방금 설정한 비밀번호로 새 지갑이 생성됩니다.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "이 작업을 수행하면 현재 지갑이 이 기기에서 영구적으로 삭제되고 방금 설정한 비밀번호로 복구된 지갑이 복원됩니다.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "현재 지갑이 계속 필요한 경우 현재 복구 문구나 백업이 있는지 확인하십시오. 이 작업은 취소할 수 없습니다.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "삭제하고 지갑 복원",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "삭제하고 지갑 생성",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "로그인으로 돌아가기",
+    "englishSource": "Back to sign in"
   }
 }

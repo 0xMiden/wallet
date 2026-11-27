@@ -33,6 +33,7 @@ export interface PendingActivityItem {
   note: ClaimableNoteWithMetadata;
   status: PendingActivityStatus;
   txId?: string;
+  initiatingDappOrigin?: string;
   claimedAt?: number;
   /** A claiming item whose row is Unconfirmed or Failed and still holds its notes: it offers its row's Retry, #1081. */
   held?: boolean;
@@ -57,6 +58,7 @@ interface PendingActivityCardProps {
   onReject?: (note: ClaimableNoteWithMetadata) => void;
   onRetryHeld?: (item: PendingActivityItem) => void;
   initiallyExpanded?: boolean;
+  senderName?: string;
 }
 
 function claimActionState(item: PendingActivityItem) {
@@ -100,7 +102,8 @@ export const PendingActivityCard = ({
   onAccept,
   onReject,
   onRetryHeld,
-  initiallyExpanded = false
+  initiallyExpanded = false,
+  senderName
 }: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
@@ -117,7 +120,7 @@ export const PendingActivityCard = ({
   const detailsId = useId();
   const feeNoticeId = useId();
   const [expanded, setExpanded] = useState(initiallyExpanded);
-  const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
+  const sender = senderName ?? (note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown'));
   const amount = hasKnownScale(note.metadata)
     ? formatAmountDisplay(BigInt(note.amount), {
         decimals: note.metadata.decimals,

@@ -1,14 +1,20 @@
+import { useSyncExternalStore } from 'react';
+
 import { mutate } from 'swr';
 
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { useRetryableSWR } from 'lib/swr';
+import { useLoadedList } from 'lib/token-list/useLoadedList';
 
 import type { TokenPriceInfo, TokenPrices } from './binance';
-import { PRICE_CACHE_STORAGE_KEY, PRICE_MAX_AGE_SECONDS, USD_SCALE } from './usd';
+import { DISPLAY_QUOTE_MAX_AGE_MS, loadPriceListKey, peekPriceListKey, readDisplayFeed } from './display-feed';
+import { PRICE_CACHE_STORAGE_KEY, USD_SCALE } from './usd';
 
 const DISPLAY_CACHE_KEY = 'cached-display-market-quotes';
-/** The same 15-minute window the portfolio uses before it will value a market or basket quote. */
-const DISPLAY_QUOTE_MAX_AGE_MS = 15 * 60_000;
+const displayCacheKey = (network: string, listKey: string) => [DISPLAY_CACHE_KEY, network, listKey];
+const sameKey = (a: string | undefined, b: string | undefined): boolean => a === b;
 
 function usableObservedAt(quote: TokenPriceInfo, now: number): number | undefined {
   if (quote.kind !== 'market' && quote.kind !== 'basket') return undefined;
@@ -25,7 +31,7 @@ function chooseDisplayQuote(
 ): TokenPriceInfo | undefined {
   if (!cachedQuote) return liveQuote;
   const cachedAt = usableObservedAt(cachedQuote, now);
-  if (cachedAt === undefined || now - cachedAt > PRICE_MAX_AGE_SECONDS * 1000) return liveQuote;
+  if (cachedAt === undefined) return liveQuote;
   if (!liveQuote) return cachedQuote;
   const liveAt = usableObservedAt(liveQuote, now);
   return liveAt === undefined || cachedAt > liveAt ? cachedQuote : liveQuote;
@@ -44,17 +50,28 @@ export function selectDisplayQuotes(live: TokenPrices, cached: TokenPrices | und
   return selected ?? live;
 }
 
-/** A display-only view of the existing market cache. It never authorizes a spend. */
-export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000)): Promise<TokenPrices> {
-  const cache =
-    await fetchFromStorage<Record<string, { priceMicro: string; fetchedAt: number }>>(PRICE_CACHE_STORAGE_KEY);
-  const quotes: TokenPrices = {};
+/**
+ * A display-only view of the market cache and the last feed's basket values on `network` under list revision
+ * `listKey`. It never authorizes a spend.
+ */
+export async function readCachedDisplayQuotes(
+  now = Math.floor(Date.now() / 1000),
+  network = getEffectiveNetworkName(),
+  listKey = ''
+): Promise<TokenPrices> {
+  const [cache, baskets] = await Promise.all([
+    fetchFromStorage<Record<string, { priceMicro: string; fetchedAt: number }>>(PRICE_CACHE_STORAGE_KEY),
+    readDisplayFeed(network, now * 1000, listKey)
+  ]);
+  const quotes: TokenPrices = { ...baskets };
   for (const [symbol, entry] of Object.entries(cache ?? {})) {
     if (!/^[A-Z0-9]{1,30}$/.test(symbol) || !entry || !/^[1-9]\d{0,23}$/.test(entry.priceMicro)) continue;
     if (
       !Number.isSafeInteger(entry.fetchedAt) ||
       entry.fetchedAt > now ||
-      now - entry.fetchedAt > PRICE_MAX_AGE_SECONDS
+      (now - entry.fetchedAt) * 1000 > DISPLAY_QUOTE_MAX_AGE_MS ||
+      // The market cache keeps every symbol it ever priced; a newer basket value for it is the later answer.
+      (quotes[symbol]?.observedAt ?? -1) > entry.fetchedAt * 1000
     )
       continue;
     quotes[symbol] = {
@@ -68,15 +85,40 @@ export async function readCachedDisplayQuotes(now = Math.floor(Date.now() / 1000
   return quotes;
 }
 
+type Network = ReturnType<typeof getEffectiveNetworkName>;
+
+/** A cached read, stamped with the network and list revision it was read for. */
+interface StampedQuotes {
+  network: Network;
+  listKey: string;
+  quotes: TokenPrices;
+}
+
+async function readStamped(network: Network, listKey: string): Promise<StampedQuotes> {
+  return { network, listKey, quotes: await readCachedDisplayQuotes(undefined, network, listKey) };
+}
+
+/** Fills the key `useCachedDisplayQuotes` reads for the current network and its loaded list revision. */
 export async function primeCachedDisplayQuotes(isCurrent: () => boolean): Promise<void> {
-  const quotes = await readCachedDisplayQuotes();
-  if (isCurrent()) await mutate(DISPLAY_CACHE_KEY, quotes, { revalidate: false });
+  const network = getEffectiveNetworkName();
+  const listKey = (await loadPriceListKey(network)) ?? '';
+  if (!isCurrent()) return;
+  const stamped = await readStamped(network, listKey);
+  if (isCurrent()) await mutate(displayCacheKey(network, listKey), stamped, { revalidate: false });
 }
 
 export function useCachedDisplayQuotes(): TokenPrices | undefined {
-  return useRetryableSWR(DISPLAY_CACHE_KEY, () => readCachedDisplayQuotes(), {
+  const network = useSyncExternalStore(subscribeBridgeConfig, getEffectiveNetworkName);
+  const listKey = useLoadedList(network, loadPriceListKey, peekPriceListKey, sameKey) ?? '';
+  const stamped = useRetryableSWR(displayCacheKey(network, listKey), () => readStamped(network, listKey), {
     suspense: false,
     shouldRetryOnError: false,
-    refreshInterval: 60_000
+    refreshInterval: 60_000,
+    // A network or list change keeps the last market quotes for the one storage read, rather than dropping every one.
+    keepPreviousData: true
   }).data;
+  if (!stamped || (stamped.network === network && stamped.listKey === listKey)) return stamped?.quotes;
+  // The previous key's map, kept while this one loads or after its read failed: a basket value belongs to its own
+  // network and list revision, a market price does not.
+  return Object.fromEntries(Object.entries(stamped.quotes).filter(([, quote]) => quote.kind === 'market'));
 }

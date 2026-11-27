@@ -142,12 +142,11 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
       workbench.getByTestId('command-footer').getByRole('button', { name: 'Review Details' })
     ).toBeDisabled();
     await bridge.getByRole('radio', { name: 'Bridge out', exact: true }).click();
-    await bridge.getByRole('combobox', { name: 'From', exact: true }).selectOption({
-      label: `${TOKEN_SYMBOL} · miden-localnet`
-    });
-    await bridge.getByRole('combobox', { name: 'To', exact: true }).selectOption({
-      label: 'USDC · sepolia · Epoch'
-    });
+    // One route here, so every pill is fixed text.
+    await expect(bridge.getByTestId('command-bridge-source-token')).toHaveText(TOKEN_SYMBOL);
+    await expect(bridge.getByTestId('command-bridge-destination-network')).toHaveText('Sepolia');
+    await expect(bridge.getByTestId('command-bridge-destination-token')).toHaveText('USDC');
+    await expect(bridge.getByTestId('command-bridge-via')).toHaveText('via Epoch');
     const amount = bridge.getByRole('textbox', { name: 'Amount', exact: true });
     await amount.fill(BRIDGE_AMOUNT);
     await bridge.getByRole('textbox', { name: 'External account', exact: true }).fill(destination);

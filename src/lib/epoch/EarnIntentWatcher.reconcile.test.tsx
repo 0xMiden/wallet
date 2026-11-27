@@ -246,9 +246,13 @@ describe('EarnIntentWatcher local reconciliation', () => {
       restoredFromBackup: true,
       extraInputs: depositInputs
     });
-    const read = jest.spyOn(transactions, 'filter');
+    const filterSpy = jest.spyOn(transactions, 'filter');
+    const openCursorSpy = jest.spyOn(transactions.core, 'openCursor');
     render(<EarnIntentWatcher />);
-    await waitFor(() => expect(read).toHaveBeenCalled());
+    await waitFor(() => expect(openCursorSpy).toHaveBeenCalled());
+    expect(filterSpy).not.toHaveBeenCalled();
+    openCursorSpy.mockRestore();
+    filterSpy.mockRestore();
     await transactions.add(
       withdrawal('late-expired', {
         attemptStartedAt: EXPIRED_SECONDS,
