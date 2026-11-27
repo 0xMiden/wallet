@@ -684,7 +684,9 @@ describe('connect payload', () => {
       render(<ConfirmPage />);
       await act(async () => fireEvent.click(screen.getByText('deny')));
 
-      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', false, ACCOUNT.publicKey, UPON_REQUEST, ['balance']);
+      expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', false, ACCOUNT.publicKey, UPON_REQUEST, [
+        'balance'
+      ]);
       act(() => jest.advanceTimersByTime(1300));
       expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
       expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
@@ -704,13 +706,18 @@ describe('connect payload', () => {
       try {
         const { rerender } = render(<ConfirmPage />);
         await act(async () => {
-          if (origin === 'approve') fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+          if (origin === 'approve')
+            fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
           if (origin === 'decline') fireEvent.click(screen.getByText('deny'));
         });
         expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
-        expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', origin !== 'decline', ACCOUNT.publicKey, UPON_REQUEST, [
-          'balance'
-        ]);
+        expect(ctx.confirmDAppPermission).toHaveBeenCalledWith(
+          'req-1',
+          origin !== 'decline',
+          ACCOUNT.publicKey,
+          UPON_REQUEST,
+          ['balance']
+        );
         await act(async () => {
           jest.advanceTimersByTime(300);
         });
