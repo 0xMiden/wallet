@@ -2,7 +2,7 @@ import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { OFFSCREEN_TRANSPORT_REASONS, OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { isDesktop, isIOS } from 'lib/platform';
@@ -193,6 +193,7 @@ it('hands crash scrubbing every closed name a report can carry, and nothing else
     OFFSCREEN_DEADLINE_TIMERS,
     OFFSCREEN_DEADLINE_KILLERS,
     OFFSCREEN_OP_STARTED,
+    OFFSCREEN_TRANSPORT_REASONS,
     EXECUTION_CAUSES,
     SIGNING_STEPS,
     CONFIRMING_STEPS,
@@ -2225,6 +2226,7 @@ const POLICY_ROWS: readonly PolicyRow[] = [
   ],
   ['refusal node error', () => SUBMIT_NODE_ERRORS, () => policyText(REFUSED, "; and the network's own reason")],
   ['pipeline kill', () => PIPELINE_KILLS, () => policyText('Work the App stopped')],
+  ['offscreen transport reason', () => OFFSCREEN_TRANSPORT_REASONS, () => policyText('Work the App stopped')],
   ['execution cause', () => EXECUTION_CAUSES, () => policyText(EXECUTION, EXECUTION_CAUSE_LIST, COINED_ASSERTIONS)],
   ['signing step', () => SIGNING_STEPS, () => policyText('The signing step')],
   ['confirming step', () => CONFIRMING_STEPS, () => policyText('The confirming step')],
