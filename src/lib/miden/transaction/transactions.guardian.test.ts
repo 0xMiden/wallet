@@ -5977,6 +5977,308 @@ describe('generateTransaction - Guardian routing', () => {
     ).toBeUndefined();
   });
 
+  it.each([
+    ['succeeds', false],
+    ['rejects', true]
+  ] as const)(
+    'Guardian send: eviction during in-flight submitting stamp withholds preSubmitKill and keeps mayHaveSubmitted when detached retirement %s (#2325)',
+    async (_label, shouldRejectRetire) => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      resetConnectivityState();
+      const txId = `send-guardian-inflight-evict-${shouldRejectRetire ? 'rejects' : 'succeeds'}`;
+      const tx = {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      };
+      txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+      const abandonCandidate = jest.fn(async () => {});
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate,
+        sync: jest.fn(async () => {})
+      });
+      const client = makeClientApi(makeResult());
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      let allowCrossingWrite!: () => void;
+      let signalCrossingWrite!: () => void;
+      const crossingWriteStarted = new Promise<void>(resolve => {
+        signalCrossingWrite = resolve;
+      });
+      const crossingWriteBlocked = new Promise<void>(resolve => {
+        allowCrossingWrite = resolve;
+      });
+      const lockRace = installWasmLockAbortRace();
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhere = repo.transactions.where.getMockImplementation()!;
+      let blockedCrossingWrite = false;
+      let failLateRetire = false;
+      let lateRetireAttempted = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const handle = realWhere(query) as {
+          modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void>;
+          first: () => Promise<Record<string, unknown> | undefined>;
+        };
+        return {
+          ...handle,
+          modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+            const current = (await handle.first()) ?? txStore.find(row => row.id === query.id);
+            const probe: Record<string, unknown> = current
+              ? {
+                  ...current,
+                  submitEvidence: Array.isArray(current.submitEvidence)
+                    ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                    : undefined
+                }
+              : {};
+            fn(probe);
+            const entries = probe.submitEvidence as Array<{ source?: string; preSubmitEnd?: boolean }> | undefined;
+            const currentPreEnd = (current?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+              entry => entry.preSubmitEnd === true
+            );
+            if (!blockedCrossingWrite && entries?.some(entry => entry.source === 'stage')) {
+              blockedCrossingWrite = true;
+              signalCrossingWrite();
+              await crossingWriteBlocked;
+            } else if (failLateRetire && !currentPreEnd && entries?.some(entry => entry.preSubmitEnd === true)) {
+              lateRetireAttempted = true;
+              throw new Error('QuotaExceededError on detached late retire');
+            }
+            return handle.modify(fn);
+          }
+        };
+      });
+
+      const pending = generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      ).catch(() => {});
+      try {
+        await crossingWriteStarted;
+        lockRace.abort(new WasmClientPoisonedError('watchdog', new Error('mock watchdog eviction')));
+        await pending;
+
+        expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+        const midRow = txStore.find(row => row.id === txId)!;
+        expect(midRow.status).toBe(ITransactionStatus.Failed);
+        expect((midRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+        expect(midRow.mayHaveSubmitted).toBe(true);
+        expect(midRow.cancelledInFlightAt).toEqual(expect.any(Number));
+
+        failLateRetire = shouldRejectRetire;
+        allowCrossingWrite();
+        await lockRace.settleDetached();
+      } finally {
+        allowCrossingWrite();
+        repo.transactions.where.mockImplementation(realWhere);
+        lockRace.restore();
+        errorSpy.mockRestore();
+        warnSpy.mockRestore();
+      }
+
+      expect(client.transactions.submitProven).not.toHaveBeenCalled();
+      const stored = txStore.find(row => row.id === txId)!;
+      expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(stored.mayHaveSubmitted).toBe(true);
+      expect(stored.cancelledInFlightAt).toEqual(expect.any(Number));
+      expect(lateRetireAttempted).toBe(shouldRejectRetire);
+      expect(
+        (stored.submitEvidence as ISubmitEvidence[] | undefined)?.some(entry => entry.preSubmitEnd === true) ?? false
+      ).toBe(!shouldRejectRetire);
+    }
+  );
+
+  it('Guardian send: un-evicted kill during in-flight submitting stamp keeps candidate and withholds preSubmitKill (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-inflight-unevicted-kill';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    let allowCrossingWrite!: () => void;
+    let signalCrossingWrite!: () => void;
+    const crossingWriteStarted = new Promise<void>(resolve => {
+      signalCrossingWrite = resolve;
+    });
+    const crossingWriteBlocked = new Promise<void>(resolve => {
+      allowCrossingWrite = resolve;
+    });
+    const originalLock = mockWithWasmClientLock.getMockImplementation()!;
+    const detachedWork = new Set<Promise<unknown>>();
+    let abortUnEvicted!: (reason: unknown) => void;
+    mockWithWasmClientLock.mockImplementation(async fn => {
+      const hold = { mock: 'wasm-lock-hold' };
+      currentHold = hold;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        abortUnEvicted = reject;
+      });
+      const running = fn(hold);
+      detachedWork.add(running);
+      running.catch(() => {});
+      try {
+        return await Promise.race([running, aborted]);
+      } finally {
+        if (currentHold === hold) currentHold = null;
+      }
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let blockedCrossingWrite = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const probe = { ...txStore.find(row => row.id === query.id) };
+          fn(probe);
+          const entries = probe.submitEvidence as Array<{ source?: string }> | undefined;
+          if (!blockedCrossingWrite && entries?.some(entry => entry.source === 'stage')) {
+            blockedCrossingWrite = true;
+            signalCrossingWrite();
+            await crossingWriteBlocked;
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    const pending = generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+    try {
+      await crossingWriteStarted;
+      abortUnEvicted(new OperationAbortedError('op-inflight-kill-no-evict', 'deadline'));
+      await pending;
+
+      expect(abandonCandidate).not.toHaveBeenCalled();
+      const stored = txStore.find(row => row.id === txId)!;
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(stored.mayHaveSubmitted).toBe(true);
+      expect(stored.submitEvidence).toEqual(
+        expect.arrayContaining([expect.objectContaining({ candidateKept: true, endedBy: 'kill' })])
+      );
+    } finally {
+      allowCrossingWrite();
+      await Promise.all([...detachedWork].map(work => work.catch(() => undefined)));
+      repo.transactions.where.mockImplementation(realWhere);
+      mockWithWasmClientLock.mockImplementation(originalLock);
+      currentHold = null;
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('Guardian send: aborted submitting stage write clears submittingStampInFlight in finally and marks preSubmitKill (#2325)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-submitting-write-abort';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const probe = { ...txStore.find(row => row.id === query.id) };
+          fn(probe);
+          const entries = probe.submitEvidence as Array<{ source?: string }> | undefined;
+          if (entries?.some(entry => entry.source === 'stage')) {
+            throw new OperationAbortedError('op-submitting-stamp-abort', 'deadline');
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(abandonCandidate).toHaveBeenCalledWith(5, 'prop-1');
+    const stored = txStore.find(row => row.id === txId)!;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect((stored as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+  });
+
   it('Guardian send: direct hold loss immediately after submitting stamp retracts stage back to proving (#2325)', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});

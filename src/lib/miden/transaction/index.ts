@@ -3539,6 +3539,7 @@ const runInlineGuardianLeaf = async ({
   onPreSubmitFailure?: () => void;
 }): Promise<TransactionResult> => {
   let inlineSubmittingStageStarted = false;
+  let submittingStampInFlight = false;
   let submittingStampCompleted = false;
   let submittingRetracted = false;
   let inlineLockEvicted = false;
@@ -3547,17 +3548,24 @@ const runInlineGuardianLeaf = async ({
   const wrappedSetStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     if (stage === 'submitting') {
       inlineSubmittingStageStarted = true;
+      submittingStampInFlight = true;
       submittingStampCompleted = false;
       submittingRetracted = false;
     }
-    await stampStage(stage, detail);
+    try {
+      await stampStage(stage, detail);
+    } finally {
+      if (stage === 'submitting') submittingStampInFlight = false;
+    }
     if (stage === 'submitting') {
       submittingStampCompleted = true;
-      onSubmittingStageRecorded?.();
-      // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
-      // that has not landed yet, so retire it again after the awaited stage stamp creates it.
-      if (endedPreSubmit && attemptId !== undefined) {
-        await markAttemptPreSubmitEnd(txId, attemptId);
+      if (endedPreSubmit) {
+        // Lock recovery can return while the detached crossing write is still pending. The catch cannot mark an entry
+        // that has not landed yet, so retire it again after the awaited stage stamp creates it, without flipping
+        // `submitStageRecorded` on the already-exited caller.
+        if (attemptId !== undefined) await markAttemptPreSubmitEnd(txId, attemptId);
+      } else {
+        onSubmittingStageRecorded?.();
       }
     }
   };
@@ -3587,8 +3595,8 @@ const runInlineGuardianLeaf = async ({
     const inlineSubmitNotReached =
       !inlineSubmitCallReached && (inlineSubmittingStageStarted || inlineLockEvicted || confirmedPreSubmitKill);
     if (inlineSubmitNotReached) {
-      let preSubmitCleanlyRetired = true;
-      if (submittingStampCompleted && !submittingRetracted) {
+      let preSubmitCleanlyRetired = !submittingStampInFlight;
+      if (preSubmitCleanlyRetired && submittingStampCompleted && !submittingRetracted) {
         if (attemptId === undefined) {
           preSubmitCleanlyRetired = false;
         } else {
@@ -3601,10 +3609,16 @@ const runInlineGuardianLeaf = async ({
           }
         }
       }
-      if (preSubmitCleanlyRetired) {
+      // When `inlineLockEvicted` fired while `stampStage('submitting')` is still parked on Dexie,
+      // `assertStillHoldingLock` ('before submit') inside `runGuardianPipeline` blocks `submitProven()`,
+      // so the Guardian candidate can be safely abandoned without waiting on the parked DB write, while
+      // `markKilledBeforeSubmit` remains withheld until crossing retirement is actually confirmed.
+      if (preSubmitCleanlyRetired || (submittingStampInFlight && inlineLockEvicted)) {
         endedPreSubmit = true;
         onPreSubmitFailure?.();
-        if (isKilledPipeline(error)) markKilledBeforeSubmit(error);
+      }
+      if (preSubmitCleanlyRetired && isKilledPipeline(error)) {
+        markKilledBeforeSubmit(error);
       }
     }
     throw error;
