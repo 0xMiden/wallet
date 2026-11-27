@@ -235,6 +235,13 @@ describe('owner decisions', () => {
     expect(answer('wallet_file')).not.toContain('Do not rely on it');
     expect(answer('lost_device')).toContain('A current Encrypted Wallet File and password can restore your account.');
     expect(answer('lost_device').length).toBeLessThanOrEqual(600);
+    const restores = 'A current Encrypted Wallet File and its password can restore a standard account';
+    expect(answer('lost_phrase_and_device')).toContain(restores);
+    expect(answer('forgot_password')).toContain(`${restores}, but not from this screen.`);
+    for (const id of ['lost_phrase_and_device', 'forgot_password']) {
+      expect(answer(id)).not.toMatch(/do not count on them|not a wallet file/);
+      expect(answer(id).length).toBeLessThanOrEqual(750);
+    }
   });
 
   it('never leaves open that support could recover funds', () => {

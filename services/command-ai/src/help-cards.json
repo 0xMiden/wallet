@@ -692,12 +692,8 @@
       "src": ["wallet@6d0acae70:docs/tos/index.md"]
     },
     "r.both.other": {
-      "text": "A wallet file or private keys you saved earlier may help in some cases, but do not count on them; ask support first, without sending them.",
-      "src": [
-        "wallet@6d0acae70:docs/tos/index.md",
-        "https://support.miden.xyz/",
-        "wallet@6d0acae70:docs/support/index.md"
-      ]
+      "text": "A current Encrypted Wallet File and its password can restore a standard account, and private keys you saved may help; never send them to anyone, including support.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "https://support.miden.xyz/", "wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx", "owner:wallet#2359"]
     },
     "r.both.gone": {
       "text": "If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access.",
@@ -712,7 +708,7 @@
       "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:docs/tos/index.md"]
     },
     "r.fp.flow": {
-      "text": "\"Forgot password?\" or \"Forgot passcode?\" leads to signing out and restoring, which replaces the wallet saved on this device.",
+      "text": "\"Forgot password?\" or \"Forgot passcode?\" signs out and restores, replacing this device's wallet.",
       "src": [
         "wallet@6d0acae70:public/_locales/en/en.json",
         "wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx",
@@ -728,8 +724,8 @@
       ]
     },
     "r.fp.file": {
-      "text": "Restoring this way uses your 12 words, not a wallet file.",
-      "src": ["wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx"]
+      "text": "A current Encrypted Wallet File and its password can restore a standard account, but not from this screen.",
+      "src": ["wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx", "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/SelectImportType.tsx", "owner:wallet#2359"]
     },
     "r.fp.nowords": {
       "text": "Without your words, do not sign out; contact support at support.miden.xyz.",
@@ -2486,7 +2482,7 @@
       "limit": [],
       "required": ["r.both.keep", "r.both.gone", "s.contact"],
       "forbid": [],
-      "answer": "Do not reset, erase or uninstall Bread on any device that still has it. If your account still works on a device, your money may still be movable, so ask me what to do about a lost recovery phrase. Look for your written words, and for your old device if it is only misplaced. A wallet file or private keys you saved earlier may help in some cases, but do not count on them; ask support first, without sending them. If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access. For help, contact Bread support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
+      "answer": "Do not reset, erase or uninstall Bread on any device that still has it. If your account still works on a device, your money may still be movable, so ask me what to do about a lost recovery phrase. Look for your written words, and for your old device if it is only misplaced. A current Encrypted Wallet File and its password can restore a standard account, and private keys you saved may help; never send them to anyone, including support. If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access. For help, contact Bread support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
     },
     {
       "id": "forgot_password",
@@ -2509,7 +2505,7 @@
       "limit": [],
       "required": ["r.fp.stop", "r.fp.flow", "r.fp.check", "r.fp.nowords", "r.fp.imported", "r.rm.partial"],
       "forbid": ["\\bwallet file (is enough|will restore|always restores)\\b"],
-      "answer": "Do not sign out, reset or uninstall yet. Nobody, including support, can reset your Bread password or passcode. \"Forgot password?\" or \"Forgot passcode?\" leads to signing out and restoring, which replaces the wallet saved on this device. Continue only if you have this wallet's 12 words written down, you are online, and your Guardian is working and has your account. Accounts you added with private keys may not come back from your 12 words. A restore may not bring back every incoming payment or history entry. Restoring this way uses your 12 words, not a wallet file. Without your words, do not sign out; contact support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
+      "answer": "Do not sign out, reset or uninstall yet. Nobody, including support, can reset your Bread password or passcode. \"Forgot password?\" or \"Forgot passcode?\" signs out and restores, replacing this device's wallet. Continue only if you have this wallet's 12 words written down, you are online, and your Guardian is working and has your account. Accounts you added with private keys may not come back from your 12 words. A restore may not bring back every incoming payment or history entry. A current Encrypted Wallet File and its password can restore a standard account, but not from this screen. Without your words, do not sign out; contact support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
     },
     {
       "id": "reset_reinstall",
