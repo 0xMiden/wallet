@@ -796,11 +796,17 @@ test('refuses a holdout cluster that is not one intent', context => {
 
 test('forbids both move-funds cards on every P0 password question', () => {
   const read = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8'));
-  const missing = [...read('./help-eval.json'), ...read('./questions.json')]
-    .filter(item => item.priority === 'P0' && item.cards?.includes('forgot_password'))
-    .filter(item => !['lost_phrase', 'phrase_exposed'].every(card => item.forbidCards.includes(card)))
-    .map(item => item.id);
-  assert.deepEqual(missing, []);
+  for (const file of ['./help-eval.json', './questions.json']) {
+    const checked = read(file).filter(item => item.priority === 'P0' && item.cards?.includes('forgot_password'));
+    assert.ok(checked.length > 0, `${file} has no P0 password question`);
+    const missing = checked.filter(
+      item => !['lost_phrase', 'phrase_exposed'].every(card => item.forbidCards.includes(card))
+    );
+    assert.deepEqual(
+      missing.map(item => item.id),
+      []
+    );
+  }
 });
 
 test('runs a sized deploy gate before the deploy step and selection from the live job', () => {
