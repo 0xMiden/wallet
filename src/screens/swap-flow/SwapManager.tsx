@@ -53,7 +53,7 @@ import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 import { useOptionalCommandDrafts } from 'screens/command/command-drafts';
 
 import { isValidExpirySeconds } from './expiry';
-import { ReviewSwap, swapReviewTermsChanged } from './ReviewSwap';
+import { ReviewSwap, type ReviewSwapProps, swapReviewTermsChanged } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
@@ -129,8 +129,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const offerTokenAnchorRef = useRef<HTMLButtonElement>(null);
   const requestTokenAnchorRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
+  const [submitWarning, setSubmitWarning] = useState<{
+    message: string;
+    id?: UserErrorId;
+    diagnostics?: ReviewSwapProps['submitErrorDiagnostics'];
+  } | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const submissionPhase = useRef<'idle' | 'checking' | 'challenge' | 'executing'>('idle');
@@ -474,7 +477,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     setOfferAmount(amount);
     setRequestAmount('');
     setRequestEdited(false);
-    setSubmitError(null);
+    setSubmitWarning(null);
   }, []);
 
   const onRequestAmountChange = useCallback((amount: string) => {
@@ -482,7 +485,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     setRequestAmount(amount);
     setOfferAmount('');
     setRequestEdited(true);
-    setSubmitError(null);
+    setSubmitWarning(null);
   }, []);
 
   const onSwapDirection = useCallback(() => {
@@ -502,7 +505,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       setRequestAmount(offerAmount);
       setRequestEdited(true);
     }
-    setSubmitError(null);
+    setSubmitWarning(null);
   }, [offerToken, requestToken, offerAmount, requestAmount, requestEdited, command]);
 
   const onSelectOfferToken = useCallback(() => {
@@ -560,7 +563,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         setOfferAmount(offerAmount);
         setRequestAmount('');
       }
-      setSubmitError(null);
+      setSubmitWarning(null);
     },
     [selectingSide, offerToken, requestToken, offerAmount, requestAmount, requestEdited, command]
   );
@@ -586,15 +589,14 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       // The gate holds this manager and its pair while a submission is in flight, so a delist that lands while the
       // user authorizes reaches here.
       if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
-        setSubmitError(t('swapPairNotListed'));
-        setSubmitErrorId('swapPairNotListed');
+        setSubmitWarning({ message: t('swapPairNotListed'), id: 'swapPairNotListed' });
         setSpendingLimitChallenge(undefined);
         setSubmitting(false);
         releaseSubmission();
         return;
       }
       if (activeAccount.current !== publicKey || cacheScope() !== balanceScope) {
-        setSubmitError(t('swapBalanceUnavailable'));
+        setSubmitWarning({ message: t('swapBalanceUnavailable') });
         setSubmitting(false);
         releaseSubmission();
         return;
@@ -604,8 +606,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         tokenQuote(useWalletStore.getState().tokenPrices, offerToken.faucetId, offerToken.symbol)
       );
       if (minimumError) {
-        setSubmitError(t(minimumError));
-        setSubmitErrorId(minimumError);
+        setSubmitWarning({ message: t(minimumError), id: minimumError });
         setSpendingLimitChallenge(undefined);
         setSubmitting(false);
         releaseSubmission();
@@ -614,7 +615,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       submissionPhase.current = 'executing';
       onBusyChange(true);
       setSubmitting(true);
-      setSubmitError(null);
+      setSubmitWarning(null);
       setSpendingLimitChallenge(undefined);
       // Past the point of no return for both the review button and a spending-limit
       // authorization. A failure inside this try is ours, not a change of mind.
@@ -667,8 +668,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
           return;
         }
         settleSwap(flow => flow.fail(classifyError(error)));
-        setSubmitError(error instanceof Error ? error.message : String(error));
-        setSubmitErrorId('raw_swap_submit_failed');
+        setSubmitWarning({
+          message: error instanceof Error ? error.message : String(error),
+          id: 'raw_swap_submit_failed',
+          diagnostics: { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'run_swap_catch' }
+        });
         setSubmitting(false);
         releaseSubmission();
       }
@@ -708,8 +712,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     // here so an invalid amount shows a clear message instead of a BigInt(NaN)
     // throw from `stringToBigInt('')`.
     if (sameToken || !hasOfferAmount || !hasRequestAmount || offerAmountExceedsBalance || !validExpiry) {
-      setSubmitError(t('swapInvalidAmounts'));
-      setSubmitErrorId('swapInvalidAmounts');
+      setSubmitWarning({ message: t('swapInvalidAmounts'), id: 'swapInvalidAmounts' });
       // Deliberately not settled: the user is still on the review screen and can
       // fix the amount, so this is one attempt failing inside a flow that is
       // still running, not the end of the flow.
@@ -717,26 +720,22 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     }
     // Also in `canProceed`; a registry update can delist the pair after review opens.
     if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
-      setSubmitError(t('swapPairNotListed'));
-      setSubmitErrorId('swapPairNotListed');
+      setSubmitWarning({ message: t('swapPairNotListed'), id: 'swapPairNotListed' });
       return;
     }
     // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
     // the review screen's Swap button is not gated by `canProceed`, and the balance can
     // resolve or drain between opening review and tapping it.
     if (feeAssetMissing) {
-      setSubmitError(t('insufficientFeeAsset'));
-      setSubmitErrorId('insufficientFeeAsset');
+      setSubmitWarning({ message: t('insufficientFeeAsset'), id: 'insufficientFeeAsset' });
       return;
     }
     if (minimumError) {
-      setSubmitError(t(minimumError));
-      setSubmitErrorId(minimumError);
+      setSubmitWarning({ message: t(minimumError), id: minimumError });
       return;
     }
     if (command && !canProceed) {
-      setSubmitError(t('swapPriceMoved'));
-      setSubmitErrorId('swapPriceMoved');
+      setSubmitWarning({ message: t('swapPriceMoved'), id: 'swapPriceMoved' });
       return;
     }
     submissionPhase.current = 'checking';
@@ -756,8 +755,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       try {
         fresh = await quoteNow(requestAmountBaseUnits);
       } catch {
-        setSubmitError(t('swapPriceUnavailable'));
-        setSubmitErrorId('swapPriceUnavailable');
+        setSubmitWarning({ message: t('swapPriceUnavailable'), id: 'swapPriceUnavailable' });
         setSubmitting(false);
         releaseSubmission();
         return;
@@ -773,16 +771,14 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
           swapReviewTermsChanged(t, reviewQuote, fresh, requestToken.decimals))
       ) {
         setReviewQuote(fresh);
-        setSubmitError(t('swapPriceMoved'));
-        setSubmitErrorId('swapPriceMoved');
+        setSubmitWarning({ message: t('swapPriceMoved'), id: 'swapPriceMoved' });
         setSubmitting(false);
         releaseSubmission();
         return;
       }
       setReviewQuote(fresh);
       if (swapEtaBlocksSubmit(fresh.eta)) {
-        setSubmitError(t('swapPriceMoved'));
-        setSubmitErrorId('swapPriceMoved');
+        setSubmitWarning({ message: t('swapPriceMoved'), id: 'swapPriceMoved' });
         // A wallet-built ask is rebuilt from the new price at once; the field follows once the
         // press has settled. A user-edited one is theirs to change.
         if (!requestEdited) quoteNow().catch(() => undefined);
@@ -822,8 +818,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         setSubmitting(false);
         return;
       }
-      setSubmitError(error instanceof Error ? error.message : String(error));
-      setSubmitErrorId('raw_swap_submit_failed');
+      setSubmitWarning({
+        message: error instanceof Error ? error.message : String(error),
+        id: 'raw_swap_submit_failed',
+        diagnostics: { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'review_submit_catch' }
+      });
       setSubmitting(false);
       releaseSubmission();
     }
@@ -975,8 +974,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
               onExpirySecondsChange={setExpirySeconds}
               onSlippageBpsChange={setSlippageBps}
               onAutoConsumeChange={setAutoConsume}
-              submitError={submitError}
-              submitErrorId={submitErrorId}
+              submitError={submitWarning?.message}
+              submitErrorId={submitWarning?.id}
+              submitErrorDiagnostics={submitWarning?.diagnostics}
               onGoBack={goBack}
               onSubmit={onSubmit}
               submitting={submitting}
@@ -1000,8 +1000,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       slippageBps,
       autoConsume,
       submitting,
-      submitError,
-      submitErrorId,
+      submitWarning,
       canProceed,
       command,
       swapQuote.quote,
