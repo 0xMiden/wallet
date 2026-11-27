@@ -3,12 +3,8 @@ import { ClaimFeeNote } from 'lib/miden/fees/spendable';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 
 import { getUncompletedTransactions } from './get';
-import { midenClientProxy } from '../back/miden-client-proxy';
+import { readVaultHoldings } from './vault-read';
 import { ITransaction } from '../db/types';
-import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { assertWasmHoldCurrent, tryWithWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { ConsumableNote } from '../types';
 
 export class ClaimFeeRefusedError extends Error {
@@ -53,28 +49,8 @@ export async function readClaimFeeContext(accountId: string): Promise<ClaimFeeCo
     ) {
       return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
     }
-    if (isSyncFused('balances')) return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
-    const read = await tryWithWasmClientLock(
-      async hold => {
-        const result = await midenClientProxy.tryGetAccount(accountId);
-        assertWasmHoldCurrent(hold, 'inside the claim fee read', 'after the account read');
-        if (!result.ran) return { ran: false, vaultFeeAsset: null };
-        const { account } = result;
-        if (!account) return { ran: true, vaultFeeAsset: null };
-        let held = 0n;
-        for (const asset of account.vault().fungibleAssets()) {
-          if (getBech32AddressFromAccountId(asset.faucetId()) === nativeId) held += asset.amount();
-        }
-        return { ran: true, vaultFeeAsset: held };
-      },
-      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'claim-fee' }
-    ).catch(error => {
-      noteProbeFailure('balances', error);
-      throw error;
-    });
-    if (!read.ran || !read.value.ran) return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };
-    noteSyncSuccess('balances');
-    return { vaultFeeAsset: read.value.vaultFeeAsset, nativeAssetId, verificationBaseFee };
+    const held = await readVaultHoldings(accountId, 'claim-fee');
+    return { vaultFeeAsset: held === null ? null : (held.get(nativeId) ?? 0n), nativeAssetId, verificationBaseFee };
   } catch {
     // A trap must reach the lock's retirement path before it becomes an unknown holding.
     return { vaultFeeAsset: null, nativeAssetId, verificationBaseFee };

@@ -187,6 +187,7 @@ import {
   readLandedCompletion
 } from './landed-completion-reads';
 import { keptLandedTransactionId, readLandedResultFields } from './landed-result-fields';
+import { recordPositionEvents } from './position-recorder';
 import { assertProposalEffectApproved } from './proposal-effect-guard';
 import {
   noteQueueSighting,
@@ -6179,6 +6180,8 @@ export const generateTransactionsLoop = async (
   const endBackgroundExecution = beginBackgroundExecution();
   try {
     await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
+    // After the row's completion and outside every hold, so the vault it reads already holds this transaction.
+    await recordPositionEvents(nextTransaction.id);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A throw after the leaf resolved is a landed row (PR #2183). It is settled before the pre-send sync, locked and kill

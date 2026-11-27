@@ -12,9 +12,11 @@ export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
   ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
   : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
+const position = params.has('pnl');
 export const token = {
   tokenId,
-  balance: 987654321.123456,
+  balance: position ? 2.5 : 987654321.123456,
+  balanceBaseUnits: position ? '250000000' : undefined,
   metadata: {
     name: 'Synthetic Testnet Asset with a Long Display Name',
     symbol: 'IETH',
@@ -106,7 +108,7 @@ export const navigate = (destination: string | { pathname: string; search?: stri
   window.location.hash = path;
 };
 
-export const getEffectiveNetworkName = () => MIDEN_NETWORK_NAME.TESTNET;
+export const getEffectiveNetworkName = () => (position ? MIDEN_NETWORK_NAME.MAINNET : MIDEN_NETWORK_NAME.TESTNET);
 export const getTestNetworkNameKey = () => 'testnet';
 export const peekTokenPriceAssets = () => new Map([[tokenId, 'ETH']]);
 export const canOverrideMetadata = () => true;

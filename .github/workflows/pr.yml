@@ -421,7 +421,7 @@ jobs:
           "$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts
 
       - name: Capture TokenDetail candidate
-        if: github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
+        if: github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2","issue/2029-position-cost-basis"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
         timeout-minutes: 5
         env:
           TOKEN_DETAIL_CAPTURE: after
@@ -430,7 +430,7 @@ jobs:
           yarn playwright test --config playwright.token-detail-visual.config.ts
 
       - name: Upload TokenDetail visual acceptance
-        if: always() && github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
+        if: always() && github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2","issue/2029-position-cost-basis"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: token-detail-visual

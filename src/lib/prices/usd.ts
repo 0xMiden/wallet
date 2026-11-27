@@ -87,16 +87,29 @@ export const writeUsdPriceCache = async (
   await mergeIntoCache(prices, now);
 };
 
-const cachedPriceMicro = (cache: UsdPriceCache, symbol: string, now: number): bigint | undefined => {
+const cacheEntry = (cache: UsdPriceCache, symbol: string): { priceMicro: bigint; fetchedAt: number } | undefined => {
   const entry = cache[symbol];
   if (entry === undefined || entry === null || typeof entry !== 'object') return undefined;
   if (typeof entry.priceMicro !== 'string' || !CANONICAL_PRICE.test(entry.priceMicro)) return undefined;
   if (!Number.isSafeInteger(entry.fetchedAt) || entry.fetchedAt < 0) return undefined;
-  // A future-dated entry is a skewed clock, not evidence of freshness.
-  if (entry.fetchedAt > now || now - entry.fetchedAt > PRICE_MAX_AGE_SECONDS) return undefined;
-  const price = BigInt(entry.priceMicro);
-  return price > 0n ? price : undefined;
+  const priceMicro = BigInt(entry.priceMicro);
+  return priceMicro > 0n ? { priceMicro, fetchedAt: entry.fetchedAt } : undefined;
 };
+
+const cachedPriceMicro = (cache: UsdPriceCache, symbol: string, now: number): bigint | undefined => {
+  const entry = cacheEntry(cache, symbol);
+  // A future-dated entry is a skewed clock, not evidence of freshness.
+  if (entry === undefined || entry.fetchedAt > now || now - entry.fetchedAt > PRICE_MAX_AGE_SECONDS) return undefined;
+  return entry.priceMicro;
+};
+
+/**
+ * The stored market price of `symbol` and when it was fetched (seconds), with no freshness check and no fetch: a
+ * caller stamping an event judges the age against the event's own time.
+ */
+export const readCachedUsdPrice = async (
+  symbol: string
+): Promise<{ priceMicro: bigint; fetchedAt: number } | undefined> => cacheEntry(await readCache(), symbol);
 
 // A symbol in flight shares its request with every caller. Cache writes run in order across requests.
 const inFlightRefresh = new Map<string, Promise<UsdPriceCache>>();
@@ -167,7 +180,3 @@ export const __resetUsdPriceCacheForTests = (): void => {
   inFlightRefresh.clear();
   cacheWrite = Promise.resolve({});
 };
-
-export const readCachedUsdPrice = async (
-  _symbol: string
-): Promise<{ priceMicro: bigint; fetchedAt: number } | undefined> => undefined;

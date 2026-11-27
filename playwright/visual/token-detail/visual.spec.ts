@@ -233,3 +233,29 @@ test('shows stale price and failed-refresh warnings cleanly in compact viewports
   await expect(page.getByTestId('token-detail-price')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test('shows mainnet profit and loss as a gain, a loss and an honest unknown', async ({ page }, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline has no profit and loss');
+  const project = testInfo.project.name;
+  const expected = { gain: '+$586.42 (+23.45%)', loss: '-$513.58 (-14.26%)', incomplete: 'Not known' };
+  for (const state of ['gain', 'loss', 'incomplete'] as const) {
+    const query = [`pnl=${state}`, 'sidePanel'];
+    if (project.endsWith('dark')) query.push('dark');
+    if (project.startsWith('mobile')) query.push('mobile');
+    await page.goto(`/?${query.join('&')}`);
+
+    const section = page.getByTestId('token-detail-position');
+    await section.scrollIntoViewIfNeeded();
+    await expect(section).toContainText('Profit and loss');
+    await expect(section).toContainText(expected[state]);
+    if (state === 'incomplete')
+      await expect(section).toContainText('Profit and loss shows once that part has been spent.');
+    await expect(page.getByTestId('token-detail-pnl-since')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`token-detail-${project}-pnl-${state}.png`),
+      animations: 'disabled',
+      caret: 'hide'
+    });
+  }
+});

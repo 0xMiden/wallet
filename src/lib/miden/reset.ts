@@ -130,6 +130,7 @@ function removeSessionStorageExcept(keep: readonly string[]): void {
 export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = PRESERVED_STORAGE_KEYS) {
   await clearPlatformKeyValueStorage(keep);
   await Repo.portfolioObservations.clear();
+  await Repo.positionEvents.clear();
   if (clearDb) {
     await Repo.transactions.clear();
     // The spend history and the caps computed from it go together. Recovery from the same mnemonic
@@ -187,6 +188,7 @@ export async function resetStorageDestructive({
     await Repo.transactions.clear().catch(() => {});
     await Repo.spendingLimits.clear().catch(() => {});
     await Repo.portfolioObservations.clear().catch(() => {});
+    await Repo.positionEvents.clear().catch(() => {});
     throw err;
   }
   await resetNativeAssetCache();
@@ -213,6 +215,7 @@ async function runClientStorageCleanup(preserveDesktopKeys: boolean, clearBackup
     }
   });
   await Repo.portfolioObservations.clear();
+  await Repo.positionEvents.clear();
 }
 
 export async function clearClientStorage(): Promise<void> {

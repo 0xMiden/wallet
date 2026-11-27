@@ -12,6 +12,7 @@ const historyFixture = resolve(import.meta.dirname, 'history.fixture.tsx');
 const claimsFixture = resolve(import.meta.dirname, 'claims.fixture.tsx');
 const historyLeaves = resolve(import.meta.dirname, 'history.leaves.ts');
 const nativeFaucetFixture = resolve(import.meta.dirname, 'native-faucet.fixture.ts');
+const positionFixture = resolve(import.meta.dirname, 'position.fixture.ts');
 const compileSvgJsx: Plugin = {
   name: 'token-detail-svg-jsx-compile',
   enforce: 'pre',
@@ -39,6 +40,7 @@ const fixtureModules: Record<string, string> = {
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
   'lib/miden/front': fixture,
+  'lib/miden/front/use-tracked-position': positionFixture,
   'lib/miden/metadata/overrides': fixture,
   'lib/mobile/external-browser': fixture,
   'lib/mobile/haptics': fixture,
