@@ -9,12 +9,33 @@ Standalone, stateless Cloudflare Worker that compiles privacy-redacted wallet pr
 
 ## Help answers
 
-With a help context, the model picks up to two card ids and the Worker replies with the chosen card's checked answer. A topic button is answered without a provider call. Model-written help text is never forwarded. When no card fits, the answer says so and points to support.miden.xyz. Help is English only. A request without a help context compiles commands only.
+With a help context, the router model picks up to two card ids. A topic button is answered without a provider call. The router's own help text is never forwarded. When no card fits, the answer says so and points to support.miden.xyz. Help is English only. A request without a help context compiles commands only.
+
+The reply is the chosen card's checked answer, unless that card is listed in `writing.cards`. Then:
+
+1. A writer model gets the facts of the picked listed cards, and returns sentences with the fact ids behind each, or says it cannot answer.
+2. Code gates (`src/help-write.ts`) check the draft: schema, length and the app's parser, cited ids, printable ASCII, no number, number word, name or domain that the supplied text lacks, no risky instruction (a backstop, not a meaning check), the forbidden patterns and the sharing-advice filter.
+3. A checker model, in a separate call, says whether the final answer is supported by the facts and answers the question.
+
+The server adds each cited card's lead and limit sentences. Written text is shown only after every gate and the checker pass.
+
+| Event                                                                             | Reply                                             |
+| --------------------------------------------------------------------------------- | ------------------------------------------------- |
+| The writer cannot answer, a content gate fails, or the checker refuses            | `not_covered`, or `cannot_diagnose` for a problem |
+| A format gate fails, or the checker has a technical failure                       | The checked answer of the card the draft drew on  |
+| The writer has a technical failure (429, error, timeout, bad reply, no time left) | The first card's checked answer                   |
+
+Writer and checker calls are never retried and end within 9 seconds of the request's start. A writing failure never returns an error status. Nothing is written while either writing model is the router model in use, so writing cannot use up the quota every command needs.
+
+### The writing switch
+
+`writing` in `src/help-cards.json` names the `writer` and `checker` models and lists the cards that may be written. **`cards: []`, the committed value, turns writing off, and is the kill switch.** Fixed, checked, safety, emergency and who-can-see cards are never written. A card is listed only from the allowlist that the `writing-score` suite prints, in a commit that names the graded run ids and updates the pin in `help-cards.test.ts`.
 
 The cards are in `src/help-cards.json`:
 
 | Field                            | Contents                                                                                                                       |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `writing`                        | The writer and checker models, and the cards that may be written                                                               |
 | `forbid`                         | Patterns that no fact or answer may match                                                                                      |
 | `buttons`                        | For each of the 14 topics, its button card and every title that reaches it                                                     |
 | `facts`                          | One claim each, with its conditions, under an id, with public sources in `src` (a URL, `repo@sha:path` or `owner:wallet#2359`) |
@@ -41,16 +62,34 @@ node --test scripts/command-ai-eval/offline.test.mjs
 node scripts/command-ai-eval/run-eval.mjs --offline --questions
 ```
 
-Live runs spend provider quota. Dispatch the **Command AI service** workflow with a `suite`. Its live job runs only on a manual dispatch, in the `command-ai-eval` environment with the `GROQ_API_KEY_EVAL` secret, whose quota must be separate from production. It paces itself on the provider's rate-limit headers and uploads a JSON summary.
+Live runs spend provider quota. Dispatch the **Command AI service** workflow with a `suite`. Its live job runs only on a manual dispatch, in the `command-ai-eval` environment, with the production `GROQ_API_KEY` secret, so a run shares the live rate limit. It uploads a JSON summary, and `grading.json` for the written-answer suites. Both hold only synthetic questions and model text.
 
-| Suite           | What it checks                                                                                                                                                                                                                                                                                                                                      |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `commands`      | Each case in `cases.json` three times. With `scripts/command-ai-eval/baseline.json` committed (the summary of an earlier run), it fails on a case that passed 3 of 3 there, or is not in it, and now fails twice unless marked `intendedChange`, a help question that becomes a send or plan, and a command or clarification reply answered as help |
-| `selection-dev` | Each case in `help-eval.json` three times, scored by cluster. For tuning                                                                                                                                                                                                                                                                            |
-| `selection`     | The same plus `help-holdout.json`, the merge gate. Before any model call it refuses a missing holdout, a bad case, or fewer than 80 answerable, 30 near-miss or 30 out-of-scope holdout clusters                                                                                                                                                    |
-| `measure`       | Not implemented; the job fails                                                                                                                                                                                                                                                                                                                      |
+To leave production its quota, every suite but `measure` waits between requests while a model has under half of its tokens a minute left. It stops with no verdict when under half of a model's requests a day are left, or when a model allows 8,000 tokens a minute or fewer, or 1,000 requests a day or fewer. The headers do not show a daily token budget: before a suite larger than `measure`, check both models' daily limits in the provider console and that the run fits in half of them.
+
+| Suite                    | What it checks                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `measure`                | One router, writer and checker call (schemas accepted, tokens, latency, limit headers, router prompt at most 3,600 tokens), then proof that five writer calls move neither the router's daily requests nor its tokens. Without the proof, no card may be listed                                                                                     |
+| `commands`               | Each case in `cases.json` three times. With `scripts/command-ai-eval/baseline.json` committed (the summary of an earlier run), it fails on a case that passed 3 of 3 there, or is not in it, and now fails twice unless marked `intendedChange`, a help question that becomes a send or plan, and a command or clarification reply answered as help |
+| `selection-dev`          | Each case in `help-eval.json` three times, scored by cluster, with writing off. For tuning                                                                                                                                                                                                                                                          |
+| `selection`              | The same plus `help-holdout.json`, the merge gate. Before any model call it refuses a missing holdout, a bad case, or fewer than 80 answerable, 30 near-miss or 30 out-of-scope holdout clusters                                                                                                                                                    |
+| `writing-checker-dev`    | Each fixed draft in `writer-checks.json` through the gates, and through the checker three times                                                                                                                                                                                                                                                     |
+| `writing-checker`        | The same over `writer-checks-frozen.json`: no P0 bad draft accepted, at most 2% of bad drafts pass gates and checker, at most 15% of faithful drafts rejected                                                                                                                                                                                       |
+| `writing-dev`, `writing` | Each dev question, or each question of both holdouts, three times with every write card on                                                                                                                                                                                                                                                          |
+| `writing-knockout`       | Answerable holdout questions with their accepted cards removed from the router's index                                                                                                                                                                                                                                                              |
+| `writing-score`          | No model calls. Scores the committed results of `selection`, `writing-checker`, `writing` and `writing-knockout`                                                                                                                                                                                                                                    |
 
 The selection run needs an accepted card for 95% of answered dev clusters and 90% of holdout clusters, 80% of answerable clusters answered, 90% of out-of-scope clusters refused and, on a holdout, 85% of near misses refused. It also fails on a forbidden card on a P0 case, an urgent card on a benign how-to, a help question that becomes a send or plan, a prompt over 3,600 tokens or a request that errored. Answer rate and refusals are measured on the holdout when there is one, otherwise on dev. A holdout used for tuning must be replaced.
+
+### Enabling written answers
+
+`writer-checks.json`, `writer-checks-frozen.json` and `help-writing-holdout.json` are not committed yet. Each checker file needs 150 bad drafts, 20 or more in each class, and 75 faithful ones. Their authors do not edit the prompts, and nobody tuning reads the frozen file or a holdout.
+
+1. Run `measure`. Tune on `writing-checker-dev` and `writing-dev` only. No gate or threshold is loosened to pass.
+2. Freeze the router prompt, cards, writer and checker prompts, schemas, gates and models. On one commit run `selection`, `writing-checker`, `writing`, `writing-knockout` and `commands`. Each holdout suite runs once; only a run with no verdict may be repeated.
+3. A person grades every row of both grading files: `verdict` is `correct` or `wrong`, and `serious` is true for a text that could cost money or a secret, cause a double payment, or states a forbidden claim.
+4. Commit under `scripts/command-ai-eval/results/` the files `selection.json`, `writing-checker.json`, `writing.json`, `writing-knockout.json`, `writing-grading.json` and `writing-knockout-grading.json`, then dispatch `writing-score`. Such a commit changes no hashed file: the score refuses summaries from other code, questions or models, an ungraded or unmatched row, and a partial or dev run.
+
+The score needs 150 or more written clusters, 95% of them correct with a Wilson lower bound of 90% (143 of 150 passes), no serious error, the selection and checker bars, and its limits on all answered clusters, refusals, knockout, technical failures and checked-answer fallbacks. A card is listed only with 3 or more graded written clusters, no serious error and fewer than 2 wrong. A cluster is right only if every run of every question in it is. After a failure, writing stays off, and any change needs an unseen holdout.
 
 ## Bindings & Configuration
 
@@ -63,9 +102,9 @@ The selection run needs an accepted card for 95% of answered dev clusters and 90
 
 ## Deployment
 
-Before it deploys, the workflow asks the questions in `scripts/command-ai-eval/questions.json` with the production provider key. A missed question is asked twice more and needs two passes of three. The deploy stops if a control fails, a help question becomes a send or plan, a P0 question gets a forbidden card, a reply fails the app parser or a forbidden pattern, or fewer than 90% of help questions get an accepted card. The 30-minute job timeout and 20-minute retry budget are provisional until the key's rate limits are measured.
+Before it deploys, the workflow asks the questions in `scripts/command-ai-eval/questions.json` with the production provider key. A missed question is asked twice more and needs two passes of three. While `writing.cards` lists any card, at least 6 questions must accept a listed card and two thirds of those must be answered in written text. The deploy stops if a control fails, a help question becomes a send or plan, a P0 question gets a forbidden card, a reply fails the app parser or a forbidden pattern, or fewer than 90% of help questions get an accepted card. The 30-minute job timeout and 20-minute retry budget are provisional until the key's rate limits are measured.
 
-To roll back, run `npx wrangler rollback --config services/command-ai/wrangler.jsonc` (or use the Cloudflare dashboard), which runs no evaluation. Then check that `/healthz` shows the expected revision.
+To turn writing off, deploy with `writing.cards: []`. To roll back, run `npx wrangler rollback --config services/command-ai/wrangler.jsonc` (or use the Cloudflare dashboard), which runs no evaluation. Then check that `/healthz` shows the expected revision.
 
 Live Worker URL: `https://miden-command-ai.wiktor-s-e3d.workers.dev`
 
