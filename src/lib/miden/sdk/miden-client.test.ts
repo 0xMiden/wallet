@@ -596,6 +596,7 @@ describe('getMidenClient singleton', () => {
         { getMidenClient, installRealmKeystore, resetMidenClient, withHoldSigner, withWasmClientLock },
         create
       ) => {
+        const { isLockEvictedError } = require('./sdk-error-code') as typeof import('./sdk-error-code');
         installRealmKeystore({ sign: async () => new Uint8Array([1]) });
         await getMidenClient();
         const stale = create.mock.calls[0]![0].signCallback;
@@ -603,7 +604,9 @@ describe('getMidenClient singleton', () => {
         const perWrite = jest.fn(async () => new Uint8Array([2]));
         await withWasmClientLock(hold =>
           withHoldSigner(hold, perWrite, async () => {
-            await expect(stale(publicKey, signingInputs)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+            const staleErr = await stale(publicKey, signingInputs).catch((e: unknown) => e);
+            expect(staleErr).toMatchObject({ name: 'WasmClientPoisonedError' });
+            expect(isLockEvictedError(staleErr)).toBe(true);
           })
         );
         expect(perWrite).not.toHaveBeenCalled();
@@ -724,10 +727,11 @@ describe('getMidenClient singleton', () => {
             await insertKeyCallback(publicKey, signingInputs);
             expect(sinkA).toHaveBeenCalledTimes(2);
             // Another vault's sink installed: refused, and that sink untouched.
+            const { isLockEvictedError } = require('./sdk-error-code') as typeof import('./sdk-error-code');
             installRealmKeystore({ insertKey: sinkB });
-            await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toMatchObject({
-              name: 'WasmClientPoisonedError'
-            });
+            const insertErr = await insertKeyCallback(publicKey, signingInputs).catch((e: unknown) => e);
+            expect(insertErr).toMatchObject({ name: 'WasmClientPoisonedError' });
+            expect(isLockEvictedError(insertErr)).toBe(true);
             expect(sinkB).not.toHaveBeenCalled();
             expect(warn).toHaveBeenCalledWith(
               expect.stringContaining('insertKey refused: the WASM client was replaced')

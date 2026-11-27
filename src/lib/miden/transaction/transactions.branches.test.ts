@@ -82,7 +82,14 @@ jest.mock('lib/miden/repo', () => {
       _table: unknown,
       indexName: string,
       reverse: boolean,
-      bound?: { lower?: number; lowerOpen?: boolean; upper?: number; upperOpen?: boolean }
+      bound?: {
+        lower?: number;
+        lowerOpen?: boolean;
+        upper?: number;
+        upperOpen?: boolean;
+        resumeAt?: { key: number; primaryKey: string };
+        resumeAfter?: { key: number; primaryKey: string };
+      }
     ) => {
       const keyOf = (tx: ITransaction): number | undefined => {
         const value =
@@ -103,6 +110,21 @@ jest.mock('lib/miden/repo', () => {
       indexed.sort((a, b) => a.key - b.key || (a.tx.id < b.tx.id ? -1 : a.tx.id > b.tx.id ? 1 : 0));
       const rows = indexed.map(entry => entry.tx);
       if (reverse) rows.reverse();
+      const target = bound?.resumeAfter ?? bound?.resumeAt;
+      if (target !== undefined) {
+        const inclusive = bound?.resumeAfter === undefined;
+        const cmpEntry = (tx: ITransaction): number => {
+          const key = keyOf(tx) ?? 0;
+          if (key !== target.key) return key < target.key ? -1 : 1;
+          return tx.id < target.primaryKey ? -1 : tx.id > target.primaryKey ? 1 : 0;
+        };
+        const firstIdx = rows.findIndex(tx => {
+          const order = reverse ? -cmpEntry(tx) : cmpEntry(tx);
+          return inclusive ? order >= 0 : order > 0;
+        });
+        if (firstIdx === -1) return null;
+        rows.splice(0, firstIdx);
+      }
       if (rows.length === 0) return null;
       let index = 0;
       transactionQueryMetrics.rowsVisited += 1;

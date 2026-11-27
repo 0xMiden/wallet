@@ -36,6 +36,9 @@ export default defineConfig({
     '**/dapp/**',
     '**/usdcx/**',
     '**/stored-override/**',
+    // Multi-device specs need a build with the local wallet-api URL and a running
+    // wallet-api Worker. They run only through playwright.multi-device.config.ts.
+    '**/multi-device/**',
     // Mainnet nightly spends funded accounts. It runs only through
     // playwright.mainnet.config.ts, never on a testnet or localhost blockchain run.
     '**/mainnet/**'

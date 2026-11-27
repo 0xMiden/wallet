@@ -605,4 +605,309 @@ describe('withFreshProof', () => {
       }
     });
   });
+
+  describe('with a submit gate (#2325)', () => {
+    it('re-checks freshness after submitGate.commit, retracts and re-executes when the chain passed expiry during the gate', async () => {
+      let tip = TIP;
+      let pass = 0;
+      let committedId: number | undefined;
+      const trace: string[] = [];
+      const proofs = [
+        { id: 1, expirationBlock: FRESH },
+        { id: 2, expirationBlock: FRESH + 20 }
+      ];
+      const pending = withFreshProof({
+        executeAndProve: async ({ reexecuting }) => {
+          trace.push(`exec:${reexecuting}`);
+          return proofs[pass++]!;
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => {
+          trace.push(`tip:${tip}`);
+          return tip;
+        },
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+            trace.push(`gate:${proof.id}`);
+            if (proof.id === 1) {
+              tip = FRESH;
+            }
+          },
+          retract: async () => {
+            trace.push(`retract:${committedId}`);
+          }
+        }
+      });
+
+      await expect(pending).resolves.toBe(proofs[1]);
+      expect(trace).toEqual([
+        `exec:false`,
+        `tip:${TIP}`,
+        `gate:1`,
+        `tip:${FRESH}`,
+        `retract:1`,
+        `exec:true`,
+        `tip:${FRESH}`,
+        `gate:2`,
+        `tip:${FRESH}`
+      ]);
+    });
+
+    it('retracts and throws StaleProofError once re-executions are spent after the gate', async () => {
+      const retracted: number[] = [];
+      let tip = TIP;
+      let pass = 0;
+      let committedId = 0;
+      const pending = withFreshProof({
+        executeAndProve: async () => {
+          pass += 1;
+          tip = TIP;
+          return { id: pass, expirationBlock: FRESH };
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => tip,
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+            tip = FRESH;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(pass).toBe(1 + MAX_PROOF_REEXECUTIONS);
+      expect(retracted).toEqual([1, 2, 3]);
+    });
+
+    it('retracts and throws StaleProofError when the gate wait exhausts the remaining budget', async () => {
+      jest.useFakeTimers();
+      let tip = TIP;
+      let pass = 0;
+      let committedId = 0;
+      const retracted: number[] = [];
+      const pending = withFreshProof({
+        executeAndProve: async () => {
+          pass += 1;
+          jest.advanceTimersByTime(10_000);
+          return { id: pass, expirationBlock: FRESH };
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => tip,
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+            jest.advanceTimersByTime(80_000);
+            tip = FRESH;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(pass).toBe(1);
+      expect(retracted).toEqual([1]);
+    });
+
+    it('retracts and fails closed with ProofFreshnessUnknownError when the post-gate tip read fails', async () => {
+      const retracted: number[] = [];
+      let reads = 0;
+      let committedId = 0;
+      const pending = withFreshProof({
+        executeAndProve: async () => ({ id: 1, expirationBlock: FRESH }),
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => {
+          reads += 1;
+          if (reads === 1) return TIP;
+          throw new Error('node offline after gate');
+        },
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      const error = await pending.catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(ProofFreshnessUnknownError);
+      expect((error as Error).message).toContain('node offline after gate');
+      expect(hasErrorBeforeSubmit(error)).toBe(true);
+      expect(retracted).toEqual([1]);
+    });
+
+    it('retracts best-effort when post-gate assertLive throws with undefined expirationBlock', async () => {
+      const retracted: number[] = [];
+      let committedId = 0;
+      let committed = false;
+      const eviction = new WasmClientPoisonedError('watchdog', new Error('evicted after gate'));
+      const pending = withFreshProof({
+        executeAndProve: async () => ({ id: 1, expirationBlock: undefined }),
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => TIP,
+        assertLive: () => {
+          if (committed) throw eviction;
+        },
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+            committed = true;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBe(eviction);
+      expect(retracted).toEqual([1]);
+    });
+
+    it('retracts best-effort when post-gate assertLive throws before postTipRead', async () => {
+      const retracted: number[] = [];
+      let committedId = 0;
+      let committed = false;
+      const eviction = new WasmClientPoisonedError('watchdog', new Error('evicted right after gate'));
+      const pending = withFreshProof({
+        executeAndProve: async () => ({ id: 1, expirationBlock: FRESH }),
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => TIP,
+        assertLive: () => {
+          if (committed) throw eviction;
+        },
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+            committed = true;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBe(eviction);
+      expect(retracted).toEqual([1]);
+    });
+
+    it('retracts best-effort when post-gate assertLive throws after postTipRead', async () => {
+      const retracted: number[] = [];
+      let committedId = 0;
+      let tipReads = 0;
+      const eviction = new WasmClientPoisonedError('watchdog', new Error('evicted after postTipRead'));
+      const pending = withFreshProof({
+        executeAndProve: async () => ({ id: 1, expirationBlock: FRESH }),
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => {
+          tipReads += 1;
+          return TIP;
+        },
+        assertLive: () => {
+          if (tipReads >= 2) throw eviction;
+        },
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async proof => {
+            committedId = proof.id;
+          },
+          retract: async () => {
+            retracted.push(committedId);
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBe(eviction);
+      expect(retracted).toEqual([1]);
+    });
+
+    it('still commits the gate without reading any tip when expirationBlock is undefined', async () => {
+      const readTip = jest.fn(async () => TIP);
+      const commit = jest.fn(async () => {});
+      const proof = { id: 1, expirationBlock: undefined };
+      await expect(
+        withFreshProof({
+          executeAndProve: async () => proof,
+          expirationBlockOf: item => item.expirationBlock,
+          readTip,
+          assertLive: () => {},
+          budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+          submitGate: { commit, retract: async () => {} }
+        })
+      ).resolves.toBe(proof);
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(readTip).not.toHaveBeenCalled();
+    });
+
+    it('stops with StaleProofError without re-executing when submitGate.retract fails', async () => {
+      let tip = TIP;
+      let execs = 0;
+      const pending = withFreshProof({
+        executeAndProve: async () => {
+          execs += 1;
+          return { id: execs, expirationBlock: FRESH };
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => tip,
+        assertLive: () => {},
+        budgetMs: OFFSCREEN_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async () => {
+            tip = FRESH;
+          },
+          retract: async () => {
+            throw new Error('retract refused');
+          }
+        }
+      });
+
+      await expect(pending).rejects.toBeInstanceOf(StaleProofError);
+      expect(execs).toBe(1);
+    });
+
+    it('does not count a slow submit gate as a slow remote prover when inline budget still fits', async () => {
+      jest.useFakeTimers();
+      let tip = TIP;
+      const proveLocally: boolean[] = [];
+      const pending = withFreshProof({
+        executeAndProve: async pass => {
+          proveLocally.push(pass.proveLocally);
+          jest.advanceTimersByTime(5_000);
+          return { id: proveLocally.length, expirationBlock: tip + SUBMIT_EXPIRY_MARGIN_BLOCKS + 10 };
+        },
+        expirationBlockOf: proof => proof.expirationBlock,
+        readTip: async () => tip,
+        assertLive: () => {},
+        budgetMs: INLINE_PROOF_BUDGET_MS,
+        submitGate: {
+          commit: async () => {
+            if (proveLocally.length === 1) {
+              jest.advanceTimersByTime(MAINNET_PROOF_WINDOW_MS);
+              tip += 20;
+            }
+          },
+          retract: async () => {}
+        }
+      });
+
+      await expect(pending).resolves.toMatchObject({ id: 2 });
+      expect(proveLocally).toEqual([false, false]);
+    });
+  });
 });

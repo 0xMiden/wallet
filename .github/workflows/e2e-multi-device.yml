@@ -1,0 +1,234 @@
+name: E2E Multi-device
+
+# Runs the multi-device E2E suite: two devices of one Guardian account, the claims
+# that each device sees, the encrypted backup and the swap paybacks. The suite runs
+# the Chrome extension on testnet (the real node, the delegated prover, two real
+# Guardian operators and the public faucet) against a local wallet-api Worker.
+# Global setup starts that Worker with `wrangler dev` for each Playwright run
+# (playwright/e2e/harness/multi-device-global-setup.ts) and allows only the origin
+# of the extension build. A local Worker needs no Cloudflare account, so this
+# workflow reads no secret.
+#
+# Only a dispatch starts it: by hand, or Release E2E (release-e2e.yml), nightly and
+# on each release.
+#
+# Layout. The `build` job builds the extension one time and uploads it. Each
+# `suite` leg downloads that build, runs the harness smoke spec, then runs the
+# specs of one area. `fail-fast: false`, so a red area does not cancel the other
+# areas. Each leg has its own runner, thus its own Worker port and its own wallets.
+#
+# The extension id comes from the absolute path of the unpacked build. Global
+# setup and the fixture calculate it on the same runner from the same path, so the
+# path on the build runner has no effect.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: The area to run
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - roles
+          - claims
+          - backup
+          - swap
+      long_holds:
+        description: Run the 10-minute hold tests (E2E_MULTI_DEVICE_LONG_HOLDS)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}-${{ inputs.long_holds }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build extension (testnet)
+    runs-on: warp-ubuntu-latest-x64-8x
+    # About 15 minutes. A dispatch from a pull request's branch can first build a
+    # linked web-sdk PR from source (about 20 minutes on this runner). Only a
+    # dispatch starts this workflow, so the first number applies; the second one is
+    # the base that linked-pr-injection.test.ts adds the injection time to.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 40 }}
+    env:
+      E2E_NETWORK: testnet
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      # The build bakes in the eligibility and config URLs that this step exports.
+      # Each leg starts the same fixture again on the same port before its tests.
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+
+      # Testnet, with MIDEN_WALLET_API_URL=http://127.0.0.1:8787 (the local Worker).
+      - name: Build Chrome extension (testnet, local wallet-api)
+        run: yarn test:e2e:multi-device:build
+
+      - name: Upload extension build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: multi-device-extension-${{ github.run_id }}
+          path: dist/chrome_unpacked/
+          retention-days: 1
+          if-no-files-found: error
+
+  suite:
+    name: Multi-device E2E (${{ matrix.area }})
+    needs: build
+    runs-on: warp-ubuntu-latest-x64-8x
+    # Setup is about 15 minutes (30 with a cold miden-client-cli compile) and the smoke
+    # spec about 5. The claims area is the longest: about 90 to 120 minutes when each
+    # test passes, and its four test limits add up to 200. A dispatch from a pull
+    # request's branch can first build the linked web-sdk PR (about 20 minutes) and a
+    # linked CLI (about 10). Only a dispatch starts this workflow, so the first number
+    # applies; the second one is the base that linked-pr-injection.test.ts adds the
+    # injection time to.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        area: ${{ fromJSON(inputs.suite == 'all' && '["roles","claims","backup","swap"]' || format('["{0}"]', inputs.suite)) }}
+    env:
+      E2E_NETWORK: testnet
+      E2E_MULTI_DEVICE_LONG_HOLDS: ${{ inputs.long_holds && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # cargo is needed to install miden-client-cli from crates.io on first run.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Install miden-client-cli
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+
+      - name: Install xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      - name: Start wallet eligibility fixture
+        uses: ./.github/actions/start-eligibility-fixture
+        env:
+          E2E_FIXTURE_PRELAUNCH_TESTNET: ${{ (env.E2E_NETWORK == '' || env.E2E_NETWORK == 'testnet') && !startsWith(env.MIDEN_REMOTE_CONFIG_URL, 'http://') && 'true' || 'false' }}
+
+      - name: Download extension build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: multi-device-extension-${{ github.run_id }}
+          path: dist/chrome_unpacked
+
+      # Global setup runs Wrangler through npx at the version that the scripts of
+      # services/wallet-api/package.json pin. This step downloads it before the
+      # tests, so a slow download does not use the start budget of global setup.
+      - name: Fetch Wrangler
+        timeout-minutes: 5
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          version=$(node -p "require('./services/wallet-api/package.json').scripts.dev.match(/wrangler@([0-9.]+)/)[1]")
+          npx --yes "wrangler@${version}" --version
+
+      # The smoke spec checks the harness: the Worker, its CORS gate for this
+      # extension id, and two wallets. If it fails, the area step does not run.
+      - name: Run harness smoke spec
+        run: >-
+          xvfb-run -a yarn playwright test --config playwright.multi-device.config.ts
+          harness-smoke.spec.ts --output=test-results/playwright/smoke
+
+      # --max-failures=0: the base config stops a testnet run at the first failure, and
+      # a leg must report the state of each of its specs.
+      - name: Run ${{ matrix.area }} specs
+        env:
+          AREA: ${{ matrix.area }}
+        run: >-
+          xvfb-run -a yarn playwright test --config playwright.multi-device.config.ts
+          "multi-device/${AREA}-" --max-failures=0 --output="test-results/playwright/${AREA}"
+
+      # test-results/ holds the Playwright output, the wallet run directories and
+      # the Worker log of each Playwright run (test-results/wallet-api/).
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: multi-device-e2e-${{ matrix.area }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore

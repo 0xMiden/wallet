@@ -216,3 +216,20 @@ test('lists five rows with this token claim cards only, and links to all activit
   await seeAll.click();
   await expect(page).toHaveURL(/#\/history$/);
 });
+
+test('shows stale price and failed-refresh warnings cleanly in compact viewports', async ({ page }, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'slice 2 adds stale quote and refresh warnings');
+  const project = testInfo.project.name;
+  const query = ['stalePrice', 'refreshFailed', 'sidePanel'];
+  if (project.endsWith('dark')) query.push('dark');
+  if (project.startsWith('mobile')) query.push('mobile');
+  await page.goto(`/?${query.join('&')}`);
+
+  await expect(page.getByTestId('token-detail-hero')).toContainText('987654321.12');
+  await expect(page.getByTestId('token-detail-balance-state')).toHaveText(
+    'Could not refresh balance. Showing last confirmed balance.'
+  );
+  await expect(page.getByTestId('token-detail-quote-context')).toContainText('USD price is out of date');
+  await expect(page.getByTestId('token-detail-price')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import { captureAndSaveSnapshot } from './state-snapshot';
 import type { TimelineRecorder } from './timeline-recorder';
-import type { Checkpoint, FailureCategory, SnapshotCaps, StepOptions } from './types';
+import type { Checkpoint, FailureCategory, SnapshotCaps, StepOptions, WalletLabel } from './types';
 
 /**
  * Classify an error into a FailureCategory for diagnostic hints.
@@ -42,6 +42,19 @@ function classifyError(error: Error): FailureCategory {
 interface SnapshotCapsMap {
   A?: SnapshotCaps;
   B?: SnapshotCaps;
+  C?: SnapshotCaps;
+}
+
+/** The checkpoint path field of one wallet label. */
+function walletPathKey(label: WalletLabel): 'walletA' | 'walletB' | 'walletC' {
+  switch (label) {
+    case 'A':
+      return 'walletA';
+    case 'B':
+      return 'walletB';
+    case 'C':
+      return 'walletC';
+  }
 }
 
 /**
@@ -66,7 +79,7 @@ export class TestStepRunner {
    * platform-specific closures (page.evaluate, context.serviceWorkers, etc.)
    * before any step runs, so test-step itself stays runtime-agnostic.
    */
-  registerSnapshotCaps(label: 'A' | 'B', caps: SnapshotCaps): void {
+  registerSnapshotCaps(label: WalletLabel, caps: SnapshotCaps): void {
     this.walletCaps[label] = caps;
   }
 
@@ -104,8 +117,7 @@ export class TestStepRunner {
             // otherwise-successful step — skip the shot if it's already closed.
             await target.screenshot({ path: path.join(screenshotsDir, filename) });
             checkpoint.screenshotPaths = checkpoint.screenshotPaths ?? {};
-            if (label === 'A') checkpoint.screenshotPaths.walletA = filename;
-            else checkpoint.screenshotPaths.walletB = filename;
+            checkpoint.screenshotPaths[walletPathKey(label)] = filename;
           } catch {
             // page closed (or context gone) — screenshot is best-effort
           }
@@ -127,8 +139,7 @@ export class TestStepRunner {
             this.timeline
           );
           checkpoint.stateSnapshotPaths = checkpoint.stateSnapshotPaths ?? {};
-          if (label === 'A') checkpoint.stateSnapshotPaths.walletA = filename;
-          else checkpoint.stateSnapshotPaths.walletB = filename;
+          checkpoint.stateSnapshotPaths[walletPathKey(label)] = filename;
         }
       }
     } catch (error: any) {

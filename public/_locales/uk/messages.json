@@ -860,6 +860,127 @@
     "message": "Не вдалося виконати балансування навантаження.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Не вдалося оновити баланс. Відображається останній підтверджений баланс.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Встановлено фіксований курс 1,00 USD для $symbol$ у мережі $network$.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "Ціна $symbol$ від $provider$ у мережі $network$, оновлено $retrievedAt$.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Вартість Vault у доларах США в мережі $network$, оновлено о $retrievedAt$.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "Ціна в доларах США застаріла",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "Остання ціна $symbol$ від $provider$ у мережі $network$ ($retrievedAt$) датована більше ніж 10 хвилин тому і прихована з підсумків.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "Остання вартість у USD у сховищі на $network$ ($retrievedAt$) датована більше ніж 10 хвилин тому і прихована від підсумків.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "Остання ціна в доларах США датована більше ніж 10 хвилин тому і прихована з підсумків.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "Ціна в доларах США недоступна",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "На $network$ немає перевіреної ціни в доларах США.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Не вдалося завантажити ціну в доларах США. Суми на рахунку не включають вартість у доларах США, доки дані не оновляться.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "Цей токен вилучено з тестової мережі (Testnet) і його неможливо надіслати.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Перед відправленням встановіть десяткові знаки токена в розділі «Інформація про токен».",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "Немає доступного залишку для переказу.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "Наразі немає доступного балансу для відправлення. Спочатку прийміть очікувані перекази.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Не вдалося збалансувати навантаження. Спробуйте ще раз перед відправленням.",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -4082,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Не виходите з облікового запису, якщо не знаєте своєї 12-слівної фрази відновлення або не маєте зашифрованого файлу резервної копії.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Ваш поточний гаманець залишається на цьому пристрої, доки ви не підтвердите заміну. Перед продовженням підготуйте 12-слівну фразу відновлення, ключ Guardian або зашифрований файл резервної копії.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Потрібне біометричне розблокування",
@@ -10970,5 +11091,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Замінити наявний гаманець?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Це назавжди видалить ваш поточний гаманець із цього пристрою та створить новий із щойно встановленим паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Це назавжди видалить ваш поточний гаманець із цього пристрою та відновить відновлений гаманець із щойно встановленим паролем.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Переконайтеся, що у вас є поточна фраза відновлення або резервна копія, якщо вони вам ще потрібні. Цю дію не можна скасувати.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Видалити та відновити гаманець",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Видалити та створити гаманець",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Повернутися до входу",
+    "englishSource": "Back to sign in"
   }
 }

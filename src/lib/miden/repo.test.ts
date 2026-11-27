@@ -912,7 +912,7 @@ describe('portfolio observation migration', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.3);
+      expect(upgraded.verno).toBe(3.4);
       await expect(upgraded.table(Table.Transactions).get('existing-tx')).resolves.toMatchObject({ accountId: 'a' });
       await expect(upgraded.table(Table.SpendingLimits).get('a')).resolves.toMatchObject({ limit: '10' });
       expect(upgraded.table(Table.PortfolioObservations).schema.primKey.keyPath).toEqual([
@@ -941,7 +941,7 @@ describe('spending limits schema', () => {
   it('keeps spending limits keyed by account alone after the observation migration', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.3);
+    expect(db.verno).toBe(3.4);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1119,7 +1119,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.3);
+    expect(upgraded.verno).toBe(3.4);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1170,7 +1170,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.3);
+    expect(upgraded.verno).toBe(3.4);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1217,7 +1217,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.3);
+      expect(upgraded.verno).toBe(3.4);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
       expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
@@ -2231,7 +2231,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.4)
+          .version(3.5)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2263,7 +2263,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.4)
+        .version(3.5)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;

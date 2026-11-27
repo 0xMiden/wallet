@@ -16,6 +16,7 @@ import {
   StorageOwner
 } from 'lib/telemetry/crash-diagnostics';
 
+import { advanceCursorToTarget, historyRowFromCursor, RANGE_ANY, RANGE_BOUND } from './db/index-query';
 import { ITransaction, ITransactionStatus, type ITransactionType } from './db/types';
 import { PersistedSpendingLimit } from './spending-limits/types';
 
@@ -59,6 +60,17 @@ export const TRANSACTIONS_V3_2_STORE = indexes(
   '[badgeNetwork+status+type+badgeEvidenceRevision]',
   '[recoveredBadgeNetwork+status+type+badgeEvidenceRevision]'
 );
+
+export const TRANSACTIONS_V3_4_STORE = indexes(
+  TRANSACTIONS_V3_2_STORE,
+  'status',
+  '[status+type]',
+  '[status+completedAt]',
+  '*heldNoteIds'
+);
+
+export const PORTFOLIO_OBSERVATIONS_V3_3_STORE =
+  '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]';
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
@@ -408,8 +420,17 @@ function defineSchema(target: Dexie): void {
   target.version(3.3).stores({
     [Table.Transactions]: TRANSACTIONS_V3_2_STORE,
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
-    [Table.PortfolioObservations]:
-      '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]'
+    [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE
+  });
+
+  // v3.4 - status, [status+type], [status+completedAt], and *heldNoteIds indexes so periodic
+  // pending-note checks, queue/loop reads, and bounded history checks avoid full-store scans.
+  // All existing stores are carried forward; IndexedDB builds the new indexes natively without
+  // rewriting existing rows.
+  target.version(3.4).stores({
+    [Table.Transactions]: TRANSACTIONS_V3_4_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
+    [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE
   });
 
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
@@ -570,6 +591,12 @@ export const db = buildTridentDb('TridentMain');
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
+/** Position of an index cursor (`(indexKey, primaryKey)`). */
+export interface HistoryIndexPosition {
+  key: number;
+  primaryKey: string;
+}
+
 /** One row of an ordered `completedAt` or `initiatedAt` cursor, plus the step that advances it. */
 export interface HistoryIndexCursor {
   readonly value: ITransaction;
@@ -583,6 +610,10 @@ export interface HistoryIndexBound {
   lowerOpen?: boolean;
   upper?: number;
   upperOpen?: boolean;
+  /** Inclusive resume target within the range (skips ahead in O(log N) via `continuePrimaryKey`). */
+  resumeAt?: HistoryIndexPosition;
+  /** Exclusive resume position (advances strictly past `(key, primaryKey)`). */
+  resumeAfter?: HistoryIndexPosition;
 }
 
 /**
@@ -607,33 +638,28 @@ export async function openTransactionIndexCursor(
     query: { index, range: historyIndexRange(bound) }
   });
   if (cursor === null) return null;
+  if (bound?.resumeAfter !== undefined) {
+    const alive = await advanceCursorToTarget(cursor, bound.resumeAfter, reverse, false);
+    if (!alive) return null;
+  } else if (bound?.resumeAt !== undefined) {
+    const alive = await advanceCursorToTarget(cursor, bound.resumeAt, reverse, true);
+    if (!alive) return null;
+  }
   return wrapHistoryIndexCursor(cursor);
 }
 
 function historyIndexRange(bound: HistoryIndexBound | undefined) {
   // Dexie range kinds are numeric: Any is 3 and Range is 2. The const enum does not exist at runtime.
   if (bound === undefined || (bound.lower === undefined && bound.upper === undefined)) {
-    return { type: 3, lower: undefined, upper: undefined };
+    return { type: RANGE_ANY, lower: undefined, upper: undefined };
   }
   return {
-    type: 2,
+    type: RANGE_BOUND,
     lower: bound.lower,
     upper: bound.upper,
     lowerOpen: bound.lowerOpen === true,
     upperOpen: bound.upperOpen === true
   };
-}
-
-function isHistoryIndexRow(value: unknown): value is ITransaction {
-  if (typeof value !== 'object' || value === null) return false;
-  if (!('id' in value) || !('status' in value) || !('initiatedAt' in value) || !('accountId' in value)) return false;
-  return typeof value.id === 'string';
-}
-
-function historyRowFromCursor(cursor: DBCoreCursor): ITransaction {
-  const value: unknown = cursor.value;
-  if (!isHistoryIndexRow(value)) throw new Error('history index cursor returned a non-transaction');
-  return value;
 }
 
 function wrapHistoryIndexCursor(cursor: DBCoreCursor): HistoryIndexCursor {
