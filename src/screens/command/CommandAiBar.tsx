@@ -611,7 +611,12 @@ export function CommandAiBar({
             onClick={() => setExpanded(prev => !prev)}
             className="grid size-10 shrink-0 place-items-center rounded-xl text-muted hover:bg-fill-pressed hover:text-ink focus-visible:outline-2 focus-visible:outline-accent-primary"
           >
-            <Icon name={expanded ? IconName.ChevronUp : IconName.ChevronDown} size="sm" aria-hidden="true" />
+            <Icon
+              name={expanded ? IconName.ChevronUp : IconName.ChevronDown}
+              size="sm"
+              fill="currentColor"
+              aria-hidden="true"
+            />
           </button>
 
           <button

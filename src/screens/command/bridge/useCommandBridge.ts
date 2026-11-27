@@ -9,7 +9,7 @@ import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { sameAsset } from 'lib/bridge/core/assets';
 import type { TransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from 'lib/bridge/core/review';
-import { configKey, type BridgeRoute } from 'lib/bridge/core/routes';
+import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
 import { submitReviewedBridge, walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
@@ -31,10 +31,7 @@ import { ensureNativeSessionChain } from 'lib/walletconnect/native';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
 import { type CommandDrafts, useCommandDrafts } from '../command-drafts';
-
-function defaultBridgeRoute(routes: readonly BridgeRoute[]): BridgeRoute | undefined {
-  return routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ?? routes[0];
-}
+import { defaultBridgeRoute } from './bridge-selection';
 
 export function useCommandBridge() {
   const drafts = useCommandDrafts();
