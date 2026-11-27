@@ -36,7 +36,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
-import { priceSymbolFor, quoteMayArrive, tokenQuote } from 'lib/miden/swap/tokens';
+import { marketLookupPending, priceSymbolFor, quoteMayArrive, tokenQuote } from 'lib/miden/swap/tokens';
 import { ClaimFeeRefusedError } from 'lib/miden/transaction/claim-fee';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -271,6 +271,11 @@ const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => 
       !tokenQuote(displayQuotes, token.tokenId, token.metadata.symbol) &&
       quoteMayArrive(token.tokenId, token.metadata.symbol)
   );
+  const marketLookupHolding = totalTokens.some(
+    token =>
+      !tokenQuote(displayQuotes, token.tokenId, token.metadata.symbol) &&
+      marketLookupPending(token.tokenId, token.metadata.symbol)
+  );
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -384,6 +389,7 @@ const Explore: FC<{ balanceAction?: React.ReactNode }> = ({ balanceAction }) => 
             hiddenTokens={hiddenTokens}
             totalPriceSymbols={totalPriceSymbols}
             awaitingQuote={awaitingQuote}
+            marketLookupHolding={marketLookupHolding}
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
@@ -412,6 +418,7 @@ interface HomeOverviewProps {
   hiddenTokens: TokenBalanceData[];
   totalPriceSymbols: readonly (string | undefined)[];
   awaitingQuote: boolean;
+  marketLookupHolding: boolean;
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
@@ -430,6 +437,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   hiddenTokens,
   totalPriceSymbols,
   awaitingQuote,
+  marketLookupHolding,
   onUnhide,
   account,
   balancesLoading,
@@ -447,7 +455,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   const assetsHeadingId = useId();
   const numberSymbols = getNumberSymbols();
   const pricesStatus = useWalletStore(s => s.tokenPricesStatus);
-  const livePricesReady = !awaitingQuote || pricesStatus === 'ready';
+  const livePricesReady = !marketLookupHolding && (!awaitingQuote || pricesStatus === 'ready');
   const usesCachedTotal = totalPriceSymbols.some(
     symbol => symbol !== undefined && displayQuotes[symbol] !== tokenPrices[symbol]
   );

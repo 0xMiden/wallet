@@ -271,6 +271,16 @@ export function quoteMayArrive(faucetId: string, symbol: string): boolean {
   if (fixedQuote(priceSymbol) !== undefined) return false;
   const id = normalizedFaucetId(faucetId);
   if (Array.from(peekTokenBaskets(network)?.keys() ?? [], normalizedFaucetId).includes(id)) return true;
+  return marketLookupPending(faucetId, symbol);
+}
+
+/** Whether a market quote may still arrive for a token whose price asset is known. */
+export function marketLookupPending(faucetId: string, symbol: string): boolean {
+  const network = getEffectiveNetworkName();
+  const priceSymbol = priceSymbolFor(faucetId, symbol);
+  if (priceSymbol === undefined || fixedQuote(priceSymbol) !== undefined) return false;
+  const id = normalizedFaucetId(faucetId);
+  if (Array.from(peekTokenBaskets(network)?.keys() ?? [], normalizedFaucetId).includes(id)) return false;
   return usdMarketPending(priceSymbol) && !feedFoundNoQuote(network, priceSymbol);
 }
 

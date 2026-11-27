@@ -37,14 +37,17 @@ afterAll(() => _setSwapTokensForTest(undefined));
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 // Set verified price assets directly. Swap metadata does not set price assets.
 const mockVerifiedPriceAssets = new Map<string, string>();
+let mockTokenBaskets: Map<string, string[]> | undefined;
 jest.mock('lib/token-list/runtime', () => ({
   ...jest.requireActual<typeof import('lib/token-list/runtime')>('lib/token-list/runtime'),
-  peekTokenPriceAssets: () => mockVerifiedPriceAssets
+  peekTokenPriceAssets: () => mockVerifiedPriceAssets,
+  peekTokenBaskets: () => mockTokenBaskets
 }));
 beforeEach(() => {
   mockVerifiedPriceAssets.clear();
   mockVerifiedPriceAssets.set(TEST_TOKEN_IETH.faucetId, 'ETH');
   mockVerifiedPriceAssets.set(TEST_TOKEN_IBTC.faucetId, 'BTC');
+  mockTokenBaskets = undefined;
   mockNumberSymbols = { group: ',', decimal: '.' };
 });
 
@@ -502,6 +505,45 @@ describe('Explore', () => {
       } finally {
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
       }
+    });
+
+    // A source failed without ruling ETH out: the run reports ready, but IETH's quote can still change the total.
+    it('keeps the dash when the feed is ready and a held market is still pending', async () => {
+      _resetDisplayFeedForTest();
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 1),
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1)
+      ];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockPortfolioTotal = new BigNumber(100);
+      mockBalanceChange = { absolute: 1, percentage: 1 };
+      await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-delta', 'none');
+    });
+
+    it('shows the total when the feed is ready while an unmapped holding still waits on bridge config', async () => {
+      _resetDisplayFeedForTest();
+      mockVerifiedPriceAssets.set('faucet-usdcx', 'USDCX');
+      mockAllBalances = [
+        makeToken('faucet-mico', 'MICO', 'Mico', 1),
+        makeToken('faucet-usdcx', 'USDCX', 'USD Coin', 1)
+      ];
+      mockTokenPrices = { USDCX: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockPortfolioTotal = new BigNumber(7.25);
+      await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^7\.25$/);
+    });
+
+    it('shows the total when the feed is ready while a basket value is still absent', async () => {
+      _resetDisplayFeedForTest();
+      mockTokenBaskets = new Map([['mtst1basket', ['BLUEDW']]]);
+      mockVerifiedPriceAssets.set('mtst1basket', 'BLUEDW');
+      mockAllBalances = [makeToken('mtst1basket', 'BASKET', 'Basket', 1)];
+      mockTokenPrices = { ETH: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockPortfolioTotal = new BigNumber(100);
+      await renderExplore();
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100\.00$/);
     });
 
     it('updates price readiness on a verified price asset change with an unchanged empty feed', async () => {
