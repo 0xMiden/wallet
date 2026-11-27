@@ -19,7 +19,7 @@ import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { useHasUnreadActivity } from 'app/hooks/useHasUnreadActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import CommandLauncher from 'app/layouts/CommandLauncher';
-import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import HomePanes from 'app/layouts/HomePanes';
 import {
   PageActiveContext,
   TabActiveContext,
@@ -369,7 +369,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
-        <HomeSwipeContainer />
+        <HomePanes />
       </div>
     </>
   ) : (

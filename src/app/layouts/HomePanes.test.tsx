@@ -5,7 +5,7 @@ import { act, render } from '@testing-library/react';
 import { holdNavbarHidden, useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { _resetInteractionPriorityForTest, isInteracting } from 'lib/ui/interaction-priority';
 
-import HomePanes from './HomeSwipeContainer';
+import HomePanes from './HomePanes';
 import { PageActiveContext, TabActiveContext, usePageActive } from './page-active';
 
 const mockNavigate = jest.fn();

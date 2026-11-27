@@ -120,13 +120,13 @@ jest.mock('react-i18next', () => ({
 
 // The Home pages are E2E territory; a marker div is enough to assert they
 // mount (vs. `children`) when the action bar is showing.
-const homeSwipeRenders = { count: 0 };
-jest.mock('app/layouts/HomeSwipeContainer', () => ({
+const homePanesRenders = { count: 0 };
+jest.mock('app/layouts/HomePanes', () => ({
   __esModule: true,
   default: () => {
-    homeSwipeRenders.count += 1;
+    homePanesRenders.count += 1;
     return (
-      <div data-testid="home-swipe">
+      <div data-testid="home-panes">
         <div data-testid="home-scroll-region" />
       </div>
     );
@@ -311,13 +311,13 @@ describe('TabLayout — active action derivation (activeActionFromPath)', () => 
 });
 
 describe('TabLayout — action bar visibility (showActionBar)', () => {
-  it('renders the action bar and HomeSwipeContainer for home-group routes', () => {
+  it('renders the action bar and HomePanes for home-group routes', () => {
     mockLocation.pathname = '/send';
     renderLayout();
     expect(screen.getByTestId('action-bar')).toBeInTheDocument();
     // Nothing pads the row down from the top of the pane: the bar's own 4px is the whole gap.
     expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
-    expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
+    expect(screen.getByTestId('home-panes')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
   });
 
@@ -337,7 +337,7 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     mockLocation.pathname = '/history';
     renderLayout();
     expect(screen.queryByTestId('action-bar')).toBeNull();
-    expect(screen.queryByTestId('home-swipe')).toBeNull();
+    expect(screen.queryByTestId('home-panes')).toBeNull();
     expect(screen.getByTestId('child-content')).toBeInTheDocument();
   });
 });
@@ -869,12 +869,12 @@ describe('TabLayout mobile navbar presentation', () => {
     mockLocation.pathname = '/';
     renderLayout();
     const region = screen.getByTestId('home-scroll-region');
-    const before = homeSwipeRenders.count;
+    const before = homePanesRenders.count;
     scrollTo(region, 0, 40);
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
     scrollTo(region, 0);
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
-    expect(homeSwipeRenders.count).toBe(before);
+    expect(homePanesRenders.count).toBe(before);
   });
 
   it('expands on a tab tap and resets its baseline when the route changes', () => {
@@ -1111,11 +1111,11 @@ describe('TabLayout — mount fade and tab panes', () => {
   it('keeps a visited tab mounted but hidden and inert while another tab is active', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
-    const homeSwipe = screen.getByTestId('home-swipe');
+    const homeSwipe = screen.getByTestId('home-panes');
 
     mockLocation.pathname = '/history';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(screen.getByTestId('home-panes')).toBe(homeSwipe);
     const homePane = paneOf('home');
     expect(homePane).toContainElement(screen.getByTestId('action-bar'));
     expect(homePane).toHaveStyle({ visibility: 'hidden' });
@@ -1128,7 +1128,7 @@ describe('TabLayout — mount fade and tab panes', () => {
 
     mockLocation.pathname = '/';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(screen.getByTestId('home-panes')).toBe(homeSwipe);
     expect(paneOf('home')).toHaveStyle({ visibility: 'visible' });
     expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
   });
@@ -1149,7 +1149,7 @@ describe('TabLayout — mount fade and tab panes', () => {
     mockLocation.pathname = pathname;
     renderLayout(<div data-testid="routed-content" />);
     const pane = paneOf(tab);
-    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-swipe"]')).not.toBeNull();
+    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-panes"]')).not.toBeNull();
     expect(pane).toHaveStyle({ visibility: 'visible' });
     expect(pane).not.toHaveAttribute('inert');
   });
