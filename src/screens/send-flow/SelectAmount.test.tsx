@@ -658,7 +658,7 @@ describe('SelectAmount', () => {
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
 
       const circle = screen.getByText('$').parentElement as HTMLElement;
-      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.style.backgroundColor).toBe(PRIMARY_HEX);
       expect(circle.className).not.toContain('bg-primary-500');
     });
 
@@ -667,7 +667,7 @@ describe('SelectAmount', () => {
 
       const globeIcon = screen.getByTestId('ai-token-selector').querySelector('[data-name="Globe"]');
       const circle = globeIcon?.parentElement as HTMLElement;
-      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.style.backgroundColor).toBe(PRIMARY_HEX);
       expect(circle.className).not.toContain('bg-primary-500');
       expect(globeIcon).toHaveClass('text-accent-brand-on');
       expect(globeIcon).not.toHaveClass('text-pure-white');

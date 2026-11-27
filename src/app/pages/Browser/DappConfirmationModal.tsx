@@ -391,7 +391,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                   type="button"
                   data-testid="dapp-confirmation-deny"
                   onClick={handleDeny}
-                  className="flex-1 rounded-full border-2 border-orange-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10"
+                  className="flex-1 rounded-full border-2 border-primary-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10"
                 >
                   {t('deny')}
                 </button>

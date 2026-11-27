@@ -4,6 +4,7 @@ import path from 'path';
 import { TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { CARD_COLORS } from 'lib/settings/constants';
 import { ARROW_INK, arrowInkFor } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { ACCENT_HEX, PRIMARY_HEX } from 'utils/brand-colors';
 
 import { escapeForRegExp, RETIRED_TOKEN_CSS_VARS } from './retired-tokens';
 
@@ -13,7 +14,7 @@ const tabLayout = fs.readFileSync(path.join(__dirname, '../../app/layouts/TabLay
 const swapIconClass = tabLayout.match(/IconName\.Convert} className="([^"]+)"/)?.[1];
 
 /** The custom properties declared in one top-level block of `@layer base`. */
-function themeVars(selector: ':root' | '.dark'): Record<string, string> {
+function themeVars(selector: string): Record<string, string> {
   const layer = css.slice(css.indexOf('@layer base {'));
   const start = layer.indexOf(`  ${selector} {`);
   const end = layer.indexOf('\n  }', start);
@@ -517,4 +518,133 @@ describe.each([':root', '.dark'] as const)('summary badge arrow in %s', selector
       expect(contrast(color(arrowInkFor(fill)), color(fill))).toBeGreaterThanOrEqual(3);
     }
   );
+});
+
+// On testnet the primary accent is blue, so the network reads at a glance (#1874). The overrides sit on
+// the root element beside `.dark`, so each theme carries its own pair.
+describe.each([':root', '.dark'] as const)('testnet accent in %s', selector => {
+  const testnet = themeVars(`${selector}[data-network='testnet']`);
+  const need = (name: string) => {
+    const value = testnet[name];
+    if (!value) throw new Error(`--${name} not overridden for testnet in ${selector}`);
+    return value;
+  };
+
+  it('turns the primary accent blue', () => {
+    for (const name of ['accent-primary', 'accent-primary-hover', 'ds-accent-tint', 'ds-accent-tint-ink']) {
+      const h = hue(need(name));
+      expect(h).toBeGreaterThanOrEqual(200);
+      expect(h).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('keeps white CTA labels at 3:1 on the blue and its hover', () => {
+    expect(contrast('#FFFFFF', need('accent-primary'))).toBeGreaterThanOrEqual(3);
+    expect(contrast('#FFFFFF', need('accent-primary-hover'))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps the banner ink at 4.5:1 on its tint', () => {
+    expect(contrast(need('ds-accent-tint-ink'), need('ds-accent-tint'))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('testnet accent reaches the dApp load retry button', () => {
+  it('uses the primary ramp, which follows the network, not the fixed orange ramp', () => {
+    const dappActive = fs.readFileSync(path.join(__dirname, '../../app/pages/Browser/DappActive.tsx'), 'utf8');
+    const retry = dappActive.match(/className="([^"]+)"\s*>\s*\{t\('retry'\)\}/)?.[1];
+    expect(retry).toContain('bg-primary-500');
+    expect(retry).not.toMatch(/orange/);
+  });
+
+  it('gives the dApp confirmation deny button the primary ramp too', () => {
+    const modal = fs.readFileSync(path.join(__dirname, '../../app/pages/Browser/DappConfirmationModal.tsx'), 'utf8');
+    const deny = modal.match(/data-testid="dapp-confirmation-deny"[^>]*className="([^"]+)"/s)?.[1];
+    expect(deny).toContain('border-primary-500');
+    expect(deny).not.toMatch(/orange/);
+  });
+});
+
+describe('testnet recolors the Tailwind primary ramp', () => {
+  const rampNames = [
+    'primary-50',
+    'primary-500',
+    'primary-600',
+    'primary-disabled',
+    'primary-orange',
+    'primary-orange-light',
+    'primary-orange-dark',
+    'primary-orange-lighter',
+    'primary-orange-darker'
+  ];
+
+  it('turns every ramp variable blue on the light root', () => {
+    const testnet = themeVars(":root[data-network='testnet']");
+    for (const name of rampNames) {
+      expect(testnet[name]).toBeDefined();
+      const h = hue(testnet[name]!);
+      expect(h).toBeGreaterThanOrEqual(200);
+      expect(h).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it('keeps primary text readable at 4.5:1 on the dark surface', () => {
+    const dark = themeVars(".dark[data-network='testnet']");
+    const surface = themeVars('.dark')['color-surface-solid']!;
+    expect(contrast(dark['primary-500']!, surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(dark['primary-orange']!, surface)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('turns the dark disabled fill blue', () => {
+    const h = hue(themeVars(".dark[data-network='testnet']")['primary-disabled-dark']!);
+    expect(h).toBeGreaterThanOrEqual(200);
+    expect(h).toBeLessThanOrEqual(240);
+  });
+
+  it('keeps the orange default in the stylesheet', () => {
+    expect(themeVars(':root')['primary-500']).toBe('#e77537');
+  });
+
+  // Tailwind resolves the config at build time: outside a devnet build the ramp must read the variables above.
+  const tailwindColors = (network: string | undefined) => {
+    const previous = process.env.MIDEN_NETWORK;
+    if (network === undefined) delete process.env.MIDEN_NETWORK;
+    else process.env.MIDEN_NETWORK = network;
+    try {
+      let colors: Record<string, any> = {};
+      jest.isolateModules(() => {
+        colors = require('../../../tailwind.config').default.theme.colors;
+      });
+      return colors;
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_NETWORK;
+      else process.env.MIDEN_NETWORK = previous;
+    }
+  };
+
+  it.each([undefined, 'testnet', 'mainnet'])('reads every ramp color from a variable in a %s build', network => {
+    const colors = tailwindColors(network);
+    expect(colors.primary).toEqual({
+      50: 'var(--primary-50)',
+      500: 'var(--primary-500)',
+      600: 'var(--primary-600)'
+    });
+    expect(colors['primary-orange']).toBe('var(--primary-orange)');
+    expect(colors['primary-orange-dark']).toBe('var(--primary-orange-dark)');
+    expect(colors['primary-disabled']).toEqual({
+      DEFAULT: 'var(--primary-disabled)',
+      dark: 'var(--primary-disabled-dark)'
+    });
+  });
+
+  it('keeps the fixed slate ramp in a devnet build', () => {
+    const colors = tailwindColors('devnet');
+    expect(colors.primary[500]).toBe('#7286A0');
+    expect(colors['primary-orange']).toBe('#8A9DB5');
+    expect(colors['primary-disabled'].DEFAULT).toBe('#C4CCD7');
+  });
+
+  it('hands inline-style consumers the live accent variable outside a devnet build', () => {
+    expect(PRIMARY_HEX).toBe('var(--accent-primary)');
+    expect(ACCENT_HEX).toBe('var(--accent-primary)');
+  });
 });

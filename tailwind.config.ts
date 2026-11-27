@@ -5,10 +5,13 @@ import customColors from './src/utils/colors';
 // Network-conditional branding: driven by MIDEN_NETWORK env variable (default: testnet)
 const isDevnet = process.env.MIDEN_NETWORK === 'devnet';
 
+// The brand ramp reads CSS variables (main.css) so testnet can turn it blue at runtime; a devnet build keeps its fixed slate.
+const brand = (devnet: string, name: string) => (isDevnet ? devnet : `var(--${name})`);
+
 const primaryPalette = {
-  50: isDevnet ? '#EEF1F4' : '#FFF3EC',
-  500: isDevnet ? '#7286A0' : '#E77537',
-  600: isDevnet ? '#5A6B80' : '#C95A21'
+  50: brand('#EEF1F4', 'primary-50'),
+  500: brand('#7286A0', 'primary-500'),
+  600: brand('#5A6B80', 'primary-600')
 };
 
 const successGreen = '#90BA89';
@@ -111,19 +114,19 @@ export default {
             },
         // Brand colors
         'primary-white': '#fcfaf7',
-        'primary-orange': isDevnet ? '#8A9DB5' : '#E77537',
-        'primary-orange-disabled': isDevnet ? '#7F95AD' : '#DCD4C8',
+        'primary-orange': brand('#8A9DB5', 'primary-orange'),
+        'primary-orange-disabled': brand('#7F95AD', 'primary-orange-disabled'),
         // Disabled primary button: the brand color at 40% over the page
         // background, pre-blended to a solid so it matches the palette's
         // opaque fills (light over #fbfbfb, dark over #191919).
         'primary-disabled': {
-          DEFAULT: isDevnet ? '#C4CCD7' : '#F3C5AD',
-          dark: isDevnet ? '#3D454F' : '#6B3E25'
+          DEFAULT: brand('#C4CCD7', 'primary-disabled'),
+          dark: brand('#3D454F', 'primary-disabled-dark')
         },
-        'primary-orange-light': isDevnet ? '#C5D0DC' : '#F7C8B1',
-        'primary-orange-dark': isDevnet ? '#4E5F73' : '#9F4518',
-        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF3EC',
-        'primary-orange-darker': isDevnet ? '#3A4857' : '#652D15',
+        'primary-orange-light': brand('#C5D0DC', 'primary-orange-light'),
+        'primary-orange-dark': brand('#4E5F73', 'primary-orange-dark'),
+        'primary-orange-lighter': brand('#EEF1F4', 'primary-orange-lighter'),
+        'primary-orange-darker': brand('#3A4857', 'primary-orange-darker'),
         'primary-gray': '#656565',
         'border-card': 'var(--color-border)',
         'border-faint': '#BABABA33',
