@@ -1241,13 +1241,14 @@ export const ReviewTransaction: React.FC = () => {
       isUsdcxBurn && amountBaseUnits !== undefined
         ? usdcxMinimumBurnShortfall(amountBaseUnits, burnMinimum)
         : undefined;
-    const burnValidationErrorId = !isUsdcxBurn
-      ? undefined
-      : amountBaseUnits === undefined || amountBaseUnits <= 0n
-        ? 'usdcxInvalidAmount'
-        : minimumBurnShortfall
-          ? 'usdcxBelowMinimumBurn'
-          : undefined;
+    const burnValidationErrorId =
+      !isUsdcxBurn || !token
+        ? undefined
+        : amountBaseUnits === undefined || amountBaseUnits <= 0n
+          ? 'usdcxInvalidAmount'
+          : minimumBurnShortfall
+            ? 'usdcxBelowMinimumBurn'
+            : undefined;
     const burnValidationError = burnValidationErrorId ? t(burnValidationErrorId, minimumBurnShortfall) : undefined;
 
     // Deep-link guards — after all hooks. Address/amount are checkable
@@ -1418,7 +1419,7 @@ export const ReviewTransaction: React.FC = () => {
       (command && sendAdmission?.status === 'pending') ||
       scaleIsUnknown ||
       amountExceedsPrecision ||
-      (isUsdcxBurn && (!!burnValidationError || !burnFeeReady)) ||
+      (isUsdcxBurn && (!token || !!burnValidationError || !burnFeeReady)) ||
       (isNearIntents && nearIntentsQuote.status !== 'ready') ||
       recallInvalid;
     const ReviewLayout = command ? CommandSendReview : SendStepLayout;
