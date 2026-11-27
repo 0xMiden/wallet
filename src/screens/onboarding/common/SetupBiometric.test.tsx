@@ -418,6 +418,60 @@ describe('SetupBiometricScreen', () => {
     });
   });
 
+  describe('iOS: the wallet key prompt is the only setup prompt', () => {
+    beforeEach(() => {
+      mockIsIOS.mockReturnValue(true);
+    });
+
+    it('checks availability without showing a prompt, then continues on tap', async () => {
+      const onContinue = jest.fn();
+      renderComponent({ onContinue });
+      await flush();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+      expect(screen.queryByText('biometricConfirmed')).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('faceIdSetUp');
+      expect(screen.getByTestId('btn-usePasscodeInstead')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('btn-continue'));
+      expect(onContinue).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it('stays on the screen without prompting when coming back to it', async () => {
+      const onContinue = jest.fn();
+      const { unmount } = renderComponent({ onContinue });
+      await flush();
+      unmount();
+      renderComponent({ onContinue });
+      await flush();
+
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+      expect(onContinue).not.toHaveBeenCalled();
+    });
+
+    it('offers no Continue while biometrics are unavailable', async () => {
+      mockCheckSetup.mockResolvedValue(blockedBy('passcode-not-set'));
+      renderComponent();
+      await flush();
+
+      expect(screen.getByText('biometricPasscodeNotSet')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-continue')).not.toBeInTheDocument();
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the Android setup prompt', async () => {
+      mockIsIOS.mockReturnValue(false);
+      mockIsAndroid.mockReturnValue(true);
+      renderComponent();
+      await flush();
+
+      expect(mockAuthenticate).toHaveBeenCalledWith('biometricSetupReason');
+      expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
+    });
+  });
+
   describe('Open Settings', () => {
     it.each([false, true])(
       'sits above the passcode fallback on Android with no biometric enrolled (managed profile: %s)',

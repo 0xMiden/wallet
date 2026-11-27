@@ -839,6 +839,19 @@ describe('Vault hardware-backed unlock + reveal', () => {
 
       expect(encrypt.mock.calls).toEqual([[expect.any(String), 'authReasonSetUp']]);
     });
+    it('stores no wallet when the setup prompt is cancelled', async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      const encrypt = require('lib/biometric').encryptWithHardwareKey;
+      encrypt.mockClear();
+      encrypt.mockRejectedValueOnce(new Error('User canceled'));
+      const before = JSON.stringify(memoryStore);
+
+      await expect(Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC)).rejects.toThrow(PublicError);
+
+      expect(encrypt).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(memoryStore)).toBe(before);
+    });
   });
 
   describe('replacing the hardware wrapper', () => {

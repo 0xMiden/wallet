@@ -22,6 +22,16 @@ describe('LocalBiometricPlugin.swift access control', () => {
     expect(decrypt.indexOf('self.unwrap(')).toBeGreaterThan(prompt);
   });
 
+  it('authenticates the owner before creating a wallet key, the only prompt of iOS setup', () => {
+    const encrypt = body('encryptWithHardwareKey');
+    const prompt = encrypt.indexOf('context.evaluatePolicy(.deviceOwnerAuthentication');
+    expect(prompt).toBeGreaterThan(-1);
+    expect(encrypt).toMatch(/if !success \{\s+self\.rejectAuthentication\(call, error\)\s+return\s+\}/);
+    expect(encrypt.indexOf('self.makePresenceWrapper(')).toBeGreaterThan(prompt);
+    // The new key must decrypt the wrapper under that same authenticated context before it is returned.
+    expect(body('makePresenceWrapper')).toMatch(/unwrap\(wrapped, tag: tag, context: context\) == data/);
+  });
+
   it('never deletes the legacy key while migrating, so an unsaved replacement cannot strand the wallet', () => {
     // The legacy tag travels in a local there, so no form of deletion belongs in the function.
     expect(body('decryptWithHardwareKey')).not.toMatch(/deleteKey|SecItemDelete|deleteHardwareKey|hardwareKeyTags/);
