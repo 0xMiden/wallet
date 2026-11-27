@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { subscribeFooterClearance } from 'app/pages/Browser/peek-footer';
+import { request } from 'lib/miden/front';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
@@ -204,6 +205,8 @@ jest.mock('components/ui', () => ({
     );
   }
 }));
+
+jest.mock('lib/miden/front', () => ({ request: jest.fn() }));
 
 const mockNavigate = navigate as jest.Mock;
 const mockHaptic = hapticSelection as jest.Mock;
@@ -537,6 +540,69 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     fireEvent.click(screen.getByTestId('nav-me'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
+  });
+});
+
+describe('feature discovery', () => {
+  it('reports only explicit selections that change navigation, even before exposure', () => {
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-home'));
+    fireEvent.click(screen.getByTestId('action-overview'));
+    fireEvent.click(screen.getByTestId('nav-explore'));
+    fireEvent.click(screen.getByTestId('action-send'));
+
+    expect(jest.mocked(request).mock.calls.map(([message]) => 'event' in message && message.event)).toEqual([
+      expect.objectContaining({
+        phase: 'discovery',
+        feature: 'explore',
+        entryPoint: 'bottom_nav',
+        discoveryAction: 'selected'
+      }),
+      expect.objectContaining({
+        phase: 'discovery',
+        feature: 'send',
+        entryPoint: 'home_actions',
+        discoveryAction: 'selected'
+      })
+    ]);
+  });
+
+  it('qualifies an on-screen bar while keeping the independently hidden bar silent', async () => {
+    jest.useFakeTimers();
+    const observe = jest.fn();
+    const previousObserver = window.IntersectionObserver;
+    const observers: IntersectionObserverCallback[] = [];
+    window.IntersectionObserver = jest.fn(callback => {
+      observers.push(callback);
+      return { observe, disconnect: jest.fn() };
+    }) as unknown as typeof IntersectionObserver;
+    document.body.setAttribute('data-hide-home-actions', '');
+    try {
+      renderLayout();
+      act(() => {
+        observers.forEach(callback =>
+          callback(
+            [{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
+            {} as IntersectionObserver
+          )
+        );
+        jest.advanceTimersByTime(1000);
+      });
+      const events = jest.mocked(request).mock.calls.map(([message]) => 'event' in message && message.event);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          phase: 'discovery',
+          feature: 'explore',
+          entryPoint: 'bottom_nav',
+          discoveryAction: 'exposed'
+        })
+      );
+      expect(events).not.toContainEqual(expect.objectContaining({ entryPoint: 'home_actions' }));
+    } finally {
+      window.IntersectionObserver = previousObserver;
+      document.body.removeAttribute('data-hide-home-actions');
+      jest.useRealTimers();
+    }
   });
 });
 
