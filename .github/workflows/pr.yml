@@ -341,6 +341,15 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Upload Home tab switch frames
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: home-tab-switch-frames
+          path: test-results/**/home-tab-switch-*.png
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Upload posture screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
