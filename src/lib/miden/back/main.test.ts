@@ -1057,11 +1057,12 @@ describe('processRequest', () => {
     const protectors = await dispatch({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
     const verified = await dispatch({
       type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
-      credential: 'secret'
+      credential: 'secret',
+      purpose: 'switch-guardian'
     });
 
     expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
-    expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('secret');
+    expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('secret', 'switch-guardian');
     expect(protectors).toEqual({
       type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
       protectors: { hardware: true, password: false }

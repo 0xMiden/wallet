@@ -54,30 +54,30 @@ describe('StrictActionAuthentication', () => {
     mockGetPlatform.mockReturnValue('desktop');
     mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
 
-    await waitFor(() => expect(mockVerify).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(mockVerify).toHaveBeenCalledWith(undefined, 'remove-device'));
     expect(onResult).toHaveBeenCalledWith('authenticated');
   });
 
   it('submits a mobile passcode and never exposes it through the result', async () => {
     mockGetPlatform.mockReturnValue('mobile');
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     await screen.findByTestId('passcode-entry');
     '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
 
-    await waitFor(() => expect(mockVerify).toHaveBeenCalledWith('123456'));
+    await waitFor(() => expect(mockVerify).toHaveBeenCalledWith('123456', 'remove-device'));
     expect(onResult).toHaveBeenCalledWith('authenticated');
   });
 
   it('clears an invalid password, reports a localized failure, and allows retry', async () => {
     mockVerify.mockRejectedValueOnce(new Error('raw invalid password'));
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     const password = await screen.findByLabelText('password');
     fireEvent.change(password, { target: { value: 'wrong' } });
@@ -92,13 +92,13 @@ describe('StrictActionAuthentication', () => {
     fireEvent.click(screen.getByRole('button', { name: 'continue' }));
 
     await waitFor(() => expect(onResult).toHaveBeenCalledWith('authenticated'));
-    expect(mockVerify).toHaveBeenNthCalledWith(1, 'wrong');
-    expect(mockVerify).toHaveBeenNthCalledWith(2, 'correct');
+    expect(mockVerify).toHaveBeenNthCalledWith(1, 'wrong', 'remove-device');
+    expect(mockVerify).toHaveBeenNthCalledWith(2, 'correct', 'remove-device');
   });
 
   it('ignores a submit with no password entered', async () => {
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     await screen.findByLabelText('password');
     fireEvent.click(screen.getByRole('button', { name: 'continue' }));
@@ -114,7 +114,7 @@ describe('StrictActionAuthentication', () => {
     mockGetPlatform.mockReturnValue('desktop');
     mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
     mockVerify.mockRejectedValueOnce(new Error('sensor said no'));
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={jest.fn()} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
 
@@ -126,7 +126,7 @@ describe('StrictActionAuthentication', () => {
 
   it('returns cancelled from the explicit cancel action', async () => {
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'cancel' }));
 
@@ -140,7 +140,9 @@ describe('StrictActionAuthentication', () => {
     const verification = deferred();
     mockVerify.mockReturnValue(verification.promise);
     const onResult = jest.fn();
-    const view = render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    const view = render(
+      <StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />
+    );
     fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
     await waitFor(() => expect(mockVerify).toHaveBeenCalled());
 
@@ -153,7 +155,7 @@ describe('StrictActionAuthentication', () => {
   it('fails closed when protector discovery is unavailable', async () => {
     mockGetProtectors.mockRejectedValue(new Error('storage offline'));
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Confirm this action" purpose="remove-device" onResult={onResult} />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('guardianAuthenticationUnavailable');
     expect(mockVerify).not.toHaveBeenCalled();
@@ -195,7 +197,7 @@ describe('user-visible strict-authentication errors', () => {
   it('reports one error once when a wrong passcode is visible in ErrorLine and real PasscodeEntry', async () => {
     mockGetPlatform.mockReturnValue('mobile');
     mockVerify.mockRejectedValueOnce(new Error('private passcode rejection'));
-    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={jest.fn()} />);
     await act(async () => {});
     '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
     await act(async () => {
@@ -212,7 +214,7 @@ describe('user-visible strict-authentication errors', () => {
 
   it('reports the password failure using its fixed key rather than the rejected credential or raw cause', async () => {
     mockVerify.mockRejectedValueOnce(new Error('private password cause'));
-    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={jest.fn()} />);
     await act(async () => {});
     await passwordAttempt();
     expect(screen.getByRole('alert')).toHaveTextContent('Visible smthWentWrong');
@@ -226,7 +228,7 @@ describe('user-visible strict-authentication errors', () => {
     mockGetPlatform.mockReturnValue('desktop');
     mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
     mockVerify.mockRejectedValueOnce(new Error('private hardware cause'));
-    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={jest.fn()} />);
     await act(async () => {});
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'continue' }));
@@ -240,7 +242,7 @@ describe('user-visible strict-authentication errors', () => {
 
   it('reports guardianAuthenticationUnavailable when protector discovery fails', async () => {
     mockGetProtectors.mockRejectedValueOnce(new Error('private discovery cause'));
-    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={jest.fn()} />);
     await act(async () => {});
     expect(screen.getByRole('alert')).toHaveTextContent('Visible guardianAuthenticationUnavailable');
     dwell();
@@ -259,7 +261,7 @@ describe('user-visible strict-authentication errors', () => {
     const verification = deferred();
     mockVerify.mockReturnValueOnce(verification.promise);
     const onResult = jest.fn();
-    render(<StrictActionAuthentication reason="Approve action" onResult={onResult} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={onResult} />);
     expect(screen.getByRole('status')).toHaveTextContent('loading');
     act(() => jest.advanceTimersByTime(1000));
     await act(async () => {
@@ -281,7 +283,7 @@ describe('user-visible strict-authentication errors', () => {
   it('drops both wrong-passcode displays when a new digit clears the error at 999 ms', async () => {
     mockGetPlatform.mockReturnValue('mobile');
     mockVerify.mockRejectedValueOnce(new Error('private passcode cause'));
-    render(<StrictActionAuthentication reason="Approve action" onResult={jest.fn()} />);
+    render(<StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={jest.fn()} />);
     await act(async () => {});
     '123456'.split('').forEach(digit => fireEvent.click(screen.getByTestId(`numpad-${digit}`)));
     await act(async () => {
@@ -298,7 +300,9 @@ describe('user-visible strict-authentication errors', () => {
   it('drops a password failure removed by host cancellation before dwell', async () => {
     mockVerify.mockRejectedValueOnce(new Error('private failure'));
     const onResult = jest.fn();
-    const view = render(<StrictActionAuthentication reason="Approve action" onResult={onResult} />);
+    const view = render(
+      <StrictActionAuthentication reason="Approve action" purpose="remove-device" onResult={onResult} />
+    );
     await act(async () => {});
     await passwordAttempt();
     expect(screen.getByRole('alert')).toBeInTheDocument();

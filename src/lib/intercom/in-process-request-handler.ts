@@ -187,7 +187,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
 
     case WalletMessageType.VerifyStrictActionAuthenticationRequest:
-      await Actions.verifyStrictActionAuthentication(req.credential);
+      await Actions.verifyStrictActionAuthentication(req.credential, req.purpose);
       return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
 
     case WalletMessageType.SignTransactionRequest: {
