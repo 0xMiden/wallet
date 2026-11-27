@@ -2260,6 +2260,7 @@
   "commandAiChooseEarnVault": "In welchen „Earn“-Tresor möchten Sie einzahlen?",
   "commandAiChooseEarnPosition": "Von welcher „Earn“-Position möchten Sie eine Auszahlung vornehmen?",
   "commandAiBridgeUnavailable": "Derzeit ist keine passende Brückenroute verfügbar.",
+  "commandAiBridgeNoRoute": "Dafür gibt es keine Route. Wählen Sie eine der anderen Routen:",
   "commandAiSwapUnavailable": "Ein Swap ist für dieses Paar derzeit nicht verfügbar.",
   "commandAiEarnUnavailable": "Derzeit sind keine „Earn“-Tresore oder -Positionen verfügbar.",
   "commandAiFiatPriceUnavailable": "Der aktuelle USD-Kurs ist für diesen Token nicht verfügbar. Geben Sie einen Token-Betrag ein.",

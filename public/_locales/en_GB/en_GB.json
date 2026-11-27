@@ -2270,6 +2270,7 @@
   "commandAiChooseEarnVault": "Which Earn vault do you want to deposit into?",
   "commandAiChooseEarnPosition": "Which Earn position do you want to withdraw from?",
   "commandAiBridgeUnavailable": "No matching bridge route is available right now.",
+  "commandAiBridgeNoRoute": "There is no route for that. Choose one of the other routes:",
   "commandAiSwapUnavailable": "Swap is unavailable for that pair right now.",
   "commandAiEarnUnavailable": "No Earn vaults or positions are available right now.",
   "commandAiFiatPriceUnavailable": "Live USD price is unavailable for that token. Enter a token amount.",

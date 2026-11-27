@@ -2266,6 +2266,7 @@
   "commandAiChooseEarnVault": "Do którego skarbca Earn chcesz wpłacić środki?",
   "commandAiChooseEarnPosition": "Z której pozycji w programie Earn chcesz dokonać wypłaty?",
   "commandAiBridgeUnavailable": "W tej chwili nie jest dostępna żadna pasująca trasa pomostowa.",
+  "commandAiBridgeNoRoute": "Nie ma takiej trasy. Wybierz jedną z pozostałych tras:",
   "commandAiSwapUnavailable": "Wymiana dla tej pary walut nie jest obecnie dostępna.",
   "commandAiEarnUnavailable": "W tej chwili nie są dostępne żadne skarbce ani pozycje w programie Earn.",
   "commandAiFiatPriceUnavailable": "Aktualna cena w USD nie jest dostępna dla tego tokenu. Wprowadź kwotę tokenu.",

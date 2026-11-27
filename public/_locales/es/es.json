@@ -2262,6 +2262,7 @@
   "commandAiChooseEarnVault": "¿En qué caja fuerte de Earn quieres realizar el depósito?",
   "commandAiChooseEarnPosition": "¿De qué posición de «Earn» quieres retirar fondos?",
   "commandAiBridgeUnavailable": "En este momento no hay ninguna ruta de puente de correspondencia disponible.",
+  "commandAiBridgeNoRoute": "No existe ninguna ruta para eso. Elige una de las otras rutas:",
   "commandAiSwapUnavailable": "El intercambio no está disponible para ese par en este momento.",
   "commandAiEarnUnavailable": "En este momento no hay bóvedas ni posiciones de Earn disponibles.",
   "commandAiFiatPriceUnavailable": "El precio en USD en tiempo real no está disponible para ese token. Introduce una cantidad de token.",

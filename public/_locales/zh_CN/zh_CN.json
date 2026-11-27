@@ -2270,6 +2270,7 @@
   "commandAiChooseEarnVault": "您想存入哪个 Earn 保险库？",
   "commandAiChooseEarnPosition": "您想从哪个“Earn”头寸中提现？",
   "commandAiBridgeUnavailable": "目前没有可用的匹配桥接路径。",
+  "commandAiBridgeNoRoute": "该选项不存在。请选择其他选项之一：",
   "commandAiSwapUnavailable": "该交易对目前无法进行掉期交易。",
   "commandAiEarnUnavailable": "目前暂无可用的“赚取”金库或头寸。",
   "commandAiFiatPriceUnavailable": "该代币的实时美元价格不可用。请输入代币数量。",
