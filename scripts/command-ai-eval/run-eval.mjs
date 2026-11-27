@@ -1078,6 +1078,7 @@ export async function runMeasure({ service = createEvalWorker({ paced: false }) 
 }
 
 const GATE_HELP_ACCURACY = 0.9;
+const MIN_WRITER_QUESTIONS = 6;
 
 function matchesExpected(parsed, expected) {
   const ticker = value => (value ?? '').toUpperCase().replace(/[<>]/g, '');
@@ -1109,6 +1110,9 @@ export async function runEval({
   const gateFailures = new Set();
   let helpTotal = 0;
   let helpPassed = 0;
+  const listed = (dataset ?? helpDataset()).writing.cards;
+  const writerQuestions = new Set();
+  const writtenQuestions = new Set();
   let redactionFailures = 0;
   let provenanceFailures = 0;
   let obligationFailures = 0;
@@ -1205,6 +1209,10 @@ export async function runEval({
           maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
           const parsed = schemaMod.parseAiCompilerOutput(res.output);
           const served = res.trace?.served ?? null;
+          if (questions && testCase.cards?.some(id => listed.includes(id))) {
+            writerQuestions.add(testCase.id);
+            if (res.trace?.path === 'written') writtenQuestions.add(testCase.id);
+          }
           result.ops.push(parsed?.op ?? 'invalid');
           if (questions) {
             result.served.push(served);
@@ -1268,6 +1276,17 @@ export async function runEval({
   const helpAccuracy = helpTotal === 0 ? null : helpPassed / helpTotal;
   if (helpAccuracy !== null && helpAccuracy < GATE_HELP_ACCURACY) {
     gateFailures.add(`help card accuracy ${helpAccuracy.toFixed(2)} is under ${GATE_HELP_ACCURACY}`);
+  }
+
+  // A failed writer still serves a right checked answer, so accuracy alone would deploy writing that never writes.
+  if (questions && worker && listed.length > 0) {
+    if (writerQuestions.size < MIN_WRITER_QUESTIONS) {
+      gateFailures.add(`${writerQuestions.size} questions expect a listed writing card, needs ${MIN_WRITER_QUESTIONS}`);
+    } else if (writtenQuestions.size * 3 < writerQuestions.size * 2) {
+      gateFailures.add(
+        `only ${writtenQuestions.size} of ${writerQuestions.size} writer questions were answered in written text`
+      );
+    }
   }
 
   return {
