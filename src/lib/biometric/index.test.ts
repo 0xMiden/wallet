@@ -584,10 +584,17 @@ describe('hardware security service', () => {
         decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN', rewrapped: 'up1:ID:NEW' })
       });
       const { mod } = load({ platform: IOS, local });
-      const onRewrapped = jest.fn().mockResolvedValue(undefined);
+      let save = () => {};
+      const onRewrapped = jest.fn(() => new Promise<void>(resolve => (save = resolve)));
+      let returned = false;
 
-      expect(await mod.decryptWithHardwareKey('CIPHER', onRewrapped)).toBe('PLAIN');
+      const decrypted = mod.decryptWithHardwareKey('CIPHER', onRewrapped).finally(() => (returned = true));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
       expect(onRewrapped).toHaveBeenCalledWith('up1:ID:NEW');
+      expect(returned).toBe(false);
+      save();
+      expect(await decrypted).toBe('PLAIN');
     });
 
     it('sends the prompt text and hands back a reveal approval', async () => {
