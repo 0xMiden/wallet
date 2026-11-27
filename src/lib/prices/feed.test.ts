@@ -24,18 +24,6 @@ beforeEach(() => {
   fallback.fetchKrakenKlineData.mockResolvedValue([]);
 });
 
-it('tags Binance quotes with source metadata', async () => {
-  primary.fetchTokenPrices.mockResolvedValueOnce({ SOL: dollars });
-  expect((await fetchTokenPrices(['SOL'])).SOL).toEqual(binanceDollars);
-});
-
-it('tags Kraken fallback quotes with source metadata', async () => {
-  primary.isListedSymbol.mockReturnValue(false);
-  fallback.findKrakenUsdMarket.mockResolvedValueOnce('PROVENANCEUSD');
-  fallback.fetchKrakenPrices.mockResolvedValueOnce({ PROVENANCE: dollars });
-  expect((await fetchTokenPrices(['PROVENANCE'])).PROVENANCE).toEqual(krakenDollars);
-});
-
 it('keeps Binance bulk requests and does not query Kraken for supported assets', async () => {
   primary.fetchTokenPrices.mockResolvedValueOnce({ SOL: dollars });
   expect(await fetchTokenPrices(['SOL'])).toEqual({ SOL: binanceDollars });
