@@ -66,6 +66,7 @@ import {
   SUBMISSION_FEEDBACK_BRANCHES,
   PENDING_RETRY_REASONS,
   RECIPIENT_VALIDATION_STAGES,
+  TOKEN_SCALE_PRODUCERS,
   BACKUP_NETWORK_FAILURE_STAGES,
   GUARDIAN_OUTAGE_REASONS
 } from './ui-producer-diagnostics';
@@ -208,6 +209,7 @@ it.each([
   ['submissionRejectedStatus', SUBMIT_GRPC_STATUSES],
   ['pendingRetryReason', PENDING_RETRY_REASONS],
   ['recipientValidationStage', RECIPIENT_VALIDATION_STAGES],
+  ['tokenScaleProducer', TOKEN_SCALE_PRODUCERS],
   ['backupNetworkFailureStage', BACKUP_NETWORK_FAILURE_STAGES],
   ['guardianOutageReason', GUARDIAN_OUTAGE_REASONS]
 ] as const)('documents the exact closed UI producer values for %s', (field, values) => {

@@ -110,6 +110,7 @@ export const RETRY_NOTICE_ORIGINS = [
   'status_screen'
 ] as const;
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
+export const TOKEN_SCALE_PRODUCERS = ['send_amount', 'select_amount'] as const;
 export type MainnetAccessCheckFailure =
   | 'endpoint_resolve'
   | 'sdk_ready'
@@ -170,6 +171,7 @@ export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[num
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
 export type RetryNoticeOrigin = (typeof RETRY_NOTICE_ORIGINS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
+type TokenScaleProducer = (typeof TOKEN_SCALE_PRODUCERS)[number];
 export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
@@ -198,6 +200,7 @@ export type UiEvidenceInput =
   | { kind: 'history_payback_retry'; retryNoticeOrigin: 'history_payback'; pendingRetryReason: PendingRetryReason }
   | { kind: 'transaction_retry'; retryNoticeOrigin: 'status_screen'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
+  | { kind: 'token_scale'; tokenScaleProducer: TokenScaleProducer }
   | {
       kind: 'earn_positions_load';
       earnPositionsLoadStage: EarnPositionsLoadStage;
@@ -225,6 +228,7 @@ export type UiProducerDiagnostics = {
   pendingRetryReason?: PendingRetryReason;
   retryNoticeOrigin?: RetryNoticeOrigin;
   recipientValidationStage?: RecipientValidationStage;
+  tokenScaleProducer?: TokenScaleProducer;
   burnFeeFailure?: BurnFeeFailure;
   mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
   mainnetAccessCodeRejectionOrigin?: MainnetAccessCodeRejectionOrigin;
@@ -246,6 +250,7 @@ export const UI_PRODUCER_KEYS = [
   'pendingRetryReason',
   'retryNoticeOrigin',
   'recipientValidationStage',
+  'tokenScaleProducer',
   'burnFeeFailure',
   'mainnetAccessCheckFailure',
   'mainnetAccessCodeRejectionOrigin',
@@ -342,6 +347,11 @@ const groups = {
     id: 'invalidMidenAccountId',
     surface: 'inline',
     fields: { recipientValidationStage: RECIPIENT_VALIDATION_STAGES }
+  },
+  token_scale: {
+    id: 'unknownTokenScale',
+    surface: 'inline',
+    fields: { tokenScaleProducer: TOKEN_SCALE_PRODUCERS }
   }
 } as const;
 export function validateUiEvidence(id: unknown, surface: unknown, value: unknown): UiEvidenceInput | undefined {
