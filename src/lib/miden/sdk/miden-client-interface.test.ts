@@ -3093,6 +3093,43 @@ describe('MidenClientInterface', () => {
       expect(empty.adopt).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['WasmClientPoisonedError (even when isDisposed is false)', 'poison', 0],
+      ['WebAssembly.RuntimeError', 'trap', 0],
+      ['ordinary RPC error', 'ordinary', 1]
+    ] as const)(
+      'prepareGuardianRecoveryBySeed cold-key disposal on %s expects %i free call(s)',
+      async (_label, kind, expectedFreeCalls) => {
+        const { client, chainStates } = await setupRecovery();
+        const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+        const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+        const freeSpies: jest.Mock[] = [];
+        const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+        (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+          const free = jest.fn();
+          freeSpies.push(free);
+          return { ...origDerive(seed), free };
+        });
+
+        const err =
+          kind === 'poison'
+            ? new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+            : kind === 'trap'
+              ? new WebAssembly.RuntimeError('unreachable')
+              : new Error('rpc timeout');
+        chainStates.mockRejectedValueOnce(err);
+
+        await expect(
+          client.prepareGuardianRecoveryBySeed(
+            hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+            'https://guardian.example'
+          )
+        ).rejects.toBe(err);
+        expect(client.isDisposed).toBe(false);
+        expect(freeSpies[0]).toHaveBeenCalledTimes(expectedFreeCalls);
+      }
+    );
+
     it('prepareGuardianRecoveryByHotKey stages active hot-key lookup without adopting until adoptPreparedGuardianHotKeyRecovery', async () => {
       const { client, adopt, insert, probes, signerSlots } = await setupRecovery(undefined, {
         endpoint: 'https://guardian.example'

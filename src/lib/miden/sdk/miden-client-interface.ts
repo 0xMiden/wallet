@@ -1307,7 +1307,7 @@ export class MidenClientInterface {
         dispose: releaseRemainingKeys
       };
     } catch (error) {
-      if (!(error instanceof WebAssembly.RuntimeError)) {
+      if (!(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
         releaseRemainingKeys();
       }
       throw error;
