@@ -574,20 +574,22 @@ function assertEnvelopeShape(request: SinkRequest): void {
   expect(isVisit ? visitProps.screen : 'x').toBe(isVisit ? String(envelope.eventName).replace(/_visit$/, '') : 'x');
   expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(isVisit ? visitProps.navSource : 'initial');
   expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit || isDiscovery ? visitProps.surface : 'popup');
-  if (isDiscovery) {
-    const featuresByEntry = {
-      bottom_nav: ['overview', 'explore', 'activity', 'me'],
-      home_actions: ['overview', 'send', 'receive', 'earn', 'swap'],
-      receive_tile: ['funding']
-    };
-    expect(Object.keys(visitProps).sort()).toEqual(['discoveryAction', 'entryPoint', 'feature', 'network', 'surface']);
-    expect(Object.keys(featuresByEntry)).toContain(visitProps.entryPoint);
-    expect(featuresByEntry[visitProps.entryPoint as keyof typeof featuresByEntry]).toContain(visitProps.feature);
-    expect(['exposed', 'selected']).toContain(visitProps.discoveryAction);
-  }
+  if (isDiscovery) assertFeatureDiscoveryProps(visitProps);
   // Holds either way: an absent flow id stringifies to something no 21-character
   // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));
+}
+
+function assertFeatureDiscoveryProps(visitProps: Record<string, unknown>): void {
+  const featuresByEntry = {
+    bottom_nav: ['overview', 'explore', 'activity', 'me'],
+    home_actions: ['overview', 'send', 'receive', 'earn', 'swap'],
+    receive_tile: ['funding']
+  };
+  expect(Object.keys(visitProps).sort()).toEqual(['discoveryAction', 'entryPoint', 'feature', 'network', 'surface']);
+  expect(Object.keys(featuresByEntry)).toContain(visitProps.entryPoint);
+  expect(featuresByEntry[visitProps.entryPoint as keyof typeof featuresByEntry]).toContain(visitProps.feature);
+  expect(['exposed', 'selected']).toContain(visitProps.discoveryAction);
 }
 
 function assertNoSentinels(requests: readonly SinkRequest[], sentinels: readonly string[]): void {
