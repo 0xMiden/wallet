@@ -648,4 +648,145 @@ describe('command-ai orchestrator', () => {
     expect(step2Handoff.handoff.draft.payTokenId).toBe('faucet-eth');
     expect(step2Handoff.handoff.draft.receiveTokenId).toBe('faucet-usdcx');
   });
+
+  describe('bridge request with no matching route', () => {
+    const inRoute = (id: string, symbol: string, network: string, provider = 'agglayer') => ({
+      id,
+      provider,
+      mode: 'receive' as const,
+      sourceSymbol: symbol,
+      sourceNetwork: network,
+      destinationSymbol: symbol === 'USDC' ? 'USDCx' : symbol,
+      destinationNetwork: 'miden-testnet'
+    });
+    const usdc = inRoute('in-usdc', 'USDC', 'sepolia', 'xreserve');
+    const eth = inRoute('in-eth', 'ETH', 'base-sepolia');
+    const out = {
+      id: 'out-usdcx',
+      provider: 'xreserve',
+      mode: 'send' as const,
+      sourceSymbol: 'USDCx',
+      sourceNetwork: 'miden-testnet',
+      destinationSymbol: 'USDC',
+      destinationNetwork: 'sepolia'
+    };
+    const context = () => ({ ...createContext(), bridgeRoutes: [usdc, eth, out] });
+    const request = (draft: Partial<Parameters<typeof resolveDraftToAction>[0]>) =>
+      resolveDraftToAction(
+        { action: 'bridge', amount: '5', ...draft },
+        redactPrompt('bridge', { contacts: [] }).map,
+        context()
+      );
+    const expectNoRoute = (res: ReturnType<typeof request>, offered: string[]) => {
+      if (res.kind !== 'clarifying') throw new Error(`expected a clarification, got ${res.kind}`);
+      expect(res.questionKey).toBe('commandAiBridgeNoRoute');
+      expect(res.chips.map(chip => chip.id)).toEqual(offered);
+      return res;
+    };
+
+    it.each([
+      ['an unlisted asset', { assetQuery: 'WBTC', toChain: 'miden' }, ['in-usdc', 'in-eth']],
+      ['an asset and network that never meet', { assetQuery: 'ETH', fromChain: 'sepolia' }, ['in-usdc', 'in-eth']],
+      ['an unlisted source network', { fromChain: 'solana', toChain: 'miden' }, ['in-usdc', 'in-eth']],
+      [
+        'an unlisted destination pair',
+        { assetQuery: 'USDC', toAssetQuery: 'ETH', toChain: 'miden' },
+        ['in-usdc', 'in-eth']
+      ],
+      [
+        'a provider that does not serve it',
+        { assetQuery: 'ETH', provider: 'epoch', toChain: 'miden' },
+        ['in-usdc', 'in-eth']
+      ],
+      // One other route must still be offered, never picked for the user.
+      [
+        'an asset with a single other route',
+        { assetQuery: 'USDCx', fromChain: 'miden', toChain: 'solana' },
+        ['out-usdcx']
+      ],
+      ['a route that left the catalog', { routeId: 'gone' }, ['in-usdc', 'in-eth', 'out-usdcx']]
+    ])('says there is no route for %s and offers the others', (_label, draft, offered) => {
+      expectNoRoute(request(draft), offered);
+    });
+
+    it('does not carry an amount over to a different asset', () => {
+      const res = expectNoRoute(request({ assetQuery: 'WBTC', tokenId: 'faucet-wbtc', toChain: 'miden' }), [
+        'in-usdc',
+        'in-eth'
+      ]);
+      const next = applyChipSelection(res, res.chips[1]!, context());
+      if (next.kind !== 'clarifying') throw new Error(`expected a clarification, got ${next.kind}`);
+      expect(next.slot).toBe('amount');
+      expect(next.draft.amount).toBeUndefined();
+      expect(next.draft.tokenId).toBeUndefined();
+    });
+
+    it('keeps the amount when the chosen route moves the requested asset', () => {
+      const res = expectNoRoute(request({ assetQuery: 'ETH', fromChain: 'sepolia' }), ['in-usdc', 'in-eth']);
+      const next = applyChipSelection(res, res.chips[1]!, context());
+      if (next.kind !== 'handoff' || next.handoff.action !== 'bridge') throw new Error('expected a bridge handoff');
+      expect(next.handoff.draft).toMatchObject({ route: 'in-eth', amount: '5' });
+    });
+
+    it('still reports unavailable when there is no route at all', () => {
+      const res = resolveDraftToAction(
+        { action: 'bridge', amount: '5' },
+        redactPrompt('bridge', { contacts: [] }).map,
+        { ...createContext(), bridgeRoutes: [] }
+      );
+      expect(res).toMatchObject({ kind: 'error', messageKey: 'commandAiBridgeUnavailable' });
+    });
+
+    const patch = (fields: Record<string, string>) => ({
+      op: 'patch_slots' as const,
+      patch: {
+        action: null,
+        amount: null,
+        asset: null,
+        to_asset: null,
+        from_chain: null,
+        to_chain: null,
+        recipient_ref: null,
+        provider: null,
+        note_type: null,
+        earn_op: null,
+        ...fields
+      }
+    });
+
+    it.each([{ asset: 'WBTC' }, { to_asset: 'WBTC' }, { from_chain: 'solana' }, { to_chain: 'solana' }])(
+      'drops the chosen route when a follow-up changes it to %o',
+      fields => {
+        const res = compileOutputToResolution(patch(fields), redactPrompt('x', { contacts: [] }).map, context(), {
+          action: 'bridge',
+          routeId: 'in-eth',
+          assetQuery: 'ETH',
+          fromChain: 'base-sepolia',
+          toChain: 'miden-testnet'
+        });
+        expect(res).toMatchObject({ kind: 'clarifying', questionKey: 'commandAiBridgeNoRoute' });
+      }
+    );
+
+    it('reads a network written with spaces or a mainnet suffix', () => {
+      const intent = (from_chain: string) =>
+        compileOutputToResolution(
+          { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain, to_chain: 'Miden Testnet' },
+          redactPrompt('x', { contacts: [] }).map,
+          context()
+        );
+      expect(intent('Base Sepolia')).toMatchObject({
+        kind: 'clarifying',
+        slot: 'amount',
+        draft: { routeId: 'in-eth' }
+      });
+      expect(
+        compileOutputToResolution(
+          { ...patch({}).patch, op: 'set_intent', action: 'bridge', from_chain: 'Ethereum Mainnet', to_chain: null },
+          redactPrompt('x', { contacts: [] }).map,
+          { ...createContext(), bridgeRoutes: [inRoute('main-eth', 'ETH', 'ethereum'), usdc] }
+        )
+      ).toMatchObject({ kind: 'clarifying', slot: 'amount', draft: { routeId: 'main-eth' } });
+    });
+  });
 });
