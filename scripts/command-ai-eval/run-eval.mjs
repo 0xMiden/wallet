@@ -120,6 +120,7 @@ export async function runEval({
   questions = false,
   commandsViaWorker = false,
   runs = commandsViaWorker ? 3 : 1,
+  guard = false,
   model = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b'
 } = {}) {
   const schemaMod = loadTsModule('src/lib/command-ai/schema.ts');
@@ -153,7 +154,7 @@ export async function runEval({
             providerFailureDetail = undefined;
             const response = await fetch(...args);
             const body = await response.text();
-            const stop = response.status === 429 ? hardLimitReason(response.headers, body) : null;
+            const stop = guard && response.status === 429 ? hardLimitReason(response.headers, body) : null;
             if (stop) {
               console.error(`Quota stop: ${stop}. No further provider calls.`);
               process.exit(3);
@@ -367,7 +368,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const summary = await runEval({
     offlineOnly,
     questions: process.argv.includes('--questions'),
-    commandsViaWorker: process.argv.includes('--commands')
+    commandsViaWorker: process.argv.includes('--commands'),
+    guard: process.argv.includes('--commands')
   });
   const summaryPath = process.env.COMMAND_AI_EVAL_SUMMARY;
   // stdout also carries the Worker's log lines, so the artifact is written separately.
