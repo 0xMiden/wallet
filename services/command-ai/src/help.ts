@@ -41,7 +41,7 @@ export const HELP_RULES = `Help:
 - In help, a question never gets unsupported, trivia and phrase export included. unsupported is only
   for asking Bread to do something it cannot do.
 - <AMT_n> hides any number, including a word count, days or a time.
-- "cancel" or "never mind" is cancel. Asking to cancel or get back a payment already sent is help.
+- "cancel" or "never mind" is cancel. "cancel my last payment" and getting back a sent payment are help.
 - A short reply that could answer a pending question (a name, address, amount, "public", "private",
   "the first one", a network or provider) is not help. A bare amount or provider choice can use
   patch_slots.

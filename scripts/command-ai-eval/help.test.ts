@@ -174,6 +174,7 @@ describe('buildHelpPrompt', () => {
     'never gets unsupported',
     'hides any number',
     '"cancel" or "never mind" is cancel',
+    '"cancel my last payment" and getting back a sent payment are help',
     'could answer a pending question',
     'previousHelpTopic only resolves follow-up references',
     'a secret asked for or exposed'

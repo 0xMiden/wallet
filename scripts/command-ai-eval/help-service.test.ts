@@ -138,11 +138,14 @@ describe('clarification follow-ups', () => {
     expect((await compile(service, { redactedText: SECRET, snapshot: draft })).status).toBe(502);
   });
 
+  // The provider refused a bridge without to_asset, and replies with slot keys beside the patch, on the help prompt.
+  const slots = `${SYSTEM_PROMPT}\n\nA set_intent or set_plan step lists all of these keys, each unset one set to null, and its action is never null: action, amount, asset, to_asset, from_chain, to_chain, recipient_ref, provider, note_type, earn_op. A patch_slots patch holds its keys inside patch.`;
+
   it.each([
     [{}, SYSTEM_PROMPT],
-    [{ helpContext: null }, buildHelpPrompt(SYSTEM_PROMPT, data)],
-    [{ helpContext: 'Privacy' }, buildHelpPrompt(SYSTEM_PROMPT, data)]
-  ])('adds nothing to a request without a snapshot: %j', async (context, expected) => {
+    [{ helpContext: null }, buildHelpPrompt(slots, data)],
+    [{ helpContext: 'Privacy' }, buildHelpPrompt(slots, data)]
+  ])('adds only the slot rule to a request without a snapshot: %j', async (context, expected) => {
     const { fetchMock, service } = setup({ result: { op: 'cancel' } });
     await compile(service, { redactedText: 'cancel', ...context });
     expect(system(fetchMock)).toBe(expected);

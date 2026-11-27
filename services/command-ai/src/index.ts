@@ -274,6 +274,9 @@ Intent Rules:
 // a snapshot, so every other request stays as it was.
 const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
 
+// The provider refused replies that dropped a slot key or put slot keys beside the patch on the longer help prompt.
+const SLOT_RULES = `A set_intent or set_plan step lists all of these keys, each unset one set to null, and its action is never null: ${INTENT_SLOT_REQUIRED.join(', ')}. A patch_slots patch holds its keys inside patch.`;
+
 const NO_COMMAND = { op: 'unsupported', reason: '', suggested_route: null };
 
 const HELP_DATA = helpCards as unknown as HelpDataset;
@@ -685,7 +688,7 @@ async function handleCompile(
               ? `${SYSTEM_PROMPT}\n\n${SNAPSHOT_RULES}`
               : helpContext === undefined
                 ? SYSTEM_PROMPT
-                : buildHelpPrompt(SYSTEM_PROMPT, dataset)
+                : buildHelpPrompt(`${SYSTEM_PROMPT}\n\n${SLOT_RULES}`, dataset)
           },
           { role: 'user', content: userPayload }
         ],
