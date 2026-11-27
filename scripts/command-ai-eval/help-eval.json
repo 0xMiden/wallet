@@ -929,7 +929,7 @@
     "lang": "en",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",
@@ -952,7 +952,7 @@
     "lang": "en",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",
@@ -975,7 +975,7 @@
     "lang": "en",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",
@@ -998,7 +998,7 @@
     "lang": "es",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",
@@ -1021,7 +1021,7 @@
     "lang": "ru",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",
@@ -4651,7 +4651,7 @@
     "lang": "en",
     "helpContext": null,
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"],
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"],
     "split": "dev",
     "must": [
       "nobody can reset the password",

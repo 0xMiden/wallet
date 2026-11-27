@@ -105,7 +105,7 @@
     "helpContext": null,
     "priority": "P0",
     "cards": ["forgot_password"],
-    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device"]
+    "forbidCards": ["lost_phrase", "lost_phrase_and_device", "lost_device", "phrase_exposed"]
   },
   {
     "id": "no-guardian",
