@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).
 - [CHORE][all] Guardian connectivity reports distinguish repeated unreachable responses from the request timeout fuse without including account or endpoint details.
 - [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
 - [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.

@@ -70,10 +70,15 @@ export function EarnIntentWatcher(): null {
 }
 
 async function findUncoveredEarnRows(): Promise<{ deposits: boolean; withdrawals: boolean }> {
-  const Repo = await import('lib/miden/repo');
-  const rows = await Repo.transactions
-    .filter(tx => tx.type === 'earn-deposit' || tx.type === 'earn-withdraw')
-    .toArray();
+  const [Repo, { readTransactionIndexChunks, typeIndexSpecs }] = await Promise.all([
+    import('lib/miden/repo'),
+    import('lib/miden/db/index-query')
+  ]);
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-deposit', 'earn-withdraw']),
+    () => true
+  );
 
   let deposits = false;
   let withdrawals = false;
