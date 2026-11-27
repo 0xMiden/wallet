@@ -20,6 +20,7 @@ export const FEATURE_UNAVAILABLE_REASONS = [
   'service-down',
   'unknown'
 ] as const;
+export const GUARDIAN_OUTAGE_REASONS = ['consecutive_unreachable', 'request_timeout_fuse'] as const;
 export const SUBMISSION_FEEDBACK_BRANCHES = [
   'prover_at_submit',
   'guardian_unanswered',
@@ -169,7 +170,9 @@ export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[num
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
 export type RetryNoticeOrigin = (typeof RETRY_NOTICE_ORIGINS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
+export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
+  | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
   | {
       kind: 'bridge_balance_read';
       bridgeBalanceBranch: BridgeBalanceBranch;
@@ -209,6 +212,7 @@ export type UiEvidenceInput =
   | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind }
   | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
 export type UiProducerDiagnostics = {
+  guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
   bridgeBalanceBranch?: BridgeBalanceBranch;
@@ -229,6 +233,7 @@ export type UiProducerDiagnostics = {
   backupNetworkFailureStage?: BackupNetworkFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
+  'guardianOutageReason',
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
   'bridgeBalanceBranch',
@@ -249,6 +254,11 @@ export const UI_PRODUCER_KEYS = [
   'backupNetworkFailureStage'
 ] as const;
 const groups = {
+  guardian_outage: {
+    id: 'connectivityGuardianBody',
+    surface: 'inline',
+    fields: { guardianOutageReason: GUARDIAN_OUTAGE_REASONS }
+  },
   earn_positions_load: {
     id: 'earnPositionsLoadError',
     surface: 'notice',
