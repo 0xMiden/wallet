@@ -254,11 +254,7 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
     injects.every(step => keyOf(step, 'if') === undefined) &&
     runsOnPullRequest(file, jobs(file, text), job);
   if (injectsOnPullRequests) return undefined;
-  if (
-    file === 'e2e-dapp-browser.yml' &&
-    job.id === 'android-dapp-browser' &&
-    ceiling === PRESENTATION_COMPARE_TIMEOUT
-  )
+  if (file === 'e2e-dapp-browser.yml' && job.id === 'android-dapp-browser' && ceiling === PRESENTATION_COMPARE_TIMEOUT)
     return undefined;
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
@@ -363,35 +359,55 @@ const immutableStoreWorkflow = (file: string, text: string): boolean => {
 
 /** This exception permits only fixed validator commands, never application builds or SDK consumers. */
 const technicalScreenshotWorkflow = (file: string, text: string): boolean => {
-  if (file !== 'store-screenshots.yml' || triggers(file, text).sort().join(',') !== 'pull_request,workflow_dispatch') return false;
+  if (file !== 'store-screenshots.yml' || triggers(file, text).sort().join(',') !== 'pull_request,workflow_dispatch')
+    return false;
   if (/^(env|defaults):/m.test(text)) return false;
   const permissions = /^permissions:\n((?:[ \t].*\n|\n)*)/m.exec(text)?.[1]?.trim();
   if (permissions !== 'contents: read') return false;
   const all = jobs(file, text);
   if (all.length !== 1 || all[0]?.id !== 'eligibility') return false;
   const job = all[0];
-  if (Object.keys(job.keys).sort().join(',') !== 'env,name,runs-on,steps,timeout-minutes' ||
-      job.keys.name !== 'Store screenshot eligibility' || job.keys['runs-on'] !== 'ubuntu-latest' ||
-      job.keys['timeout-minutes'] !== '60') return false;
-  const environment = /^    env:\n([\s\S]*?)^    steps:/m.exec(text)?.[1];
-  if (environment !== "      CI: 'true'\n      CARGO_BUILD_JOBS: '2'\n      RAYON_NUM_THREADS: '2'\n      VIPS_CONCURRENCY: '2'\n      UV_THREADPOOL_SIZE: '2'\n") return false;
+  if (
+    Object.keys(job.keys).sort().join(',') !== 'env,name,runs-on,steps,timeout-minutes' ||
+    job.keys.name !== 'Store screenshot eligibility' ||
+    job.keys['runs-on'] !== 'ubuntu-latest' ||
+    job.keys['timeout-minutes'] !== '60'
+  )
+    return false;
+  const environment = /^ {4}env:\n([\s\S]*?)^ {4}steps:/m.exec(text)?.[1];
+  if (
+    environment !==
+    "      CI: 'true'\n      CARGO_BUILD_JOBS: '2'\n      RAYON_NUM_THREADS: '2'\n      VIPS_CONCURRENCY: '2'\n      UV_THREADPOOL_SIZE: '2'\n"
+  )
+    return false;
   const expected = [
     ['uses: actions/checkout', 'with:', 'persist-credentials: false'],
     ['uses: actions/setup-node', 'with:', 'node-version: 22', 'cache: yarn'],
-    ['run: >-', 'node --test --test-concurrency=2', 'scripts/store-listing/screenshots.test.mjs',
-      'scripts/store-publishing/screenshots.test.mjs', 'scripts/store-publishing/cli.test.mjs',
-      'scripts/store-publishing/publish-plan.test.mjs'],
+    [
+      'run: >-',
+      'node --test --test-concurrency=2',
+      'scripts/store-listing/screenshots.test.mjs',
+      'scripts/store-publishing/screenshots.test.mjs',
+      'scripts/store-publishing/cli.test.mjs',
+      'scripts/store-publishing/publish-plan.test.mjs'
+    ],
     ['timeout-minutes: 4', 'run: timeout 240s yarn install --frozen-lockfile --network-timeout 120000'],
     ['run: git diff --exit-code -- package.json yarn.lock'],
     ['run: node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json'],
-    ['run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand']
+    [
+      'run: yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand'
+    ]
   ];
-  return job.steps.length === expected.length && job.steps.every((step, index) =>
-    JSON.stringify(
-      step.lines
-        .filter(line => !line.startsWith('name:'))
-        .map(line => line.replace(/^uses: ([^@\s]+)@\S+(\s+#.*)?$/, 'uses: $1'))
-    ) === JSON.stringify(expected[index])
+  return (
+    job.steps.length === expected.length &&
+    job.steps.every(
+      (step, index) =>
+        JSON.stringify(
+          step.lines
+            .filter(line => !line.startsWith('name:'))
+            .map(line => line.replace(/^uses: ([^@\s]+)@\S+(\s+#.*)?$/, 'uses: $1'))
+        ) === JSON.stringify(expected[index])
+    )
   );
 };
 
@@ -426,7 +442,9 @@ const workflowFiles = readdirSync(workflowsDir)
 const source = (file: string): string => readFileSync(resolve(workflowsDir, file), 'utf8');
 /** Every job the rule checks, and each as `<file> <job>`. */
 const guardedJobs = workflowFiles.flatMap(file =>
-  guarded(file, source(file)) && !immutableStoreWorkflow(file, source(file)) && !technicalScreenshotWorkflow(file, source(file))
+  guarded(file, source(file)) &&
+  !immutableStoreWorkflow(file, source(file)) &&
+  !technicalScreenshotWorkflow(file, source(file))
     ? jobs(file, source(file))
         .filter(job => job.steps.some(installs) && !linkedRuntimeExemptJobs.has(`${file} ${job.id}`))
         .map(job => ({ file, job }))
@@ -490,6 +508,8 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
         'e2e-dapp-browser.yml android-dapp-browser',
         'e2e-mainnet-nightly.yml mainnet-nightly',
         'e2e-mainnet-nightly.yml mainnet-agglayer',
+        'e2e-multi-device.yml build',
+        'e2e-multi-device.yml suite',
         'e2e-resilience.yml resilience-chrome',
         'e2e-stress.yml stress-conservation',
         'e2e-telemetry.yml telemetry-egress',
@@ -623,6 +643,8 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-dapp.yml dapp-e2e-android: push 145, dispatch 190',
       'e2e-mainnet-nightly.yml mainnet-nightly: push 200, dispatch 245',
       'e2e-mainnet-nightly.yml mainnet-agglayer: push 185, dispatch 230',
+      'e2e-multi-device.yml build: push 40, dispatch 60',
+      'e2e-multi-device.yml suite: push 210, dispatch 240',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
@@ -658,8 +680,9 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     expect(script).toContain('git -C "$GITHUB_WORKSPACE" show HEAD:package.json');
     expect(script).toContain('yarn install --network-timeout 600000');
     expect(script).toContain('yarn install --frozen-lockfile');
-    const overlay =
-      /node <<'PRESENTATION_BASELINE_OVERLAY'\n([\s\S]*?)\nPRESENTATION_BASELINE_OVERLAY/.exec(script)?.[1];
+    const overlay = /node <<'PRESENTATION_BASELINE_OVERLAY'\n([\s\S]*?)\nPRESENTATION_BASELINE_OVERLAY/.exec(
+      script
+    )?.[1];
     expect(overlay).toBeDefined();
 
     const dir = mkdtempSync(join(tmpdir(), 'presentation-baseline-overlay-'));
@@ -1008,9 +1031,18 @@ describe('technical screenshot eligibility is a narrow published-dependency exce
   it('rejects production builds, SDK consumers, mutable installs and alternate execution surfaces', () => {
     const text = source(file);
     const unsafe = [
-      text.replace('node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json', 'yarn build:chrome'),
-      text.replace('yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand', 'node scripts/check-native-prover-pin.mjs'),
-      text.replace('node --test --test-concurrency=2', 'node --import @miden-sdk/miden-sdk --test --test-concurrency=2'),
+      text.replace(
+        'node scripts/store-listing/validate.mjs --screenshots-manifest store-listing/screenshots.json',
+        'yarn build:chrome'
+      ),
+      text.replace(
+        'yarn jest scripts/store-listing/validate.test.ts playwright/e2e/harness/linked-pr-injection.test.ts --runInBand',
+        'node scripts/check-native-prover-pin.mjs'
+      ),
+      text.replace(
+        'node --test --test-concurrency=2',
+        'node --import @miden-sdk/miden-sdk --test --test-concurrency=2'
+      ),
       text.replace('--frozen-lockfile', ''),
       text.replace('git diff --exit-code -- package.json yarn.lock', 'true'),
       text.replace('timeout 240s', 'timeout 600s'),

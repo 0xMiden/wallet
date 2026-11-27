@@ -2597,13 +2597,21 @@ describe('useWalletStore', () => {
         balancesLoading: { 'addr-1': false, 'addr-2': true },
         balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
         balanceReadFailed: { 'addr-1': true, 'addr-2': true },
+        balanceRefreshFailed: { 'addr-1': true, 'addr-2': false },
         balanceReadInFlight: { 'addr-1': true, 'addr-2': false },
         assetsMetadata: { 'asset-1': row.metadata },
         tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } } as any,
         accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
       });
-      const { balances, balancesLoading, balancesLastFetched, balanceReadFailed, balanceReadInFlight, ...others } =
-        useWalletStore.getState();
+      const {
+        balances,
+        balancesLoading,
+        balancesLastFetched,
+        balanceReadFailed,
+        balanceRefreshFailed,
+        balanceReadInFlight,
+        ...others
+      } = useWalletStore.getState();
 
       useWalletStore.getState().clearBalances();
 
@@ -2612,12 +2620,14 @@ describe('useWalletStore', () => {
       expect(after.balancesLoading).toEqual({});
       expect(after.balancesLastFetched).toEqual({});
       expect(after.balanceReadFailed).toEqual({});
+      expect(after.balanceRefreshFailed).toEqual({});
       expect(after.balanceReadInFlight).toEqual({});
       const {
         balances: _b,
         balancesLoading: _l,
         balancesLastFetched: _f,
         balanceReadFailed: _rf,
+        balanceRefreshFailed: _rrf,
         balanceReadInFlight: _ri,
         ...othersAfter
       } = after;

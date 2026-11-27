@@ -286,7 +286,42 @@ export interface ScreenVisitEvent {
   runId: TelemetryRunId;
 }
 
-export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettledEvent | ScreenVisitEvent;
+export const TELEMETRY_DISCOVERY_FEATURES = {
+  bottom_nav: ['overview', 'explore', 'activity', 'me'],
+  home_actions: ['overview', 'send', 'receive', 'earn', 'swap'],
+  receive_tile: ['funding']
+} as const;
+
+export type TelemetryEntryPoint = keyof typeof TELEMETRY_DISCOVERY_FEATURES;
+export type TelemetryFeature = (typeof TELEMETRY_DISCOVERY_FEATURES)[TelemetryEntryPoint][number];
+export const TELEMETRY_DISCOVERY_ACTIONS = ['exposed', 'selected'] as const;
+export type TelemetryDiscoveryAction = (typeof TELEMETRY_DISCOVERY_ACTIONS)[number];
+
+export function isDiscoveryFeature(entryPoint: unknown, feature: unknown): feature is TelemetryFeature {
+  if (
+    typeof entryPoint !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(TELEMETRY_DISCOVERY_FEATURES, entryPoint)
+  ) {
+    return false;
+  }
+  return (TELEMETRY_DISCOVERY_FEATURES[entryPoint as TelemetryEntryPoint] as readonly unknown[]).includes(feature);
+}
+
+export interface FeatureDiscoveryEvent {
+  phase: 'discovery';
+  feature: TelemetryFeature;
+  entryPoint: TelemetryEntryPoint;
+  discoveryAction: TelemetryDiscoveryAction;
+  surface: TelemetrySurface;
+  runId: TelemetryRunId;
+}
+
+export type TelemetryEvent =
+  | FlowStartedEvent
+  | FlowEndedEvent
+  | OperationSettledEvent
+  | ScreenVisitEvent
+  | FeatureDiscoveryEvent;
 
 /** Derived in the background. Callers cannot supply these. */
 export interface TelemetryContext {
@@ -296,7 +331,7 @@ export interface TelemetryContext {
 }
 
 export interface TelemetryWirePayload {
-  phase: 'started' | 'ended' | 'settled' | 'visit';
+  phase: TelemetryEvent['phase'];
   /** Present on the two flow phases. Absent on `settled` and `visit`. */
   flow?: TelemetryFlow;
   /** Present on `settled`. Absent on the two flow phases. */
@@ -314,6 +349,9 @@ export interface TelemetryWirePayload {
   surface?: TelemetrySurface;
   order?: number;
   complete?: boolean;
+  feature?: TelemetryFeature;
+  entryPoint?: TelemetryEntryPoint;
+  discoveryAction?: TelemetryDiscoveryAction;
   appVersion: string;
   platform: TelemetryPlatform;
   network: TelemetryNetwork;

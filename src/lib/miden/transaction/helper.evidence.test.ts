@@ -6,6 +6,8 @@ import {
   recordKeptCandidate,
   recordLeafEnd,
   recordSubmitCrossing,
+  retractSubmitCrossing,
+  setTransactionStage,
   updateTransactionStatus
 } from './helper';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -168,5 +170,300 @@ describe('recordKeptCandidate (#1081)', () => {
     ).resolves.toBeUndefined();
     where.mockRestore();
     warn.mockRestore();
+  });
+});
+
+describe('retractSubmitCrossing (#2325)', () => {
+  it('removes a stage entry, clears raised mayHaveSubmitted, reverts stage, and drops submitting timestamp', async () => {
+    await Repo.transactions.put(generating({ stage: 'proving', stageTimestamps: { proving: 100 } }));
+    await recordSubmitCrossing('tx-1', { transactionId: hex(1), refBlock: 10, expirationBlock: 30 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+    expect(row?.submitEvidence).toBeUndefined();
+    expect(row?.stage).toBe('proving');
+    expect(row?.stageTimestamps).toEqual({ proving: 100 });
+  });
+
+  it('strips proof fields from a pin entry while preserving pin metadata and preSubmitEnd', async () => {
+    await Repo.transactions.put(generating({ stage: 'sending' }));
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 4 });
+    await recordSubmitCrossing('tx-1', { transactionId: hex(1), refBlock: 10, expirationBlock: 30 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'sending');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: 'a1',
+        source: 'pin',
+        raisedFlag: true,
+        guardianProposalNonce: 4,
+        preSubmitEnd: true
+      })
+    ]);
+    expect(row?.submitEvidence?.[0]?.transactionId).toBeUndefined();
+    expect(row?.stage).toBe('sending');
+  });
+
+  it('does not revert stage or timestamps belonging to a newer attemptId', async () => {
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a2',
+        stage: 'submitting',
+        stageTimestamps: { submitting: 200 },
+        submitEvidence: [{ attemptId: 'a1', capturedAt: 100, source: 'stage', transactionId: hex(1) }]
+      })
+    );
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+
+    const row = await read();
+    expect(row?.stage).toBe('submitting');
+    expect(row?.stageTimestamps).toEqual({ submitting: 200 });
+    expect(row?.submitEvidence).toBeUndefined();
+  });
+
+  it('preserves preSubmitEnd on a stage entry while stripping proof fields and reverting stage (#2325)', async () => {
+    await Repo.transactions.put(generating({ stage: 'proving', stageTimestamps: { proving: 100 } }));
+    await recordSubmitCrossing('tx-1', { transactionId: hex(1), refBlock: 10, expirationBlock: 30 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: 'a1',
+        source: 'stage',
+        raisedFlag: true,
+        preSubmitEnd: true
+      })
+    ]);
+    expect(row?.submitEvidence?.[0]?.transactionId).toBeUndefined();
+    expect(row?.submitEvidence?.[0]?.refBlock).toBeUndefined();
+    expect(row?.stage).toBe('proving');
+    expect(row?.stageTimestamps).toEqual({ proving: 100 });
+
+    await Repo.transactions.put(
+      generating({
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        submitEvidence: [
+          {
+            attemptId: 'a1',
+            capturedAt: 100,
+            source: 'stage',
+            raisedFlag: true,
+            preSubmitEnd: true,
+            transactionId: hex(1)
+          }
+        ]
+      })
+    );
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    const cleared = await read();
+    expect(cleared?.mayHaveSubmitted).toBeUndefined();
+    expect(cleared?.stage).toBe('proving');
+    expect(cleared?.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: 'a1', source: 'stage', raisedFlag: true, preSubmitEnd: true })
+    ]);
+  });
+
+  it('does not clear mayHaveSubmitted or revert stage when attemptId mismatches or is undefined at runtime (#2325)', async () => {
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a2',
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        stageTimestamps: { submitting: 200 },
+        submitEvidence: [{ attemptId: 'a2', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(2) }]
+      })
+    );
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+    expect((await read())?.stage).toBe('submitting');
+
+    await retractSubmitCrossing('tx-1', undefined as unknown as string, 'proving');
+
+    const requireAttemptId: (attempt: Parameters<typeof retractSubmitCrossing>[1]) => string = attempt => attempt;
+    expect(requireAttemptId('a1')).toBe('a1');
+
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.stage).toBe('submitting');
+    expect(row?.stageTimestamps).toEqual({ submitting: 200 });
+    expect(row?.submitEvidence).toHaveLength(1);
+  });
+
+  it('preserves mayHaveSubmitted when markAttemptPreSubmitEnd or retractSubmitCrossing runs for a stale or non-sole attemptId (#2325)', async () => {
+    for (const staleAttemptId of [undefined, 'a2'] as const) {
+      await Repo.transactions.clear();
+      await Repo.transactions.put(
+        generating({
+          attemptId: staleAttemptId,
+          stage: 'proving',
+          mayHaveSubmitted: true,
+          submitEvidence: [
+            { attemptId: 'a1', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(1) }
+          ]
+        })
+      );
+      await markAttemptPreSubmitEnd('tx-1', 'a1');
+      let row = await read();
+      expect(row?.mayHaveSubmitted).toBe(true);
+      expect(row?.submitEvidence?.[0]?.preSubmitEnd).toBe(true);
+
+      await retractSubmitCrossing('tx-1', 'a1', 'proving');
+      row = await read();
+      expect(row?.mayHaveSubmitted).toBe(true);
+      expect(row?.submitEvidence?.[0]?.preSubmitEnd).toBe(true);
+
+      await Repo.transactions.clear();
+      await Repo.transactions.put(
+        generating({
+          attemptId: staleAttemptId,
+          stage: 'proving',
+          mayHaveSubmitted: true,
+          submitEvidence: [
+            { attemptId: 'a1', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(2) }
+          ]
+        })
+      );
+      await retractSubmitCrossing('tx-1', 'a1', 'proving');
+      row = await read();
+      expect(row?.mayHaveSubmitted).toBe(true);
+      expect(row?.submitEvidence).toBeUndefined();
+    }
+
+    await Repo.transactions.clear();
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a1',
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        submitEvidence: [
+          { attemptId: 'a0', capturedAt: 90, source: 'stage', raisedFlag: true, transactionId: hex(3) },
+          { attemptId: 'a1', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(4) }
+        ]
+      })
+    );
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+
+    await markAttemptPreSubmitEnd('tx-1', 'a0');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+
+    await Repo.transactions.clear();
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a1',
+        stage: 'proving',
+        mayHaveSubmitted: true,
+        submitEvidence: [
+          {
+            attemptId: 'a0',
+            capturedAt: 90,
+            source: 'stage',
+            raisedFlag: true,
+            preSubmitEnd: true,
+            transactionId: hex(5)
+          },
+          { attemptId: 'a1', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(6) }
+        ]
+      })
+    );
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect((await read())?.mayHaveSubmitted).toBeUndefined();
+
+    // Another entry without raisedFlag (e.g., an evidence-less 'end' row) does not block clearing.
+    await Repo.transactions.clear();
+    await Repo.transactions.put(
+      generating({
+        attemptId: 'a1',
+        stage: 'proving',
+        mayHaveSubmitted: true,
+        submitEvidence: [
+          { attemptId: 'a0', capturedAt: 90, source: 'end' },
+          { attemptId: 'a1', capturedAt: 100, source: 'stage', raisedFlag: true, transactionId: hex(8) }
+        ]
+      })
+    );
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect((await read())?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('keeps mayHaveSubmitted true when retractSubmitCrossing runs on an unretired pin entry (#2325)', async () => {
+    await Repo.transactions.put(generating({ attemptId: 'a1', stage: 'proving' }));
+    await pinGuardianCrossing('tx-1', attempt);
+    await recordSubmitCrossing('tx-1', { refBlock: 3 }, attempt);
+    await setTransactionStage('tx-1', 'submitting');
+
+    await retractSubmitCrossing('tx-1', 'a1', 'proving');
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.stage).toBe('proving');
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: 'a1', source: 'pin', raisedFlag: true })
+    ]);
+    expect(row?.submitEvidence?.[0]?.preSubmitEnd).toBeUndefined();
+  });
+
+  it('strips stale raisedFlag from prior entries when a fresh crossing raises mayHaveSubmitted (#2325)', async () => {
+    for (const [id, fn] of [
+      ['tx-stage-transfer', () => recordSubmitCrossing('tx-stage-transfer', undefined, attempt)],
+      ['tx-pin-transfer', () => pinGuardianCrossing('tx-pin-transfer', attempt)]
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      await Repo.transactions.put(
+        generating({
+          id,
+          attemptId: 'a1',
+          mayHaveSubmitted: undefined,
+          submitEvidence: [{ attemptId: 'a0', capturedAt: 90, source: 'pin', raisedFlag: true }]
+        })
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await fn();
+      // eslint-disable-next-line no-await-in-loop
+      const raised = await Repo.transactions.where({ id }).first();
+      expect(raised?.mayHaveSubmitted).toBe(true);
+      expect(raised?.submitEvidence?.[0]).not.toHaveProperty('raisedFlag');
+      expect(raised?.submitEvidence?.[1]).toMatchObject({ attemptId: 'a1', raisedFlag: true });
+      // eslint-disable-next-line no-await-in-loop
+      await markAttemptPreSubmitEnd(id, 'a1');
+      // eslint-disable-next-line no-await-in-loop
+      expect((await Repo.transactions.where({ id }).first())?.mayHaveSubmitted).toBeUndefined();
+    }
+  });
+
+  it('ignores stale delayed recordSubmitCrossing and pinGuardianCrossing once tx.attemptId cleared or rotated (#2325)', async () => {
+    for (const [id, nextAttemptId, fn] of [
+      ['tx-stale-stage-cleared', undefined, () => recordSubmitCrossing('tx-stale-stage-cleared', undefined, attempt)],
+      ['tx-stale-stage-rotated', 'a2', () => recordSubmitCrossing('tx-stale-stage-rotated', undefined, attempt)],
+      ['tx-stale-pin-cleared', undefined, () => pinGuardianCrossing('tx-stale-pin-cleared', attempt)],
+      ['tx-stale-pin-rotated', 'a2', () => pinGuardianCrossing('tx-stale-pin-rotated', attempt)]
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      await Repo.transactions.put(generating({ id, attemptId: nextAttemptId, mayHaveSubmitted: undefined }));
+      // eslint-disable-next-line no-await-in-loop
+      await fn();
+      // eslint-disable-next-line no-await-in-loop
+      const row = await Repo.transactions.where({ id }).first();
+      expect(row?.mayHaveSubmitted).toBeUndefined();
+      expect(row?.submitEvidence).toBeUndefined();
+    }
   });
 });

@@ -55,6 +55,7 @@ export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
   balanceReadFailed: Record<string, boolean>;
+  balanceRefreshFailed: Record<string, boolean>;
   balanceReadInFlight: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
   /**
@@ -297,8 +298,8 @@ export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
   /**
-   * Drops every address's balances, loading flag, last fetch, balanceReadFailed and balanceReadInFlight,
-   * so each reader waits for a new read.
+   * Drops every address's balances, loading flag, last fetch, balanceReadFailed, balanceRefreshFailed and
+   * balanceReadInFlight, so each reader waits for a new read.
    */
   clearBalances: () => void;
 }

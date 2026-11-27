@@ -3,7 +3,7 @@ import type { BrowserContext, Page, Request, Response as PwResponse, Worker } fr
 import { installFetchInstrumentation, SW_FETCH_LOG_PREFIX } from './fetch-instrumentation';
 import type { TimelineRecorder } from './timeline-recorder';
 import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
-import type { NetworkCategory } from './types';
+import type { NetworkCategory, WalletLabel } from './types';
 
 /**
  * How a URL is classified into a network category.
@@ -70,7 +70,7 @@ async function safeResponseText(response: PwResponse): Promise<string | undefine
  */
 export function attachNetworkCapture(
   context: BrowserContext,
-  walletLabel: 'A' | 'B',
+  walletLabel: WalletLabel,
   timeline: TimelineRecorder
 ): void {
   context.on('requestfinished', async (request: Request) => {
@@ -171,7 +171,7 @@ export function attachNetworkCapture(
  */
 export async function attachServiceWorkerFetchCapture(
   serviceWorker: Worker,
-  walletLabel: 'A' | 'B',
+  walletLabel: WalletLabel,
   timeline: TimelineRecorder
 ): Promise<void> {
   // Inside the guard, like the evaluate below. Attaching to a worker that has
@@ -270,7 +270,7 @@ export async function attachServiceWorkerFetchCapture(
  * sentinel lines into network_request events. Applied to every worker
  * spawned by the page (current + future).
  */
-export function attachPageWorkersCapture(page: Page, walletLabel: 'A' | 'B', timeline: TimelineRecorder): void {
+export function attachPageWorkersCapture(page: Page, walletLabel: WalletLabel, timeline: TimelineRecorder): void {
   // `.catch`, not bare `void`: these are deliberately not awaited, so without a
   // rejection handler a worker that dies mid-attach surfaces as an unhandled
   // rejection and Playwright fails whichever test happens to be running. The

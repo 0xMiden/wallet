@@ -2,6 +2,8 @@ import { request } from 'lib/miden/front';
 import {
   applyEndpointOverride,
   buildNetworkChoiceOverride,
+  clearEndpointOverride,
+  EndpointOverride,
   getEffectiveNetworkName
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -19,6 +21,17 @@ export function waitForMainnetPreparation(): Promise<void> {
   return preparing ?? Promise.resolve();
 }
 
+async function refreshMainnetRealm(): Promise<void> {
+  if (isExtension()) {
+    await request({ type: WalletMessageType.ReloadEndpointOverridesRequest });
+  } else {
+    const { resetMidenClient } = await import('lib/miden/sdk/miden-client');
+    await resetMidenClient();
+  }
+  followEffectiveNetwork();
+  refreshOwed = false;
+}
+
 /**
  * Complete the network change before a code check or recovery can start. Already on mainnet, by the
  * build or by a stored override (a custom one included), there is nothing to change.
@@ -31,16 +44,22 @@ export function prepareMainnet(): Promise<void> {
       refreshOwed = true;
     }
     if (!refreshOwed) return;
-    if (isExtension()) {
-      await request({ type: WalletMessageType.ReloadEndpointOverridesRequest });
-    } else {
-      const { resetMidenClient } = await import('lib/miden/sdk/miden-client');
-      await resetMidenClient();
-    }
-    followEffectiveNetwork();
-    refreshOwed = false;
+    await refreshMainnetRealm();
   })().finally(() => {
     preparing = undefined;
   });
   return preparing;
+}
+
+/**
+ * Restore the pre-switch endpoint override (or clear it if none existed) and refresh the active realm.
+ */
+export async function revertMainnetOverride(previousOverride: EndpointOverride | null): Promise<void> {
+  if (previousOverride) {
+    await applyEndpointOverride(previousOverride);
+  } else {
+    await clearEndpointOverride();
+  }
+  refreshOwed = true;
+  await refreshMainnetRealm();
 }

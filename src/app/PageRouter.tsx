@@ -388,7 +388,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/token-detail/:tokenId',
     onlyReady(({ tokenId }) => (
-      <FullScreenPage>
+      <FullScreenPage key={`token-detail-${tokenId}`}>
         <TokenDetail tokenId={tokenId!} />
       </FullScreenPage>
     ))

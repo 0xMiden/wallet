@@ -104,9 +104,34 @@ jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span aria-hidden="t
 jest.mock('lib/miden/front/storage', () => ({
   useStorage: () => [true, jest.fn()]
 }));
+// Rows the figure shows from an older proof: no action may resolve an amount from them.
+const mockFigureRows: TokenBalanceData[] = [
+  {
+    tokenId: 'figure-only',
+    tokenSlug: 'FIG',
+    metadata: { symbol: 'FIG', name: 'Figure', decimals: 6 },
+    balance: 1,
+    balanceBaseUnits: '1000000',
+    fiatPrice: 0,
+    change24h: 0
+  }
+];
+let mockPortfolioAssets: unknown[] = [];
+const mockWalletDataBalances: unknown[] = [];
+jest.mock('./command-ai-context', () => {
+  const actual = jest.requireActual<typeof import('./command-ai-context')>('./command-ai-context');
+  return {
+    ...actual,
+    useCommandAiWalletData: (...args: Parameters<typeof actual.useCommandAiWalletData>) => {
+      mockWalletDataBalances.push(args[1]);
+      return actual.useCommandAiWalletData(...args);
+    }
+  };
+});
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
-    assets: [],
+    assets: mockPortfolioAssets,
+    actionBalances: [],
     allocation: [],
     tokenPrices: {},
     value: '0',
@@ -158,6 +183,8 @@ jest.mock('utils/miden', () => {
 });
 
 beforeEach(() => {
+  mockPortfolioAssets = [];
+  mockWalletDataBalances.length = 0;
   jest.clearAllMocks();
   mockBridgeRoutes = undefined;
   mockEarnVaultCatalog = null;
@@ -1093,6 +1120,7 @@ describe('CommandAiBar', () => {
   });
 
   it('shows multi-step plan card with animated Bread mascot, steps through Bridge -> Swap, and supports Stop', async () => {
+    mockPortfolioAssets = mockFigureRows;
     _setSwapTokensForTest([
       { symbol: 'USDCx', faucetId: 'faucet-usdcx', decimals: 6 },
       { symbol: 'MIDEN', faucetId: 'faucet-miden', decimals: 6 }
@@ -1153,6 +1181,9 @@ describe('CommandAiBar', () => {
           </CommandAiPlanProvider>
         </CommandDraftProvider>
       );
+      // The banner resolves the next step from current-proof balances, never the figure's older rows.
+      expect(screen.getByTestId('command-ai-plan-banner')).toBeInTheDocument();
+      expect(mockWalletDataBalances).not.toContain(mockFigureRows);
 
       // Advance to Step 2 -> opens Swap prefilled with carried amount 50.
       fireEvent.click(screen.getByTestId('command-ai-plan-banner-next'));

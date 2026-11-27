@@ -149,14 +149,22 @@ const DeviceSettings: React.FC = () => {
           {devices.map((device, index) => (
             <ListRow
               key={device.commitment}
+              data-testid="device-signer-row"
               title={t('deviceSignerNumber', { number: index + 1 })}
-              subtitle={<span className="break-all select-text">{device.commitment}</span>}
+              subtitle={
+                <span data-testid="device-signer-commitment" className="break-all select-text">
+                  {device.commitment}
+                </span>
+              }
               trailing={
                 device.current ? (
-                  <Pill size="sm">{t('currentDevice')}</Pill>
+                  <Pill size="sm" data-testid="device-signer-current">
+                    {t('currentDevice')}
+                  </Pill>
                 ) : (
                   <Button
                     size="sm"
+                    data-testid="device-signer-revoke"
                     variant={ButtonVariant.Destructive}
                     title={t('revokeDevice')}
                     disabled={busy || !devices.some(item => item.current)}
@@ -171,6 +179,7 @@ const DeviceSettings: React.FC = () => {
         </ListGroup>
       )}
       <Button
+        data-testid="device-signers-refresh"
         variant={ButtonVariant.Secondary}
         title={t('refresh')}
         disabled={busy}

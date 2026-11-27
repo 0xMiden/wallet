@@ -4,7 +4,7 @@ import * as path from 'path';
 import { computeDiagnosticHints } from './diagnostic-hints';
 import type { TestStepRunner } from './test-step';
 import type { TimelineRecorder } from './timeline-recorder';
-import type { CLIInvocation, FailureCategory, TestFailureReport, WalletSnapshot } from './types';
+import type { CLIInvocation, FailureCategory, TestFailureReport, WalletLabel, WalletSnapshot } from './types';
 
 /**
  * Build a comprehensive failure report from all captured data.
@@ -19,6 +19,7 @@ export function buildFailureReport(opts: {
   stateAtFailure?: {
     walletA?: WalletSnapshot;
     walletB?: WalletSnapshot;
+    walletC?: WalletSnapshot;
   };
   testTimeoutMs?: number;
 }): TestFailureReport {
@@ -63,7 +64,7 @@ export function buildFailureReport(opts: {
   const browserErrors = allEvents
     .filter(e => e.category === 'browser_console' && e.severity === 'error')
     .map(e => ({
-      wallet: e.wallet as 'A' | 'B',
+      wallet: e.wallet as WalletLabel,
       message: (e.data?.message as string) ?? e.message,
       stack: e.data?.stack as string | undefined,
       timestamp: e.timestamp
@@ -73,7 +74,7 @@ export function buildFailureReport(opts: {
   const failedNetworkRequests = allEvents
     .filter(e => e.category === 'network_request' && e.severity === 'error')
     .map(e => ({
-      wallet: e.wallet as 'A' | 'B',
+      wallet: e.wallet as WalletLabel,
       url: (e.data?.url as string) ?? '',
       status: (e.data?.status as number) ?? 0,
       failureText: e.data?.failureText as string | undefined,

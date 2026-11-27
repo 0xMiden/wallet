@@ -88,11 +88,27 @@ jest.mock('lib/miden/front/storage', () => ({
     ];
   }
 }));
+// The figure's quotes may be remembered ones; a draft converts dollars only at the live feed's.
+const mockLivePrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0, kind: 'market' as const } };
+const mockAiBarPrices = jest.fn();
+const mockAiBarAssets = jest.fn();
+let mockActionBalances: typeof rows = rows;
+jest.mock('./CommandAiBar', () => ({
+  CommandAiBar: (props: { tokenPrices: unknown; assets: unknown }) => {
+    mockAiBarPrices(props.tokenPrices);
+    mockAiBarAssets(props.assets);
+    return null;
+  }
+}));
+let mockShown: boolean | undefined;
 jest.mock('./useCommandPortfolio', () => ({
   useCommandPortfolio: () => ({
     assets: mockAssets,
+    actionBalances: mockActionBalances,
     allocation: mockAllocation,
     tokenPrices: {},
+    livePrices: mockLivePrices,
+    shown: mockShown ?? mockCurrent,
     value: mockValue,
     priceMovement24h: mockMarketMove,
     coverage: 'partial',
@@ -109,12 +125,14 @@ const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 beforeEach(async () => {
   HTMLElement.prototype.scrollIntoView = jest.fn();
   mockAssets = rows;
+  mockActionBalances = rows;
   mockAllocation = [];
   store.hidden = true;
   store.pending = false;
   mockCanRecord = false;
   mockMarketMove = null;
   mockCurrent = true;
+  mockShown = undefined;
   mockEmpty = false;
   mockValue = '6';
   useWalletStore.setState({ status: WalletStatus.Idle, currentAccount: null, tokenPricesStatus: 'ready' });
@@ -476,6 +494,27 @@ it('keeps known scoped identities but withholds their amounts and search while b
   expect(within(holdings).queryByRole('textbox', { name: 'searchAssets' })).not.toBeInTheDocument();
   expect(screen.queryByText('noNoteAssets')).not.toBeInTheDocument();
   expect(screen.queryByText('exploreNoResultsTitle')).not.toBeInTheDocument();
+});
+
+it('shows the proven quantities beside the figure once the read is past the record window', () => {
+  store.hidden = false;
+  mockCurrent = false;
+  mockShown = true;
+  render(<CommandPortfolio scope={scope} />);
+  const holdings = screen.getByLabelText('assets');
+  expect(within(holdings).getByText('2.00 ETH')).toBeInTheDocument();
+  expect(within(holdings).queryByText('commandBalanceUnavailable')).not.toBeInTheDocument();
+});
+
+it('hands Bread Command AI the live quotes, never the remembered ones the figure may use', () => {
+  render(<CommandPortfolio scope={scope} />);
+  expect(mockAiBarPrices).toHaveBeenLastCalledWith(mockLivePrices);
+});
+
+it('gives the command bar only the action balances, never an old proof the figure still shows', () => {
+  mockActionBalances = [];
+  render(<CommandPortfolio scope={scope} />);
+  expect(mockAiBarAssets).toHaveBeenLastCalledWith([]);
 });
 
 it('does not describe unavailable current holdings as an empty wallet or a search miss', () => {

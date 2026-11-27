@@ -1,6 +1,7 @@
 import '../../../test/jest-mocks';
 
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { __resetSyncFuseStateForTests, noteSyncParked } from 'lib/miden/front/sync-fuse';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -68,6 +69,7 @@ describe('the balance read when the wallet becomes Ready', () => {
       balancesLoading: {},
       balancesLastFetched: {},
       balanceReadFailed: {},
+      balanceRefreshFailed: {},
       balanceReadInFlight: {}
     });
   });
@@ -185,8 +187,10 @@ describe('the store fetchBalances action', () => {
       balancesLoading: {},
       balancesLastFetched: {},
       balanceReadFailed: {},
+      balanceRefreshFailed: {},
       balanceReadInFlight: {}
     });
+    __resetSyncFuseStateForTests();
   });
 
   it('never marks an address that has balances as loading, so a refresh keeps its rows on screen', async () => {
@@ -241,5 +245,46 @@ describe('the store fetchBalances action', () => {
 
     expect(mockFetchBalances).not.toHaveBeenCalled();
     expect(useWalletStore.getState().balancesLoading.pk1).toBeUndefined();
+  });
+
+  it('sets balanceRefreshFailed when a refresh rejects with existing balances, and clears it when a read lands', async () => {
+    useWalletStore.setState({
+      balances: { pk1: [row] },
+      balancesLoading: { pk1: false },
+      balancesLastFetched: { pk1: 1 }
+    });
+    mockFetchBalances.mockRejectedValueOnce(new Error('rpc timeout'));
+
+    await expect(useWalletStore.getState().fetchBalances('pk1', {})).rejects.toThrow('rpc timeout');
+
+    let state = useWalletStore.getState();
+    expect(state.balances.pk1).toEqual([row]);
+    expect(state.balanceRefreshFailed.pk1).toBe(true);
+    expect(state.balanceReadFailed.pk1).toBeUndefined();
+
+    mockFetchBalances.mockResolvedValueOnce([{ ...row, balance: 9 }]);
+    await useWalletStore.getState().fetchBalances('pk1', {});
+
+    state = useWalletStore.getState();
+    expect(state.balanceRefreshFailed.pk1).toBe(false);
+    expect(state.balances.pk1?.[0]?.balance).toBe(9);
+  });
+
+  it('sets balanceRefreshFailed only when fused (not on busy-lock null) for landed balances', async () => {
+    useWalletStore.setState({
+      balances: { pk1: [row] },
+      balancesLoading: { pk1: false },
+      balancesLastFetched: { pk1: 1 }
+    });
+    mockFetchBalances.mockResolvedValueOnce(null);
+
+    await useWalletStore.getState().fetchBalances('pk1', {});
+    expect(useWalletStore.getState().balanceRefreshFailed.pk1).toBeUndefined();
+
+    noteSyncParked('balances');
+    mockFetchBalances.mockResolvedValueOnce(null);
+    await useWalletStore.getState().fetchBalances('pk1', {});
+    expect(useWalletStore.getState().balanceRefreshFailed.pk1).toBe(true);
+    expect(useWalletStore.getState().balanceReadFailed.pk1).toBe(false);
   });
 });

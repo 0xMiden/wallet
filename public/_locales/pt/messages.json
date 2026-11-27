@@ -860,6 +860,127 @@
     "message": "Não foi possível realizar o balanceamento de carga.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Não foi possível atualizar o saldo. Exibindo o último saldo confirmado.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Taxa fixa de 1,00 USD para $symbol$ na $network$.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "Preço de $symbol$ do $provider$ na $network$, atualizado em $retrievedAt$.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Valor em USD do cofre na $network$, atualizado em $retrievedAt$.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "O preço em USD está desatualizado",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "O último preço de $symbol$ do $provider$ na $network$ ($retrievedAt$) tem mais de 10 minutos e está oculto dos totais.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "O último valor em USD do cofre na $network$ ($retrievedAt$) tem mais de 10 minutos e está oculto dos totais.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "O último preço em USD tem mais de 10 minutos e está oculto dos totais.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "Preço em USD indisponível",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "Não há preço verificado em USD disponível na $network$.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Não foi possível carregar o preço em USD. Os totais de saldo excluem o valor em USD até que a página seja atualizada.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "Este token foi retirado da Testnet e não pode ser enviado.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Defina as casas decimais do token em “Informações do token” antes de enviar.",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "Não há saldo disponível para envio.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "Ainda não há saldo disponível para envio. Aceite primeiro as transferências pendentes.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Não foi possível fazer o balanceamento. Tente novamente antes de enviar.",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -4082,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Não saia da conta a menos que conheça sua frase de recuperação de 12 palavras ou tenha um arquivo de backup criptografado.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Sua carteira atual permanece neste dispositivo até que você confirme uma substituição. Tenha sua frase de recuperação de 12 palavras, chave Guardian ou arquivo de backup criptografado em mãos antes de continuar.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "É necessário desbloqueio biométrico",
@@ -7495,8 +7616,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Informações sobre quais telas você abre e por quanto tempo cada uma fica visível, como você chegou até lá, qual janela você usa, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Nunca suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Relatórios de falhas são enviados de qualquer maneira: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo. Você pode alterar isso a qualquer momento.",
-    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Informe quais telas você abre e por quanto tempo cada uma fica visível, como você chegou até lá, quais controles de recursos você vê ou seleciona, qual janela você usa, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma, para que possamos corrigir o que está dando problema. Nunca suas chaves, frase de recuperação, senha, endereços, saldos, valores ou conteúdo das transações. Não há rastreamento em outros aplicativos ou sites, nada é usado para publicidade e nada é vendido ou compartilhado com corretores de dados. Os relatórios de falhas são enviados de qualquer forma: o erro e onde ele ocorreu no código, com dados confidenciais removidos, sem nenhum identificador seu ou do seu dispositivo. Você pode alterar isso a qualquer momento.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Compartilhe dados de uso",
@@ -7515,8 +7636,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Quais telas você abre e por quanto tempo cada uma fica visível, como você chegou até lá, qual janela você usa, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma.",
-    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Quais telas você abre e por quanto tempo cada uma fica visível, como você chegou até lá, quais controles de recursos você vê ou seleciona, qual janela você usa, onde você fica preso, categorias gerais de erros, a versão do aplicativo e sua plataforma.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -10976,5 +11097,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Substituir sua carteira existente?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Isso apagará permanentemente sua carteira atual deste dispositivo e criará uma nova com a senha que você acabou de definir.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Isso apagará permanentemente sua carteira atual deste dispositivo e restaurará a carteira recuperada com a senha que você acabou de definir.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Certifique-se de ter sua frase de recuperação ou backup atual caso ainda precise dele. Isso não pode ser desfeito.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Apagar e restaurar carteira",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Apagar e criar carteira",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Voltar para entrar",
+    "englishSource": "Back to sign in"
   }
 }

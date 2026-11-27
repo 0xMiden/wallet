@@ -22,7 +22,7 @@ export interface FlowHandle {
   step(step: TelemetryStep): void;
 }
 
-function report(event: TelemetryEvent): void {
+export function reportTelemetryEvent(event: TelemetryEvent): void {
   void (async () => {
     try {
       await request({ type: WalletMessageType.ReportTelemetryEventRequest, event });
@@ -56,7 +56,7 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
   let settled = false;
   let furthestStep: TelemetryStep | undefined;
 
-  report({ phase: 'started', flow, flowId, runId: flowRunId });
+  reportTelemetryEvent({ phase: 'started', flow, flowId, runId: flowRunId });
 
   const end = (result: 'completed' | 'cancelled' | 'errored', errorKind?: TelemetryErrorKind): void => {
     if (settled) return;
@@ -66,7 +66,7 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
     // the start, so this cannot split a pair — but if the flow sat open past the
     // idle window, the rotation inside leaves the NEXT flow starting fresh.
     touchRun();
-    report({
+    reportTelemetryEvent({
       phase: 'ended',
       flow,
       flowId,
