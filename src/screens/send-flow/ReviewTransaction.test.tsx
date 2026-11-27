@@ -3635,6 +3635,26 @@ describe('ReviewTransaction user-visible errors', () => {
     await expectReport('usdcxUnsupportedFaucet');
   });
 
+  it('waits for burn balance data without reporting an invalid amount', async () => {
+    setBurnRoute();
+    const balances = mockBalanceData;
+    mockBalanceData = undefined;
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect({
+      error: screen.queryByTestId('review-error')?.textContent,
+      reports: jest.mocked(reportUserVisibleError).mock.calls
+    }).toEqual({ error: undefined, reports: [] });
+
+    mockBalanceData = balances;
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
   it('does not report the immediate minimum or a pending minimum read as a failure', async () => {
     setBurnRoute();
     const minimum = deferred<bigint>();
