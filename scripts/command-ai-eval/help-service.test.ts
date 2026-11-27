@@ -247,7 +247,11 @@ describe('help replies', () => {
     'the first one',
     'usdcx',
     'use epoch and make it <AMT_1>',
-    'actually change the amount to <AMT_1>'
+    'actually change the amount to <AMT_1>',
+    'yes',
+    'Yes.',
+    'no',
+    'ok'
   ])('leaves a pending question alone for the typed reply %j', async text => {
     const { response, traces } = await ask({ result: { op: 'help', cards: ['bridge_what'] } }, text);
     expect(response.body).toEqual({ output: { op: 'unsupported', reason: '', suggested_route: null } });

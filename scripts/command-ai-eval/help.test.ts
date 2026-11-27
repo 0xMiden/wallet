@@ -168,6 +168,8 @@ describe('buildHelpPrompt', () => {
     'up to 2 card ids, best first',
     'cannot_diagnose',
     'How to do something is help',
+    'Showing or getting your own address or QR code is set_intent receive',
+    'A how-to question is help even when it names a token, chain or amount',
     'the fact asked',
     'never gets unsupported',
     'hides any number',

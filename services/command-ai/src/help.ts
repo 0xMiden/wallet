@@ -35,7 +35,8 @@ export const HELP_RULES = `Help:
   access, return help with up to 2 card ids, best first. If no card answers it, use not_covered, not
   unsupported. For an error or money problem that no card matches, use cannot_diagnose.
 - How to do something is help; asking to do it is an action; what the user already did is a ledger
-  query. For mixed help and action, return help only.
+  query. For mixed help and action, return help only. Showing or getting your own address or QR code
+  is set_intent receive. A how-to question is help even when it names a token, chain or amount.
 - A card must state the fact asked, not just share its subject; else not_covered.
 - In help, a question never gets unsupported, trivia and phrase export included. unsupported is only
   for asking Bread to do something it cannot do.
@@ -78,7 +79,7 @@ export const isPlaceholderOnly = (text: string): boolean =>
 const words = (list: string) => new Set(list.split(' '));
 // The closed vocabulary of a typed reply. A symbol, network or provider the app adds needs a line here.
 const CHOICES = words(
-  'public private first second third fast slow epoch agglayer xreserve across cctp near ethereum base solana bitcoin miden eth usdc usdcx'
+  'yes no ok public private first second third fast slow epoch agglayer xreserve across cctp near ethereum base solana bitcoin miden eth usdc usdcx'
 );
 const EDIT_WORDS = words('a actually amount and change instead it make one please the to use via with');
 
