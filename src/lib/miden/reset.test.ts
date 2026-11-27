@@ -355,7 +355,7 @@ describe('clearStorage', () => {
     );
   });
 
-  it('rejects without clearing the tables when the key-value clear rejects', async () => {
+  it('leaves the tables intact on key-value failure and allows the next reset', async () => {
     jest.mocked(isExtension).mockReturnValue(true);
     mockBrowserStorageGet.mockResolvedValue({ vault_key: 'v' });
     const clearError = new Error('storage clear failed');
@@ -365,6 +365,16 @@ describe('clearStorage', () => {
 
     expect(mockTransactionsClear).not.toHaveBeenCalled();
     expect(mockSpendingLimitsClear).not.toHaveBeenCalled();
+
+    await clearStorage();
+
+    expect(mockBrowserStorageRemove).toHaveBeenCalledTimes(2);
+    expect(mockBrowserStorageRemove.mock.invocationCallOrder[1]!).toBeLessThan(
+      mockTransactionsClear.mock.invocationCallOrder[0]!
+    );
+    expect(mockBrowserStorageRemove.mock.invocationCallOrder[1]!).toBeLessThan(
+      mockSpendingLimitsClear.mock.invocationCallOrder[0]!
+    );
   });
 
   it('rediscovers the native asset right after resetting its cache, so the first balance after an import does not wait on it (#1123)', async () => {
