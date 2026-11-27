@@ -285,6 +285,45 @@ function loadAppModules() {
   return { schemaMod, redactorMod: loadTsModule('src/lib/command-ai/redactor.ts', { './schema': schemaMod }) };
 }
 
+const SHAPE_ENUMS = new Set([
+  ...['set_intent', 'set_plan', 'patch_slots', 'query_ledger', 'cancel', 'unsupported', 'help', 'explain'],
+  ...['send', 'swap', 'bridge', 'earn', 'receive', 'private', 'public', 'deposit', 'withdraw'],
+  ...['exact_ref', 'fiat_ref', 'fraction', 'max', 'previous_output']
+]);
+
+/**
+ * The structure of a reply the provider refused, for a public artifact: field names, value types and schema enum
+ * words only. Every other string, which may carry user text or a card id, becomes its type.
+ */
+export function replyShape(generation) {
+  if (typeof generation !== 'string') return { generation: typeof generation };
+  let value;
+  try {
+    value = JSON.parse(generation);
+  } catch {
+    return { generation: 'not JSON', length: generation.length, startsWith: generation.trimStart()[0] ?? null };
+  }
+  const shape = item =>
+    Array.isArray(item)
+      ? item.slice(0, 4).map(shape)
+      : item && typeof item === 'object'
+        ? Object.fromEntries(Object.entries(item).map(([key, inner]) => [key, shape(inner)]))
+        : typeof item === 'string'
+          ? SHAPE_ENUMS.has(item)
+            ? item
+            : 'string'
+          : item === null
+            ? null
+            : typeof item;
+  return shape(value);
+}
+
+/** COMMAND_AI_EVAL_ONLY runs the named case ids only. */
+export const onlyCases = (items, only = process.env.COMMAND_AI_EVAL_ONLY ?? '') => {
+  const ids = only.split(',').map(id => id.trim()).filter(Boolean);
+  return ids.length === 0 ? items : items.filter(item => ids.includes(item.id));
+};
+
 const loadWorker = () => loadTsModule('services/command-ai/src/index.ts', WORKER_MODULES);
 const loadHelpWrite = () => loadTsModule('services/command-ai/src/help-write.ts', WORKER_MODULES);
 
@@ -332,6 +371,7 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
       respondedAt: Date.now(),
       headers: limits
     };
+    if (data?.error?.code === 'json_validate_failed') seen.rejectedShape = replyShape(data.error.failed_generation);
     const finishReason = data?.choices?.[0]?.finish_reason;
     seen.providerFailureDetail = !response.ok
       ? `provider HTTP ${response.status}`
@@ -418,7 +458,13 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
           }
         );
         if (response.ok) {
-          return { ...(await response.json()), trace: seen.trace, promptTokens: seen.promptTokens ?? 0, waitedMs };
+          return {
+            ...(await response.json()),
+            trace: seen.trace,
+            promptTokens: seen.promptTokens ?? 0,
+            waitedMs,
+            rejectedShape: seen.rejectedShape
+          };
         }
         const detail = response.status === 502 && seen.providerFailureDetail ? ` (${seen.providerFailureDetail})` : '';
         const error = new Error(`Worker returned ${response.status}${detail}`);
@@ -1348,7 +1394,8 @@ export async function runEval({
   guard = false
 } = {}) {
   const { schemaMod, redactorMod } = loadAppModules();
-  const cases = readJson(questions ? 'questions.json' : 'cases.json');
+  const cases = onlyCases(readJson(questions ? 'questions.json' : 'cases.json'));
+  const rejectedShapes = [];
   const cards = new Map((dataset ?? helpDataset()).cards.map(card => [card.id, card]));
   const globalForbid = (dataset ?? helpDataset()).forbid;
   const gateFailures = new Set();
@@ -1454,6 +1501,7 @@ export async function runEval({
                 })
           );
           latencies.push(Date.now() - t0 - (res.waitedMs ?? 0));
+          if (res.rejectedShape) rejectedShapes.push({ id: testCase.id, shape: res.rejectedShape });
           maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
           const parsed = schemaMod.parseAiCompilerOutput(res.output);
           const served = res.trace?.served ?? null;
@@ -1556,6 +1604,7 @@ export async function runEval({
     maxPromptTokens: Math.max(maxPromptTokens, worker?.stats.maxPromptTokens ?? 0) || null,
     ...(worker ? { usage: worker.stats.models } : {}),
     rateLimitHeaders: worker?.stats.rateLimitHeaders ?? null,
+    ...(worker ? { rejectedShapes } : {}),
     errors,
     p95LatencyMs:
       latencies.length > 0
@@ -1650,7 +1699,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const compareAt = process.argv.indexOf('--compare');
     if (compareAt > 0) {
       const baseline = JSON.parse(readFileSync(process.argv[compareAt + 1], 'utf8'));
-      summary.compareFailures = compareCommands(readJson('cases.json'), baseline, summary);
+      summary.compareFailures = compareCommands(onlyCases(readJson('cases.json')), baseline, summary);
     }
     writeSummary(commandsViaWorker ? { meta: evalMeta({ suite: 'commands' }), ...summary } : summary);
     for (const err of summary.errors) console.error(err);

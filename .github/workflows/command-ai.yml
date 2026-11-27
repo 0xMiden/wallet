@@ -31,6 +31,11 @@ on:
           - writing
           - writing-knockout
           - writing-score
+      cases:
+        description: Commands suite only, comma-separated case ids to run. Empty runs every case.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -80,6 +85,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUITE: ${{ inputs.suite }}
+          COMMAND_AI_EVAL_ONLY: ${{ inputs.cases }}
           COMMAND_AI_EVAL_RETRY_BUDGET_MS: '600000'
           COMMAND_AI_EVAL_SUMMARY: ${{ github.workspace }}/command-ai-eval.json
         run: |

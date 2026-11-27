@@ -1859,3 +1859,20 @@ test('blocks the deploy on a forbidden card that a written reply cites second', 
 test('asks nothing of written answers while no card is listed', async context => {
   assert.deepEqual(await gateWithWriting(context, { count: 5, listed: [] }), []);
 });
+
+test('records a refused reply as structure only, never its text', () => {
+  const generation = JSON.stringify({
+    result: { op: 'set_intent', action: null, asset: 'Alice secret', steps: [{ kind: 'max' }], amount: 5 }
+  });
+  assert.deepEqual(evaluation.replyShape(generation), {
+    result: { op: 'set_intent', action: null, asset: 'string', steps: [{ kind: 'max' }], amount: 'number' }
+  });
+  assert.deepEqual(evaluation.replyShape('Sure, Alice'), { generation: 'not JSON', length: 11, startsWith: 'S' });
+  assert.deepEqual(evaluation.replyShape(undefined), { generation: 'undefined' });
+});
+
+test('runs only the named cases', () => {
+  const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(evaluation.onlyCases(items, ' a, c '), [{ id: 'a' }, { id: 'c' }]);
+  assert.deepEqual(evaluation.onlyCases(items, ''), items);
+});
