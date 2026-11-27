@@ -44,7 +44,7 @@ test('offline privacy redaction and provenance eval suite passes with 0 leaks ac
 test('synthetic question fixtures redact text and reject invented references', async () => {
   const summary = await runEval({ offlineOnly: true, questions: true });
   assert.equal(summary.mode, 'offline');
-  assert.equal(summary.totalCases, 59);
+  assert.equal(summary.totalCases, 65);
   assert.equal(summary.redactionFailures, 0, summary.errors.join('\n'));
   assert.equal(summary.provenanceFailures, 0, summary.errors.join('\n'));
 });
@@ -54,7 +54,7 @@ test('requires accepted and forbidden cards on every sensitive question fixture'
   const help = cases.filter(item => item.cards);
   const controls = cases.filter(item => item.expected);
   assert.equal(help.length, 32);
-  assert.equal(controls.length, 27);
+  assert.equal(controls.length, 33);
   assert.equal(help.length + controls.length, cases.length);
   assert.equal(help.filter(item => item.cards.length === 0).length, 2);
   assert.deepEqual(
@@ -115,7 +115,7 @@ test('blocks a deploy that refuses any shape of clarification follow-up', async 
       : providerReply({ op: 'cancel' })
   );
   const followUps = JSON.parse(readFileSync(new URL('./questions.json', import.meta.url), 'utf8')).filter(
-    item => item.snapshot
+    item => item.snapshot && item.expected.op === 'patch_slots'
   );
   assert.deepEqual(followUps.map(item => item.snapshot.missingSlot).sort(), ['note_type', 'provider', 'recipient']);
   const { gate } = await runEval({ offlineOnly: false, questions: true });
@@ -145,6 +145,34 @@ test('still blocks a deploy whose commands the provider refuses to shape', async
   context.mock.method(globalThis, 'fetch', refuseJson);
   const { gate } = await runEval({ offlineOnly: false, questions: true });
   assert.deepEqual(gate.failures, ['first-reply-cancel: control failed']);
+});
+
+// App 1.18.2 keeps the old token or route on such a patch, so the deploy gate must never see one come back.
+test('blocks a deploy that returns a follow-up patch changing a token', async context => {
+  mockProviderKey(context);
+  context.mock.method(console, 'warn', () => {});
+  mockQuestionFixtures(context, cases => cases.filter(({ id }) => id.startsWith('follow-change-')));
+  const stale = {
+    'send <AMT_1> USDCx instead': { asset: 'USDCx' },
+    'use USDCx': {},
+    'send <FIAT_AMT_1> of USDCx instead': { asset: 'USDCx' },
+    'swap <AMT_1> ETH instead': { asset: 'ETH' },
+    '<AMT_1>, and receive ETH': { to_asset: 'ETH' },
+    '<AMT_1> USDCx instead': { asset: 'USDCx' }
+  };
+  const unchanged = Object.fromEntries(
+    ['action', 'amount', 'asset', 'to_asset', 'from_chain', 'to_chain', 'recipient_ref', 'provider', 'note_type'].map(
+      key => [key, null]
+    )
+  );
+  context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const { utterance } = JSON.parse(JSON.parse(String(init.body)).messages[1].content);
+    return providerReply({ op: 'patch_slots', patch: { ...unchanged, earn_op: null, ...stale[utterance] } });
+  });
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.equal(summary.results.length, 6);
+  assert.deepEqual(summary.gate.failures, []);
+  for (const result of summary.results) assert.deepEqual(result.ops, ['unsupported'], result.id);
 });
 
 test('never forwards a model free-text answer', async context => {

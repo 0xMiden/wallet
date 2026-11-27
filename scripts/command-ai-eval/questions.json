@@ -588,5 +588,149 @@
     "expected": {
       "op": ["set_intent", "patch_slots", "query_ledger", "unsupported"]
     }
+  },
+  {
+    "id": "follow-change-send-token",
+    "prompt": "send 10 USDCx instead",
+    "expectedRedacted": "send <AMT_1> USDCx instead",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["25pct", "50pct", "max"],
+      "draft": {
+        "action": "send",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": false,
+        "hasRecipient": true,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
+  },
+  {
+    "id": "follow-change-send-token-only",
+    "prompt": "use USDCx",
+    "expectedRedacted": "use USDCx",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["25pct", "50pct", "max"],
+      "draft": {
+        "action": "send",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": false,
+        "hasRecipient": true,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
+  },
+  {
+    "id": "follow-change-send-dollars",
+    "prompt": "send $10 of USDCx instead",
+    "expectedRedacted": "send <FIAT_AMT_1> of USDCx instead",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["25pct", "50pct", "max"],
+      "draft": {
+        "action": "send",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": false,
+        "hasRecipient": true,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
+  },
+  {
+    "id": "follow-change-swap-pay",
+    "prompt": "swap 10 ETH instead",
+    "expectedRedacted": "swap <AMT_1> ETH instead",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["25pct", "50pct", "max"],
+      "draft": {
+        "action": "swap",
+        "asset": "MIDEN",
+        "to_asset": "USDCx",
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": false,
+        "hasRecipient": false,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
+  },
+  {
+    "id": "follow-change-swap-receive",
+    "prompt": "10, and receive ETH",
+    "expectedRedacted": "<AMT_1>, and receive ETH",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["25pct", "50pct", "max"],
+      "draft": {
+        "action": "swap",
+        "asset": "MIDEN",
+        "to_asset": "USDCx",
+        "from_chain": null,
+        "to_chain": null,
+        "hasAmount": false,
+        "hasRecipient": false,
+        "provider": null,
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
+  },
+  {
+    "id": "follow-change-bridge-token",
+    "prompt": "10 USDCx instead",
+    "expectedRedacted": "<AMT_1> USDCx instead",
+    "snapshot": {
+      "missingSlot": "amount",
+      "allowedOptionIds": ["100", "500", "max"],
+      "draft": {
+        "action": "bridge",
+        "asset": "MIDEN",
+        "to_asset": null,
+        "from_chain": null,
+        "to_chain": "sepolia",
+        "hasAmount": false,
+        "hasRecipient": false,
+        "provider": "agglayer",
+        "note_type": null,
+        "earn_op": null
+      }
+    },
+    "expected": {
+      "op": ["unsupported", "set_intent"]
+    }
   }
 ]
