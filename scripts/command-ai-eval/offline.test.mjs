@@ -501,6 +501,138 @@ test('reads the retry budget from the environment', async context => {
   assert.deepEqual(summary.errors, ['[MODEL ERR] cmd_bare_cancel: Worker returned 429']);
 });
 
+/** A clock that only the limiter's sleeps move. */
+function fakeClock() {
+  const clock = { at: 0, slept: [] };
+  clock.now = () => clock.at;
+  clock.sleep = async ms => {
+    clock.slept.push(ms);
+    clock.at += ms;
+  };
+  return clock;
+}
+
+const bucketHeaders = (remaining, limit = 250000) =>
+  new Headers({ 'x-ratelimit-limit-tokens': String(limit), 'x-ratelimit-remaining-tokens': String(remaining) });
+
+test('spends a bucket down to a 15 percent reserve, then waits for it to refill', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  const spend = async tokens => {
+    const release = await limiter.admit({ m: tokens });
+    limiter.record('m', new Headers(), tokens);
+    release();
+  };
+  for (let call = 0; call < 10; call++) await spend(20000);
+  assert.deepEqual(clock.slept, []);
+  // 50000 are left and 37500 are kept: 7500 short of the next 20000, which a bucket refills in 1800 ms.
+  await spend(20000);
+  assert.deepEqual(clock.slept, [1800]);
+});
+
+test('takes the level from the rate-limit headers, live traffic included', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  limiter.record('m', bucketHeaders(100000), 3000);
+  await limiter.admit({ m: 70000 });
+  assert.deepEqual(clock.slept, [1800]);
+  // Another model has a bucket of its own.
+  await limiter.admit({ other: 200000 });
+  assert.deepEqual(clock.slept, [1800]);
+});
+
+test('counts the requests that are still in flight against the reserve', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  const first = await limiter.admit({ m: 100000 });
+  const second = await limiter.admit({ m: 100000 });
+  assert.deepEqual(clock.slept, []);
+  const third = limiter.admit({ m: 100000 });
+  let admitted = false;
+  third.then(() => {
+    admitted = true;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(admitted, false);
+  first();
+  second();
+  await third;
+  assert.ok(admitted);
+});
+
+test('keeps 15 percent of the request bucket for the live assistant', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  for (let call = 0; call < 850; call++) {
+    const release = await limiter.admit({ m: 1 });
+    limiter.record('m', new Headers(), 1);
+    release();
+  }
+  assert.deepEqual(clock.slept, []);
+  await limiter.admit({ m: 1 });
+  assert.deepEqual(clock.slept, [60]);
+});
+
+test('holds a model for the wait its 429 names', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  limiter.hold('m', 5000);
+  await limiter.admit({ m: 1 });
+  await limiter.admit({ other: 1 });
+  assert.deepEqual(clock.slept, [5000]);
+});
+
+test('fits the whole command suite in the five minutes asked for', async () => {
+  const clock = fakeClock();
+  const limiter = evaluation.createLimiter(clock);
+  for (let call = 0; call < 345; call++) {
+    const release = await limiter.admit({ m: 3750 });
+    limiter.record('m', new Headers(), 3280);
+    release();
+  }
+  assert.ok(clock.at < 300000, `${clock.at} ms`);
+});
+
+test('reads the wait of a provider 429 instead of the Worker fixed minute', async context => {
+  mockProviderKey(context);
+  context.mock.method(globalThis, 'fetch', async () => rateLimited('tokens per minute (TPM)'));
+  const worker = evaluation.createEvalWorker({ guard: true });
+  await assert.rejects(
+    () => worker.compile({ redactedText: 'cancel', helpContext: null }),
+    error => error.retryAfterSeconds === 2
+  );
+});
+
+test('runs command cases side by side and keeps their order', async context => {
+  mockProviderKey(context);
+  context.mock.method(console, 'warn', () => {});
+  mockCaseFixtures(context, cases => cases.slice(0, 12));
+  let open = 0;
+  let mostOpen = 0;
+  context.mock.method(globalThis, 'fetch', async () => {
+    mostOpen = Math.max(mostOpen, ++open);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    open -= 1;
+    return providerReply({ op: 'cancel' });
+  });
+  const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 1 });
+  assert.ok(mostOpen > 1 && mostOpen <= 6, `${mostOpen} open at once`);
+  const expected = JSON.parse(readFileSync(new URL('./cases.json', import.meta.url), 'utf8'))
+    .slice(0, 12)
+    .map(({ id }) => id);
+  assert.deepEqual(
+    summary.results.map(({ id }) => id),
+    expected
+  );
+});
+
+test('stops a live run that hangs within minutes, not hours', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/command-ai.yml', import.meta.url), 'utf8');
+  const live = workflow.split('\n  live:\n')[1];
+  assert.match(live, /\n {4}timeout-minutes: 12\n/);
+  assert.match(live, /- name: Run the selected suite\n {8}timeout-minutes: 8\n/);
+});
+
 test('runs the live model job only from a manual dispatch that picks a suite', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/command-ai.yml', import.meta.url), 'utf8');
   const [before, live = ''] = workflow.split('\n  live:\n');
