@@ -313,8 +313,11 @@ export function compareCommands(cases, baseline, current) {
     const was = before.get(item.id);
     const expected = [item.expected.op].flat();
     const failures = [];
-    if (!item.intendedChange && was && was.passes === was.runs && now.runs - now.passes >= 2) {
-      failures.push(`passed ${was.passes} of ${was.runs} on the baseline, now ${now.passes} of ${now.runs}`);
+    // A case added after the baseline has nothing to compare with, so it must pass on its own.
+    const guarded = !was || was.passes === was.runs;
+    if (!item.intendedChange && guarded && now.runs - now.passes >= 2) {
+      const before = was ? `passed ${was.passes} of ${was.runs} on the baseline` : 'not on the baseline';
+      failures.push(`${before}, now ${now.passes} of ${now.runs}`);
     }
     if (expected.includes('explain')) {
       const intent = now.ops.find(op => INTENT_OPS.includes(op));
@@ -325,6 +328,51 @@ export function compareCommands(cases, baseline, current) {
     }
     return failures.map(failure => `${item.id}: ${failure}`);
   });
+}
+
+const HOLDOUT_PATH = path.join(__dirname, 'help-holdout.json');
+const MIN_HOLDOUT_CLUSTERS = { answerable: 80, near_miss: 30, out_of_scope: 30 };
+const CASE_CLASSES = ['answerable', 'near_miss', 'out_of_scope', 'action', 'fragment'];
+
+// A mistyped id, card or class drops its case out of a bar without a word, so the run refuses it.
+function selectionCaseErrors(cases) {
+  const cards = new Set(helpDataset().cards.map(card => card.id));
+  const topics = Object.keys(readJson('../../src/lib/command-ai/help-facts.json').topics);
+  const seen = new Set();
+  return cases.flatMap((item, index) => {
+    const errors = ['id', 'cluster', 'q'].filter(key => !item[key]).map(key => `missing ${key}`);
+    if (seen.has(item.id)) errors.push('repeated id');
+    seen.add(item.id);
+    if (!CASE_CLASSES.includes(item.class)) errors.push('bad class');
+    if (!['P0', 'P1', 'P2'].includes(item.priority)) errors.push('bad priority');
+    if (item.helpContext !== null && !topics.includes(item.helpContext)) errors.push('bad helpContext');
+    for (const key of ['cards', 'forbidCards']) {
+      if (!Array.isArray(item[key])) errors.push(`${key} must be a list`);
+      else errors.push(...item[key].filter(id => !cards.has(id)).map(id => `unknown card ${id}`));
+    }
+    if ((item.class === 'answerable') !== item.cards?.length > 0) {
+      errors.push('cards must be listed exactly for answerable cases');
+    }
+    return errors.map(error => `${item.id || `case ${index}`}: ${error}`);
+  });
+}
+
+/** The selection questions. Only a dev run may go without the holdout, which tuning must never see. */
+export function loadSelectionCases({ devOnly = false, holdoutPath = HOLDOUT_PATH } = {}) {
+  const dev = readJson('help-eval.json');
+  const errors = selectionCaseErrors(dev);
+  let holdout = [];
+  if (!devOnly) {
+    if (!existsSync(holdoutPath)) throw new Error('help-holdout.json is missing. Tune with --dev-only.');
+    holdout = JSON.parse(readFileSync(holdoutPath, 'utf8'));
+    errors.push(...selectionCaseErrors(holdout));
+    for (const [name, minimum] of Object.entries(MIN_HOLDOUT_CLUSTERS)) {
+      const count = new Set(holdout.filter(item => item.class === name).map(item => item.cluster)).size;
+      if (count < minimum) errors.push(`holdout has ${count} ${name} clusters, needs ${minimum}`);
+    }
+  }
+  if (errors.length > 0) throw new Error(`Bad selection cases:\n${errors.join('\n')}`);
+  return [...dev, ...holdout.map(item => ({ ...item, set: 'holdout' }))];
 }
 
 const GATE_HELP_ACCURACY = 0.9;
@@ -549,11 +597,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   let failed;
   if (process.argv.includes('--selection')) {
     if (offlineOnly) throw new Error('The selection run needs a model credential.');
-    const holdout = existsSync(path.join(__dirname, 'help-holdout.json'))
-      ? readJson('help-holdout.json').map(item => ({ ...item, set: 'holdout' }))
-      : [];
+    const cases = loadSelectionCases({ devOnly: process.argv.includes('--dev-only') });
     const service = createEvalWorker();
-    const results = await runSelection({ cases: [...readJson('help-eval.json'), ...holdout], service });
+    const results = await runSelection({ cases, service });
     const score = scoreSelection(results);
     const failures = selectionFailures(score);
     writeSummary({ score, failures, rateLimitHeaders: service.stats.rateLimitHeaders, results });

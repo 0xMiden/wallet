@@ -22,6 +22,7 @@ on:
         options:
           - none
           - commands
+          - selection-dev
           - selection
           - measure
 
@@ -84,6 +85,7 @@ jobs:
               fi
               node scripts/command-ai-eval/run-eval.mjs --commands --require-live "${compare[@]}"
               ;;
+            selection-dev) node scripts/command-ai-eval/run-eval.mjs --selection --dev-only --require-live ;;
             selection) node scripts/command-ai-eval/run-eval.mjs --selection --require-live ;;
             *) echo "Suite $SUITE is not implemented yet." >&2; exit 1 ;;
           esac
