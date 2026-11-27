@@ -2403,5 +2403,17 @@
   "replaceWalletEraseWarning": "現在のウォレットが引き続き必要な場合は、リカバリーフレーズまたはバックアップを保管していることを確認してください。この操作は取り消せません。",
   "eraseAndRestoreWallet": "消去してウォレットを復元",
   "eraseAndCreateWallet": "消去してウォレットを作成",
-  "backToUnlock": "サインインに戻る"
+  "backToUnlock": "サインインに戻る",
+  "authReasonUnlock": "ウォレットのロックを解除する",
+  "authReasonViewRecoveryPhrase": "リカバリーフレーズを確認する",
+  "authReasonRevealPrivateKey": "秘密鍵を公開する",
+  "authReasonRevealEverydayKey": "日常的に使用する鍵を公開する",
+  "authReasonExportAccountFile": "アカウントファイルをエクスポートする",
+  "authReasonExportWalletFile": "ウォレットファイルをエクスポートする",
+  "authReasonChangeSpendingLimit": "利用限度額を変更する",
+  "authReasonOverLimitTransaction": "制限額を超える取引を承認する",
+  "authReasonRemoveDevice": "デバイスの削除",
+  "authReasonSwitchGuardian": "Guardianを切り替える",
+  "authReasonSetUp": "ウォレットのセキュリティ設定",
+  "encryptedWalletFileDescriptionExportAuth": "ファイルの作成時に、本人確認が求められます。"
 }

@@ -2401,5 +2401,17 @@
   "replaceWalletEraseWarning": "Hala ihtiyacınız varsa mevcut kurtarma ifadenizin veya yedeğinizin elinizde olduğundan emin olun. Bu işlem geri alınamaz.",
   "eraseAndRestoreWallet": "Sil ve cüzdanı geri yükle",
   "eraseAndCreateWallet": "Sil ve cüzdan oluştur",
-  "backToUnlock": "Girişe geri dön"
+  "backToUnlock": "Girişe geri dön",
+  "authReasonUnlock": "Cüzdanınızın kilidini açın",
+  "authReasonViewRecoveryPhrase": "Kurtarma ifadesini görüntüleyin",
+  "authReasonRevealPrivateKey": "Özel anahtarınızı ifşa edin",
+  "authReasonRevealEverydayKey": "Günlük anahtarınızı açıklayın",
+  "authReasonExportAccountFile": "Hesap dosyanızı dışa aktarın",
+  "authReasonExportWalletFile": "Cüzdan dosyanızı dışa aktarın",
+  "authReasonChangeSpendingLimit": "Harcama limitinizi değiştirin",
+  "authReasonOverLimitTransaction": "Limitinizin üzerindeki bir işlemi onaylayın",
+  "authReasonRemoveDevice": "Bir cihazı kaldırın",
+  "authReasonSwitchGuardian": "Guardian'ınızı değiştirin",
+  "authReasonSetUp": "Cüzdan güvenliğini ayarlayın",
+  "encryptedWalletFileDescriptionExportAuth": "Dosya oluşturulduğunda kimlik doğrulaması yapmanız istenecektir."
 }

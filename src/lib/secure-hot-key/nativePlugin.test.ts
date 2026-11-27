@@ -167,6 +167,14 @@ const sharedForwardingSpec = (label: 'iOS' | 'Android', setPlatform: () => void)
       expect(mockRevealHotKey).toHaveBeenCalledWith({ ciphertext: 'tag:payload' });
       expect(secret).toBe('aa'.repeat(32));
     });
+
+    it('passes a reveal approval through the facade to the plugin', async () => {
+      mockRevealHotKey.mockResolvedValue({ secretKeyHex: 'aa'.repeat(32) });
+
+      await secureHotKey.revealHotKey('tag:payload', 'APPROVAL');
+
+      expect(mockRevealHotKey).toHaveBeenCalledWith({ ciphertext: 'tag:payload', approval: 'APPROVAL' });
+    });
   });
 };
 

@@ -2395,5 +2395,17 @@
   "replaceWalletEraseWarning": "Certifique-se de ter sua frase de recuperação ou backup atual caso ainda precise dele. Isso não pode ser desfeito.",
   "eraseAndRestoreWallet": "Apagar e restaurar carteira",
   "eraseAndCreateWallet": "Apagar e criar carteira",
-  "backToUnlock": "Voltar para entrar"
+  "backToUnlock": "Voltar para entrar",
+  "authReasonUnlock": "Desbloqueie sua carteira",
+  "authReasonViewRecoveryPhrase": "Visualize sua frase de recuperação",
+  "authReasonRevealPrivateKey": "Revele sua chave privada",
+  "authReasonRevealEverydayKey": "Revele sua chave de uso diário",
+  "authReasonExportAccountFile": "Exporte o arquivo da sua conta",
+  "authReasonExportWalletFile": "Exporte o arquivo da sua carteira",
+  "authReasonChangeSpendingLimit": "Altere seu limite de gastos",
+  "authReasonOverLimitTransaction": "Aprovar uma transação acima do seu limite",
+  "authReasonRemoveDevice": "Remover um dispositivo",
+  "authReasonSwitchGuardian": "Troque seu Guardian",
+  "authReasonSetUp": "Configurar a segurança da carteira",
+  "encryptedWalletFileDescriptionExportAuth": "Será solicitada sua autenticação quando o arquivo for criado."
 }

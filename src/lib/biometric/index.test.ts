@@ -579,6 +579,75 @@ describe('hardware security service', () => {
       expect(local.decryptWithHardwareKey).toHaveBeenCalledWith({ encrypted: 'CIPHER' });
     });
 
+    it('hands a replacement wrapper to the caller before returning the plaintext', async () => {
+      const local = makePlugin({
+        decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN', rewrapped: 'up1:ID:NEW' })
+      });
+      const { mod } = load({ platform: IOS, local });
+      let save = () => {};
+      const onRewrapped = jest.fn(() => new Promise<void>(resolve => (save = resolve)));
+      let returned = false;
+
+      const decrypted = mod.decryptWithHardwareKey('CIPHER', onRewrapped).finally(() => (returned = true));
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(onRewrapped).toHaveBeenCalledWith('up1:ID:NEW');
+      expect(returned).toBe(false);
+      save();
+      expect(await decrypted).toBe('PLAIN');
+    });
+
+    it('sends the prompt text and hands back a reveal approval', async () => {
+      const local = makePlugin({
+        decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN', revealApproval: 'APPROVAL' })
+      });
+      const { mod } = load({ platform: IOS, local });
+      const onApproval = jest.fn();
+
+      await mod.decryptWithHardwareKey('CIPHER', undefined, {
+        reason: 'Reveal',
+        revealHotKey: { publicKey: '02ab', onApproval }
+      });
+
+      expect(local.decryptWithHardwareKey).toHaveBeenCalledWith({
+        encrypted: 'CIPHER',
+        reason: 'Reveal',
+        revealHotKeyPublicKey: '02ab'
+      });
+      expect(onApproval).toHaveBeenCalledWith('APPROVAL');
+    });
+
+    it('sends the setup prompt text with an encrypt', async () => {
+      const local = makePlugin();
+      const { mod } = load({ platform: IOS, local });
+
+      await mod.encryptWithHardwareKey('plain', 'Set up');
+      expect(local.encryptWithHardwareKey).toHaveBeenCalledWith({ data: 'plain', reason: 'Set up' });
+    });
+
+    it('drops approvals on iOS only, and never rejects', async () => {
+      const local = makePlugin({ discardRevealApproval: jest.fn().mockRejectedValue(new Error('bridge')) });
+      const { mod } = load({ platform: IOS, local });
+
+      await expect(mod.discardRevealApproval('APPROVAL')).resolves.toBeUndefined();
+      await expect(mod.discardRevealApproval()).resolves.toBeUndefined();
+      expect(local.discardRevealApproval.mock.calls).toEqual([[{ approval: 'APPROVAL' }], [{}]]);
+
+      const android = load({ platform: ANDROID, local });
+      local.discardRevealApproval.mockClear();
+      await android.mod.discardRevealApproval();
+      expect(local.discardRevealApproval).not.toHaveBeenCalled();
+    });
+
+    it('does not call back when there is no replacement', async () => {
+      const local = makePlugin({ decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN' }) });
+      const { mod } = load({ platform: IOS, local });
+      const onRewrapped = jest.fn();
+
+      await mod.decryptWithHardwareKey('CIPHER', onRewrapped);
+      expect(onRewrapped).not.toHaveBeenCalled();
+    });
+
     it('throws when hardware security is unavailable', async () => {
       const { mod } = load({ platform: NOT_MOBILE });
       await expect(mod.decryptWithHardwareKey('CIPHER')).rejects.toThrow('Hardware security not available');

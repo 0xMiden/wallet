@@ -1,3 +1,4 @@
+import type { AuthPurpose } from 'lib/auth/auth-purpose';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import type {
   PersistedSpendingLimit,
@@ -972,6 +973,7 @@ export interface GetStrictAuthenticationProtectorsResponse extends WalletMessage
 export interface VerifyStrictActionAuthenticationRequest extends WalletMessageBase {
   type: WalletMessageType.VerifyStrictActionAuthenticationRequest;
   credential?: string;
+  purpose: AuthPurpose;
 }
 
 export interface VerifyStrictActionAuthenticationResponse extends WalletMessageBase {

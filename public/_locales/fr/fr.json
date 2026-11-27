@@ -2399,5 +2399,17 @@
   "replaceWalletEraseWarning": "Assurez-vous d’avoir votre phrase de récupération ou votre sauvegarde actuelle si vous en avez encore besoin. Cette action est irréversible.",
   "eraseAndRestoreWallet": "Effacer et restaurer le portefeuille",
   "eraseAndCreateWallet": "Effacer et créer un portefeuille",
-  "backToUnlock": "Retour à la connexion"
+  "backToUnlock": "Retour à la connexion",
+  "authReasonUnlock": "Déverrouillez votre portefeuille",
+  "authReasonViewRecoveryPhrase": "Consultez votre phrase de récupération",
+  "authReasonRevealPrivateKey": "Révélez votre clé privée",
+  "authReasonRevealEverydayKey": "Révélez votre clé quotidienne",
+  "authReasonExportAccountFile": "Exportez le fichier de votre compte",
+  "authReasonExportWalletFile": "Exportez le fichier de votre portefeuille",
+  "authReasonChangeSpendingLimit": "Modifier votre limite de dépenses",
+  "authReasonOverLimitTransaction": "Approuver une transaction dépassant votre limite",
+  "authReasonRemoveDevice": "Retirer un appareil",
+  "authReasonSwitchGuardian": "Changer de Guardian",
+  "authReasonSetUp": "Configurer la sécurité du portefeuille",
+  "encryptedWalletFileDescriptionExportAuth": "Une authentification vous sera demandée lors de la création du fichier."
 }

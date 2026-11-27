@@ -4,6 +4,7 @@ import type { Runtime } from 'webextension-polyfill';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { AuthPurpose } from 'lib/auth/auth-purpose';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { installBackupSignalHandler } from 'lib/backup/adopt-signal';
 import { deleteBackupProfile, onBackupLock, runBackupRefresh } from 'lib/backup/refresh';
@@ -581,6 +582,10 @@ export async function lockForResetInTurn() {
     const { vault } = store.getState();
     clearRecoveryAuthorizations();
     releaseGuardianRecoveriesOnLock();
+    // Not awaited: lock must not wait on the native bridge.
+    void import('lib/biometric')
+      .then(biometric => biometric.discardRevealApproval())
+      .catch(error => console.warn('[lock] could not drop reveal approvals:', error));
     // The backup's storage key and AES key live for one unlock only.
     onBackupLock();
     locked();
@@ -795,7 +800,10 @@ export function exportAccountFile(accountPublicKey: string, password?: string) {
 }
 
 export function revealHotKey(accountPublicKey: string, password?: string) {
-  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+  return withInited(() => {
+    const hotPublicKey = store.getState().accounts.find(a => a.publicKey === accountPublicKey)?.hotPublicKey;
+    return Vault.revealHotKey(accountPublicKey, password, hotPublicKey);
+  });
 }
 
 export function revealPublicKey(_accPublicKey: string) {}
@@ -904,8 +912,11 @@ export async function getStrictAuthenticationProtectors(): Promise<StrictAuthent
   return { hardware, password };
 }
 
-export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
-  await Vault.verifyProtector(credential);
+export async function verifyStrictActionAuthentication(
+  credential: string | undefined,
+  purpose: AuthPurpose
+): Promise<void> {
+  await Vault.verifyProtector(credential, purpose);
 }
 
 export function signTransaction(publicKey: string, signingInputs: string) {

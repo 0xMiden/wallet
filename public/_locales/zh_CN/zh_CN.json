@@ -2403,5 +2403,17 @@
   "replaceWalletEraseWarning": "如果您仍需要当前钱包，请确保已保存当前的恢复短语或备份。此操作无法撤销。",
   "eraseAndRestoreWallet": "擦除并恢复钱包",
   "eraseAndCreateWallet": "擦除并创建钱包",
-  "backToUnlock": "返回登录"
+  "backToUnlock": "返回登录",
+  "authReasonUnlock": "解锁您的钱包",
+  "authReasonViewRecoveryPhrase": "查看您的恢复短语",
+  "authReasonRevealPrivateKey": "披露您的私钥",
+  "authReasonRevealEverydayKey": "展示您的日常密钥",
+  "authReasonExportAccountFile": "导出您的账户文件",
+  "authReasonExportWalletFile": "导出您的钱包文件",
+  "authReasonChangeSpendingLimit": "更改您的消费限额",
+  "authReasonOverLimitTransaction": "批准超出限额的交易",
+  "authReasonRemoveDevice": "移除设备",
+  "authReasonSwitchGuardian": "更换您的Guardian",
+  "authReasonSetUp": "设置钱包安全",
+  "encryptedWalletFileDescriptionExportAuth": "创建文件时，系统将要求您进行身份验证。"
 }
