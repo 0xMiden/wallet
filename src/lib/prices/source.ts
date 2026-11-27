@@ -7,6 +7,8 @@ import type { KlineSeries, MarketQuote, Timeframe, TokenPrices } from './binance
  */
 export type PriceKind = 'market' | 'fixed' | 'nominal' | 'basket';
 
+export type PriceProvider = 'binance' | 'kraken';
+
 /**
  * A source's answer about one symbol. Only `unlisted` rules a market out: `listed` also covers a symbol the source has
  * not been able to rule out yet, and a failed lookup stays unresolved (no verdict at all), never `unlisted`.
@@ -15,7 +17,7 @@ export type MarketVerdict = { state: 'listed' } | { state: 'unlisted' };
 
 /** One feed of USD quotes. `feed.ts` holds the ordered list and is the only caller. */
 export interface PriceSource {
-  readonly id: string;
+  readonly id: PriceProvider;
   readonly kind: PriceKind;
 
   /** False for a symbol that can never be asked of this source, whatever its verdict. */

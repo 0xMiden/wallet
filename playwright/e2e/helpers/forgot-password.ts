@@ -39,11 +39,12 @@ const INCORRECT_PASSWORD_SUBTITLE = 'Incorrect password. Try again.';
 const SIGN_OUT_BUTTON_TEST_ID = 'sign-out-button';
 
 /**
- * The seed-phrase warning on `ForgotPasswordInfo` (`forgotPasswordSecondDescription`).
- * The ONLY thing standing between a user who mistyped their password and an
- * irreversible wipe, so `openForgotPasswordFlow` refuses to walk past it silently.
+ * The replacement warning on `ForgotPasswordInfo` (`forgotPasswordSecondDescription`).
+ * Pinning it asserts that the interstitial explains your current wallet stays on the
+ * device until you confirm a replacement, with recovery details ready first.
  */
-const SIGN_OUT_WARNING = 'Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file.';
+const SIGN_OUT_WARNING =
+  'Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing.';
 
 /** The slice of the Chrome page object these drivers need. */
 type ForgotPasswordDriver = Pick<ChromeWalletPageApi, 'page' | 'navigateHome' | 'completeHotKeyRotation'>;

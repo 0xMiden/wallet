@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 
 import { liveQuery, Subscription } from 'dexie';
 
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { hasTransactionIndex } from 'lib/miden/db/index-query';
+import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -19,18 +20,23 @@ export function useDeviceRevocation(accountId: string | undefined, hotPublicKey:
       .then(commitment => {
         if (cancelled) return;
         subscription = liveQuery(async () => {
-          const rows = await Repo.transactions
-            .filter(row => {
-              const target = row.extraInputs?.revokedSignerCommitment;
-              return (
-                row.type === 'replace-hot-key' &&
-                row.status === ITransactionStatus.Completed &&
-                sameWalletAccountId(row.accountId, accountId) &&
-                typeof target === 'string' &&
-                sameCommitment(target, commitment)
-              );
-            })
-            .toArray();
+          const matchesRevocation = (row: ITransaction) => {
+            const target = row.extraInputs?.revokedSignerCommitment;
+            return (
+              row.type === 'replace-hot-key' &&
+              row.status === ITransactionStatus.Completed &&
+              sameWalletAccountId(row.accountId, accountId) &&
+              typeof target === 'string' &&
+              sameCommitment(target, commitment)
+            );
+          };
+          const rows = hasTransactionIndex('[status+type]', Repo.transactions)
+            ? await Repo.transactions
+                .where('[status+type]')
+                .equals([ITransactionStatus.Completed, 'replace-hot-key'])
+                .filter(matchesRevocation)
+                .toArray()
+            : await Repo.transactions.filter(matchesRevocation).toArray();
           return rows.find(row => row.transactionId)?.transactionId;
         }).subscribe({
           next: transactionId => {

@@ -860,6 +860,127 @@
     "message": "Der Lastausgleich konnte nicht durchgeführt werden.",
     "englishSource": "Could not load balance."
   },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Der Kontostand konnte nicht aktualisiert werden. Es wird der zuletzt bestätigte Kontostand angezeigt.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Fester Kurs von 1,00 USD für $symbol$ auf $network$.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$-Kurs von $provider$ auf $network$, aktualisiert um $retrievedAt$.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Vault-USD-Wert auf $network$, aktualisiert am $retrievedAt$.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "Der USD-Kurs ist veraltet",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "Der letzte Kurs von $symbol$ von $provider$ auf $network$ ($retrievedAt$) ist älter als 10 Minuten und wird in den Summen nicht berücksichtigt.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "Der letzte USD-Wert des Tresors auf $network$ ($retrievedAt$) ist älter als 10 Minuten und wird in den Summen nicht angezeigt.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "Der letzte USD-Kurs ist älter als 10 Minuten und wird in den Gesamtbeträgen nicht angezeigt.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "USD-Kurs nicht verfügbar",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "Auf $network$ ist kein verifizierter USD-Kurs verfügbar.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Der USD-Kurs konnte nicht geladen werden. Die Saldenangaben enthalten den USD-Wert erst nach einer Aktualisierung.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "Dieser Token wird im Testnetz aus dem Verkehr gezogen und kann nicht gesendet werden.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Stellen Sie die Dezimalstellen der Token vor dem Senden in den Token-Informationen ein.",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "Kein verfügbarer Saldo zum Senden.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "Es ist noch kein Guthaben zum Senden verfügbar. Nehmen Sie zunächst ausstehende Überweisungen an.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Der Lastausgleich konnte nicht durchgeführt werden. Versuchen Sie es erneut, bevor Sie die Nachricht senden.",
+    "englishSource": "Could not load balance. Try again before sending."
+  },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
     "englishSource": "ID: $id$",
@@ -4083,8 +4204,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Melden Sie sich nicht ab, es sei denn, Sie kennen Ihre 12-Wort-Wiederherstellungsphrase oder verfügen über eine verschlüsselte Sicherungsdatei.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Ihre aktuelle Wallet bleibt auf diesem Gerät gespeichert, bis Sie einen Ersatz bestätigen. Halten Sie Ihre 12-Wort-Wiederherstellungsphrase, Ihren Guardian-Schlüssel oder Ihre verschlüsselte Sicherungsdatei bereit, bevor Sie fortfahren.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Biometrische Entsperrung erforderlich",
@@ -10978,5 +11099,33 @@
         "content": "$2"
       }
     }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Vorhandene Wallet ersetzen?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Dadurch wird Ihre aktuelle Wallet dauerhaft von diesem Gerät gelöscht und eine neue Wallet mit dem gerade festgelegten Passwort erstellt.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Dadurch wird Ihre aktuelle Wallet dauerhaft von diesem Gerät gelöscht und die wiederhergestellte Wallet mit dem gerade festgelegten Passwort wiederhergestellt.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Vergewissern Sie sich, dass Sie Ihre aktuelle Wiederherstellungsphrase oder Sicherungsdatei haben, falls Sie sie noch benötigen. Dies kann nicht rückgängig gemacht werden.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Löschen und Wallet wiederherstellen",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Löschen und Wallet erstellen",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Zurück zur Anmeldung",
+    "englishSource": "Back to sign in"
   }
 }

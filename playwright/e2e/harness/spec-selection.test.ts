@@ -39,7 +39,8 @@ const overridingConfigs = [
   'playwright.resilience.config.ts',
   'playwright.swap.config.ts',
   'playwright.usdcx.config.ts',
-  'playwright.stored-override.config.ts'
+  'playwright.stored-override.config.ts',
+  'playwright.multi-device.config.ts'
 ];
 
 /** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
@@ -56,6 +57,7 @@ describe('dedicated e2e configs override the base testIgnore', () => {
     expect(testIgnore).toMatch(/swap/);
     expect(testIgnore).toMatch(/usdcx/);
     expect(testIgnore).toMatch(/stored-override/);
+    expect(testIgnore).toMatch(/multi-device/);
   });
 });
 
@@ -230,6 +232,48 @@ describe('the stored-override suite runs on a build that reads stored overrides,
     expect(run).toBeGreaterThan(build);
     expect(src).toMatch(/\n {8}id: stored_override_build\n {8}if: /);
     expect(src).toMatch(/run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build\n/);
+  });
+});
+
+const MULTI_DEVICE_SMOKE_TEST =
+  'harness-smoke.spec.ts › Multi-device harness › a recovery with role "add" keeps the first device and adds the second';
+
+describe('the multi-device suite runs only under its own config, on a testnet build with the local wallet-api', () => {
+  it('playwright.multi-device.config.ts lists the harness smoke test, and the core and Guardian configs no multi-device spec', () => {
+    expect(listedTests(listPlaywrightTests('playwright.multi-device.config.ts'))).toContain(MULTI_DEVICE_SMOKE_TEST);
+    expect(listPlaywrightTests('playwright.e2e.config.ts')).not.toMatch(/multi-device|harness-smoke/);
+    expect(listPlaywrightTests('playwright.guardian.config.ts')).not.toMatch(/multi-device|harness-smoke/);
+  });
+
+  it('no multi-device spec is named like a Guardian spec, which the Guardian config would select', () => {
+    const specs = readdirSync(resolve(repoRoot, 'playwright/e2e/tests/multi-device')).filter(name =>
+      name.endsWith('.spec.ts')
+    );
+    expect(specs).toContain('harness-smoke.spec.ts');
+    expect(specs.filter(name => name.startsWith('guardian-'))).toEqual([]);
+  });
+
+  it('the config runs one worker with the Worker global setup and teardown', () => {
+    const source = configSource('playwright.multi-device.config.ts');
+    expect(source).toMatch(/\.\.\.base,/);
+    expect(source).toMatch(/testDir: '\.\/playwright\/e2e\/tests\/multi-device',/);
+    expect(source).toMatch(/workers: 1,/);
+    expect(source).toMatch(/timeout: 1_200_000,/);
+    expect(source).toMatch(/globalSetup: '\.\/playwright\/e2e\/harness\/multi-device-global-setup\.ts',/);
+    expect(source).toMatch(/globalTeardown: '\.\/playwright\/e2e\/harness\/multi-device-global-teardown\.ts'/);
+  });
+
+  it('the build bakes the local wallet-api URL on testnet, and the run drives testnet', () => {
+    const scripts: unknown = JSON.parse(configSource('package.json')).scripts;
+    const script = (name: string): unknown =>
+      typeof scripts === 'object' && scripts !== null ? Reflect.get(scripts, name) : undefined;
+    expect(script('test:e2e:multi-device:build')).toBe(
+      'cross-env E2E_NETWORK=testnet MIDEN_WALLET_API_URL=http://127.0.0.1:8787 yarn test:e2e:blockchain:build'
+    );
+    expect(script('test:e2e:multi-device:run')).toBe(
+      'cross-env E2E_NETWORK=testnet playwright test --config playwright.multi-device.config.ts'
+    );
+    expect(script('test:e2e:multi-device')).toBe('yarn test:e2e:multi-device:build && yarn test:e2e:multi-device:run');
   });
 });
 

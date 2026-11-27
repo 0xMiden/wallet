@@ -311,33 +311,61 @@ async function discardPendingAccessVault() {
  * returns, the marker lists every account the vault holds. Any other setup first removes a marker an earlier one left,
  * which that wipe would otherwise keep and init would read as this setup's.
  */
-async function spawnSetup(marked: boolean, spawn: () => Promise<Vault>): Promise<Vault> {
-  if (!marked) {
-    // Not swallowed: a marker this cannot read or remove would outlive the wipe.
-    const storage = getStorageProvider();
-    if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
-      await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
-    return spawn();
-  }
-  await markPendingAdmission([]);
+export interface SpawnSetupHooks {
+  onBeforeCommit: () => Promise<void>;
+  checkAccountsAdmitted: (accountIds: string[]) => Promise<void>;
+}
+
+/**
+ * A setup that may need pre-commit validation (Guardian lookup, network reachability,
+ * invite-only admission check) defers writing or removing `PENDING_ADMISSION_STORAGE_KEY`
+ * until `hooks.onBeforeCommit()` fires at the commit boundary. Earlier `undo` on a
+ * pre-commit failure is skipped so any existing wallet and its admission state survive.
+ */
+async function spawnSetup(marked: boolean, spawn: (hooks: SpawnSetupHooks) => Promise<Vault>): Promise<Vault> {
+  let committed = false;
+  const onBeforeCommit = async () => {
+    committed = true;
+    if (!marked) {
+      // Not swallowed: a marker this cannot read or remove would outlive the wipe.
+      const storage = getStorageProvider();
+      if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
+        await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
+      return;
+    }
+    await markPendingAdmission([]);
+  };
+  const checkAccountsAdmitted = async (accountIds: string[]) => {
+    if (isInviteOnlyNetwork() && !(await admitsEveryAccount(accountIds))) {
+      throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+    }
+  };
   let vault: Vault;
   try {
-    vault = await spawn();
+    vault = await spawn({ onBeforeCommit, checkAccountsAdmitted });
+    committed = true;
   } catch (error) {
-    // A rejected spawn has undone what it wrote, or wrote nothing, so init has no setup to undo.
-    await clearPendingAdmission();
+    // A pre-commit rejection leaves any existing wallet intact; only clear the
+    // admission marker if commit already started and wrote one.
+    if (marked && committed) await clearPendingAdmission();
     throw error;
   }
-  try {
-    await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
-  } catch (error) {
-    await undoFailedSetup(vault, 'Actions.spawnSetup');
-    throw error;
+  if (marked) {
+    try {
+      await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
+    } catch (error) {
+      await undoFailedSetup(vault, 'Actions.spawnSetup');
+      throw error;
+    }
   }
   return vault;
 }
 
-async function getAccessSetupVault(inputs: string, accessCode: string | undefined, spawn: () => Promise<Vault>) {
+async function getAccessSetupVault(
+  inputs: string,
+  accessCode: string | undefined,
+  spawn: (hooks: SpawnSetupHooks) => Promise<Vault>
+) {
   if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
   await discardPendingAccessVault();
   const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn);
@@ -396,17 +424,33 @@ export function registerNewWallet(
       try {
         // A new wallet there needs a code; a seed import may bring an account the node already admits.
         if (isInviteOnlyNetwork() && !ownMnemonic && !accessCode) throw new PublicError(getMessage('noCodeBody'));
+        let admittedPrecheckedIds: Set<string> | null = null;
         vault = await getAccessSetupVault(
           JSON.stringify(['new', walletType, password, mnemonic, ownMnemonic, guardianEndpoint]),
           accessCode,
-          () => Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint)
+          ({ onBeforeCommit, checkAccountsAdmitted }) =>
+            Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint, {
+              onBeforeCommit,
+              checkAccountsAdmitted:
+                ownMnemonic && !accessCode
+                  ? async accountIds => {
+                      await checkAccountsAdmitted(accountIds);
+                      admittedPrecheckedIds = new Set(accountIds);
+                    }
+                  : undefined
+            })
         );
         console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
-        if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
+        if (isInviteOnlyNetwork()) {
+          const unverified = admittedPrecheckedIds
+            ? accounts.filter(account => !admittedPrecheckedIds!.has(account.publicKey))
+            : accounts;
+          if (unverified.length > 0) await assertEveryMainnetAdmitted(unverified);
+        }
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -442,11 +486,25 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
         await discardPendingAccessVault();
-        vault = await spawnSetup(inviteOnly, () => Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint));
+        let admittedPrecheckedIds: Set<string> | null = null;
+        vault = await spawnSetup(inviteOnly, ({ onBeforeCommit, checkAccountsAdmitted }) =>
+          Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint, {
+            onBeforeCommit,
+            checkAccountsAdmitted: async accountIds => {
+              await checkAccountsAdmitted(accountIds);
+              admittedPrecheckedIds = new Set(accountIds);
+            }
+          })
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (inviteOnly) {
+          const unverified = admittedPrecheckedIds
+            ? accounts.filter(account => !admittedPrecheckedIds!.has(account.publicKey))
+            : accounts;
+          if (unverified.length > 0) await assertEveryMainnetAdmitted(unverified);
+        }
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -481,9 +539,10 @@ export function registerImportedWallet(
         await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await spawnSetup(inviteOnly, () =>
-          Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
-        );
+        vault = await spawnSetup(inviteOnly, async ({ onBeforeCommit }) => {
+          await onBeforeCommit();
+          return Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
+        });
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();

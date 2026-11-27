@@ -1,6 +1,7 @@
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { RANGE_ANY, readTransactionIndexChunks } from 'lib/miden/db/index-query';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -37,8 +38,11 @@ export interface LocalQueryContext {
 }
 
 async function defaultReadAccountTransactions(accountId: string): Promise<readonly ITransaction[]> {
-  const all = await Repo.transactions.toArray();
-  return all.filter(tx => compareAccountIds(tx.accountId, accountId));
+  return readTransactionIndexChunks(
+    Repo.transactions,
+    [{ indexName: 'id', range: { type: RANGE_ANY, lower: undefined, upper: undefined } }],
+    tx => compareAccountIds(tx.accountId, accountId)
+  );
 }
 
 function resolveWindowRangeMs(window: LedgerTimeWindow, nowMs: number): { startMs: number; endMs: number } {

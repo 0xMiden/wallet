@@ -554,6 +554,21 @@ describe('OnboardingFlow — action wiring per screen', () => {
     act(() => mockCaptured.confirmation.onSwitchToPassword());
     expect(onAction).toHaveBeenLastCalledWith({ id: 'switch-to-password' });
   });
+
+  it('Confirmation: forwards replacesExistingWallet, recoveryErrorId, and onCancel', () => {
+    const onCancel = jest.fn();
+    renderFlow({
+      step: OnboardingStep.Confirmation,
+      onboardingType: OnboardingType.Import,
+      replacesExistingWallet: true,
+      recoveryErrorId: 'smthWentWrong',
+      onCancel
+    });
+
+    expect(mockCaptured.confirmation.replacesExistingWallet).toBe(true);
+    expect(mockCaptured.confirmation.recoveryErrorId).toBe('smthWentWrong');
+    expect(mockCaptured.confirmation.onCancel).toBe(onCancel);
+  });
 });
 
 describe('OnboardingFlow — back navigation', () => {

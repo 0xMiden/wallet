@@ -271,11 +271,13 @@ export interface OffscreenSignRequest {
 }
 
 /** offscreen → SW submit gate request. See {@link OFFSCREEN_SUBMIT_GATE}. `evidence` is the submit evidence the
- * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. */
+ * 'submitting' stamp carries (#1081), untrusted on arrival like the stamp's. `action: 'retract'` rolls back a
+ * pre-submit crossing when a proof expires before broadcast (#2325). */
 export interface OffscreenSubmitGateRequest {
   target: typeof SW_TARGET;
   type: typeof OFFSCREEN_SUBMIT_GATE;
   op_id: string;
+  action?: 'enter' | 'retract';
   evidence?: SubmitEvidenceFields;
 }
 
