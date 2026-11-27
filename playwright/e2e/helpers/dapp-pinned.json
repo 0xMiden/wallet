@@ -25,16 +25,6 @@
         "stage": "creating-proposal",
         "error": "failed to execute transaction: asset error: subtracting"
       }
-    },
-    "MF3": {
-      "offchain": {
-        "error": "Error: failed to import public account: account",
-        "reason": "is private and its details cannot be retrieved from the network"
-      },
-      "guardian": {
-        "error": "Error: failed to import public account: account",
-        "reason": "is private and its details cannot be retrieved from the network"
-      }
     }
   }
 }

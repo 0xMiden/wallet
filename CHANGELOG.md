@@ -1,8 +1,93 @@
 # Changelog
 
+## 1.18.3 (TBD)
+
+- [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
+- [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
+- [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
+- [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
+- [FIX][all] Distinguish a still-active retry attempt from a missing acknowledgement in opt-in reports.
+- [FIX][all] Identify whether standard Send or Command Send showed an invalid amount warning in opt-in reports.
+- [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.
+- [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
+- [FIX][all] Show the specific reason Command swap review is blocked by insufficient fees, invalid amounts, or an unavailable pair.
+- [FIX][all] Identify which amount screen showed an unknown token precision warning in opt-in diagnostics.
+- [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
+- [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
+- [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
+- [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
+- [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
+- [FIX][all] Explain what Guardian can see and when the wallet shares transaction details for remote proving (#2361).
+- [FIX][all] Require a fresh verified price before Bread Command drafts a dollar-denominated send.
+- [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
+- [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
+- [FIX][extension] Keep a running sync alive when a queued delivery check times out.
+- [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
+- [FEATURE][all] With usage sharing enabled, report which main navigation, Home action, and Receive funding controls were visible or selected, using fixed labels without wallet details (#1969).
+- [FIX][all] Show the spendable Available balance in Swap and Earn when a large balance exceeds the number precision limit.
+- [FIX][all] Show USD price source and 10-minute freshness on Token detail (hiding stale and unavailable values instead of showing zero), warn when a balance refresh fails while keeping the last confirmed balance, display Failed/Not confirmed status badges beside Retry on claim cards, reset page state on token switches, and explain disabled Send actions (#2028).
+- [CHORE][ci] Add the multi-device E2E suite: device roles, claims of one note on several devices, the encrypted backup and swaps across devices, on testnet against a local wallet-api Worker, dispatched from Release E2E.
+- [FIX][all] Keep the existing wallet and network override intact across Forgot password until replacement validation succeeds, surface honest replacement confirmation with cancel/back-out, and support Guardian hot-key recovery during password reset (#2360).
+- [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
+- [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).
+- [CHORE][all] Guardian connectivity reports distinguish repeated unreachable responses from the request timeout fuse without including account or endpoint details.
+- [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
+- [FIX][all] Name each bridge route's assets on the assistant's route chips, so routes that differ only by token no longer read as identical chips.
+- [CHANGE][all] Answer an assistant clarification that has a single option with that option instead of asking, except for the recipient, where choosing it stays your click.
+- [FIX][all] Make the Bread assistant say that Bread accounts are private by default and that a recipient can read a private note's amount, instead of calling the sender's account public, and forbid it from calling a transaction anonymous or unlinkable, because it told a user that validators cannot link a transaction to them, which no source supports.
+- [FEATURE][all] When you share usage data, also report which screen you are on and how long it is visible (overview, send, receive, funding, swap, earn, explore, activity, me), with how you got there and whether it ran in the popup, side panel, full page or app, never a page address, account, contact, amount or anything typed, and describe it in the consent text and privacy policy (#1969, first slice).
+- [FEATURE][all] Turn the primary accent and the strip above every page from orange to blue while the wallet is on testnet, so the network reads at a glance; mainnet and devnet are unchanged (#1874).
+- [CHANGE][all] Token detail labels the headline Available, lists claimable and claiming amounts as separate lines, says when the balance is updating or could not be loaded, keeps every claim note represented in token history, and lists the latest five activity rows with a See all link to Activity.
+- [FEATURE][extension] Choose the bridge network and token separately in Bread Command, with logos and token search.
+- [FIX][extension] Show the expand arrow on the Bread Command bar.
+- [FEATURE][all] Claim and view `.miden` names and use them in Send and Address Book.
+- [FEATURE][all] Group Activity transactions by the dApp that initiated them and show saved contact names on those transactions (#801).
+- [FIX][mobile,desktop] Keep local claimable-notes polling, cache updates, and metadata-triggered refreshes recovering after offline/hidden errors, sync-fuse pauses, and overlapping sync refreshes (#2329).
+- [FIX][all] Clarify what Bread Command shares when answering a help question.
+- [FIX][all] Show when Claim All is waiting for an automatic retry.
+- [FIX][all] Show USDCx bridge deposits as Pending until the wallet receives the funds.
+- [FIX][all] Keep token detail fiat values unavailable when an asset has no quote, even with nominal test-network pricing enabled (#2028).
+- [FIX][all] Give Bread Command clearer guidance for questions about sharing recovery phrases.
+- [FIX][all] Make Bread Command name the public sender account and the wallet’s Public and Private payment choices.
+- [FIX][ci] Update the mainnet nightly test for the larger default runner.
+- [FIX][all] Clarify what declining a transfer does and what data is needed to recover a private account in Bread Command.
+- [FIX][ci] Avoid provisioning a development certificate for iOS Store archives, then verify the exported production signature and entitlements.
+- [FIX][all] Show failed Activity claims and when they can be retried.
+- [FEATURE][all] Track Miden Name registrations: a name request is recorded as a transaction, followed on chain until the name is issued, claimed from the registry delivery note, and shown as failed or expired when it cannot complete (#2295).
+- [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
+- [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
+- [FIX][ci] Align the cached solver registry test with the token list readiness field.
+
 ## 1.18.2 (TBD)
 
 - [FIX][all] Read the seed-recovery note backfill without the WASM client lock and import only unspent notes the account can consume, so the extension no longer restarts its offscreen client and repeats the same scan chunk forever (#2266).
+- [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of dispatched run 45828549283, whose forward launch hung in the second wallet's fixture before any quote or send, as unspent so recovery clears it instead of refusing it as an unresolved principal and failing every later nightly; digest-bound to that exact checkpoint, run and source, with the live Arbitrum nonce, balances and Miden inventory still verified at recovery, and nothing is quoted, signed or sent.
+- [FIX][ci] Reconcile the scheduled mainnet nightly of 2026-11-26 (run 45762536645), whose native round trip failed while setting up its second wallet before any test step ran and recorded no settled prove, so the nightly's guard against unresolved legacy spending no longer blocks every later run; the exception is pinned to that run, its source, the step and the retained report's id and digest, and every other unresolved legacy outcome stays blocked.
+- [FIX][ci] Make the mainnet nightly swap test wait for the cached token list before choosing a route, and log any route it drops, because a solver registry read before the list is cached left USDT, SOL, NEAR and PAXG unpriced, so only the dust-refused ETH and WBTC routes remained and the swap loop failed with no funded two-way swap.
+- [FIX][ci] Require private MidenFi signer setup to pass in dApp E2E and prevent concurrent test waits from blocking Guardian recovery checks.
+
+- [FEATURE][all] Ask Bread Command about Miden, privacy, bridging and wallet basics in plain language, with a steady composer while a reply is pending.
+
+- [CHORE][ci] Run coverage on WarpBuild with six Jest workers per regular shard and keep the isolated dApp shard serial.
+- [FIX][chrome] The fullscreen button is hidden by default and can be enabled in Developer > Advanced Settings.
+- [CHORE][ci] Run PR unit tests and coverage on WarpBuild, with six Jest workers per regular coverage shard and a serial dApp shard.
+- [FIX][all] Keep the Command balance on screen when the native asset is learned or a token display override changes after the balances land, instead of a dash until the next balance read, because rebuilding the stored rows dropped the proof that the balances were just read.
+- [FIX][ci] Make the Earn watcher test of a restored in-flight withdrawal wait in real time, so the instrumented coverage run no longer fails it by exhausting a wait counted in event-loop turns.
+- [CHORE][ci] Fix two TypeScript errors in the mainnet nightly helper and swap-loop spec that failed the type check of every pull request (type-only, no behavior change).
+- [FIX][all] Show the Command balance on the first frame from fresh cached prices, as the Sidebar does, even when another held token has no price yet, instead of a dash until the live feed loads.
+- [FIX][ci] Close the audited first Swap recovery return of 1732 WBTC base units as held when its grant was recorded but never signed or submitted and no solver can fill it, using public and wallet reads only (original payout proved and claimed, vault balances exactly as recorded, no return order, authority or wallet activity), so the mainnet nightly stops failing in Swap recovery on it; the dust stays in the wallet, the full principal and fees count against the loss budget with the dust not credited, every other mismatch stays fail-closed, nothing is quoted, signed or sent, and the loss cap is unchanged.
+- [FIX][ci] Let the first approved mainnet nightly Swap recovery return of already-held stablecoin proceeds be valued up to 5000 micros under the $1 wallet minimum, keeping the original reverse minimum, the aggregate loss cap, and every replacement and fresh-loop minimum unchanged, and refusing the return before its grant when the offered amount is worth under $1 at the live price.
+- [FIX][ci] Make the mainnet nightly swap planner refuse any loop whose legs are under 100000 base units, so an illiquid dust-sized intermediate such as 1728 units of WBTC for about 1 USD, whose return quote timed out at execution, is never chosen.
+- [CHORE][ci] Price each Epoch return EVM transaction at up to twice the fresh fee estimate taken at signing, never above what the remaining fee budget allows (an approval takes at most half of it so the deposit keeps room), so a rise in the base fee within minutes cannot leave the deposit underpriced and dropped; the receipt wait, the loss cap and every signing rule are unchanged.
+- [FIX][ci] Close an original Epoch return whose deposit was signed but never reached the chain as not executed, using public reads only (no transaction or receipt for the deposit, account nonce unchanged, token and native balances exactly as recorded, original approval reconciled, provider reports no fill), so the mainnet nightly stops failing in Epoch recovery on it; every other mismatch stays fail-closed, nothing is signed or resent, and the loss budget is unchanged. The approval it left outstanding stays in place. Residual risk: the unmined signed deposit could still be mined later if another node holds it and the base fee drops, moving at most about 0.98 USDC into the Compact, and the close does not detect that.
+- [CHORE][ci] Keep a sanitized, bounded cause and any short error code of a failed Epoch return solve in its failure record and the process log, and keep a sanitized one-line cause on the unresolved Epoch EVM submission error, while the funded gates and every retry rule stay unchanged.
+- [CHORE][ci] Keep a sanitized, bounded cause in the public stage file and process log when a native NEAR mainnet nightly stage is blocked, while the thrown error and every gate stay unchanged.
+- [FIX][all] Add the missing "Via 1Click" route label of a NEAR Intents send receipt, and repair the unit checks: the import order in the vault module and four tests that now follow the rule that a receipt restored from a backup is not changed.
+- [FIX][all] Complete an "Add this device" that landed on chain when the wallet closed before it recorded the result, in place of a failed gate with "already an on-chain signer".
+- [CHORE][all] Add core Miden Name registry encoding, script, note, and resolver library modules.
+- [FEATURE][all] Send through NEAR Intents (1Click) from Miden to Ethereum, Solana, Bitcoin or NEAR: the wallet checks the destination address for its chain (EIP-55 checksum, a Solana key on the ed25519 curve, a NEAR account with a dot), sends a public note to the 1Click deposit address, and follows the send to delivery or refund.
+- [FIX][ci] Make staging topology cleanup a single-use continuation of its latest predecessor while preserving the original identity and cumulative cleanup budget (#1894).
 - [FIX][all] Preserve transaction receipts and their delivery links when restoring Activity from encrypted backup and Guardian history, including bridge details for a note already claimed on the backup device; when two devices of one Guardian account claim the same transfer, the device that does not get it removes its claim with no failed row, and only the device that placed a swap claims that swap's payout unattended, while the other devices hold the payout back from their transfers to accept for 10 minutes and show the swap's fill when it paid more than the request.
 - [FEATURE][all] Open Activity in Groups by default, group equivalent Miden addresses together, and show transfers waiting for acceptance on their counterparty rows (#801).
 - [CHORE][all] Add NEAR Intents outbound send quote, address validation, and tracking foundation.
@@ -11,6 +96,9 @@
 - [FIX][all] Read bridge and swap faucet metadata from account proofs so large storage maps do not block verification (#2150).
 - [FEATURE][mobile] Condense the wallet navigation on downward scroll while keeping all four destinations tappable (#803).
 - [CHORE][mobile] Remove the retired native navbar bridge API, iOS overlay window, and Android overlay views and resources from `packages/dapp-browser` (#809).
+- [FIX][ci] Recognize the mainnet nightly NEAR checkpoint of run 45334301017, which stopped in preflight before any quote or send, as unspent so recovery clears it instead of refusing the next nightly.
+- [CHORE][ci] Name the exited process and print a sanitized, bounded log tail when a mainnet nightly NEAR step fails, and upload the same tail as a public summary instead of leaving the cause unlogged.
+- [CHORE][ci] Harden the public NEAR log tail: redact bearer and basic credentials, reflowed, JSON-escaped and URL-encoded secrets, key-like runs, bech32, base58 and named NEAR addresses and 12-word phrases; publish it only for a failed or cancelled run without failing the job; tail only native NEAR logs in the job log; keep the real cause of a rejected return transfer in the stage file; and add tests for the quoteless preflight gate.
 - [CHORE][ci] Run Android, desktop, and iOS compile checks through Release E2E instead of on every pull request.
 - [CHORE][ci] Run Guardian Lifecycle E2E through Release E2E instead of on every push to main.
 - [CHORE][ci] Run Guardian Bridge-Out E2E through Release E2E instead of on every pull request.
@@ -53,6 +141,7 @@
 - [FEAT][all] Encrypted multi-device backup of account names, contacts and history through the wallet-api service (`services/wallet-api`, a Cloudflare Worker on D1): every entry is encrypted on the device under a key derived from the recovery phrase's sync key, reads are event-driven (unlock, foreground, address book, Activity, a Guardian adoption, a completed transaction) and paged, tokens are bound to a profile generation, and every authenticated route is rate limited per profile.
 - [FEAT][all] The encrypted backup's service URL comes from the wallet-config document (`features.encryptedBackup` and `backup.baseUrl`); the `MIDEN_WALLET_API_URL` define is a loopback-only development override.
 - [FEAT][all] A recovery by recovery phrase asks whether to add this device to the account's signers (default, every other device keeps working) or make it the main one (every other device is removed), shows how many devices already hold the wallet, and then asks whether to keep the recovery phrase on this device; signer identity is judged by commitment membership, never by slot.
+- [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.1.
 
 ## 1.18.1 (2026-11-23)
 

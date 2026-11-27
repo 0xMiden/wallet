@@ -7,6 +7,7 @@ import { CopyButton } from 'components/ui/CopyButton';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { hasTransactionIndex } from 'lib/miden/db/index-query';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { chunkAutoConsumeBatch } from 'lib/miden/transaction/constants';
@@ -42,10 +43,13 @@ export function useRotationGateRows(accountPublicKey: string): RotationGateRows 
   useEffect(
     () =>
       subscribeToLiveQuery(
-        () =>
-          Repo.transactions
-            .filter(r => isRotationRow(r, accountPublicKey) || isRotationFundingRow(r, accountPublicKey))
-            .toArray(),
+        () => {
+          const matches = (r: ITransaction) =>
+            isRotationRow(r, accountPublicKey) || isRotationFundingRow(r, accountPublicKey);
+          return hasTransactionIndex('type', Repo.transactions)
+            ? Repo.transactions.where('type').anyOf(['replace-hot-key', 'consume']).filter(matches).toArray()
+            : Repo.transactions.filter(matches).toArray();
+        },
         {
           next: all =>
             setRows({

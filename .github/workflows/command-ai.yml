@@ -1,0 +1,44 @@
+name: Command AI service
+
+on:
+  pull_request:
+    paths:
+      - 'services/command-ai/**'
+      - 'services/command-ai-proxy/server.mjs'
+      - 'src/lib/command-ai/help-facts.json'
+      - 'src/lib/command-ai/redactor.ts'
+      - 'src/lib/command-ai/schema.ts'
+      - 'scripts/command-ai-eval/**'
+      - 'scripts/feature-eligibility-deploy-source.mjs'
+      - '.github/workflows/command-ai.yml'
+      - '.github/workflows/deploy-command-ai.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: command-ai-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Command AI checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Check Command AI fixtures offline
+        run: node --test scripts/command-ai-eval/offline.test.mjs
+      - name: Type-check the Worker and its tests
+        run: |
+          npx tsc --noEmit -p services/command-ai/tsconfig.json
+          npx tsc --noEmit -p services/command-ai/tsconfig.test.json
+      - name: Validate Worker bundle and bindings
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/command-ai/wrangler.jsonc

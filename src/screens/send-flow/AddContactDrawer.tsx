@@ -9,7 +9,7 @@ import { useContacts } from 'lib/miden/front';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import { useContactBridgeNetworks } from 'screens/contacts/contact-network';
+import { isContactAddressChain, useContactBridgeNetworks } from 'screens/contacts/contact-network';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BridgeNetworkId, defaultBridgeNetwork } from './bridge-networks';
@@ -22,6 +22,8 @@ export interface AddContactDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** The recipient address from the send step. It is already known, so the sheet only asks for a name. */
   address: string;
+  /** Suggested label when the recipient was entered as a Miden Name. */
+  initialName?: string;
   /** The destination network chosen for a `0x` recipient; preselected here. */
   network?: BridgeNetworkId;
   /**
@@ -35,17 +37,19 @@ export interface AddContactDrawerProps {
 interface SheetBodyProps {
   open: boolean;
   address: string;
+  initialName?: string;
   initialNetwork?: BridgeNetworkId;
   onSaved: () => void;
   /** Reported upward so the sheet cannot be dismissed out from under an in-flight write. */
   onBusyChange: (busy: boolean) => void;
 }
 
-const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, onSaved, onBusyChange }) => {
+const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialName, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
-  const isEvm = detectAddressChain(address) === 'ethereum';
-  const [name, setName] = useState('');
+  const chain = detectAddressChain(address);
+  const isEvm = chain === 'ethereum';
+  const [name, setName] = useState(initialName ?? '');
   const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
   const networks = useContactBridgeNetworks();
   const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
@@ -57,7 +61,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ open, address, initialNetwork, on
 
   const save = async () => {
     if (!trimmedName || saving) return;
-    if (!isValidRecipientAddress(address)) {
+    // A Solana, Bitcoin or NEAR address is a send recipient, but not a contact.
+    if (!isValidRecipientAddress(address) || !isContactAddressChain(chain)) {
       setError(t('invalidAddress'));
       setErrorId('invalidAddress');
       return;
@@ -162,6 +167,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
   onOpenChange,
   onBusyChange,
   address,
+  initialName,
   network
 }) => {
   const { t } = useTranslation();
@@ -197,6 +203,7 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({
             key={address}
             open={open}
             address={address}
+            initialName={initialName}
             initialNetwork={network}
             onSaved={() => onOpenChange(false)}
             onBusyChange={setBusy}

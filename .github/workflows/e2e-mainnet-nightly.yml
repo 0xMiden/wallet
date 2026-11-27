@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: Runner for the main job; a scheduled run uses the default.
+        description: Runner for the main job; a scheduled run uses the larger runner.
         type: choice
-        default: ubuntu-latest
+        default: warp-ubuntu-latest-x64-8x
         options:
           - ubuntu-latest
           - warp-ubuntu-latest-x64-8x
@@ -54,7 +54,7 @@ concurrency:
 jobs:
   mainnet-nightly:
     name: Chrome mainnet round trip
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'warp-ubuntu-latest-x64-8x' }}
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 245 || 200 }}
     outputs:
       started: ${{ steps.started.outputs.started }}
@@ -564,7 +564,7 @@ jobs:
         run: |
           while [ ! -f "$RUNNER_TEMP/near-recover.exit" ]; do read -r pid < "$RUNNER_TEMP/near-recover.pid"; kill -0 "$pid"; sleep 1; done
           read -r code < "$RUNNER_TEMP/near-recover.exit"
-          if [ "$code" != 0 ]; then echo 'Original NEAR recovery blocked; retain its public checkpoint.' >&2; exit 1; fi
+          if [ "$code" != 0 ]; then echo 'Original NEAR recovery blocked; retain its public checkpoint.' >&2; node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-recover.log" || true; exit 1; fi
       - name: Clear all-provider recovery barrier
         id: recovery-barrier
         env:
@@ -795,7 +795,7 @@ jobs:
         timeout-minutes: 21
         run: |
           while [ ! -f "$RUNNER_TEMP/near-forward.exit" ]; do read -r pid < "$RUNNER_TEMP/near-forward.pid"; kill -0 "$pid"; sleep 1; done
-          read -r code < "$RUNNER_TEMP/near-forward.exit"; [ "$code" = 0 ] || { echo 'NEAR forward blocked; retain original authority.' >&2; exit 1; }
+          read -r code < "$RUNNER_TEMP/near-forward.exit"; [ "$code" = 0 ] || { echo 'NEAR forward blocked; retain original authority.' >&2; node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-forward.log" || true; exit 1; }
       - name: Run mainnet near reverse
         id: wallet-observe-near-reverse
         if: steps.recovery-barrier.outputs.recovery_cleared == 'true' && !inputs.swaps_only
@@ -836,7 +836,7 @@ jobs:
         timeout-minutes: 21
         run: |
           while [ ! -f "$RUNNER_TEMP/near-reverse.exit" ]; do read -r pid < "$RUNNER_TEMP/near-reverse.pid"; kill -0 "$pid"; sleep 1; done
-          read -r code < "$RUNNER_TEMP/near-reverse.exit"; [ "$code" = 0 ] || { echo 'NEAR return blocked; retain original authority.' >&2; exit 1; }
+          read -r code < "$RUNNER_TEMP/near-reverse.exit"; [ "$code" = 0 ] || { echo 'NEAR return blocked; retain original authority.' >&2; node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-reverse.log" || true; exit 1; }
       - name: Verify no new provider principal remains unresolved
         id: legacy-barrier
         if: ${{ !cancelled() && steps.recovery-barrier.outputs.recovery_cleared == 'true' }}
@@ -898,6 +898,11 @@ jobs:
           if [ -f test-results/mainnet-spend.json ]; then
             { echo '### Mainnet spend'; echo '```json'; cat test-results/mainnet-spend.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Sanitize NEAR process log tails
+        if: failure() || cancelled()
+        run: |
+          mkdir -p test-results
+          node scripts/mainnet-log-tail.mjs "$RUNNER_TEMP/near-forward.log" "$RUNNER_TEMP/near-recover.log" "$RUNNER_TEMP/near-reverse.log" > test-results/mainnet-near-diagnostics.md || true
       - name: Upload public summaries
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -920,6 +925,7 @@ jobs:
             test-results/mainnet-near-forward-stage.json
             test-results/mainnet-epoch-recovery.json
             test-results/mainnet-near-recovery.json
+            test-results/mainnet-near-diagnostics.md
             test-results/mainnet-usdcx-payouts.md
           retention-days: 90
           if-no-files-found: ignore

@@ -58,6 +58,7 @@ import {
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
+  nearIntentsSendTrackingOf,
   nextQueuedSeq,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
@@ -116,6 +117,11 @@ import { normalizeHex } from '../sdk/submit-evidence';
  * collateral note with no quote and no intent, lock that amount until its reclaim
  * height, and then report "Bridged to EVM" - so the user must re-initiate from the
  * bridge flow instead.
+ *
+ * `register-name` is excluded too. A Failed register row is a record for the
+ * Miden Name tracker (`failed/tx-failed`), and its bytes hold a quote (price) and
+ * a reclaim height that can be stale. The user starts a new registration from
+ * the claim screen, which reads a fresh quote and builds new bytes.
  */
 const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridged-send', 'execute'];
 
@@ -178,6 +184,7 @@ export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
+  extraInputs?: ITransaction['extraInputs'];
   restoredFromBackup?: boolean;
   proposalEffectRefused?: boolean;
 }): boolean => {
@@ -185,6 +192,8 @@ export const isRequeueableTransaction = (tx: {
   if (tx.restoredFromBackup || tx.proposalEffectRefused) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && !isRequeueableBridgeProvider(tx.bridgeProvider)) return false;
+  // Both `bridged-send` (provider: 'near-intents') and legacy `send` NEAR Intents rows bind to a single-use 1Click quote.
+  if (nearIntentsSendTrackingOf({ type: tx.type, extraInputs: tx.extraInputs }) !== undefined) return false;
   return true;
 };
 
@@ -222,7 +231,8 @@ export const isCancellableTransaction = (tx: { status?: ITransactionStatus; type
 
 /** Output-producing types whose Retry must first node-verify it didn't already
  *  land (double-send guard). Consume is excluded - it has its own input-note
- *  landed check (verifyConsumeLanded) on the kill/reaper path. */
+ *  landed check (verifyConsumeLanded) on the kill/reaper path. `register-name`
+ *  is excluded because it has no Retry (it is not in `REQUEUEABLE_TYPES`). */
 const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
 
 /**
@@ -244,7 +254,9 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * Retry still asks the node for the notes its bytes create and its approval
  * recorded, as a send's does; the refusal itself takes no lock and reads no node.
  * (`consume` is excluded for the same reason its Retry needs no node check - its
- * input note's nullifier makes a duplicate unusable.)
+ * input note's nullifier makes a duplicate unusable.) `register-name` is excluded:
+ * it has no Retry, and its pipeline requeues use the persisted bytes, so the
+ * register note id does not change.
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
  * `ITransaction.transactionId`, which is written only once a row landed. A row
@@ -379,13 +391,14 @@ const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
  * earlier attempt's entry is still in doubt the row has nothing left for an acknowledgement to rule out (#2060).
  */
 const endedUnsent = (tx: ITransaction): boolean =>
-  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR) &&
+  (tx.error === STALE_PROOF_ERROR || tx.error === PROOF_FRESHNESS_UNKNOWN_ERROR || tx.preSubmitKill === true) &&
   !(tx.submitEvidence ?? []).some(isUnresolvedEntry);
 
 interface RequeuePlan {
   failedStage: ITransactionStage | undefined;
   clearFlags: boolean;
   proven: boolean;
+  endedUnsent: boolean;
   /** The entries' evidence as Retry judged and wrote them, never re-read. */
   baseline: string;
 }
@@ -517,14 +530,15 @@ const planRequeue = async (
     pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
     ((tx.type === 'execute' || tx.type === 'swap' || tx.type === 'bridged-send') && latestEndMayStillRun(tx));
   const guarded = RESUBMIT_GUARDED_TYPES.includes(tx.type) && tx.transactionId === undefined;
+  const unsentProof = endedUnsent(tx);
   const resubmitInDoubt =
-    guarded && (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !endedUnsent(tx)));
+    guarded && (proven || tx.mayHaveSubmitted === true || live || (isSubmitOutcomeUnknown(tx) && !unsentProof));
   const executeInDoubt = tx.type === 'execute' && !listsNullifier(tx) && (proven || executeMayHaveSubmitted(tx));
 
   // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
   // even a proven row waits.
   if ((resubmitInDoubt || executeInDoubt) && live) {
-    throw new UnverifiableSendRetryError(livenessCopy(tx.type, proven));
+    throw retryRefusal(new UnverifiableSendRetryError(livenessCopy(tx.type, proven)), 'retry_run_active');
   }
   // Bytes in doubt are replayed as they are, so the user's word cannot rule out what the node can: a note they create
   // that is already on chain. No answer replays nothing, since the replay needs the same node.
@@ -538,7 +552,10 @@ const planRequeue = async (
       // The copy only: the check may have just ended the reconciler's interest (an 'unresolvable' verdict), and the
       // refusal must not say the wallet is still checking a row whose hint says it is not.
       const asLeft = checked ? ((await Repo.transactions.where({ id: tx.id }).first()) ?? tx) : tx;
-      throw new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId);
+      throw retryRefusal(
+        new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId),
+        'retry_ack_required'
+      );
     }
     clearFlags = true;
   }
@@ -552,7 +569,7 @@ const planRequeue = async (
     return undefined;
   }
   // Read off the pre-reset row: the requeue write clears `stage`.
-  return { failedStage: tx.stage, clearFlags, proven, baseline };
+  return { failedStage: tx.stage, clearFlags, proven, endedUnsent: unsentProof, baseline };
 };
 
 type PinnedLandingWrite = 'written' | 'declined' | 'claimed';
@@ -664,10 +681,16 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         result = 'evidence-changed';
         return false;
       }
+      const dbEndedUnsent = plan.endedUnsent && endedUnsent(dbTx);
       // Cleared first, so the send branch below reads them as it always has. An acknowledgement keeps the crossing
       // that pins a send's bytes; only a proven row's attempts are dead enough to rebuild them.
       if (plan.clearFlags) {
-        if (plan.proven || dbTx.type !== 'send' || dbTx.requestBytes === undefined) dbTx.mayHaveSubmitted = undefined;
+        if (plan.proven || dbTx.type !== 'send' || dbTx.requestBytes === undefined) {
+          dbTx.mayHaveSubmitted = undefined;
+          if (dbTx.submitEvidence !== undefined) {
+            dbTx.submitEvidence = dbTx.submitEvidence.map(({ raisedFlag: _staleFlag, ...entry }) => entry);
+          }
+        }
         dbTx.cancelledInFlightAt = undefined;
       }
       dbTx.status = ITransactionStatus.Queued;
@@ -681,6 +704,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
       dbTx.queuedSeq = nextQueuedSeq();
       dbTx.processingStartedAt = undefined;
       dbTx.attemptId = undefined;
+      dbTx.preSubmitKill = undefined;
       delete dbTx.failureDiagnostics;
       dbTx.completedAt = undefined;
       dbTx.stage = undefined;
@@ -721,9 +745,10 @@ const writeRequeue = async (txId: string, plan: RequeuePlan, feeContext?: ClaimF
         const { landedOrder: _deadAttempt, ...extraInputs } = dbTx.extraInputs;
         dbTx.extraInputs = extraInputs;
       }
-      // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
+      // A proven row's attempts are all dead, and an unsent freshness stop never reached submit, so its send bytes
+      // may be rebuilt like a pre-submit failure's.
       const failedPreSubmit =
-        plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
+        plan.proven || dbEndedUnsent || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
       // A `send` row's cached bytes only exist for a GUARDIAN recallable send
       // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
       // rebuilds its request on every call and never reads `requestBytes`. Those

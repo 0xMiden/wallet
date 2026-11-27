@@ -558,3 +558,30 @@ graph of `src`. Moving `src/background-entry.ts` or renaming a telemetry module
 breaks it. That is intentional: the failure message names which promise broke and
 where, and a guard that silently stops reading is worse than one that fails
 loudly. Point it at the new path; do not delete it.
+
+## Screen visits
+
+Added for #1969. Read before drawing a conclusion from `*_visit` events.
+
+- **Visible time is not attention.** It counts milliseconds the document was visible on a route, nothing about reading.
+- **An abrupt popup close can lose the last visit.** A visit is reported when it ends, with no `started` half, so a window killed mid-visit may send nothing or a short `complete: false` event. Treat missing visits as missing data, never as abandonment.
+- **`push` is every forward move.** A tab tap, a Home action and an in-page link are not told apart, and swipes are not named. Only `initial`, `push`, `back`, `replace` and `resume` exist.
+- **Visits under 600 ms are dropped**, matching the carousel dwell, so a very fast deliberate visit is also invisible.
+- **`order` is per window.** It orders one run in one window and says nothing across a popup, a side panel and a worker.
+- **The first reported visit is not always the first screen.** If the landing screen was passed through in under 600 ms, the first event carries `push`.
+- **Not covered yet:** feature exposure versus selection, Send and Funding step progression with backtracking, and the aggregate transfer report (chain pair, route, amount band). Tracked as follow-ups of #1969.
+
+### Example report (synthetic)
+
+| Order | Screen | Source | Visible | Reading |
+|---|---|---|---|---|
+| 1 | overview | initial | 6.2 s | First destination after the wallet became usable |
+| 2 | send | push | 14.8 s | Reached by a forward move |
+| 3 | overview | back | 2.1 s | Revisit counted as a new visit |
+| 4 | activity | push | 9.0 s | Left the send task for Activity |
+
+The report orders and times screens only. It says nothing about whether a send was completed.
+
+## Feature exposure and selection
+
+The bottom navigation, Home actions and Receive funding tile report exposure when enabled and fully visible in a foreground wallet for 600 ms. A feature and entry point count at most once in each foreground opportunity, even if the control remounts. This is a count of opportunities to notice a control, not proof that anyone read it. A deliberate selection before the dwell still reports as a selection. Do not infer a missing exposure or divide selections by exposures as though they were paired. These events have no per-event order or flow identifier, and never report what a person entered. Without viewport observation the App records eligible selections only.

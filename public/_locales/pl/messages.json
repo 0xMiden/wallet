@@ -193,6 +193,159 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ sekund",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ minut",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "Otrzymujesz $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents nie oferuje tego tokenu w tej sieci.",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "Ta kwota jest zbyt mała dla NEAR Intents. Wprowadź większą kwotę.",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents nie może dostarczyć wiadomości na ten adres. Sprawdź adres i sieć.",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "Oferta uległa zmianie i obecnie przewiduje kwotę niższą niż ta, którą sprawdziłeś. Sprawdź nową ofertę, a następnie potwierdź ją ponownie.",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "Oferta straciła ważność przed rozpoczęciem płatności. Sprawdź nową ofertę, a następnie potwierdź ją ponownie.",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "Jeśli swap się nie powiedzie, NEAR Intents zwraca kwotę na to konto Miden.",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "Wygenerowany adres depozytowy",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "Wysyłanie na adres depozytowy",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "Rozpocznij nową transakcję wysyłania",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "Płatność na adres depozytowy nie powiodła się, więc środki nie zostały przelane. Rozpocznij nową transakcję wysyłania, aby uzyskać nowy adres depozytowy.",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "Generowanie adresu depozytowego",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "Środki są wysyłane do NEAR Intents. Trwa dostarczanie do $network$. Śledź status tej operacji w sekcji „Aktywność”.",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents zrealizowało płatność w sieci $network$.",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "Odbiorca otrzymuje (szacunkowo)",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "Status dostawy",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "Wysyłanie do NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "Dostarczone do odbiorcy",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "Wygasłe",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "Zwrot płatności",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents nie mogło zrealizować wymiany i zwróciło kwotę na Twoje konto Miden.",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "Dostawa nie powiodła się",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents nie mogło zrealizować tej płatności. Otwórz aktywność, aby uzyskać szczegółowe informacje.",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "Termin dostawy upłynął",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents nie przetworzyło tej płatności na czas. Otwórz aktywność, aby uzyskać szczegóły.",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "Odbiorca otrzymał",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "Zobacz w eksploratorze $network$",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "Ta trasa jest niedostępna dla tego przelewu. Możesz kontynuować, wybierając inną dostępną trasę. Z tego ekranu nie została przesłana żadna transakcja.",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -670,6 +823,163 @@
         "content": "$1"
       }
     }
+  },
+  "seeAll": {
+    "message": "Zobacz wszystkie",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$, aby odebrać",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ – odebranie",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "Aktualizacja salda",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "Nie udało się zrównoważyć obciążenia.",
+    "englishSource": "Could not load balance."
+  },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "Nie udało się odświeżyć salda. Wyświetlane jest ostatnie potwierdzone saldo.",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "Stały kurs 1,00 USD dla $symbol$ w sieci $network$.",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "Cena $symbol$ od $provider$ w sieci $network$, zaktualizowana o $retrievedAt$.",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "Wartość w USD w skarbcu w sieci $network$, zaktualizowana o $retrievedAt$.",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "Cena w USD jest nieaktualna",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "Ostatnia cena $symbol$ od $provider$ w sieci $network$ ($retrievedAt$) jest starsza niż 10 minut i nie jest uwzględniana w sumach.",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "Ostatnia wartość w USD w skarbcu w sieci $network$ ($retrievedAt$) jest starsza niż 10 minut i ukryta w sumach.",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "Ostatnia cena w USD jest starsza niż 10 minut i nie jest uwzględniana w sumach.",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "Cena w USD niedostępna",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "W sieci $network$ nie jest dostępna żadna zweryfikowana cena w USD.",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "Nie udało się załadować ceny w USD. Sumy sald nie uwzględniają wartości w USD do momentu odświeżenia strony.",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "Ten token został wycofany z sieci Testnet i nie można go wysłać.",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "Przed wysłaniem należy ustawić miejsca po przecinku tokenu w sekcji „Token info”.",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "Brak dostępnego salda do wysłania.",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "Nie ma jeszcze dostępnego salda do wysłania. Najpierw zaakceptuj oczekujące przelewy.",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "Nie udało się zrównoważyć obciążenia. Spróbuj ponownie przed wysłaniem.",
+    "englishSource": "Could not load balance. Try again before sending."
   },
   "historyDetailsIdLabel": {
     "message": "ID: $id$",
@@ -2298,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "Gdy usługa jest włączona, potwierdzenia transakcji są generowane na serwerach zdalnych — przebiega to szybciej, nie wymaga pobierania dużych plików na urządzenie, a klucze nigdy nie opuszczają urządzenia. Gdy usługa jest wyłączona lub niedostępna, portfel generuje potwierdzenia lokalnie: zapewnia to większą prywatność, ale przebiega wolniej i wymaga jednorazowego pobrania dużego pliku.",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "Domyślnie włączone. Gdy opcja jest włączona, portfel wysyła szczegóły transakcji do zdalnej usługi w celu wygenerowania dowodów. Gdy jest wyłączona, portfel weryfikuje transakcje lokalnie na urządzeniu użytkownika, z wyjątkiem wypłat z mostów i wpłat w ramach programu „Earn”, które nadal korzystają z tej zdalnej usługi. Jeśli usługa jest niedostępna, dostępna jest weryfikacja lokalna.",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "Przeniesienie",
@@ -2413,8 +2723,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Wprowadź adres Miden lub Ethereum",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "Wprowadź adres",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "Ten portfel nie może wysyłać środków na ten adres",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "Bitcoin",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "Wybierz kwotę",
@@ -3349,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian to niezależna usługa, która <b>potwierdza każdą transakcję</b> z Twojego portfela, zapewniając dodatkową ochronę bez rezygnacji z samodzielnego przechowywania środków.",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian to niezależna usługa, która <b>pomaga autoryzować transakcje</b>. Twój Guardian ma wgląd w szczegóły Twojego konta i płatności.",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "Jak to działa",
@@ -3365,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Samodzielnie zarządzaj swoimi środkami. Uzyskaj dostęp do swoich prywatnych danych. Sprawdzaj stan swoich kont, chyba że udostępniasz te informacje innym.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "Przenoś swoje środki samodzielnie.",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "Przełączanie jest łatwe",
@@ -3500,10 +3826,6 @@
     "message": "Sieć Miden",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "Zmiana sieci",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "Dostawca",
     "englishSource": "Provider"
@@ -3527,6 +3849,19 @@
   "commandBridgeTo": {
     "message": "Do",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "źródło: $provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "Nie znaleziono tokenów",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "Aktywa, sieć i dostawca",
@@ -3868,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "Nie wylogowuj się, chyba że znasz swoją 12-wyrazową frazę odzyskiwania lub posiadasz zaszyfrowany plik kopii zapasowej.",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "Twój obecny portfel pozostanie na tym urządzeniu, dopóki nie potwierdzisz zastąpienia. Przed kontynuowaniem przygotuj swoją 12-wyrazową frazę odzyskiwania, klucz Guardian lub zaszyfrowany plik kopii zapasowej.",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "Wymagane odblokowanie biometryczne",
@@ -4707,6 +5042,10 @@
   "bridgeRouteViaAgglayer": {
     "message": "Za pośrednictwem Agglayer",
     "englishSource": "Via Agglayer"
+  },
+  "bridgeRouteViaOneClick": {
+    "message": "Za pośrednictwem 1Click",
+    "englishSource": "Via 1Click"
   },
   "bridgeSpeedFast": {
     "message": "Szybko",
@@ -7065,6 +7404,10 @@
     "message": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "Przycisk pełnego ekranu",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "Wartość tokenów bez cudzysłowów wynosi 1 USD (tylko sieci testowe)",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -7269,8 +7612,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "Podaj, z jakich części Portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz, abyśmy mogli naprawić to, co nie działa. Nigdy nie podawaj swoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy Twojej aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy żadnych danych do celów reklamowych, a także nie sprzedajemy ani nie udostępniamy danych brokerom danych. Raporty o awariach są wysyłane w każdym przypadku: zawierają opis błędu i miejsce jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatorów dotyczących Ciebie ani Twojego urządzenia. Możesz to zmienić w dowolnym momencie.",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "Informacje o tym, które ekrany otwierasz i jak długo każdy z nich jest widoczny, w jaki sposób się tam dostałeś, które elementy sterujące widzisz lub wybierasz, z którego okna korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz, abyśmy mogli naprawić to, co nie działa. Nigdy nie gromadzimy Twoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy danych do celów reklamowych ani nie sprzedajemy ani nie udostępniamy ich brokerom danych. Raporty o awariach są wysyłane w każdym przypadku: zawierają opis błędu i miejsce jego wystąpienia w kodzie, po usunięciu danych wrażliwych, bez identyfikatorów użytkownika ani urządzenia. Użytkownik może zmienić te ustawienia w dowolnym momencie.",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "Udostępnij dane dotyczące użytkowania",
@@ -7289,8 +7632,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "Z jakich części portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz.",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "Które ekrany otwierasz i jak długo każdy z nich jest widoczny, w jaki sposób się tam dostałeś, które elementy sterujące widzisz lub wybierasz, z którego okna korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz.",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -7977,6 +8320,14 @@
   "activityAcceptingTransfer": {
     "message": "Akceptowanie…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "Roszczenie w kolejce",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "Żądanie w kolejce. Portfel automatycznie ponowi próbę.",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "Transfery",
@@ -10030,5 +10381,749 @@
   "loginSignatureTitle": {
     "message": "To służy wyłącznie do zalogowania się",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "Asystent poleceń",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "Wysyłaj, wymieniaj, łącz, zarabiaj lub pytaj o swój portfel...",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "Uruchom",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "Zastanawiam się...",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "Rozwiń do trybu wielowierszowego",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "Zwiń do jednej linii",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "Chronione: $kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "Formularz otwarty",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "Którą trasę mostową chcesz wykorzystać?",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "Do kogo chcesz wysłać?",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "Istnieje wiele kontaktów o tej nazwie. Który z nich?",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ jest niekompletny. Czy chodziło Ci o jeden z zapisanych kontaktów?",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ to niekompletny adres. Wprowadź pełny adres lub wybierz kontakt.",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "Nazwy ENS w formacie $name$ nie są tutaj obsługiwane. Wprowadź pełny adres lub wybierz kontakt.",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "Ten adres należy do innej sieci Miden.",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "Wprowadź prawidłowy adres Miden lub adres docelowy.",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "Należy podać adres odbiorcy lub nazwę osoby kontaktowej.",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "Nie udało się dopasować aktywa $asset$ w Twoim portfelu.",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "Którego aktywa chcesz użyć?",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "Ile chcesz wysłać?",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "Który token chcesz otrzymać?",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "Do którego skarbca Earn chcesz wpłacić środki?",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "Z której pozycji w programie Earn chcesz dokonać wypłaty?",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "W tej chwili nie jest dostępna żadna pasująca trasa pomostowa.",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "Nie ma takiej trasy. Wybierz jedną z pozostałych tras:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
+  "commandAiSwapUnavailable": {
+    "message": "Wymiana dla tej pary walut nie jest obecnie dostępna.",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "W tej chwili nie są dostępne żadne skarbce ani pozycje w programie Earn.",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "Aktualna cena w USD nie jest dostępna dla tego tokenu. Wprowadź kwotę tokenu.",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "Nie udało się bezpiecznie zweryfikować tego żądania. Spróbuj przeformułować zapytanie lub skorzystaj z poniższego formularza.",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "Ta czynność nie jest tutaj obsługiwana. Spróbuj skorzystać z opcji „Wyślij”, „Wymień”, „Przenieś”, „Zarabiaj” lub zadaj pytanie dotyczące portfela.",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "Nie ma żadnych aktywnych elementów do aktualizacji. Wprowadź pełne polecenie.",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "Proxy AI nie jest skonfigurowane. Ustaw punkt końcowy lub skorzystaj z paska akcji poniżej.",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "Usługa AI jest chwilowo niedostępna. Spróbuj ponownie lub skorzystaj z poniższego formularza.",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "Osiągnięto limit częstotliwości wywołań usługi AI. Spróbuj ponownie za chwilę.",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "Saldo portfela",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "Łączna wartość dopasowanych zleceń",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "Działalność w zakresie dopasowywania zleceń",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "Nie znaleziono pasujących wpisów.",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "Obliczane prywatnie na tym urządzeniu",
+    "englishSource": "Computed privately on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "Rozmowa",
+    "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Asystent Bread",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Pytania dotyczące Bread",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "Czytaj więcej",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Jak działa Miden?",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "Jak bardzo jest to prywatne?",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "Jak mogę sprawdzić, co jest prywatne?",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "Czym jest bridging?",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "Czym są notes?",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "Dlaczego muszę akceptować przelewy?",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "Dlaczego przelew nadal ma status „oczekujący”?",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "Co się stanie, jeśli odrzucę przelew?",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "Dlaczego potrzebuję USDCX do uiszczania opłat?",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "Co się stanie, jeśli zgubię swoje urządzenie?",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "Jaka jest różnica między siecią główną (mainnet) a siecią testową (testnet)?",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Co widzi Bread Assistant?",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "Jak zadbać o swoje bezpieczeństwo?",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Co mogę robić w Bread?",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread przesyła Twoje pytanie do swojej usługi AI po usunięciu niektórych szczegółów. Nie podawaj haseł ani fraz odzyskiwania w czacie.",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "Nie podawaj haseł, kluczy prywatnych ani fraz odzyskiwania na czacie.",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "Skróć swoją wiadomość do $limit$ znaków lub mniej.",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Polityka prywatności Bridge",
+    "englishSource": "Bridge privacy policy"
+  },
+  "commandAiPlanTitle": {
+    "message": "Plan działania",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "Krok $current$ z $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "Krok $num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "Aktywne",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "W następnej części",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "Gotowe",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "Potwierdź ten krok w poniższym oknie dialogowym, a następnie przejdź dalej.",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "Krok przesłany! Gotowy do następnego kroku.",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "Wszystkie kroki zakończone",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "Kolejny krok",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "Kontynuuj",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "Plan zakończenia",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "Stop",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "Poprzedni wynik",
+    "englishSource": "Previous output"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "Wyślij 10 USDCx do Johna",
+    "englishSource": "Send 10 USDCx to John"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "Wpłać 1 ETH i zamień je na USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "Podsumuj moją aktywność z ostatniego tygodnia",
+    "englishSource": "Summarize my last week activity"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "Zarabiaj na 10 USDCx w najbardziej efektywny sposób",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "Wpłać 1 ETH, wymień na USDCx i umieść w skarbcu o najwyższej rentowności",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "Ile USDCx wysłałem w tym miesiącu?",
+    "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "Nazwisko „Miden” nie jest dostępne w tej sieci.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Adres lub drugie imię",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Wpisz adres lub nazwę.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Adres rozwiązania: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Nazwa transakcji odbioru",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "Sprawdzam tę nazwę…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "Żadne konto nie używa tej nazwy",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Nie udało się znaleźć tej nazwy. Spróbuj ponownie.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Nazwisko",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Zarejestruj nazwę",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Zdobądź własną nazwę w domenie $suffix$ – będzie Twoja na zawsze",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Zarejestruj nazwę",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "twoje_imię",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "Podaj nazwę, na którą ludzie mogą wysyłać wiadomości do",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "Ukryj",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "Zgłoś nazwę w dowolnym momencie",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "twoje_imię",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 znaków · wyłącznie litery a–z i cyfry 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ jest dostępne",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ jest już zajęte",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Wprowadź nazwę",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Użyj maksymalnie 21 znaków",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Używaj wyłącznie liter a–z i cyfr 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Sprawdzam…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Nie udało się sprawdzić tej nazwy. Spróbuj ponownie.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name nie przyjmuje obecnie nowych nazw",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "Cena uległa zmianie. Sprawdź nową cenę i spróbuj ponownie.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Cena · długość$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Opłata sieciowa",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Maksymalna opłata transakcyjna",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Łącznie",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Przechodzi do",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Saldo po",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Rejestracja jest nieodwracalna. Nazwa zostaje przypisana do tego konta, a opłata nie podlega zwrotowi.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Za mało MIDEN. Potrzebujesz „$amount$”.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Odbierz środki $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Wysłano żądanie",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Nazwa nadana i opublikowana przez Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Dodanie do konta",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "Ktoś inny użył tej nazwy jako pierwszy.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "Rejestr nie przetworzył wniosku w terminie.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "Rejestr nie mógł przetworzyć żądania.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "Transakcja żądania nie powiodła się. Nie zarejestrowano żadnej nazwy.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "Nazwa została nadana, ale dodanie jej do konta nie powiodło się.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Ponów próbę odebrania środków",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Odbieranie środków z $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Gotowe",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "W posiadaniu",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Odbieranie należności",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Niepowodzenie",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Jeszcze nie ma w rejestrze",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Odnosi się to do tego konta",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "Nie masz jeszcze nazwiska Miden",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Wybierz inną nazwę",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Nazwa główna",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Wasze imiona",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Sprawdzanie rejestru…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Przekierowuje na inne konto",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Rejestracja nazwy",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Rejestracja nazwy",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Zarejestrowany na stronie $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Otrzymano $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "Wyświetl status",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Nazwa",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Rejestr",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Rejestracja note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Faza",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "Zastąpić istniejący portfel?",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i utworzenie nowego z hasłem, które właśnie ustawiłeś.",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "Spowoduje to trwałe usunięcie obecnego portfela z tego urządzenia i przywrócenie odzyskanego portfela z hasłem, które właśnie ustawiłeś.",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "Upewnij się, że masz swoją obecną frazę odzyskiwania lub kopię zapasową, jeśli nadal ich potrzebujesz. Tej operacji nie można cofnąć.",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "Usuń i przywróć portfel",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "Usuń i utwórz portfel",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "Wróć do logowania",
+    "englishSource": "Back to sign in"
   }
 }

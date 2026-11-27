@@ -762,7 +762,13 @@ describe('EarnDepositReview', () => {
 
       expect(await screen.findByText('assessment backend down')).toBeInTheDocument();
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_deposit_submit_failed', 'notice']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        [
+          'raw_earn_deposit_submit_failed',
+          'notice',
+          { kind: 'earn_deposit_submit', earnDepositSubmitOrigin: 'preflight' }
+        ]
+      ]);
     });
 
     it('falls back to a generic error when the price-unavailable pre-check has no configured limit to read', async () => {
@@ -888,7 +894,13 @@ describe('EarnDepositReview', () => {
       act(() => jest.advanceTimersByTime(999));
       expect(reportUserVisibleError).not.toHaveBeenCalled();
       act(() => jest.advanceTimersByTime(1));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_earn_deposit_submit_failed', 'notice']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        [
+          'raw_earn_deposit_submit_failed',
+          'notice',
+          { kind: 'earn_deposit_submit', earnDepositSubmitOrigin: 'open_position' }
+        ]
+      ]);
     });
 
     it('does not report user-visible raw submit failure unmounted before dwell', async () => {

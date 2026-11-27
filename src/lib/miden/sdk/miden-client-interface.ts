@@ -42,7 +42,7 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { assertSwapAccountBalance, getSwapFeeContextSync, type SwapFeeContext } from 'lib/miden/swap/balance';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
-import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady, isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -104,11 +104,15 @@ import { normalizedCommitment, noteDetailsCommitment } from './note-details-comm
 import { beginProveAttempt } from './prove-telemetry';
 import { readPswapOrderNote } from './pswap-order-note';
 import {
+  errorMessageParts,
+  isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit,
-  readWasmHandle
+  markLockEvictedError,
+  readWasmHandle,
+  rethrowTrapOrKill
 } from './sdk-error-code';
 import { sdkStoreNameFor } from './store-name';
 import { readSubmitEvidence } from './submit-evidence';
@@ -116,7 +120,7 @@ import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-rec
 import { awaitTestConsumeAuthorization } from './test-consume-authorization';
 import { awaitTestSendAuthorization } from './test-send-authorization';
 import { observeTransactionExecutionRequest } from './transaction-execution-diagnostics';
-import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -153,6 +157,13 @@ import {
   resolveSendReclaimHeight
 } from '../helpers';
 
+/** Construct a lock/client-replacement poison error tagged as lock-evicted for pre-submit tracking. */
+const evictedPoisonError = (message: string): WasmClientPoisonedError => {
+  const error = new WasmClientPoisonedError('watchdog', new Error(message));
+  markLockEvictedError(error);
+  return error;
+};
+
 export interface GuardianAccountCreationResult {
   accountId: string;
   keys: CreatedGuardianKeys;
@@ -179,6 +190,40 @@ export interface RecoveredGuardianAccount {
   hdIndex: number;
   coldPublicKey: string;
   coldSecretKeyHex: string;
+}
+
+export type PreparedServedGuardianState = ServedGuardianState & {
+  accountId?: string;
+};
+
+export interface PreparedGuardianSeedEntry {
+  hdIndex: number;
+  coldPublicKey: string;
+  coldSecretKeyHex: string;
+  coldSecretKey: AuthSecretKey;
+  state: PreparedServedGuardianState;
+}
+
+export interface PreparedGuardianSeedRecovery {
+  guardianEndpoint: string;
+  accountIds: string[];
+  entries: PreparedGuardianSeedEntry[];
+  dispose: () => void;
+}
+
+export interface PreparedGuardianHotKeyRecovery {
+  guardianEndpoint: string;
+  accountIds: string[];
+  hotPublicKey: string;
+  states: PreparedServedGuardianState[];
+  secretKey: AuthSecretKey;
+  dispose: () => void;
+}
+
+export interface PreparedWalletSeedRecovery {
+  walletType: WalletType;
+  accountId: string;
+  foundOnChain: boolean;
 }
 
 const MAX_RECOVERY_HD_INDEX = 20;
@@ -668,6 +713,29 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   return entry.client;
 }
 
+/**
+ * Single AST call site for `sdk.MidenClient.createMock(` in wallet source so
+ * `store-clients.test.ts` continues to observe exactly one mock-client opener.
+ */
+async function createMockSdkClient(
+  options?: Parameters<typeof MidenClient.createMock>[0],
+  onBeforeCreate?: () => void
+): Promise<MidenClient> {
+  const sdk = await import('@miden-sdk/miden-sdk/lazy');
+  onBeforeCreate?.();
+  return await sdk.MidenClient.createMock(options);
+}
+
+function connectivityLookupError(cause: unknown): never {
+  rethrowTrapOrKill(cause);
+  if (cause instanceof PublicError) throw cause;
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  throw new PublicError(
+    'Could not reach the Miden network to look up your account. Your recovery phrase is fine. ' +
+      `Please check your connection and try restoring again. Details: ${reason}`
+  );
+}
+
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
@@ -693,9 +761,9 @@ export class MidenClientInterface {
     let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
     try {
       if (mock) {
-        const sdk = await import('@miden-sdk/miden-sdk/lazy');
-        stage = 'mock_create';
-        const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
+        const mockClient = await createMockSdkClient({ seed: options.seed }, () => {
+          stage = 'mock_create';
+        });
         return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
       }
 
@@ -971,11 +1039,166 @@ export class MidenClientInterface {
    *   the endpoint the account was originally registered with — account IDs
    *   are content-hash bound to the guardian pubkey baked into storage.
    */
-  async recoverGuardianAccountsBySeed(
+  private freeWasmKeySafely(key: AuthSecretKey): void {
+    if (this.isDisposed) return;
+    try {
+      (key as { free?: () => void }).free?.();
+    } catch {
+      // Best-effort cleanup when abandoning prepared WASM keys.
+    }
+  }
+
+  /**
+   * Read-only Genesis commitment lookup verifying the Miden node is reachable
+   * before destructive restore wipes existing wallet state.
+   */
+  async checkNodeReachable(): Promise<void> {
+    const { createNodeReads } = await import('../transaction/reconcile-reads');
+    const reads = await createNodeReads();
+    const commitment = await reads.blockCommitment(0);
+    if (!commitment) {
+      throw new Error('Could not reach the Miden network');
+    }
+  }
+
+  /**
+   * Pre-commit seed recovery preparation for OnChain and OffChain wallets:
+   * derives the deterministic account ID in memory via an ephemeral mock client
+   * without mutating MidenClientDB, then performs read-only node reachability /
+   * chain discovery outside the WASM client lock.
+   */
+  async prepareWalletSeedRecovery(
+    walletType: WalletType,
+    seed: Uint8Array,
+    auth?: AuthScheme
+  ): Promise<PreparedWalletSeedRecovery> {
+    if (walletType === WalletType.Guardian) {
+      throw new Error(
+        'A Guardian account is recovered with prepareGuardianRecoveryBySeed, not prepareWalletSeedRecovery'
+      );
+    }
+
+    const isPublic = walletType === WalletType.OnChain;
+    const mockClient = await createMockSdkClient();
+    let accountId: string;
+    let skipTerminate = false;
+    try {
+      const wallet: Account = await mockClient.accounts.create({
+        storage: isPublic ? 'public' : 'private',
+        seed,
+        ...(auth ? { auth } : {})
+      });
+      accountId = getBech32AddressFromAccountId(wallet.id());
+    } catch (error) {
+      try {
+        rethrowTrapOrKill(error);
+      } catch (trapOrKill) {
+        skipTerminate = true;
+        throw trapOrKill;
+      }
+      throw error;
+    } finally {
+      if (!skipTerminate) {
+        try {
+          mockClient.terminate();
+        } catch (terminateError) {
+          console.error('[prepareWalletSeedRecovery] could not terminate mock client:', terminateError);
+        }
+      }
+    }
+
+    if (!isPublic) {
+      try {
+        await this.checkNodeReachable();
+      } catch (error) {
+        connectivityLookupError(error);
+      }
+      return { walletType, accountId, foundOnChain: false };
+    }
+
+    let rpc: RpcClient | undefined;
+    let proof: Awaited<ReturnType<RpcClient['getAccountProof']>> | undefined;
+    let trapOrKill = false;
+    try {
+      await ensureSdkWasmReady();
+      rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+      proof = await withRpcTimeout(
+        () => rpc!.getAccountProof(accountRefToSdk(accountId), null, null),
+        'restoreAccountProof',
+        { retries: 0 }
+      );
+      const commitmentHandle = proof.accountCommitment();
+      let commitmentHex: string;
+      try {
+        commitmentHex = commitmentHandle.toHex();
+      } catch (err) {
+        try {
+          rethrowTrapOrKill(err);
+        } catch (handledTrapOrKill) {
+          trapOrKill = true;
+          throw handledTrapOrKill;
+        }
+        try {
+          (commitmentHandle as { free?: () => void }).free?.();
+        } catch {
+          // Best-effort cleanup of commitment handle.
+        }
+        throw err;
+      }
+      try {
+        (commitmentHandle as { free?: () => void }).free?.();
+      } catch {
+        // Best-effort cleanup of commitment handle.
+      }
+      return {
+        walletType,
+        accountId,
+        foundOnChain: !/^(0x)?0+$/i.test(commitmentHex.trim())
+      };
+    } catch (error) {
+      try {
+        rethrowTrapOrKill(error);
+      } catch (handledTrapOrKill) {
+        trapOrKill = true;
+        throw handledTrapOrKill;
+      }
+      if (
+        isAccountNotFoundOnChainError(error) ||
+        errorMessageParts(error).some(part => /\baccount \S+ not found at block \d+\b/i.test(part))
+      ) {
+        return { walletType, accountId, foundOnChain: false };
+      }
+      if (isLikelyNetworkError(error)) {
+        connectivityLookupError(error);
+      }
+      const { getMessage } = await import('lib/i18n');
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new PublicError(getMessage('restoreAccountLookupFailed', { reason }));
+    } finally {
+      if (!trapOrKill) {
+        try {
+          (proof as { free?: () => void } | undefined)?.free?.();
+        } catch (freeError) {
+          console.error('[prepareWalletSeedRecovery] could not free account proof:', freeError);
+        }
+        try {
+          (rpc as { free?: () => void } | undefined)?.free?.();
+        } catch (freeError) {
+          console.error('[prepareWalletSeedRecovery] could not free RPC client:', freeError);
+        }
+      }
+    }
+  }
+
+  /**
+   * Phase 1 of seed-based Guardian recovery: walks HD cold keys, verifies served
+   * states on-chain, selects adoptable accounts, and checks for empty results,
+   * with ZERO local MidenClientDB or keystore writes.
+   */
+  async prepareGuardianRecoveryBySeed(
     deriveColdSeed: (hdIndex: number) => Uint8Array,
     guardianEndpoint: string
-  ): Promise<RecoveredGuardianAccount[]> {
-    const recovered: RecoveredGuardianAccount[] = [];
+  ): Promise<PreparedGuardianSeedRecovery> {
     type Match = {
       hdIndex: number;
       sk: AuthSecretKey;
@@ -983,9 +1206,22 @@ export class MidenClientInterface {
       coldCommitment: string;
       coldPublicKey: string;
       coldSecretKeyHex: string;
-      states: ServedGuardianState[];
+      states: PreparedServedGuardianState[];
     };
     const found: Match[] = [];
+    const liveKeys = new Set<AuthSecretKey>();
+    const releaseKey = (key: AuthSecretKey) => {
+      if (!liveKeys.delete(key)) return;
+      this.freeWasmKeySafely(key);
+    };
+    let disposed = false;
+    const releaseRemainingKeys = () => {
+      if (disposed) return;
+      disposed = true;
+      for (const key of Array.from(liveKeys)) {
+        releaseKey(key);
+      }
+    };
     let consecutiveMisses = 0;
 
     // The scan holds `this` across many independently-locked ops; a recovery
@@ -998,87 +1234,115 @@ export class MidenClientInterface {
         throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
       }
     };
-    // Not yet bound to an account: on mobile its origin routes through native HTTP
-    // while it is scanned, and for the session only once an account is adopted from it.
-    await withGuardianProbe(
-      guardianEndpoint,
-      async () => {
-        for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
-          refuseIfReplaced();
-          const coldSeed = deriveColdSeed(hdIndex);
-          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
-          const coldPublicKeyHandle = coldSk.publicKey();
-          const coldPublicKey = Buffer.from(coldPublicKeyHandle.serialize().slice(1)).toString('hex');
-          const commitmentHandle = coldPublicKeyHandle.toCommitment();
-          const coldCommitment = commitmentHandle.toHex();
-          commitmentHandle.free();
-          coldPublicKeyHandle.free();
-          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-          const states = await this.lookupServedStatesByKey(coldSk, guardianEndpoint, acc =>
-            assertRecoverySignerMatches(acc, coldCommitment)
-          );
+    try {
+      const selectedEntries = await withGuardianProbe(
+        guardianEndpoint,
+        async () => {
+          for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+            refuseIfReplaced();
+            const coldSeed = deriveColdSeed(hdIndex);
+            const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+            liveKeys.add(coldSk);
+            const coldPublicKeyHandle = coldSk.publicKey();
+            const coldPublicKey = Buffer.from(coldPublicKeyHandle.serialize().slice(1)).toString('hex');
+            const commitmentHandle = coldPublicKeyHandle.toCommitment();
+            const coldCommitment = commitmentHandle.toHex();
+            commitmentHandle.free();
+            coldPublicKeyHandle.free();
+            const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-          if (states.length === 0) {
-            // Tolerate a small gap before giving up, so a non-contiguous index or a
-            // transient empty guardian response doesn't silently drop later accounts.
-            consecutiveMisses++;
-            if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
-            continue;
-          }
-          consecutiveMisses = 0;
-          found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
-        }
-        // One client for every account, outside every WASM hold: a network read must not pin the client.
-        const chain = await readAccountChainStates(
-          found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
-        );
-        refuseIfReplaced();
-        const judged: Array<
-          Match & { state: ServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
-        > = [];
-        for (const match of found) {
-          for (const state of match.states) {
-            const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
-            // A never-deployed account has nothing on the chain to match yet, so it must be the one this phrase builds.
-            if (verdict === 'undeployed') {
-              await assertUndeployedStateFromSeed(state, match.coldSeed, match.coldCommitment);
+            const states = await this.lookupServedStatesByKey(coldSk, guardianEndpoint, acc =>
+              assertRecoverySignerMatches(acc, coldCommitment)
+            );
+
+            if (states.length === 0) {
+              releaseKey(coldSk);
+              // Tolerate a small gap before giving up, so a non-contiguous index or a
+              // transient empty guardian response doesn't silently drop later accounts.
+              consecutiveMisses++;
+              if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+              continue;
             }
-            judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
+            consecutiveMisses = 0;
+            found.push({ hdIndex, sk: coldSk, coldSeed, coldCommitment, coldPublicKey, coldSecretKeyHex, states });
           }
-        }
-        for (const { hdIndex, sk, coldPublicKey, coldSecretKeyHex, state } of await selectAdoptable(judged)) {
-          for (const accountId of await this.adoptServedStates([state], sk)) {
-            recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
+          // One client for every account, outside every WASM hold: a network read must not pin the client.
+          const chain = await readAccountChainStates(
+            found.flatMap(({ states }) => states.map(({ accountIdHex }) => accountIdHex))
+          );
+          refuseIfReplaced();
+          const judged: Array<
+            Match & { state: PreparedServedGuardianState; verdict: Exclude<ServedStateVerdict, 'undeployed'> }
+          > = [];
+          for (const match of found) {
+            for (const state of match.states) {
+              const verdict = judgeServedState(state, chain.get(state.accountIdHex) ?? { kind: 'unknown' });
+              // A never-deployed account has nothing on the chain to match yet, so it must be the one this phrase builds.
+              if (verdict === 'undeployed') {
+                await assertUndeployedStateFromSeed(state, match.coldSeed, match.coldCommitment);
+              }
+              judged.push({ ...match, state, verdict: verdict === 'undeployed' ? 'verified' : verdict });
+            }
           }
-        }
-        return recovered;
-      },
-      adopted => adopted.length > 0
-    );
+          const adoptable = await selectAdoptable(judged);
+          const neededKeys = new Set(adoptable.map(({ sk }) => sk));
+          for (const match of found) {
+            if (!neededKeys.has(match.sk)) {
+              releaseKey(match.sk);
+            }
+          }
+          return adoptable.map(({ hdIndex, sk, coldPublicKey, coldSecretKeyHex, state }) => ({
+            hdIndex,
+            coldPublicKey,
+            coldSecretKeyHex,
+            coldSecretKey: sk,
+            state
+          }));
+        },
+        entries => entries.length > 0
+      );
 
-    if (recovered.length === 0) {
-      throw new NoGuardianAccountsFoundError();
+      if (selectedEntries.length === 0) {
+        throw new NoGuardianAccountsFoundError();
+      }
+
+      return {
+        guardianEndpoint,
+        accountIds: selectedEntries.map(({ state }) => state.accountId ?? state.accountIdHex),
+        entries: selectedEntries,
+        dispose: releaseRemainingKeys
+      };
+    } catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
+        releaseRemainingKeys();
+      }
+      throw error;
     }
-
-    return recovered;
   }
 
   /**
-   * Look up + adopt the Guardian accounts authorized by one key, as used by
-   * `recoverGuardianAccountByHotKey`. An empty return is a MISS, not an error —
-   * the callers own their empty semantics.
-   *
-   * `verifyAccount` (when given) runs inside the WASM lock on the decoded
-   * account BEFORE it is adopted; throwing from it aborts the adoption and
-   * propagates.
+   * Phase 2 of seed-based Guardian recovery: writes verified accounts to
+   * IndexedDB and keystore after commit.
    */
-  private async recoverAndAdoptByKey(
-    sk: AuthSecretKey,
-    guardianEndpoint: string,
-    verifyAccount?: (acc: Account) => Promise<void>
-  ): Promise<string[]> {
-    return this.adoptServedStates(await this.lookupServedStatesByKey(sk, guardianEndpoint, verifyAccount), sk);
+  async adoptPreparedGuardianSeedRecovery(prepared: PreparedGuardianSeedRecovery): Promise<RecoveredGuardianAccount[]> {
+    const recovered: RecoveredGuardianAccount[] = [];
+    let abortedByPoisonOrTrap = false;
+    try {
+      for (const { hdIndex, coldPublicKey, coldSecretKeyHex, coldSecretKey, state } of prepared.entries) {
+        for (const accountId of await this.adoptServedStates([state], coldSecretKey)) {
+          recovered.push({ accountId, hdIndex, coldPublicKey, coldSecretKeyHex });
+        }
+      }
+      return recovered;
+    } catch (error) {
+      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+      throw error;
+    } finally {
+      if (!abortedByPoisonOrTrap) {
+        prepared.dispose();
+      }
+    }
   }
 
   /**
@@ -1090,7 +1354,7 @@ export class MidenClientInterface {
     sk: AuthSecretKey,
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
-  ): Promise<ServedGuardianState[]> {
+  ): Promise<PreparedServedGuardianState[]> {
     // Refused before the lookup, which would show that operator the recovery's key.
     if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
       const { getMessage } = await import('lib/i18n');
@@ -1114,7 +1378,7 @@ export class MidenClientInterface {
       throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
     }
 
-    const states: ServedGuardianState[] = [];
+    const states: PreparedServedGuardianState[] = [];
     for (const { state } of matches) {
       const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
       states.push(
@@ -1125,7 +1389,7 @@ export class MidenClientInterface {
             assertWasmHoldCurrent(hold, 'recover-guardian-decode after verification');
             const facts = await readServedStateFacts(acc, accountBytes);
             assertWasmHoldCurrent(hold, 'recover-guardian-decode after reading the facts');
-            return facts;
+            return { ...facts, accountId: getBech32AddressFromAccountId(acc.id()) };
           },
           { label: 'recover-guardian-decode' }
         )
@@ -1162,25 +1426,12 @@ export class MidenClientInterface {
     return adopted;
   }
 
-  /**
-   * Adopt the Guardian account authorized by a pasted HOT secret key — the
-   * seed-less import flow. One lookup against one operator, no HD walk.
-   *
-   * The guardian's lookup is by key commitment over EVERY registered signer,
-   * so before adopting each match the pasted key is checked against the
-   * on-chain signer set: a rotated-out hot key can still be known to the
-   * guardian while no on-chain slot holds it, and it is refused with a pointed
-   * message. The check is by membership, because the set can hold more than one
-   * hot key and a membership change moves the slots.
-   *
-   * Limit: this flow holds no cold public key, and the cold key is also a member
-   * of the set, so a pasted COLD key is not refused here. Its slot is not a
-   * reliable signal after a membership change.
-   */
-  async recoverGuardianAccountByHotKey(
-    hotSecretKeyHex: string,
-    guardianEndpoint: string
-  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
+  private async prepareHotKeyVerification(hotSecretKeyHex: string): Promise<{
+    sk: AuthSecretKey;
+    hotPublicKey: string;
+    verifyAccount: (acc: Account) => Promise<void>;
+    noAccountMessage: string;
+  }> {
     const [{ deserializeHotSecretKey }, { getMessage }] = await Promise.all([
       import('../guardian/hot-key-import'),
       import('lib/i18n')
@@ -1194,25 +1445,85 @@ export class MidenClientInterface {
       pastedCommitment: readWasmHandle(publicKey.toCommitment(), commitment => normalizeCommitment(commitment.toHex()))
     }));
 
-    // Not yet bound to an account: on mobile its origin routes through native HTTP
-    // while it is looked up, and for the session only once an account is adopted from it.
-    const adopted = await withGuardianProbe(
-      guardianEndpoint,
-      () =>
-        this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
-          // Membership, not position: the signer set can hold more than one hot key, and a
-          // membership change moves the slots. A key in no slot is rotated out.
-          if (hasSignerCommitment(acc, pastedCommitment)) return;
-          throw new Error(getMessage('importHotKeyNotActive'));
-        }),
-      found => found.length > 0
-    );
+    const verifyAccount = async (acc: Account) => {
+      // Membership, not position: the signer set can hold more than one hot key, and a
+      // membership change moves the slots. A key in no slot is rotated out.
+      if (hasSignerCommitment(acc, pastedCommitment)) return;
+      throw new Error(getMessage('importHotKeyNotActive'));
+    };
 
-    if (adopted.length === 0) {
-      throw new NoGuardianAccountsFoundError(getMessage('importHotKeyNoAccount'));
+    return {
+      sk,
+      hotPublicKey,
+      verifyAccount,
+      noAccountMessage: getMessage('importHotKeyNoAccount')
+    };
+  }
+
+  /**
+   * Phase 1 of hot-key Guardian recovery: verifies the pasted key is an active
+   * signer on the served Guardian account(s) without adopting or writing keys.
+   */
+  async prepareGuardianRecoveryByHotKey(
+    hotSecretKeyHex: string,
+    guardianEndpoint: string
+  ): Promise<PreparedGuardianHotKeyRecovery> {
+    const { sk, hotPublicKey, verifyAccount, noAccountMessage } = await this.prepareHotKeyVerification(hotSecretKeyHex);
+    let disposed = false;
+    let handedOff = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      this.freeWasmKeySafely(sk);
+    };
+
+    try {
+      const states = await withGuardianProbe(
+        guardianEndpoint,
+        () => this.lookupServedStatesByKey(sk, guardianEndpoint, verifyAccount),
+        found => found.length > 0
+      );
+
+      if (states.length === 0) {
+        throw new NoGuardianAccountsFoundError(noAccountMessage);
+      }
+
+      handedOff = true;
+      return {
+        guardianEndpoint,
+        accountIds: states.map(s => s.accountId ?? s.accountIdHex),
+        hotPublicKey,
+        states,
+        secretKey: sk,
+        dispose
+      };
+    } catch (error) {
+      if (!handedOff && !(error instanceof WebAssembly.RuntimeError) && !isWasmClientPoisonedError(error)) {
+        dispose();
+      }
+      throw error;
     }
+  }
 
-    return adopted.map(accountId => ({ accountId, hotPublicKey }));
+  /**
+   * Phase 2 of hot-key Guardian recovery: adopts verified states into IndexedDB
+   * and keystore after commit, then frees the prepared WASM secret key handle.
+   */
+  async adoptPreparedGuardianHotKeyRecovery(
+    prepared: PreparedGuardianHotKeyRecovery
+  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
+    let abortedByPoisonOrTrap = false;
+    try {
+      const adopted = await this.adoptServedStates(prepared.states, prepared.secretKey);
+      return adopted.map(accountId => ({ accountId, hotPublicKey: prepared.hotPublicKey }));
+    } catch (error) {
+      abortedByPoisonOrTrap = error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+      throw error;
+    } finally {
+      if (!abortedByPoisonOrTrap) {
+        prepared.dispose();
+      }
+    }
   }
 
   /**
@@ -1469,7 +1780,7 @@ export class MidenClientInterface {
       this.client,
       () => this.client.sync(),
       () => {
-        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        if (this.isDisposed) throw evictedPoisonError('sync client was replaced');
         assertLive();
       }
     );
@@ -2038,7 +2349,7 @@ export class MidenClientInterface {
     // A gated write's stamp waits for the service worker to record the crossing, a real parking point, so ownership is
     // asked again whether or not the write has a check of its own before its submit (#1081).
     if (attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove or submit gate'));
+      throw evictedPoisonError('operation abandoned after worker prove or submit gate');
     }
     beforeSubmit?.();
     attempt.markSubmitting();
@@ -2086,10 +2397,7 @@ export class MidenClientInterface {
             `Delegated ${write} prove`,
             () => {
               if (attempt.evicted()) {
-                throw new WasmClientPoisonedError(
-                  'watchdog',
-                  new Error(`operation abandoned before the ${write} remote re-prove`)
-                );
+                throw evictedPoisonError(`operation abandoned before the ${write} remote re-prove`);
               }
             }
           )
@@ -2109,7 +2417,7 @@ export class MidenClientInterface {
     // The prove and the stage stamp both park, and an eviction during either hands the client to a
     // successor: submitting on it would be a second borrow of a client this write no longer owns.
     if (attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
+      throw evictedPoisonError(`operation abandoned after the ${write} prove`);
     }
     beforeSubmit?.();
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
@@ -2216,20 +2524,14 @@ export class MidenClientInterface {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
       if (attempt.evicted()) {
-        throw new WasmClientPoisonedError(
-          'watchdog',
-          new Error('operation abandoned after offscreen prove or submit gate')
-        );
+        throw evictedPoisonError('operation abandoned after offscreen prove or submit gate');
       }
       beforeSubmit?.();
       // Point of no return — see the identical mark on the inline send path.
       attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
         if (attempt.evicted()) {
-          throw new WasmClientPoisonedError(
-            'watchdog',
-            new Error('operation abandoned while acquiring offscreen submit client')
-          );
+          throw evictedPoisonError('operation abandoned while acquiring offscreen submit client');
         }
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
@@ -2591,7 +2893,7 @@ export async function proveWithFallback<T>(
     // successor's. `proveInWorker` itself refuses a hold that is no longer current.
     proveInWorker: result =>
       liveness.disposed || hold === null
-        ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
+        ? Promise.reject(evictedPoisonError('worker prove refused: no live hold'))
         : proveInWorker(result, hold),
     holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
     retireCaughtTrap: cause => {
@@ -2647,7 +2949,7 @@ export async function proveWithFallback<T>(
       // recovery took away, while the row already takes the kill path (#1233).
       if (attempt.evicted()) {
         reportProve({ startedAt, step: 'prove_delegate', error: err });
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned before the local fallback'));
+        throw evictedPoisonError('operation abandoned before the local fallback');
       }
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back

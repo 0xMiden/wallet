@@ -1,11 +1,17 @@
 import {
+  TelemetryDiscoveryAction,
+  TelemetryEntryPoint,
   TelemetryErrorKind,
+  TelemetryFeature,
   TelemetryFlow,
+  TelemetryNavSource,
   TelemetryNetwork,
   TelemetryOperation,
   TelemetryPlatform,
   TelemetryResult,
+  TelemetryScreen,
   TelemetryStep,
+  TelemetrySurface,
   TelemetryWirePayload
 } from './types';
 
@@ -67,7 +73,12 @@ export const APTABASE_SDK_VERSION = 'miden-wallet-aptabase@1.0.0';
  * wallet's own operations sort together under their `tx_` and `service_`
  * prefixes rather than mixing in among the things a person did.
  */
-export type AptabaseEventName = `${TelemetryFlow}_started` | `${TelemetryFlow}_ended` | `${TelemetryOperation}_settled`;
+export type AptabaseEventName =
+  | `${TelemetryFlow}_started`
+  | `${TelemetryFlow}_ended`
+  | `${TelemetryOperation}_settled`
+  | `${TelemetryScreen}_visit`
+  | 'feature_discovery';
 
 /**
  * Aptabase's `props` is an open object, so the type system cannot do here what
@@ -90,6 +101,15 @@ export interface AptabaseProps {
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
   step?: TelemetryStep;
+  /** `visit` events only. `durationMs` is then the visible time. */
+  screen?: TelemetryScreen;
+  navSource?: TelemetryNavSource;
+  surface?: TelemetrySurface;
+  order?: number;
+  complete?: boolean;
+  feature?: TelemetryFeature;
+  entryPoint?: TelemetryEntryPoint;
+  discoveryAction?: TelemetryDiscoveryAction;
   /**
    * A prop, not a system prop: Aptabase reads only its own system fields, and that allowlist stays the four below.
    */
@@ -128,7 +148,22 @@ export const APTABASE_ENVELOPE_KEYS: readonly string[] = [
 
 export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
 
-export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step', 'network'];
+export const APTABASE_PROP_KEYS: readonly string[] = [
+  'flowId',
+  'result',
+  'errorKind',
+  'durationMs',
+  'step',
+  'screen',
+  'navSource',
+  'surface',
+  'order',
+  'complete',
+  'feature',
+  'entryPoint',
+  'discoveryAction',
+  'network'
+];
 
 /**
  * Every shape the event name may take. Three lower-case words at most, then the
@@ -155,11 +190,14 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * The longest real words are `guardian` and `activity` at eight, so 24 is
  * generous.
  */
-const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled)$/;
+const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled|visit)$/;
 
 /** The event name this payload would be posted under. */
 function eventNameOf(payload: TelemetryWirePayload): string {
-  return payload.phase === 'settled' ? `${payload.operation}_settled` : `${payload.flow}_${payload.phase}`;
+  if (payload.phase === 'settled') return `${payload.operation}_settled`;
+  if (payload.phase === 'visit') return `${payload.screen}_visit`;
+  if (payload.phase === 'discovery') return 'feature_discovery';
+  return `${payload.flow}_${payload.phase}`;
 }
 
 /**
@@ -173,10 +211,12 @@ function eventNameOf(payload: TelemetryWirePayload): string {
  * no event, because it lands in a dashboard looking like a real one.
  */
 export function isNameableEvent(payload: TelemetryWirePayload): boolean {
+  if (payload.phase === 'discovery') return payload.feature !== undefined;
   // The subject is checked for presence separately, because a missing one
   // stringifies to `undefined` — which is lower-case letters and would sail
   // through the pattern as a perfectly well-formed `undefined_settled`.
-  const subject = payload.phase === 'settled' ? payload.operation : payload.flow;
+  const subject =
+    payload.phase === 'settled' ? payload.operation : payload.phase === 'visit' ? payload.screen : payload.flow;
   if (typeof subject !== 'string' || subject.length === 0) return false;
   return EVENT_NAME_PATTERN.test(eventNameOf(payload));
 }
@@ -202,6 +242,14 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
   if (payload.step !== undefined) props.step = payload.step;
+  if (payload.screen !== undefined) props.screen = payload.screen;
+  if (payload.navSource !== undefined) props.navSource = payload.navSource;
+  if (payload.surface !== undefined) props.surface = payload.surface;
+  if (payload.order !== undefined) props.order = payload.order;
+  if (payload.complete !== undefined) props.complete = payload.complete;
+  if (payload.feature !== undefined) props.feature = payload.feature;
+  if (payload.entryPoint !== undefined) props.entryPoint = payload.entryPoint;
+  if (payload.discoveryAction !== undefined) props.discoveryAction = payload.discoveryAction;
 
   return {
     timestamp: now.toISOString(),

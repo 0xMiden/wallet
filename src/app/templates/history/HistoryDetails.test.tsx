@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, renderHook, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
@@ -32,6 +32,7 @@ import {
 } from 'lib/miden/transaction/constants';
 import { GuardianHoldRetryError } from 'lib/miden/transaction/retry-refusal';
 import { GUARDIAN_PENDING_HOLD_SEC } from 'lib/miden/transaction/verdict-rules';
+import { paymentTracking } from 'lib/one-click/testing/payment-tracking';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
@@ -43,6 +44,7 @@ import { CommandWorkbench } from 'screens/command/CommandWorkbench';
 import { getHistoryDetailsSectionPolicy, HistoryDetails } from './HistoryDetails';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
+import { useTransactionActions } from './useTransactionActions';
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/usdcx/destination-transaction', () => ({ findUsdcxDestinationTransaction: jest.fn() }));
@@ -221,6 +223,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   goBack: () => mockGoBack(),
   navigate: (...args: unknown[]) => mockNavigate(...args),
   // useBackWithFallback reads live history at call time, and useOncePerLocation calls listen() in a
@@ -659,9 +662,10 @@ describe('HistoryDetails', () => {
   it.each<{
     label: string;
     type: ITransactionType;
-    bridgeInProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
     bridgeProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
+    bridgeInProvider?: 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
     hasOneClick?: boolean;
+    oneClickDirection?: 'evm-to-miden' | 'miden-to-evm';
     isCancelled?: boolean;
     isUnconfirmed?: boolean;
     guardianRecovered?: boolean;
@@ -677,6 +681,17 @@ describe('HistoryDetails', () => {
       type: 'send',
       hasOneClick: true,
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'register-name',
+      type: 'register-name',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'register-name carrying 1Click tracking',
+      type: 'register-name',
+      hasOneClick: true,
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: false, from: 'account', to: 'secondary' }
     },
     {
       label: 'consume (plain receive)',
@@ -854,14 +869,30 @@ describe('HistoryDetails', () => {
       isCancelled: true,
       isUnconfirmed: true,
       expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'secondary' }
+    },
+    {
+      label: 'send with outbound 1Click tracking',
+      type: 'send',
+      hasOneClick: true,
+      oneClickDirection: 'miden-to-evm',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'none' }
+    },
+    {
+      label: 'bridged-send (near-intents with outbound 1Click)',
+      type: 'bridged-send',
+      bridgeProvider: 'near-intents',
+      hasOneClick: true,
+      oneClickDirection: 'miden-to-evm',
+      expected: { bridgeClaim: false, inboundBridge: false, oneClick: true, from: 'account', to: 'none' }
     }
   ])(
     'selects explicit sections and address roles for $label',
     ({
       type,
-      bridgeInProvider,
       bridgeProvider,
+      bridgeInProvider,
       hasOneClick,
+      oneClickDirection,
       isCancelled,
       isUnconfirmed,
       guardianRecovered,
@@ -873,12 +904,16 @@ describe('HistoryDetails', () => {
         timestamp: 0,
         type: HistoryEntryType.CompletedTransaction,
         txType: type,
-        bridgeInProvider,
         bridgeProvider,
+        bridgeInProvider,
         isCancelled,
         isUnconfirmed,
         guardianRecovered,
-        oneClickTracking: hasOneClick ? policyOneClickTracking : undefined
+        oneClickTracking: hasOneClick
+          ? oneClickDirection === 'miden-to-evm'
+            ? { ...policyOneClickTracking, direction: 'miden-to-evm' }
+            : policyOneClickTracking
+          : undefined
       };
 
       expect(getHistoryDetailsSectionPolicy(entry)).toEqual(expected);
@@ -964,15 +999,21 @@ describe('HistoryDetails', () => {
     originBlockchain = 'eth',
     destinationBlockchain = 'miden',
     direction: 'evm-to-miden' | 'miden-to-evm' = 'evm-to-miden',
-    phase: IOneClickPhase = 'arriving'
+    phase: IOneClickPhase = 'arriving',
+    chains?: { id: string; name: string; addressKind: string; tokens: [] }[],
+    bridgedSend = false
   ) => {
     const outbound = direction === 'miden-to-evm';
     const originAssetId = outbound ? 'miden-usdc' : 'usdc';
     const destinationAssetId = outbound ? 'usdc' : 'miden-usdc';
+    const rowType = (() => {
+      if (!outbound) return 'bridged-receive';
+      return bridgedSend ? 'bridged-send' : 'send';
+    })();
     setMockRow({
       ...baseSendTx,
       id: 'one-click-history',
-      type: outbound ? 'send' : 'bridged-receive',
+      type: rowType,
       extraInputs: {
         provider: 'near-intents',
         sourceAddress: '0xrefund-address',
@@ -1023,7 +1064,8 @@ describe('HistoryDetails', () => {
           },
           config: {
             serviceUrl: 'https://service.example',
-            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }],
+            ...(chains === undefined ? {} : { chains })
           },
           network: 'mainnet',
           accountId: 'account',
@@ -1061,8 +1103,17 @@ describe('HistoryDetails', () => {
               destinationChainTxHashes: []
             }
           }
-        }
-      }
+        },
+        // A new NEAR Intents send is a `bridged-send` row: it names the recipient and pays the deposit address.
+        ...(bridgedSend
+          ? {
+              destinationAddress: '0x0000000000000000000000000000000000000001',
+              destinationNetwork: 1,
+              claimStatus: 'pending'
+            }
+          : {})
+      },
+      ...(bridgedSend ? { secondaryAccountId: 'mm1depositaddress' } : {})
     });
   };
   it('formats persisted 1Click amounts with their asset decimals and shows the friendly origin network name', async () => {
@@ -1162,6 +1213,83 @@ describe('HistoryDetails', () => {
     expect(screen.queryByTestId('history-near-intents-deposit-button')).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['sol', 'Solana', 'solana'],
+    ['btc', 'Bitcoin', 'bitcoin'],
+    ['near', 'NEAR', 'near']
+  ])(
+    'names the %s destination of a NEAR Intents send by the chain name in its stored config',
+    async (id, name, kind) => {
+      setOneClickHistoryRow('miden', id, 'miden-to-evm', 'processing', [{ id, name, addressKind: kind, tokens: [] }]);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+      const details = screen.getAllByTestId('detail-row');
+      expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+        name
+      );
+    }
+  );
+
+  describe('a NEAR Intents send', () => {
+    // A new send is a `bridged-send` row with provider `near-intents`; an older build stored a `send` row.
+    const statusText = () => screen.getByTestId('near-intents-send-status').textContent;
+
+    it.each<[IOneClickPhase, string]>([
+      ['depositing', 'nearIntentsSendStatusSending'],
+      ['known-deposit-tx', 'oneClickStatusKnownDepositTx'],
+      ['pending-deposit', 'oneClickStatusPendingDeposit'],
+      ['incomplete-deposit', 'oneClickStatusIncompleteDeposit'],
+      ['processing', 'oneClickStatusProcessing'],
+      ['arriving', 'nearIntentsSendStatusDelivered'],
+      ['delivered', 'nearIntentsSendStatusDelivered'],
+      ['refunded', 'oneClickStatusRefunded'],
+      ['failed', 'oneClickStatusFailed'],
+      ['expired', 'nearIntentsSendStatusExpired']
+    ])('shows a live delivery status for the %s phase', async (phase, status) => {
+      setOneClickHistoryRow('miden', 'eth', 'miden-to-evm', phase, undefined, true);
+      await renderAndLoad({ transactionId: 'one-click-history' });
+
+      expect(statusText()).toBe(status);
+    });
+
+    it.each(['bridged-send', 'send'])(
+      'shows the recipient and the 1Click rows, and no Epoch or Agglayer claim, for a %s row',
+      async shape => {
+        setOneClickHistoryRow(
+          'miden',
+          'sol',
+          'miden-to-evm',
+          'processing',
+          [{ id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] }],
+          shape === 'bridged-send'
+        );
+        await renderAndLoad({ transactionId: 'one-click-history' });
+
+        expect(screen.getByTestId('one-click-history-details')).toBeInTheDocument();
+        expect(screen.getByTestId('near-intents-send-recipient')).toHaveTextContent(
+          '0x0000000000000000000000000000000000000001'
+        );
+        const details = screen.getAllByTestId('detail-row');
+        expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+          'Solana'
+        );
+        expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+        // The sent amount comes from the row's own quote and Miden asset, not the faucet metadata.
+        expect(document.body.textContent).toContain('MID');
+      }
+    );
+  });
+
+  it('keeps the translated label of a known chain before the name in the stored config', async () => {
+    setOneClickHistoryRow('miden', 'eth', 'miden-to-evm', 'processing', [
+      { id: 'eth', name: 'Ethereum Mainnet', addressKind: 'evm', tokens: [] }
+    ]);
+    await renderAndLoad({ transactionId: 'one-click-history' });
+    const details = screen.getAllByTestId('detail-row');
+    expect(details.find(row => row.getAttribute('data-label') === 'oneClickDestinationNetwork')).toHaveTextContent(
+      /^Ethereum$/
+    );
+  });
+
   it('keeps an unknown route network visible as its raw ID', async () => {
     setOneClickHistoryRow('unknown-chain');
     await renderAndLoad({ transactionId: 'one-click-history' });
@@ -1257,6 +1385,166 @@ describe('HistoryDetails', () => {
     const toRow = rowByLabel('to');
     expect(toRow).toBeDefined();
     expect(toRow).toHaveTextContent('So1ana');
+    expect(toRow!.querySelector('a')).toBeNull();
+  });
+
+  it('renders a legacy send near-intents row with a single destination To row and no deposit address', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'one-click-legacy-send',
+      type: 'send',
+      secondaryAccountId: 'mtst1depositaddr',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: 'miden-usdc',
+            destinationAsset: 'sol-usdc',
+            refundTo: 'acct-A',
+            recipient: 'So1anaRecipient11111111111111111111111111111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaRecipient11111111111111111111111111111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'processing',
+          depositAddress: 'mtst1depositaddr',
+          providerStatus: 'PROCESSING',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'one-click-legacy-send' });
+
+    const toRows = Array.from(document.querySelectorAll('[data-testid="detail-row"]')).filter(
+      el => el.getAttribute('data-label') === 'to'
+    );
+    expect(toRows).toHaveLength(1);
+    expect(toRows[0]).toHaveTextContent('So1ana');
+    expect(toRows[0]).not.toHaveTextContent('mtst1depositaddr');
+    expect(toRows[0]!.querySelector('a')).toBeNull();
+  });
+
+  it('shows the 1Click destination recipient in To when a legacy send near-intents row is cancelled', async () => {
+    setMockRow({
+      ...baseSendTx,
+      id: 'cancelled-legacy-near-intents',
+      type: 'send',
+      status: STATUS_FAILED,
+      error: USER_CANCELLED_TRANSACTION_REASON,
+      secondaryAccountId: 'mtst1depositaddr',
+      extraInputs: {
+        oneClick: {
+          direction: 'miden-to-evm',
+          request: {
+            amount: '1000000',
+            originAsset: 'miden-usdc',
+            destinationAsset: 'sol-usdc',
+            refundTo: 'acct-A',
+            recipient: 'So1anaRecipient11111111111111111111111111111',
+            deadline: '2026-10-22T12:00:00.000Z',
+            slippageTolerance: 100
+          },
+          quote: {
+            correlationId: 'correlation',
+            timestamp: '2026-10-22T11:00:00.000Z',
+            signature: 'signature',
+            quoteRequest: {
+              dry: false,
+              swapType: 'EXACT_INPUT',
+              slippageTolerance: 100,
+              originAsset: 'miden-usdc',
+              depositType: 'ORIGIN_CHAIN',
+              destinationAsset: 'sol-usdc',
+              amount: '1000000',
+              refundTo: 'acct-A',
+              refundType: 'ORIGIN_CHAIN',
+              recipient: 'So1anaRecipient11111111111111111111111111111',
+              recipientType: 'DESTINATION_CHAIN',
+              deadline: '2026-10-22T12:00:00.000Z'
+            },
+            quote: {
+              amountIn: '1000000',
+              amountInFormatted: '1',
+              amountInUsd: '1',
+              minAmountIn: '1000000',
+              amountOut: '250000000',
+              amountOutFormatted: '250',
+              amountOutUsd: '250',
+              minAmountOut: '240000000',
+              depositAddress: 'mtst1depositaddr',
+              deadline: '2026-10-22T12:00:00.000Z',
+              timeEstimate: 30
+            }
+          },
+          config: {
+            serviceUrl: 'https://service.example',
+            midenAssets: [{ assetId: 'miden-usdc', faucetId: 'faucet', decimals: 6 }]
+          },
+          network: 'mainnet',
+          accountId: 'acct-A',
+          accountAddress: 'acct-A',
+          faucetId: 'faucet',
+          amount: '1000000',
+          originAsset: { assetId: 'miden-usdc', blockchain: 'miden', symbol: 'MUSDC', decimals: 6 },
+          destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+          phase: 'processing',
+          depositAddress: 'mtst1depositaddr',
+          providerStatus: 'PROCESSING',
+          updatedAt: Date.now()
+        }
+      }
+    });
+
+    await renderAndLoad({ transactionId: 'cancelled-legacy-near-intents' });
+
+    const toRow = rowByLabel('to');
+    expect(toRow).toBeDefined();
+    expect(toRow).toHaveTextContent('So1ana');
+    expect(toRow).not.toHaveTextContent('mtst1depositaddr');
     expect(toRow!.querySelector('a')).toBeNull();
   });
 
@@ -4147,6 +4435,27 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('history-retry-button')).toBeNull();
     });
 
+    it('withholds Retry for a legacy send row with outbound NEAR Intents tracking (with or without loaded row)', async () => {
+      const { isRequeueableTransaction } = jest.requireActual('lib/miden/transaction/retry');
+      mockIsRequeueableTransaction.mockImplementation(isRequeueableTransaction);
+      const outboundTracking = paymentTracking({ direction: 'miden-to-evm' });
+      setMockRow(failedSendTx({ extraInputs: { oneClick: outboundTracking } }));
+      await renderAndLoad();
+      expect(screen.queryByTestId('history-retry-button')).toBeNull();
+
+      const projectedEntry: IHistoryEntry = {
+        key: 'failed-legacy-1click',
+        address: 'acct-A',
+        timestamp: 0,
+        type: HistoryEntryType.CompletedTransaction,
+        txType: 'send',
+        status: STATUS_FAILED,
+        oneClickTracking: outboundTracking
+      };
+      const { result } = renderHook(() => useTransactionActions('tx-1', projectedEntry, undefined));
+      expect(result.current.canRetry).toBe(false);
+    });
+
     it('withholds Retry for a row the user cancelled by hand', async () => {
       setMockRow(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
       await renderAndLoad();
@@ -4948,7 +5257,7 @@ describe('HistoryDetails', () => {
     });
 
     // The app-root watcher writes `ready` on Circle's attestation; the page reads the row and polls nothing.
-    it('confirms an attested USDCx deposit while its Miden note remains pending', async () => {
+    it('shows Pending for an attested USDCx deposit until its Miden note is received', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
@@ -4961,7 +5270,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('pending');
       expect(rowByLabel('noteId')?.textContent).toContain('pending');
     });
 
@@ -5794,6 +6103,99 @@ describe('HistoryDetails earn-deposit', () => {
     await renderAndLoad();
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', '1');
+  });
+});
+
+describe('HistoryDetails Miden Name', () => {
+  const registerNameTx = (extraInputs: Tx = {}, overrides: Tx = {}): Tx => ({
+    ...baseSendTx,
+    type: 'register-name',
+    secondaryAccountId: 'mtst1registry',
+    amount: 20_000_000n,
+    displayMessage: 'Name requested',
+    extraInputs: {
+      label: 'alice',
+      network: 'testnet',
+      registrationNoteId: '0xregnote',
+      phase: 'submitted',
+      ...extraInputs
+    },
+    ...overrides
+  });
+
+  it('reads a registration as outbound: From this account, To the registry', async () => {
+    setMockRow(registerNameTx());
+    await renderAndLoad();
+
+    const from = rowByLabel('from');
+    const to = rowByLabel('to');
+    expect(from?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/acct-A');
+    expect(to?.querySelector('a')).toHaveAttribute('href', 'https://custom-explorer.test/account/mtst1registry');
+  });
+
+  it('lists the name, registry, registration note and phase', async () => {
+    setMockRow(registerNameTx());
+    await renderAndLoad();
+
+    const section = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'midenName'
+    );
+    expect(section).toBeDefined();
+    expect(screen.getByTestId('history-miden-name')).toHaveTextContent('alice.miden');
+    expect(rowByLabel('midenNameReceiptRegistry')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://custom-explorer.test/account/mtst1registry'
+    );
+    expect(rowByLabel('midenNameReceiptNoteId')).toHaveTextContent('0xregnote');
+    // `submitted` is not terminal, so the UI state is "claiming".
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateClaiming');
+  });
+
+  it('shows Owned once the name is in the account', async () => {
+    setMockRow(registerNameTx({ phase: 'owned' }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateOwned');
+  });
+
+  it('keeps the reconciled NFA receipt accessible from register-name', async () => {
+    setMockRow(registerNameTx({ claimTxId: 'claim-1' }));
+    await renderAndLoad();
+    expect(rowByLabel('midenNameReceiptTransaction')?.querySelector('a')).toHaveAttribute(
+      'href',
+      '/history-details/claim-1'
+    );
+  });
+
+  it('shows Failed for a failed row whose stored phase is not terminal yet', async () => {
+    setMockRow(registerNameTx({ phase: 'requested' }, { status: 3 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateFailed');
+  });
+
+  // The claim of a name moves only a non-fungible asset: the row has no
+  // faucet and no amount, and the page must not invent one.
+  it('renders a name claim with no amount as the name, without NaN, undefined or +0', async () => {
+    setMockRow({
+      ...baseSendTx,
+      type: 'consume',
+      faucetId: undefined,
+      amount: undefined,
+      assetTotals: [],
+      displayMessage: 'Name received',
+      displayIcon: 'RECEIVE',
+      secondaryAccountId: 'mtst1registry',
+      outputNoteIds: [],
+      noteIds: ['0xdelivery'],
+      extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'reg-1' } }
+    });
+    await renderAndLoad();
+
+    expect(screen.getByText('alice.miden')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|\+0/);
+    // A claim is not a registration: no registration section.
+    expect(screen.queryByTestId('history-miden-name')).toBeNull();
   });
 });
 

@@ -12,7 +12,8 @@ export function useSendRouteEligibility(
   destinationChainId: number | undefined,
   route: BridgeRoute,
   usdcxAvailable: boolean,
-  active: boolean
+  active: boolean,
+  nearIntentsReady = false
 ) {
   const snapshot = useBridgeConfigSnapshot();
   const bridges = Object.values(snapshot.config?.supportedEvmChains ?? {}).find(
@@ -44,13 +45,15 @@ export function useSendRouteEligibility(
   const blocked =
     !active ||
     !faucetId ||
-    destinationChainId === undefined ||
-    (route !== 'usdcx' && !routes?.[route]) ||
-    (route === 'epoch'
-      ? isFeatureBlocked(fastAvailability)
-      : route === 'agglayer'
-        ? isFeatureBlocked(slowAvailability) || slowStatus !== 'allowed'
-        : !usdcxAvailable);
+    (route === 'near-intents'
+      ? !nearIntentsReady
+      : destinationChainId === undefined ||
+        (route !== 'usdcx' && !routes?.[route]) ||
+        (route === 'epoch'
+          ? isFeatureBlocked(fastAvailability)
+          : route === 'agglayer'
+            ? isFeatureBlocked(slowAvailability) || slowStatus !== 'allowed'
+            : !usdcxAvailable));
 
   return {
     blocked,

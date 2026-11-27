@@ -157,7 +157,7 @@ jobs:
   unit:
     name: Unit tests
     needs: translations
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-2404-x64-16x
     steps:
       - name: Check Out Code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -212,9 +212,7 @@ jobs:
           cmd: test:oneclick-service
 
       - name: Run Unit Tests
-        uses: borales/actions-yarn@97ba8bebfe5b549bb7999261698a52a81fd62f1b # v4
-        with:
-          cmd: test
+        run: bash scripts/ci/run-unit-tests.sh
 
       # The catalog is served live to every client from main, so its shape is
       # checked before it can merge. It never gates a release build: a missing
@@ -423,7 +421,7 @@ jobs:
           "$GITHUB_WORKSPACE/node_modules/.bin/playwright" test --config playwright.token-detail-visual.config.ts
 
       - name: Capture TokenDetail candidate
-        if: github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        if: github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
         timeout-minutes: 5
         env:
           TOKEN_DETAIL_CAPTURE: after
@@ -432,7 +430,7 @@ jobs:
           yarn playwright test --config playwright.token-detail-visual.config.ts
 
       - name: Upload TokenDetail visual acceptance
-        if: always() && github.event_name == 'pull_request' && (github.head_ref == 'issue/2027-token-detail-layout' || contains(github.event.pull_request.body, '#2027'))
+        if: always() && github.event_name == 'pull_request' && (contains(fromJSON('["issue/2027-token-detail-layout","issue/2028-token-detail-phase2"]'), github.head_ref) || contains(github.event.pull_request.body, '#2027'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: token-detail-visual
@@ -467,9 +465,8 @@ jobs:
             echo "native-toolbar ${{ needs.native-toolbar.result }}"; exit 1; fi
           echo "unit, mock-e2e and native-toolbar ok"
 
-  # Same 710 suites as Unit tests, but `--coverage` is ~6x slower (7m vs 44m on
-  # one ubuntu-latest). Three shards keep billed minutes about the same and cut
-  # wall clock under 25m. The required-check name stays on the merge gate.
+  # Run the unit suite under coverage in independent processes and merge their maps.
+  # The required-check name stays on the merge gate.
   # The shard count is the matrix length: steps and the name read it as
   # strategy.job-total, and coverage-gate's COVERAGE_SHARDS must match it
   # (Actions cannot feed an env value into a matrix).
@@ -479,8 +476,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
-    runs-on: ubuntu-latest
+        shard: [1, 2, 3, 4, 5, 6, 7]
+    runs-on: warp-ubuntu-2404-x64-16x
     env:
       JEST_COVERAGE_SHARD: '1'
     steps:
@@ -513,6 +510,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set -euo pipefail
           node scripts/ci/coverage-resource-sampler.mjs "$SHARD" &
@@ -525,7 +523,10 @@ jobs:
           trap stop_sampler EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
-          yarn test:coverage --maxWorkers=2 --shard="$SHARD/$SHARDS" --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          jest_execution=--maxWorkers=6
+          if [[ "$SHARD" == "$SHARDS" ]]; then jest_execution=--runInBand; fi
+          bash scripts/ci/run-jest-shard.sh "$SHARD" "$SHARDS" "$jest_execution" --coverage --coverageReporters=json --coverageReporters=text-summary --json --outputFile=coverage/jest-results.json
+          node scripts/ci/assert-jest-complete.mjs coverage/jest-results.json
 
       # Badge bookkeeping never fails the gate, and this job runs the PR head's scripts, which may predate this one.
       # A missing count only makes the gate's record step skip the badge artifact.
@@ -548,7 +549,7 @@ jobs:
     runs-on: ubuntu-slim
     env:
       # Must equal the length of the coverage job's matrix.
-      COVERAGE_SHARDS: 3
+      COVERAGE_SHARDS: 7
     steps:
       - name: Check shards
         env:
@@ -575,7 +576,15 @@ jobs:
       - name: Merge shards and enforce 95%
         env:
           NODE_PATH: ${{ runner.temp }}/covtools/node_modules
-        run: node scripts/merge-jest-coverage.mjs coverage-shards/coverage-shard-1/coverage-final.json coverage-shards/coverage-shard-2/coverage-final.json coverage-shards/coverage-shard-3/coverage-final.json
+        run: |
+          node scripts/merge-jest-coverage.mjs \
+            coverage-shards/coverage-shard-1/coverage-final.json \
+            coverage-shards/coverage-shard-2/coverage-final.json \
+            coverage-shards/coverage-shard-3/coverage-final.json \
+            coverage-shards/coverage-shard-4/coverage-final.json \
+            coverage-shards/coverage-shard-5/coverage-final.json \
+            coverage-shards/coverage-shard-6/coverage-final.json \
+            coverage-shards/coverage-shard-7/coverage-final.json
       # The main-branch Badges workflow reads this instead of rerunning the whole suite unsharded (which
       # outgrew one runner): the merged line coverage and the summed test count of this PR head. Badge
       # bookkeeping never fails the gate; a missing artifact only leaves the badges as they were.

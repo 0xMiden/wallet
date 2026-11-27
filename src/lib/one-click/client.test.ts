@@ -452,4 +452,49 @@ describe('1Click client', () => {
     fetchMock.mockResolvedValue(new Response('€'.repeat(400_000)));
     await expect(fetchOneClickStatus(config, wetDepositAddress)).rejects.toThrow('too large');
   });
+
+  it('forwards caller AbortSignal through requestOneClickQuote to abort an in-flight fetch', async () => {
+    const controller = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        capturedSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+          once: true
+        });
+      });
+    });
+
+    const pending = requestOneClickQuote(config, input, true, fetchMock, controller.signal);
+    expect(capturedSignal?.aborted).toBe(false);
+    controller.abort('superseded');
+    expect(capturedSignal?.aborted).toBe(true);
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+
+    const preAborted = new AbortController();
+    preAborted.abort('stale');
+    fetchMock.mockClear();
+    await expect(requestOneClickQuote(config, input, true, fetchMock, preAborted.signal)).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const streamController = new AbortController();
+    const removeSpy = jest.spyOn(streamController.signal, 'removeEventListener');
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start(ctrl) {
+            ctrl.enqueue(new TextEncoder().encode('{"partial":'));
+          }
+        })
+      )
+    );
+    const streaming = requestOneClickQuote(config, input, true, fetchMock, streamController.signal);
+    await Promise.resolve();
+    await Promise.resolve();
+    streamController.abort('during-stream');
+    await expect(streaming).rejects.toMatchObject({ name: 'AbortError' });
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
 });

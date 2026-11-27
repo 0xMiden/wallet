@@ -5,9 +5,10 @@ import { Share } from '@capacitor/share';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
-import { usePageActive } from 'app/layouts/page-active';
+import { usePageActive, usePageOnScreen } from 'app/layouts/page-active';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import type { FlowPresentation } from 'components/flow/FlowPresentation';
@@ -17,8 +18,12 @@ import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { useOwnedMidenName } from 'lib/miden/name/registrations';
+import { useMidenNameResolvesHere } from 'lib/miden/name/useMidenNameResolvesHere';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -27,6 +32,8 @@ import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
 import { truncateAddress } from 'utils/string';
+
+import { MidenNameReceiveRow } from './MidenNameReceiveRow';
 
 interface AddressTabProps {
   address: string;
@@ -67,6 +74,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
   });
 
 interface ReceiveActionTileProps {
+  buttonRef?: React.Ref<HTMLButtonElement>;
   icon: IconName;
   /** The glyph's size in the circle; a glyph that reads small at `xs` can take a step up. */
   iconSize?: 'xs' | 'sm';
@@ -81,6 +89,7 @@ interface ReceiveActionTileProps {
 
 /** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
 const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
+  buttonRef,
   icon,
   iconSize = 'xs',
   title,
@@ -98,6 +107,7 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
       className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
     >
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={() => {
@@ -133,14 +143,22 @@ export function ReceiveBridgeTile({
   availability: FeatureAvailability;
 }) {
   const { t } = useTranslation();
+  const disabled = isFeatureBlocked(availability);
+  const pageActive = usePageActive();
+  const pageOnScreen = usePageOnScreen();
+  const discovery = useFeatureDiscovery<HTMLButtonElement>('receive_tile', pageActive && pageOnScreen && !disabled);
   return (
     <ReceiveActionTile
       icon={IconName.CrossChain}
       iconSize="sm"
       title={t('crossChain')}
       caption={t('receiveCrossChainCaption')}
-      onClick={onBridgeDeposit}
-      disabled={isFeatureBlocked(availability)}
+      buttonRef={discovery.ref}
+      onClick={() => {
+        discovery.select('funding');
+        onBridgeDeposit();
+      }}
+      disabled={disabled}
       data-testid="receive-cross-chain"
     />
   );
@@ -171,6 +189,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({
     setFailedShareAddress(null);
   }, [address]);
   const qrRef = useRef<QRCodeHandle>(null);
+  // Undefined on a network with no Miden Name deployment.
+  const ownedLabel = useOwnedMidenName(address);
+  // Always false in v1: the registry has no records yet.
+  const nameResolvesHere = useMidenNameResolvesHere(address, ownedLabel);
 
   // The logo easter egg. Receive stays mounted when it is left for another Home page or another tab,
   // so leaving it is a change of `usePageActive`, not an unmount: reset the cycle there or the QR
@@ -322,6 +344,32 @@ export const AddressTab: React.FC<AddressTabProps> = ({
             {network && (
               <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
             )}
+            {/* The owned name is the headline. The address stays under it as the copy control. */}
+            {ownedLabel !== undefined && (
+              <div className="flex w-full min-w-0 flex-col items-center gap-2">
+                <span
+                  data-testid="receive-miden-name-headline"
+                  className="max-w-full truncate text-center text-hero-value text-ink"
+                >
+                  {formatMidenName(ownedLabel)}
+                </span>
+                {nameResolvesHere ? (
+                  <Pill
+                    size="sm"
+                    tone="positive"
+                    icon={<Icon name={IconName.Checkmark} size="xs" />}
+                    className="uppercase"
+                    data-testid="receive-miden-name-resolves"
+                  >
+                    {t('midenNameResolvesHere')}
+                  </Pill>
+                ) : (
+                  <Pill size="sm" tone="neutral" className="text-muted" data-testid="receive-miden-name-unresolved">
+                    {t('midenNameNotYetResolvable')}
+                  </Pill>
+                )}
+              </div>
+            )}
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
@@ -329,8 +377,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({
               icon="leading"
               iconClassName="text-accent-receive"
               checkClassName="text-positive-ink"
-              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
-              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+              className={cn(
+                'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive',
+                // Under a name headline the address is a small pill.
+                ownedLabel === undefined ? 'h-11 w-full' : 'h-9 max-w-full'
+              )}
+              contentClassName={
+                ownedLabel === undefined ? 'gap-2 font-heading text-base leading-5 font-bold' : 'gap-2 text-body-sm'
+              }
             />
           </div>
         </div>
@@ -348,6 +402,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({
               <ReceiveBridgeTile onBridgeDeposit={onBridgeDeposit} availability={bridgeAvailability} />
             )}
           </div>
+          {/* The owned name, the claim in progress or the offer to claim one. Renders nothing on a
+              network with no Miden Name deployment. */}
+          <MidenNameReceiveRow address={address} />
           {presentation !== 'command' && bridgeOffered && (
             <FeatureUnavailableNotice availability={bridgeAvailability} variant="inline" />
           )}

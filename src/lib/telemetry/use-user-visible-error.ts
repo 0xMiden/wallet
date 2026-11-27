@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
 import { usePromptSlideActive } from 'components/ui/prompt-slide-active';
@@ -22,7 +22,8 @@ export function useUserVisibleError(
   }, [diagnostics]);
   const episode = useRef({ id, surface, occurrence, reported: false });
 
-  useEffect(() => {
+  // Cancel the previous timer during commit, before it can read the new episode's diagnostics.
+  useLayoutEffect(() => {
     if (episode.current.id !== id || episode.current.surface !== surface || episode.current.occurrence !== occurrence) {
       episode.current = { id, surface, occurrence, reported: false };
     }

@@ -1,4 +1,13 @@
-import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
+import {
+  isDiscoveryFeature,
+  TELEMETRY_DISCOVERY_ACTIONS,
+  TELEMETRY_NAV_SOURCES,
+  TELEMETRY_SCREENS,
+  TELEMETRY_SURFACES,
+  TelemetryContext,
+  TelemetryEvent,
+  TelemetryWirePayload
+} from './types';
 
 /**
  * The complete set of keys that may ever appear on the wire. Exported so the
@@ -15,6 +24,14 @@ export const WIRE_KEYS: readonly string[] = [
   'errorKind',
   'durationMs',
   'step',
+  'screen',
+  'navSource',
+  'surface',
+  'order',
+  'complete',
+  'feature',
+  'entryPoint',
+  'discoveryAction',
   'appVersion',
   'platform',
   'network'
@@ -35,6 +52,41 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
     platform: context.platform,
     network: context.network
   };
+
+  if (event.phase === 'discovery') {
+    if (
+      isDiscoveryFeature(event.entryPoint, event.feature) &&
+      TELEMETRY_DISCOVERY_ACTIONS.includes(event.discoveryAction) &&
+      TELEMETRY_SURFACES.includes(event.surface) &&
+      typeof event.runId === 'string' &&
+      /^[A-Za-z0-9_-]{21}$/.test(event.runId)
+    ) {
+      payload.feature = event.feature;
+      payload.entryPoint = event.entryPoint;
+      payload.discoveryAction = event.discoveryAction;
+      payload.surface = event.surface;
+    }
+    return payload;
+  }
+
+  if (event.phase === 'visit') {
+    // Every value is a prop the event name or the dashboard groups by, and the offscreen forward is untyped at the
+    // wire, so each is checked against its closed list. An unknown one leaves `screen` unset, which the sink refuses
+    // as an unnameable event, rather than shipping a string nobody allowlisted.
+    const known =
+      TELEMETRY_SCREENS.includes(event.screen) &&
+      TELEMETRY_NAV_SOURCES.includes(event.source) &&
+      TELEMETRY_SURFACES.includes(event.surface) &&
+      Number.isFinite(event.order) &&
+      Number.isFinite(event.visibleMs);
+    if (known) payload.screen = event.screen;
+    payload.navSource = event.source;
+    payload.surface = event.surface;
+    payload.order = Math.round(event.order);
+    payload.durationMs = Math.round(event.visibleMs);
+    payload.complete = event.complete === true;
+    return payload;
+  }
 
   // Named per phase rather than copied from a shared shape, so the two kinds of
   // event cannot borrow each other's fields: a flow has no `operation` and a

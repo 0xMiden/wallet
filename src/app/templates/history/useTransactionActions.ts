@@ -264,6 +264,11 @@ export const useTransactionActions = (
           // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
           // already gone, so a requeue would mint a second orphan collateral note.
           bridgeProvider: entry.bridgeProvider,
+          // A legacy `send` NEAR Intents row carries its outbound tracking in `extraInputs`; fall back to the
+          // projected entry so it stays non-requeueable when the raw row is not loaded.
+          extraInputs:
+            transaction?.extraInputs ??
+            (entry.txType === 'send' && entry.oneClickTracking ? { oneClick: entry.oneClickTracking } : undefined),
           restoredFromBackup: transaction?.restoredFromBackup,
           proposalEffectRefused: transaction?.proposalEffectRefused
         }));

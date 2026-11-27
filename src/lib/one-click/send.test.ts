@@ -6,6 +6,7 @@ import { OneClickHttpError } from './client';
 import {
   NEAR_INTENTS_SEND_QUOTE_LIFETIME_MS,
   NearIntentsSendQuoteChangedError,
+  NearIntentsSendSupersededError,
   buildNearIntentsSendRequest,
   findNearIntentsSendPairs,
   nearIntentsEvmChainId,
@@ -276,13 +277,18 @@ describe('buildNearIntentsSendRequest', () => {
 
 describe('requestNearIntentsSendPreview', () => {
   it('asks for a dry quote of the request', async () => {
-    const preview = await requestNearIntentsSendPreview(config, {
-      pair: solPair,
-      amount: 1_000_000n,
-      recipient: SOLANA_RECIPIENT,
-      refundTo: WALLET_ADDRESS
-    });
-    expect(requestQuote).toHaveBeenCalledWith(config, preview.request, true);
+    const controller = new AbortController();
+    const preview = await requestNearIntentsSendPreview(
+      config,
+      {
+        pair: solPair,
+        amount: 1_000_000n,
+        recipient: SOLANA_RECIPIENT,
+        refundTo: WALLET_ADDRESS
+      },
+      controller.signal
+    );
+    expect(requestQuote).toHaveBeenCalledWith(config, preview.request, true, undefined, controller.signal);
     expect(preview.request).toMatchObject({ recipient: SOLANA_RECIPIENT, refundTo: WALLET_ADDRESS, amount: '1000000' });
     expect(preview.quote.quote.amountIn).toBe('1000000');
   });
@@ -420,5 +426,30 @@ describe('startNearIntentsSend', () => {
     await startNearIntentsSend(startInput({ pair: btcPair, recipient: uppercaseBtc }));
     expect(requestQuote.mock.calls[1]?.[1]).toMatchObject({ recipient: expectedBtc });
     expect(initiateDeposit.mock.calls[0]?.[0].request.recipient).toBe(expectedBtc);
+  });
+
+  it('forwards signal and refuses to create the deposit row when aborted or superseded after quote resolution', async () => {
+    const controller = new AbortController();
+    requestQuote.mockImplementationOnce(async (_config: NearIntentsConfig, request: OneClickQuoteRequest) => {
+      controller.abort();
+      return quoteFor(request);
+    });
+
+    await expect(startNearIntentsSend(startInput({ signal: controller.signal }))).rejects.toThrow(
+      NearIntentsSendSupersededError
+    );
+    expect(requestQuote.mock.calls[0]?.[4]).toBe(controller.signal);
+    expect(initiateDeposit).not.toHaveBeenCalled();
+
+    let current = true;
+    requestQuote.mockImplementationOnce(async (_config: NearIntentsConfig, request: OneClickQuoteRequest) => {
+      current = false;
+      return quoteFor(request);
+    });
+
+    await expect(startNearIntentsSend(startInput({ isCurrent: () => current }))).rejects.toThrow(
+      NearIntentsSendSupersededError
+    );
+    expect(initiateDeposit).not.toHaveBeenCalled();
   });
 });

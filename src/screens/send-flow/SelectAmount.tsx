@@ -11,6 +11,7 @@ import { TokenAmountInput } from 'components/TokenAmountInput';
 import { TokenLogo } from 'components/TokenLogo';
 import { Avatar } from 'components/ui/Avatar';
 import { TokenAmount, UsdAmount } from 'components/ui/TokenAmount';
+import { balanceLowerBound } from 'lib/i18n/numbers';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -148,7 +149,6 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const quote = token ? tokenQuote(prices, token.id, token.name) : undefined;
   useQuoteClock(quoteExpiryMs(quote));
   const price = usdQuoteStatus(quote) === 'ready' ? quote?.price : undefined;
-  const availableFiat = token && token.balance !== null && price ? token.balance * price : null;
   // An amount typed here is converted to base units with `token.decimals`. When
   // those decimals are the unknown-token placeholder's guess, that conversion
   // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
@@ -162,7 +162,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
   useUserVisibleError(
     !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
-    'inline'
+    'inline',
+    undefined,
+    { kind: 'token_scale', tokenScaleProducer: 'select_amount' }
   );
 
   const tokenSelector = (
@@ -256,6 +258,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   let helper: React.ReactNode = null;
   if (token && showBalanceHelper) {
+    const availableBalance =
+      scaleIsKnown && token.balance !== null ? balanceLowerBound(token.balance, token.decimals) : null;
+    const availableFiat = availableBalance !== null && price !== undefined ? availableBalance * price : null;
     // Built once per render, not per frame: `token` is only known here, inside the branch.
     helper = (
       <>
@@ -269,7 +274,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           {scaleIsKnown || token.balance === null ? (
             <TokenAmount
               key={token.id}
-              amount={token.balance}
+              amount={availableBalance}
               placeholder={t('loading')}
               prefix={`${t('available')} `}
               symbol={tokenLabel ?? token.name}

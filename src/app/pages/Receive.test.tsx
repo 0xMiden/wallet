@@ -90,7 +90,34 @@ let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey,
   // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
-  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet'
+  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet',
+  getEffectiveRpcUrl: () => 'https://rpc.test.invalid',
+  subscribeEffectiveEndpoints: () => () => undefined
+}));
+
+// The Miden Name row reads Dexie and the network config; MidenNameReceiveRow.test.tsx covers it.
+jest.mock('app/pages/Receive/MidenNameReceiveRow', () => ({
+  MidenNameReceiveRow: () => null
+}));
+
+// The owned name reads Dexie; a test sets the label directly. Undefined is "no owned name".
+let mockOwnedLabel: string | undefined;
+jest.mock('lib/miden/name/registrations', () => ({
+  useOwnedMidenName: () => mockOwnedLabel
+}));
+
+// The network deployment check. By default the network has no deployment.
+let mockNameSupported = false;
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+
+// The registry record of the owned label: the account it points to, or null for no record.
+let mockRecordAccount: string | null = null;
+const mockFetchRecord = jest.fn(async (_label: string) => mockRecordAccount);
+jest.mock('lib/miden/name/resolver', () => ({
+  fetchDomainRecordAccount: (label: string) => mockFetchRecord(label)
 }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({
@@ -151,6 +178,7 @@ jest.mock('components/QRCode', () => ({
 let mockPublicKey = 'test-account-123';
 
 jest.mock('lib/miden/front', () => ({
+  request: jest.fn(),
   useAccount: () => ({ publicKey: mockPublicKey }),
   useAllTokensBaseMetadata: () => ({}),
   useAllBalances: () => ({
@@ -310,6 +338,10 @@ describe('Receive - Address', () => {
     mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
     jest.mocked(hapticLight).mockClear();
+    mockOwnedLabel = undefined;
+    mockNameSupported = false;
+    mockRecordAccount = null;
+    mockFetchRecord.mockClear();
   });
 
   afterEach(async () => {
@@ -392,6 +424,71 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('test-account-123');
   });
 
+  describe('Miden Name headline', () => {
+    it('renders no headline when the account owns no name', async () => {
+      const container = await renderReceive();
+
+      expect(container.querySelector('[data-testid="receive-miden-name-headline"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).toBeNull();
+    });
+
+    it('shows the owned name between the QR and the address, which the copy still copies', async () => {
+      mockOwnedLabel = 'alice';
+      const container = await renderReceive();
+
+      const headline = container.querySelector('[data-testid="receive-miden-name-headline"]')!;
+      expect(headline.textContent).toBe('alice.miden');
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')?.textContent).toBe(
+        'midenNameNotYetResolvable'
+      );
+      expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')).toBeNull();
+
+      const qrSlot = container.querySelector('[data-testid="receive-qr-slot"]')!;
+      const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
+      expect(qrSlot.compareDocumentPosition(headline)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(headline.compareDocumentPosition(copyButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+      await act(async () => {
+        fireEvent.click(copyButton);
+      });
+      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
+    });
+
+    it('does not read the registry record on a network without a deployment', async () => {
+      mockOwnedLabel = 'alice';
+      mockRecordAccount = 'test-account-123';
+      await renderReceive();
+
+      expect(mockFetchRecord).not.toHaveBeenCalled();
+    });
+
+    it('shows the resolves pill only when the registry record of the owned name points here', async () => {
+      mockOwnedLabel = 'alice';
+      mockNameSupported = true;
+      mockRecordAccount = 'test-account-123';
+      const container = await renderReceive();
+
+      await waitFor(() =>
+        expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')?.textContent).toBe(
+          'midenNameResolvesHere'
+        )
+      );
+      expect(mockFetchRecord).toHaveBeenCalledWith('alice');
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).toBeNull();
+    });
+
+    it('keeps the muted pill when the registry record points to another account', async () => {
+      mockOwnedLabel = 'alice';
+      mockNameSupported = true;
+      mockRecordAccount = 'mtst1someoneelse';
+      const container = await renderReceive();
+
+      await waitFor(() => expect(mockFetchRecord).toHaveBeenCalled());
+      expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).not.toBeNull();
+    });
+  });
+
   it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {
     jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
     const container = await renderReceive();
@@ -451,6 +548,74 @@ describe('Receive - Address', () => {
       container.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!.click();
     });
     expect(navigate).toHaveBeenCalledWith('/bridge/deposit');
+  });
+
+  it('reports funding discovery only for the active, available Receive tile', async () => {
+    jest.useFakeTimers();
+    const previousObserver = window.IntersectionObserver;
+    const observers: IntersectionObserverCallback[] = [];
+    window.IntersectionObserver = jest.fn(callback => {
+      observers.push(callback);
+      return { observe: jest.fn(), disconnect: jest.fn() };
+    }) as unknown as typeof IntersectionObserver;
+    const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { request } = jest.requireMock<typeof import('lib/miden/front')>('lib/miden/front');
+    const reporter = jest.mocked(request);
+    reporter.mockClear();
+    const tile = () => testContainer!.querySelector<HTMLButtonElement>('[data-testid="receive-cross-chain"]')!;
+    try {
+      mockNetworkKey = 'devnet';
+      mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'fixture unavailable' };
+      const container = await renderReceive();
+      document.body.append(container);
+
+      expect(tile()).toBeDisabled();
+      tile().click();
+      expect(reporter).not.toHaveBeenCalled();
+      expect(observers).toHaveLength(0);
+
+      mockCrossChain = { state: 'available' };
+      await setPageActive(false);
+      expect(tile()).toBeEnabled();
+      tile().click();
+      expect(reporter).not.toHaveBeenCalled();
+      expect(observers).toHaveLength(0);
+
+      await setPageActive(true);
+      expect(observers).toHaveLength(1);
+      act(() => {
+        observers[0]!(
+          [{ isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+        jest.advanceTimersByTime(ROUTE_DWELL_MS - 1);
+      });
+      expect(reporter).not.toHaveBeenCalled();
+      act(() => jest.advanceTimersByTime(1));
+      await act(async () => tile().click());
+
+      expect(reporter.mock.calls.map(([message]) => 'event' in message && message.event)).toEqual([
+        expect.objectContaining({
+          phase: 'discovery',
+          feature: 'funding',
+          entryPoint: 'receive_tile',
+          discoveryAction: 'exposed'
+        }),
+        expect.objectContaining({
+          phase: 'discovery',
+          feature: 'funding',
+          entryPoint: 'receive_tile',
+          discoveryAction: 'selected'
+        })
+      ]);
+    } finally {
+      visibility.mockReturnValue('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      visibility.mockRestore();
+      reporter.mockClear();
+      window.IntersectionObserver = previousObserver;
+      jest.useRealTimers();
+    }
   });
 
   it('renders Share and Cross-chain as two outlined tiles side by side, with one haptic per tap', async () => {

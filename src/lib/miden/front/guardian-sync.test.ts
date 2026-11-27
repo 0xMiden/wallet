@@ -13,6 +13,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { isExtension } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 
 import { HotKeySignerMissingError } from './guardian-manager';
@@ -23,6 +24,7 @@ import {
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
   GUARDIAN_SYNC_STAMP_FRESH_MS,
   isGuardianSyncOutage,
+  getGuardianSyncOutage,
   isGuardianUnrepairable,
   MISSING_REGISTRATION_BACKOFF_MS,
   MISSING_REGISTRATION_MAX_ATTEMPTS,
@@ -129,12 +131,14 @@ jest.mock('lib/miden/transaction', () => ({
 }));
 
 // Platform gate for the off-extension driver above. Default: extension (the SW owns
-// the FIFO loop there), flipped per test.
-const mockIsExtension = jest.fn(() => true);
+// the FIFO loop there), flipped per test. The mock is made inside the factory:
+// `zustandProvider` calls `isExtension()` when its module loads, which is before
+// a top-level `const` in this file is initialized.
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isExtension: () => mockIsExtension()
+  isExtension: jest.fn(() => true)
 }));
+const mockIsExtension = jest.mocked(isExtension);
 
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockGuardianCandidateRelease = jest.fn();
@@ -882,6 +886,10 @@ describe('syncGuardianAccounts', () => {
       expect(isSyncFused(key)).toBe(true);
       // The lit fuse skips this account's sync, and with it the outage count, so the prompt arms on this lap.
       expect(isGuardianSyncOutage('guardian-silent')).toBe(true);
+      expect(getGuardianSyncOutage('guardian-silent')).toEqual({
+        kind: 'guardian_outage',
+        guardianOutageReason: 'request_timeout_fuse'
+      });
 
       __resetSyncFuseStateForTests();
       jest.restoreAllMocks();
@@ -2813,6 +2821,10 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
 
     await runSyncs(1);
     expect(isGuardianSyncOutage(pk)).toBe(true);
+    const outage = getGuardianSyncOutage(pk);
+    expect(outage).toEqual({ kind: 'guardian_outage', guardianOutageReason: 'consecutive_unreachable' });
+    await runSyncs(1);
+    expect(getGuardianSyncOutage(pk)).toBe(outage);
 
     sync.mockResolvedValue(undefined);
     await runSyncs(1);

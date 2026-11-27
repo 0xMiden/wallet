@@ -2526,6 +2526,91 @@ describe('MidenClientProxy — deadline kill', () => {
     expect(__test.inFlightSize()).toBe(0);
   });
 
+  it('lets a running sync finish when a queued delivery check reaches its deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, markOpStarted } = await loadProxy(true);
+      let finishSync!: () => void;
+      const syncWork = new Promise<void>(resolve => {
+        finishSync = resolve;
+      });
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: { method: string; op_id: string }) => {
+        if (env.method === 'syncState') {
+          markOpStarted(env.op_id);
+          await syncWork;
+          return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 20_000 };
+        }
+        return new Promise(() => {});
+      });
+
+      const sync = midenClientProxy.syncState();
+      void sync.catch(() => {});
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ method: 'syncState' }));
+
+      const delivery = midenClientProxy.isOutputNoteConsumed('mock-note').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'isOutputNoteConsumed', deadline_ms: 15_000 })
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      fireReady();
+      await expect(delivery).resolves.toMatchObject({ reason: 'deadline-no-kill', facts: { started: false } });
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+
+      finishSync();
+      await expect(sync).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    { scenario: 'without an observed started sync', started: false, timer: 'dispatch' },
+    { scenario: 'after its start is observed', started: true, timer: 'started' }
+  ])('recovers the offscreen document when a delivery check times out $scenario', async ({ started, timer }) => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, markOpStarted, __test } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      fakeChrome.runtime.sendMessage.mockImplementation((env: { op_id: string }) => {
+        if (started) markOpStarted(env.op_id);
+        return new Promise(() => {});
+      });
+
+      // The service worker may still be waiting for a previous sync response.
+      const sync = started ? midenClientProxy.syncState().catch((error: unknown) => error) : undefined;
+      const delivery = midenClientProxy.isOutputNoteConsumed('mock-note').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'isOutputNoteConsumed', deadline_ms: 15_000 })
+      );
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      fireReady();
+
+      const error = await delivery;
+      expect(error).toBeInstanceOf(OperationAbortedError);
+      expect(error).toMatchObject({
+        reason: 'deadline',
+        facts: { started, deadline: { owner: 'own', timer, killer: 'read' } }
+      });
+      expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
+      expect(fakeChrome.offscreen.createDocument).toHaveBeenCalledTimes(2);
+      expect(__test.inFlightSize()).toBe(0);
+      const syncError = (await sync) as InstanceType<typeof OperationAbortedError> | undefined;
+      expect(syncError?.reason).toBe(started ? 'deadline' : undefined);
+      expect(syncError?.facts?.deadline?.owner).toBe(started ? 'collateral' : undefined);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a single kill rejects EVERY in-flight op (closing the doc kills all realms)', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const { OperationAbortedError } = await import('./offscreen-codec');
@@ -2755,21 +2840,88 @@ describe('MidenClientProxy — settlement paths', () => {
   // same error TYPE. It used to surface as a bare Error, which classified as an
   // ordinary failure everywhere downstream: `tryCompleteKilledConsume` skipped its
   // node check, and the persisted `rawError` carried no recognizable kill reason.
-  it('a sendMessage transport rejection settles as OperationAbortedError(transport), keeping the cause', async () => {
-    const { midenClientProxy } = await loadProxy(true);
-    const { OperationAbortedError } = await import('./offscreen-codec');
-    const transportError = new Error('message port closed before a response');
-    fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
+  it.each([
+    ['The message port closed before a response was received.', 'response_channel_closed'],
+    [
+      'A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received.',
+      'response_channel_closed'
+    ],
+    ['Extension context invalidated.', 'context_invalidated'],
+    ['Could not establish connection. Receiving end does not exist.', 'no_receiver'],
+    ['Unrecognized failure: Extension context invalidated.', 'unknown'],
+    [null, 'unknown']
+  ])(
+    'classifies sendMessage transport rejection %s while keeping the cause',
+    async (browserMessage, transportReason) => {
+      const { midenClientProxy } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      const transportError =
+        browserMessage === null
+          ? Object.defineProperty(new Error(), 'message', {
+              get() {
+                throw new Error('Unreadable transport message');
+              }
+            })
+          : new Error(`${browserMessage} account 0x1234567890abcdef amount 987654321`);
+      fakeChrome.runtime.sendMessage.mockRejectedValue(transportError);
 
-    const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
-    await flush();
-    fireReady();
-    const err = await p;
-    expect(err).toBeInstanceOf(OperationAbortedError);
-    expect((err as { reason?: string }).reason).toBe('transport');
-    expect((err as { facts?: unknown }).facts).toEqual({ started: false });
-    // The original transport message is preserved, not swallowed.
-    expect((err as Error).cause).toBe(transportError);
+      const p = midenClientProxy.call('getAccount', ['a'], { deadlineMs: null }).catch((e: Error) => e);
+      await flush();
+      fireReady();
+      const err = await p;
+      expect(err).toBeInstanceOf(OperationAbortedError);
+      expect((err as { reason?: string }).reason).toBe('transport');
+      expect((err as { facts?: unknown }).facts).toEqual({ started: false, transportReason });
+      // The original transport message is preserved, not swallowed.
+      expect((err as Error).cause).toBe(transportError);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    {
+      title:
+        'settles a synchronous sendMessage throw with no deadline as a transport abort and drops the in-flight entry',
+      deadlineMs: null
+    },
+    {
+      title: 'a synchronous sendMessage throw with a deadline does not leave the entry to fire that deadline',
+      deadlineMs: 20
+    }
+  ])('$title', async ({ deadlineMs }) => {
+    jest.useFakeTimers();
+    try {
+      const { midenClientProxy, __test } = await loadProxy(true);
+      const { OperationAbortedError } = await import('./offscreen-codec');
+      const transportError = new Error('Extension context invalidated.');
+      let inFlightAtDispatch: number | undefined;
+      fakeChrome.runtime.sendMessage.mockImplementation(() => {
+        inFlightAtDispatch = __test.inFlightSize();
+        throw transportError;
+      });
+      const timersBeforeCall = jest.getTimerCount();
+
+      const result = midenClientProxy.call('getAccount', ['a'], { deadlineMs }).catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      const error = await result;
+      expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
+      expect(inFlightAtDispatch).toBe(1);
+      expect(error).toBeInstanceOf(OperationAbortedError);
+      expect(error).toMatchObject({
+        reason: 'transport',
+        facts: { started: false, transportReason: 'context_invalidated' }
+      });
+      expect((error as Error).cause).toBe(transportError);
+      expect(__test.inFlightSize()).toBe(0);
+
+      expect(jest.getTimerCount()).toBe(timersBeforeCall);
+      await jest.advanceTimersByTimeAsync(40);
+      expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
+      expect(__test.inFlightSize()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
@@ -4371,6 +4523,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     async ({ invoke }) => {
       const { midenClientProxy } = await loadProxy(true);
       const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      const { isLockEvictedError } = await import('../sdk/sdk-error-code');
       fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
         ok: false,
         op_id: env.op_id,
@@ -4385,6 +4538,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       const err = await p;
 
       expect(isWasmClientPoisonedError(err)).toBe(true);
+      expect(isLockEvictedError(err)).toBe(true);
       expect((err as { reason?: string }).reason).toBe('realm-error');
     }
   );
@@ -4906,6 +5060,223 @@ describe('MidenClientProxy — the Guardian leaf submit gate (#1644)', () => {
       expect.objectContaining({ ok: false })
     );
     expect(submitGate).not.toHaveBeenCalled();
+  });
+
+  it('retracts an open submit gate for an in-flight op and refuses retract failures (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    const retract = jest.fn(async () => true);
+    const submitGate = Object.assign(
+      jest.fn(async () => true),
+      { retract }
+    );
+    const answers: unknown[] = [];
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      retract.mockResolvedValueOnce(false);
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      retract.mockRejectedValueOnce(new Error('IndexedDB failed'));
+      answers.push(
+        await handleOffscreenSubmitGate({
+          target: 'sw',
+          type: 'OFFSCREEN_SUBMIT_GATE',
+          op_id: env.op_id,
+          action: 'retract'
+        })
+      );
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(retract).toHaveBeenCalledTimes(3);
+    expect(answers).toEqual([
+      { ok: true },
+      expect.objectContaining({ ok: false, error: expect.stringContaining('already settled') }),
+      expect.objectContaining({
+        ok: false,
+        error: expect.stringContaining('could not retract its submit: Error: IndexedDB failed')
+      })
+    ]);
+  });
+
+  it('refuses retract completion if the op leaves inFlight while retracting (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    let opId = '';
+    let resolveRetract!: (ok: boolean) => void;
+    const submitGate = Object.assign(
+      jest.fn(async () => true),
+      {
+        retract: jest.fn(
+          () =>
+            new Promise<boolean>(resolve => {
+              resolveRetract = resolve;
+            })
+        )
+      }
+    );
+    let finishOp!: (r: unknown) => void;
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: any) =>
+        new Promise(resolve => {
+          opId = env.op_id;
+          finishOp = resolve;
+        })
+    );
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await flush();
+    const retractPending = handleOffscreenSubmitGate({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: opId,
+      action: 'retract'
+    });
+    await flush();
+    finishOp({ ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 });
+    await p;
+    resolveRetract(true);
+    const resolveRetractPending = await retractPending;
+    expect(resolveRetractPending).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('ended while retracting its submit') })
+    );
+  });
+
+  it('settles submitGate synchronously on takeInFlight, tracks task, and calls failClosed if op leaves inFlight mid-record (#2325)', async () => {
+    const { dispatchGuardianPipeline, handleOffscreenSubmitGate } = await loadProxy(true);
+    let opId = '';
+    let resolveRecord!: (ok: boolean) => void;
+    let releaseFailClosed!: () => void;
+    const settle = jest.fn();
+    const tracked: Promise<unknown>[] = [];
+    const track = jest.fn((task: Promise<unknown>) => {
+      tracked.push(task);
+    });
+    const failClosed = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          releaseFailClosed = resolve;
+        })
+    );
+    const submitGate = Object.assign(
+      jest.fn(
+        () =>
+          new Promise<boolean>(resolve => {
+            resolveRecord = resolve;
+          })
+      ),
+      { settle, failClosed, track }
+    );
+    let finishOp!: (r: unknown) => void;
+    fakeChrome.runtime.sendMessage.mockImplementation(
+      (env: any) =>
+        new Promise(resolve => {
+          opId = env.op_id;
+          finishOp = resolve;
+        })
+    );
+    const p = dispatchGuardianPipeline(
+      'acc',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      undefined,
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await flush();
+
+    const recordPending = handleOffscreenSubmitGate({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: opId,
+      evidence: { refBlock: 4 }
+    });
+    expect(track).toHaveBeenCalledTimes(1);
+    let trackedSettled = false;
+    void tracked[0]!.then(() => {
+      trackedSettled = true;
+    });
+    await flush();
+
+    expect(settle).not.toHaveBeenCalled();
+    finishOp({ ok: true, op_id: opId, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 });
+    await p;
+    expect(settle).toHaveBeenCalledTimes(1);
+
+    resolveRecord(true);
+    await flush();
+    expect(failClosed).toHaveBeenCalledTimes(1);
+    expect(trackedSettled).toBe(false);
+    releaseFailClosed();
+    expect(await recordPending).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('ended while recording its submit') })
+    );
+    await tracked[0];
+    expect(trackedSettled).toBe(true);
+  });
+
+  it('refuses action retract when the op gate has no retract handler (#2325)', async () => {
+    const { midenClientProxy, handleOffscreenSubmitGate } = await loadProxy(true);
+    const submitGate = jest.fn(async () => true);
+    let answer: unknown;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      answer = await handleOffscreenSubmitGate({
+        target: 'sw',
+        type: 'OFFSCREEN_SUBMIT_GATE',
+        op_id: env.op_id,
+        action: 'retract'
+      });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+    const p = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      jest.fn(async () => {}),
+      submitGate
+    );
+    await flush();
+    fireReady();
+    await p;
+    expect(submitGate).not.toHaveBeenCalled();
+    expect(answer).toEqual(
+      expect.objectContaining({ ok: false, error: expect.stringContaining('does not support retracting') })
+    );
   });
 });
 

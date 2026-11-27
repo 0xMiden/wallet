@@ -295,6 +295,7 @@ function registerOffscreenSignHandler(): void {
           publicKeyB64?: unknown;
           signingInputsB64?: unknown;
           stage?: ITransactionStage;
+          action?: unknown;
           evidence?: unknown;
           category?: ConnectivityCategory;
           active?: boolean;
@@ -432,6 +433,11 @@ function registerOffscreenSignHandler(): void {
     if (m.type === OFFSCREEN_SUBMIT_GATE) {
       if (typeof m.op_id !== 'string') return false;
       const opId = m.op_id;
+      const action = m.action === 'retract' ? 'retract' : m.action === 'enter' ? 'enter' : undefined;
+      if (m.action !== undefined && action === undefined) {
+        sendResponse({ ok: false, error: 'Invalid submit gate action' });
+        return true;
+      }
       const evidence = parseSubmitEvidence(m.evidence);
       startupHydration
         .then(() =>
@@ -439,6 +445,7 @@ function registerOffscreenSignHandler(): void {
             target: SW_TARGET,
             type: OFFSCREEN_SUBMIT_GATE,
             op_id: opId,
+            ...(action ? { action } : {}),
             evidence
           })
         )

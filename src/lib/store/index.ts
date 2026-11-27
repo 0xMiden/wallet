@@ -7,7 +7,7 @@ import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
-import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { remapBalanceRows, tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -200,7 +200,7 @@ function withOverrides(
     balances = Object.fromEntries(
       Object.entries(balances).map(([account, rows]) => [
         account,
-        rows.map(row =>
+        remapBalanceRows(rows, row =>
           row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
             ? {
                 ...row,
@@ -240,6 +240,7 @@ export function withLandedBalances(
   | 'balancesDisplayFaucetId'
   | 'balancesLoading'
   | 'balancesLastFetched'
+  | 'balanceRefreshFailed'
 > {
   const balancesDisplayFaucetId = { ...state.balancesDisplayFaucetId };
   if (midenFaucetId === null) delete balancesDisplayFaucetId[accountAddress];
@@ -257,7 +258,8 @@ export function withLandedBalances(
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
-    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
+    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() },
+    balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: false }
   };
   const finalRows = result.balances[accountAddress];
   if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
@@ -325,6 +327,7 @@ export const useWalletStore = create<WalletStore>()(
     balances: {},
     balancesLoading: {},
     balanceReadFailed: {},
+    balanceRefreshFailed: {},
     balanceReadInFlight: {},
     balancesLastFetched: {},
     balancesDisplayFaucetId: {},
@@ -1017,15 +1020,18 @@ export const useWalletStore = create<WalletStore>()(
         set(state => ({
           balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: true }
         }));
-        const recordUnlandedRead = () => {
+        const recordUnlandedRead = (markRefreshFused: boolean) => {
           const hasBalances = get().balances[accountAddress] !== undefined;
           if (hasBalances) {
             set(state => ({
-              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false },
+              ...(markRefreshFused
+                ? { balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: true } }
+                : {})
             }));
             return;
           }
-          if (isSyncFused('balances')) {
+          if (markRefreshFused) {
             set(state => ({
               balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
             }));
@@ -1053,13 +1059,13 @@ export const useWalletStore = create<WalletStore>()(
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) {
-          recordUnlandedRead();
+          recordUnlandedRead(isSyncFused('balances'));
           return;
         }
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) {
-          recordUnlandedRead();
+          recordUnlandedRead(false);
           return;
         }
         set(state => ({
@@ -1070,6 +1076,10 @@ export const useWalletStore = create<WalletStore>()(
         if (get().balances[accountAddress] === undefined) {
           set(state => ({
             balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+          }));
+        } else {
+          set(state => ({
+            balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: true }
           }));
         }
         throw error;
@@ -1093,6 +1103,7 @@ export const useWalletStore = create<WalletStore>()(
         balancesLoading: {},
         balancesLastFetched: {},
         balanceReadFailed: {},
+        balanceRefreshFailed: {},
         balanceReadInFlight: {}
       });
     },

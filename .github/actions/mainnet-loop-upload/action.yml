@@ -51,7 +51,13 @@ runs:
           done <<< "$ALTERNATIVE_GATES"
           read -r pid < "$PID_FILE"
           [[ "$pid" =~ ^[1-9][0-9]*$ ]]
-          kill -0 "$pid" 2>/dev/null
+          if ! kill -0 "$pid" 2>/dev/null; then
+            base="${PID_FILE%.pid}"
+            echo "::error::$(basename "$base") exited (code $(cat "$base.exit" 2>/dev/null || echo unknown)) before ${GATE} was ready"
+            # Only native NEAR logs are tailed; swap and Epoch logs stay private.
+            case "$(basename "$base")" in near-*) node scripts/mainnet-log-tail.mjs "$base.log" || true ;; esac
+            exit 1
+          fi
           if [ "$SECONDS" -ge "$deadline" ]; then echo 'Mainnet request did not become ready'; exit 1; fi
           sleep 1
         done

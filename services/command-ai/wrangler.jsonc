@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4.151.3/config-schema.json",
+  "name": "miden-command-ai",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false,
+    "logs": { "enabled": false, "invocation_logs": false },
+    "traces": { "enabled": false }
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "DEPLOYMENT_REVISION": "unknown"
+  },
+  // GROQ_API_KEY is a secret. Set it with `wrangler secret put` or `--secrets-file`. Do not put it in vars.
+  "ratelimits": [
+    // Limits POST /v1/compile per caller address. Namespace 189401-189402 belong to feature-eligibility.
+    { "name": "COMMAND_AI_RATE_LIMIT", "namespace_id": "189405", "simple": { "limit": 30, "period": 60 } }
+  ]
+}

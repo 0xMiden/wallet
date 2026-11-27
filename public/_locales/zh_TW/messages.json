@@ -193,6 +193,159 @@
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
   },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR 意圖",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$ 秒",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$ 分鐘",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "您將收到 $amount$ $symbol$",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intents 並未在此網路中提供此代幣。",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "此金額過小，無法用於 NEAR Intents。請輸入較大的金額。",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intents 無法將訊息傳送至此地址。請檢查地址及網路。",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "報價已變更，目前提供的金額低於您審閱的金額。請審閱新報價，然後再次確認。",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "報價在付款開始前已過期。請檢視新報價，然後再次確認。",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "若交換失敗，NEAR Intents 將向此 Miden 帳戶退還該筆金額。",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "已產生存款地址",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "發送至存款地址",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "開始新的轉帳",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "支付至存款地址的交易失敗，因此資金並未轉移。請重新發起一筆轉帳以取得新的存款地址。",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "生成存款地址",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "資金已發送至 NEAR Intents。發送至 $network$ 的過程仍在進行中。請在「活動」中追蹤其狀態。",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intents 已透過 $network$ 完成付款。",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "收款人將獲得（估計）",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "交割狀態",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "發送至 NEAR Intents",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "已送達收件人",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "已過期",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "付款已退還",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intents 無法完成交換交易，並已將該金額退還至您的 Miden 帳戶。",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "交割失敗",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intents 無法完成此筆付款。請開啟活動頁面查看詳細資訊。",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "交割已過期",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intents 未能及時處理此筆付款。請開啟活動頁面以查看詳細資訊。",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "收件者收到",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "在 $network$ 區塊鏈瀏覽器上查看",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "bridgeRouteUnavailableBody": {
     "message": "此轉帳無法使用此路徑。您可以選擇其他可用的路徑繼續操作。此畫面尚未提交任何交易。",
     "englishSource": "This route is unavailable for this transfer. You can continue with another available route. No transaction has been submitted from this screen."
@@ -670,6 +823,163 @@
         "content": "$1"
       }
     }
+  },
+  "seeAll": {
+    "message": "查看全部",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ 以領取",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ 領取",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "更新餘額",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "無法進行負載平衡。",
+    "englishSource": "Could not load balance."
+  },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "無法更新餘額。顯示最後一次確認的餘額。",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "$symbol$ 在 $network$ 上的固定匯率為 1.00 美元。",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$ 在 $provider$ 上的價格，來自 $network$，更新時間為 $retrievedAt$。",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "$network$ 上的 Vault USD 價值，更新於 $retrievedAt$。",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "美元價格已過時",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "來自 $provider$ 於 $network$（$retrievedAt$）的最新 $symbol$ 價格已超過 10 分鐘，且未計入總計中。",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "$network$ 上金庫的最新美元價值（$retrievedAt$）已超過 10 分鐘，且未計入總額中。",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "最新 USD 價格已超過 10 分鐘，且不會顯示在總額中。",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "美元價格無法取得",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "$network$ 上目前沒有可驗證的美元價格。",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "無法載入美元價格。在頁面重新整理前，餘額總計不包含美元價值。",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "此代幣已在測試網（Testnet）上註銷，無法進行轉帳。",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "發送前請在「代幣資訊」中設定代幣的小數位數。",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "無可用餘額可供轉帳。",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "目前尚無可用餘額可供轉帳。請先處理待處理的轉帳。",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "無法進行負載平衡。請在傳送前重試。",
+    "englishSource": "Could not load balance. Try again before sending."
   },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
@@ -2298,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "開啟時，交易證明會在遠端伺服器上產生——速度更快，無需在您的裝置上下載大量資料，且您的金鑰絕不會離開裝置。關閉時，或當服務不可用時，錢包會進行本地驗證：隱私性更高，但速度較慢，且需要進行一次大量資料的下載。",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "預設為開啟。開啟時，錢包會將交易詳情傳送至遠端服務以生成證明；關閉時，錢包會在您的裝置上本地驗證交易，惟橋接提領及「Earn」存款除外，這兩種情況仍會嘗試使用該遠端服務。若服務不可用，則可進行本地驗證。",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "轉帳",
@@ -2413,8 +2723,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "輸入 Miden 或 Ethereum 位址",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "輸入地址",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "此錢包無法向此地址發送資金",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "比特幣",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "選擇金額",
@@ -3349,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardian 是一項獨立服務，<b>會確認您錢包中的每筆交易</b>，在無需放棄自主保管的前提下，為您增添一道安全網。",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardian 是一項獨立服務，<b>協助授權您的交易</b>。您的 Guardian 可以查看您的帳戶及付款詳情。",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "功能說明",
@@ -3365,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "自主調度您的資金。查看您的私人帳戶狀態。除非您選擇分享，否則僅您本人能查看帳戶餘額。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "自行轉移您的資金。",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "轉換非常簡單",
@@ -3500,10 +3826,6 @@
     "message": "Miden 網路",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "變更網路",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "提供者",
     "englishSource": "Provider"
@@ -3527,6 +3849,19 @@
   "commandBridgeTo": {
     "message": "至",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "來源：$provider$",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "未找到任何代幣",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "資產、網路與服務提供者",
@@ -3868,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "除非您知道自己的 12 字恢復短語，或擁有加密的備份檔案，否則請勿登出。",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "在您確認替換之前，目前的錢包會保留在此裝置上。繼續之前，請先準備好您的 12 字恢復短語、Guardian 金鑰或加密的備份檔案。",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "需要透過生物辨識解鎖",
@@ -4707,6 +5042,10 @@
   "bridgeRouteViaAgglayer": {
     "message": "經由 Agglayer",
     "englishSource": "Via Agglayer"
+  },
+  "bridgeRouteViaOneClick": {
+    "message": "透過 1Click",
+    "englishSource": "Via 1Click"
   },
   "bridgeSpeedFast": {
     "message": "快速",
@@ -7063,6 +7402,10 @@
     "message": "在入职时允许“无监护人”选项",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "顯示全螢幕按鈕",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "未加引號的代幣價值設為 1 美元（僅限測試網路）",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -7267,8 +7610,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "請告知您使用的錢包功能、卡住的位置、錯誤的大致類別、應用程式版本以及您的平台，以便我們修復問題。切勿提供您的金鑰、恢復短語、密碼、地址、餘額、金額或交易內容。 我們不會跨其他應用程式或網站進行追蹤，不會將任何資料用於廣告，也不會將資料出售或分享給資料經紀商。無論如何，當程式發生當機時，系統都會傳送錯誤報告：內容包含錯誤訊息及發生位置的程式碼段落，並已進行資料淨化以移除敏感資訊，且不含您或您裝置的任何識別資訊。您可隨時變更此設定。",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "請說明您開啟了哪些畫面、每個畫面顯示的時間長短、您是如何進入該頁面的、您看到或選取了哪些功能控制項、您使用的是哪個視窗、您卡在何處、錯誤的大致類別、應用程式版本以及您的平台，以便我們能修復出現問題的部分。 絕不會收集您的私鑰、恢復短語、密碼、地址、餘額、金額或交易內容。 我們不會跨其他應用程式或網站進行追蹤，不會將任何資料用於廣告，也不會將資料出售或分享給資料經紀商。當程式發生當機時，系統會自動傳送當機報告：內容包含錯誤訊息及發生位置（已從程式碼中刪除敏感資料），且不包含您或您裝置的任何識別資訊。您可隨時變更此設定。",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "分享使用數據",
@@ -7287,8 +7630,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "請說明您使用錢包的哪些功能、遇到困難的環節、錯誤的大致類別、應用程式版本以及您使用的平台。",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "您開啟了哪些畫面、每個畫面顯示的時間長短、您如何進入該畫面、您看到或選取了哪些功能控制項、您使用的是哪個視窗、您卡在何處、錯誤的大致類別、應用程式版本，以及您的平台。",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -7975,6 +8318,14 @@
   "activityAcceptingTransfer": {
     "message": "正在接受…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "索賠已排入佇列",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "索取請求已排入佇列。錢包將自動重新嘗試。",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "轉帳",
@@ -10026,5 +10377,749 @@
   "loginSignatureTitle": {
     "message": "這僅僅是登入",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "指令助理",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "發送、兌換、跨鏈轉帳、賺取，或查詢您的錢包……",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "執行",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "思考中……",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "展開為多行",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "壓縮為單行",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "受保護：$kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "開啟表單",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "您想使用哪條橋接路徑？",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "您想將訊息傳送給誰？",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "有多個聯絡人與該名稱相符。是哪一位？",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$ 內容不完整。您是指您儲存的聯絡人之一嗎？",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$ 為不完整的地址。請輸入完整地址或選擇一位聯絡人。",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "此處不支援 $name$ 形式的 ENS 名稱。請輸入完整地址或選擇一位聯絡人。",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "該地址屬於另一個 Miden 網路。",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "請輸入有效的 Miden 或目的地地址。",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "請指定收件者地址或聯絡人姓名。",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "無法在您的錢包中找到資產 $asset$。",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "您想使用哪種資產？",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "您想轉出多少？",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "您想收到哪種代幣？",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "您想存入哪個 Earn 保管庫？",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "您要從哪個 Earn 倉位中提領？",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "目前沒有可用的匹配橋接路徑。",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "此選項不存在。請選擇其他選項之一：",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
+  "commandAiSwapUnavailable": {
+    "message": "該交易對目前暫不提供交換服務。",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "目前沒有任何「Earn」金庫或倉位可用。",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "該代幣目前無法提供即時美元價格。請輸入代幣數量。",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "無法安全驗證此請求。請嘗試重新表述或使用下方的表單。",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "此處不支援該操作。請嘗試「轉帳」、「交換」、「跨鏈」、「賺取」或提出錢包相關問題。",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "無需進行任何主動更新。請輸入完整的指令。",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "AI 代理尚未設定。請設定端點或使用下方的操作列。",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AI 服務暫時無法使用。請稍後重試或使用下方的表單。",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "AI 服務已達速率限制。請稍後重試。",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "錢包餘額",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "配對總額",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "配對活動",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "未找到相符的條目。",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "於本裝置上私下計算",
+    "englishSource": "Computed privately on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "對話",
+    "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "關於 Bread 的問題",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "閱讀更多",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Miden 是如何運作的？",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "這有多私密？",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "我該如何確認哪些資訊屬於私有資訊？",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "何謂「橋接」？",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "什麼是notes？",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "為什麼我必須接受轉帳？",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "為何轉帳狀態仍顯示為「待處理」？",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "如果我拒絕一筆轉帳，會發生什麼情況？",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "為什麼我需要 USDCX 來支付手續費？",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "如果我遺失了裝置該怎麼辦？",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "主網與測試網有何區別？",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistant 會看到什麼？",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "我該如何確保安全？",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "在 Bread 中我可以做什麼？",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Bread 會在移除部分細節後，將您的問題轉送至其 AI 服務。請勿在聊天中透露密碼和恢復短語。",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "請勿在聊天中透露密碼、私鑰及恢復短語。",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "請將您的訊息縮短至 $limit$ 個字元或更少。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridge 隱私權政策",
+    "englishSource": "Bridge privacy policy"
+  },
+  "commandAiPlanTitle": {
+    "message": "行動計畫",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "$current$ 步驟，共 $total$ 步驟",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "步驟 $num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "有效",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "接下來",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "完成",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "請在下方對話方塊中確認此步驟，然後繼續。",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "步驟已提交！準備進行下一步。",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "所有步驟已完成",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "下一步",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "繼續",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "完成計畫",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "停止",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "先前輸出",
+    "englishSource": "Previous output"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "將 10 USDCx 發送給 John",
+    "englishSource": "Send 10 USDCx to John"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "將 1 ETH 轉入，並兌換為 USDCx",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "彙總我上週的活動",
+    "englishSource": "Summarize my last week activity"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "讓 10 USDCx 以最有效率的方式獲利",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "存入 1 ETH，兌換為 USDCx，並存入「頂級收益金庫」",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "本月我轉出了多少 USDCx？",
+    "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "此網路不支援「中間名」。",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "地址或中間名",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "請輸入地址或名稱.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "已解決的連結：$address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "命名收款交易",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "正在查詢此名稱……",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "沒有任何帳戶使用此名稱",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "無法查詢此名稱。請重新嘗試。",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "中間名",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "申領名稱",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "立即取得專屬的 $suffix$ 名稱，永久屬於您",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "申領名稱",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "申領一個他人可發送至的名稱",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "隱藏",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "隨時可申領名稱",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "您的姓名",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 個字元 · 僅限 a–z 及 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 已提供",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 此詞彙已被佔用",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "輸入名稱",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "字數請控制在 21 個字元以內",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "僅使用 a–z 及 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "正在檢查……",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "無法驗證此名稱。請重新嘗試。",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name 目前不接受新名稱",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "價格已變更。請確認新價格並重新嘗試。",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "價格 · 長度 $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "網路手續費",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "最高交易手續費",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "總計",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "前往",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "餘額為",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "註冊屬永久性。名稱將綁定至此帳戶，且費用不予退還。",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN 還不夠。你需要 $amount$。",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "申領 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "請求已發送",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "由 Miden Name 發行並發布的名稱",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "將其加入您的帳戶",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "這個名稱已被他人先註冊了。",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "註冊機構未能及時處理該請求。",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "註冊系統無法處理此請求。",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "請求交易失敗。未註冊任何名稱。",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "名稱已發行，但無法成功將其新增至您的帳戶。",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "重新嘗試申領",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "申領 $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "完成",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "持有",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "領取",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "失敗",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "尚未收錄於註冊表中",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "此帳戶已解決",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "您目前尚未設定中間名",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "「Claim」的另一種稱呼",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "主要名稱",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "您的名稱",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "正在查閱註冊表……",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "將轉入另一個帳戶",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "註冊名稱",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "註冊名稱",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "註冊網址：$name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "已收到 $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "查看狀態",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "名稱",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "註冊表",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "註冊網址 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "階段",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "要替換現有錢包嗎？",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼建立新錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "這將永久清除此裝置上目前的錢包，並使用您剛設定的密碼還原已復原的錢包。",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "如果您仍需要目前的錢包，請確認手邊保有目前的恢復短語或備份。此操作無法復原。",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "清除並還原錢包",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "清除並建立錢包",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "返回登入",
+    "englishSource": "Back to sign in"
   }
 }

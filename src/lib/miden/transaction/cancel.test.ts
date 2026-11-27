@@ -530,8 +530,16 @@ describe('queueHiddenBucket', () => {
     expect(queueHiddenBucket(row, nowMs)).toBe('unobserved');
     expect(queueHiddenBucket({ initiatedAt: Number.NaN } as ITransaction, nowMs)).toBe('unobserved');
   });
-  it('splits a recorded wait into none, under half and half or more', () => {
+  it('reports unobserved when the queued wait began before visibility recording', () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(2_000_000);
     initBackgroundTimeTracking();
+    clock.mockRestore();
+    expect(queueHiddenBucket(row, nowMs)).toBe('unobserved');
+  });
+  it('splits a recorded wait into none, under half and half or more', () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(900_000);
+    initBackgroundTimeTracking();
+    clock.mockRestore();
     const hidden = jest.mocked(hiddenSecondsSince);
     hidden.mockReturnValue(0);
     expect(queueHiddenBucket(row, nowMs)).toBe('none');

@@ -38,12 +38,11 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({
   onInitialLoad,
   onReturnToList
 }) => {
-  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
-    useActivityClaimList(search, 'all');
   const activityContacts = useActivityContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
-
   const nameOf = useMemo(() => activityCounterpartyNames(activityContacts), [activityContacts]);
+  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
+    useActivityClaimList(search, 'all', undefined, nameOf);
 
   return (
     <>

@@ -1,4 +1,4 @@
-const SCENARIOS = new Set([
+export const TOPOLOGY_SCENARIOS = Object.freeze([
   'cache_reuse',
   'colo_isolation',
   'shared_budget',
@@ -8,6 +8,7 @@ const SCENARIOS = new Set([
   'failure_behavior',
   'restart_day'
 ]);
+const SCENARIOS = new Set(TOPOLOGY_SCENARIOS);
 
 function reply(status, body) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });

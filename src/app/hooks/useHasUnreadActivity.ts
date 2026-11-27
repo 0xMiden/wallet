@@ -17,6 +17,7 @@ import {
 import { ITransaction } from 'lib/miden/db/types';
 import { useAccount } from 'lib/miden/front';
 import { useManuallyClaimableNotes } from 'lib/miden/front/auto-managed-notes';
+import * as Repo from 'lib/miden/repo';
 import { isActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 
 /**
@@ -79,12 +80,14 @@ async function readRecentCompletedRows(address: string, lookup: ClaimEvidenceLoo
  * high-water mark it falls on.
  */
 async function readRecentRows(address: string): Promise<RecentRow[]> {
-  const lookup = createClaimEvidenceLookup();
-  const [uncompleted, completed] = await Promise.all([
-    getUncompletedTransactions(address).then(rows => suppressLinkedConsumes(rows, lookup)),
-    readRecentCompletedRows(address, lookup)
-  ]);
-  return [...uncompleted.map(row => toRecentRow(row, row.initiatedAt)), ...completed];
+  return Repo.db.transaction('r', Repo.transactions, async () => {
+    const lookup = createClaimEvidenceLookup();
+    const [uncompleted, completed] = await Promise.all([
+      getUncompletedTransactions(address).then(rows => suppressLinkedConsumes(rows, lookup)),
+      readRecentCompletedRows(address, lookup)
+    ]);
+    return [...uncompleted.map(row => toRecentRow(row, row.initiatedAt)), ...completed];
+  });
 }
 
 /**

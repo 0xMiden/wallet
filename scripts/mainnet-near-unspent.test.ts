@@ -1,4 +1,6 @@
 /** @jest-environment node */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { OneClickStatusResponse } from '../src/lib/one-click/types';
 import type { MainnetNearCheckpoint } from '../playwright/e2e/helpers/mainnet-near-checkpoint';
 import { hashOneClickQuote } from '../src/lib/one-click/signature';
@@ -57,7 +59,11 @@ jest.mock('../playwright/e2e/helpers/mainnet-miden-indexer', () => ({
 }));
 jest.mock('../playwright/e2e/helpers/swap', () => ({}));
 jest.mock('../playwright/e2e/ios/helpers/wc-counterparty', () => ({}));
-import { claimMainnetNearNote, runMainnetNearStage } from '../playwright/e2e/helpers/mainnet-near-runtime';
+import {
+  claimMainnetNearNote,
+  recordNearStageCause,
+  runMainnetNearStage
+} from '../playwright/e2e/helpers/mainnet-near-runtime';
 
 const env = { ...process.env };
 const wallet = { getAccountAddress: jest.fn(), extensionId: 'a'.repeat(32), page: {} };
@@ -340,5 +346,150 @@ describe('native NEAR recovery reporting', () => {
     const recoverNear = jest.fn().mockRejectedValue(new Error('unresolved'));
     await expect(run(value, recoverNear)).rejects.toThrow('Original native NEAR recovery blocked');
     expect(reported(value)).toEqual([]);
+  });
+});
+
+describe('native NEAR stage failure cause', () => {
+  const info = () => ({ annotations: [] as { type: string; description?: string }[], timeout: 30_000 });
+  const written = () =>
+    mockWrite.mock.calls.filter(([path]) => path === 'test-results/mainnet-near-forward-stage.json');
+  beforeEach(() => {
+    process.env.E2E_NETWORK = 'mainnet';
+    process.env.GITHUB_RUN_ID = '43930000000';
+    process.env.GITHUB_RUN_ATTEMPT = '1';
+    process.env.E2E_MAINNET_GUARDIAN_KEY_PAIR = 'existing-original-secret';
+    process.env.E2E_WALLET_REPORT_INVOCATION = 'near-recover';
+    process.env.MAINNET_NEAR_FORWARD_ATTEMPTED = 'true';
+    mockWrite.mockClear();
+    const { state } = fixture();
+    state.phase = 'recovery-required';
+    Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` });
+    mockState.mockReturnValue(state);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+  });
+  afterEach(() => {
+    process.env = { ...env };
+  });
+  it('keeps a sanitized bounded cause while the thrown error stays generic', async () => {
+    const secret = 'topsecretvalue-123456';
+    process.env.E2E_MAINNET_EVM_KEY = secret;
+    const recoverNear = jest
+      .fn()
+      .mockRejectedValue(new TypeError(`boom ${secret} 0x${'ab'.repeat(32)} token=abc ${'x'.repeat(900)}`));
+    const failure = Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', info(), recoverNear]);
+    await expect(failure).rejects.toThrow(
+      'Original native NEAR recovery blocked; retain its original public checkpoint, never renew uncertain authority'
+    );
+    const [, body] = written().at(-1) ?? [];
+    const cause = JSON.parse(String(body)).cause as string;
+    expect(cause).toContain('TypeError: boom');
+    expect(cause).not.toContain(secret);
+    expect(cause).not.toContain('ab'.repeat(32));
+    expect(cause).not.toContain('abc');
+    expect(cause.length).toBeLessThanOrEqual(300);
+  });
+  const stored = () => JSON.parse(String(written().at(-1)?.[1])).cause as string;
+  it('records the real cause of a wrapped error instead of its generic wrapper', () => {
+    const wrapper = new Error('Native NEAR return blocked; never retry', { cause: new Error('nonce too low') });
+    recordNearStageCause(wrapper);
+    expect(stored()).toContain('nonce too low');
+    expect(stored()).not.toContain('never retry');
+  });
+  it('keeps only the first line of the message and the other stage-file fields', () => {
+    const read = jest.spyOn(jest.requireMock('node:fs'), 'readFileSync').mockReturnValue('{"stage":"arm","other":1}');
+    try {
+      recordNearStageCause(new Error('rejected\nCall log:\n  - sk-live-leaky'));
+    } finally {
+      read.mockRestore();
+    }
+    const body = JSON.parse(String(written().at(-1)?.[1]));
+    expect(body).toMatchObject({ stage: 'arm', other: 1, cause: 'Error: rejected' });
+  });
+  it('still logs the cause when the stage file cannot be written', () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockWrite.mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+    try {
+      expect(() => recordNearStageCause(new Error('real cause'))).not.toThrow();
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('real cause'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it('lets the generic error propagate when the rejection cannot be stringified', async () => {
+    const hostile = {
+      toString() {
+        throw new Error('hostile');
+      }
+    };
+    const recoverNear = jest.fn().mockRejectedValue(hostile);
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await expect(
+        Reflect.apply(runMainnetNearStage, undefined, [wallet, 'recover', info(), recoverNear])
+      ).rejects.toThrow('Original native NEAR recovery blocked');
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('[object Object]'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it('source guard: wraps the blocked return error around the rejected transfer so its cause is not lost', () => {
+    const source = readFileSync(resolve(__dirname, '../playwright/e2e/helpers/mainnet-near-runtime.ts'), 'utf8');
+    expect(source).toMatch(/signed journal, never retry',\s*\{\s*cause: error\s*\}\s*\)/);
+  });
+});
+
+describe.each([
+  ['45334301017', 90],
+  ['45828549283', 100]
+])('quoteless NEAR preflight stop gate for run %s', (runId, expectedNonce) => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-25T06:00:00Z'));
+    Object.assign(process.env, {
+      E2E_NETWORK: 'mainnet',
+      GITHUB_RUN_ID: '45400000000',
+      GITHUB_RUN_ATTEMPT: '1',
+      MAINNET_NEAR_FORWARD_ATTEMPTED: 'true',
+      MAINNET_NEAR_PREAUTH_UNSPENT: 'true',
+      E2E_MAINNET_GUARDIAN_KEY_PAIR: 'existing-original-secret'
+    });
+    const { state } = fixture();
+    state.sourceRunId = state.authorizationRunId = runId;
+    delete state.forwardQuote;
+    mockState.mockReturnValue(state);
+    jest.mocked(wallet.getAccountAddress).mockResolvedValue(state.account);
+    mockVault.mockResolvedValue(BigInt(state.native.balance));
+    mockClient.getChainId.mockResolvedValue(state.evm.chainId);
+    mockClient.getBalance.mockResolvedValue(BigInt(state.evm.nativeBalance));
+    mockClient.readContract.mockResolvedValue(BigInt(state.evm.tokenBalance));
+    mockClient.getTransactionCount.mockResolvedValue(expectedNonce);
+  });
+  afterEach(() => {
+    process.env = { ...env };
+    jest.useRealTimers();
+  });
+  it('accepts the audited run without a quote and marks it unspent without any provider call', async () => {
+    await expect(recover()).resolves.toBeUndefined();
+    expect(mockSave).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ phase: 'unspent' }));
+    expect(mockStatus).not.toHaveBeenCalled();
+    expect(mockSubmit).not.toHaveBeenCalled();
+  });
+  it.each([
+    [
+      'another run id',
+      (state: MainnetNearCheckpoint) => (state.sourceRunId = state.authorizationRunId = '45055827591')
+    ],
+    [
+      'a send authority',
+      (state: MainnetNearCheckpoint) => Reflect.set(state, 'sendAuthority', { noteId: `0x${'1'.repeat(64)}` })
+    ],
+    ['a changed nonce', () => mockClient.getTransactionCount.mockResolvedValue(expectedNonce + 1)]
+  ])('rejects a quoteless checkpoint with %s', async (_name, change) => {
+    change(mockState());
+    await expect(recover()).rejects.toThrow();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
   });
 });

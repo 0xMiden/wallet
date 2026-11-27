@@ -31,7 +31,9 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
 }));
 jest.mock('lib/miden/swap/tokens', () => ({
   tokenQuote: (prices: Record<string, typeof quote>, id: string) =>
-    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id]
+    id === 'fixed' ? jest.requireActual('lib/prices/fixed').fixedQuote('USDCX') : prices[id],
+  // 'unlisted' stands for a token no list prices (MICO on mainnet): no quote can ever arrive for it.
+  quoteMayArrive: (id: string) => id !== 'fixed' && id !== 'unlisted'
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'testnet',
@@ -57,6 +59,7 @@ function Probe({ requested = scope }: { requested?: typeof scope }) {
         coverage: portfolio.coverage,
         coverageKey: portfolio.coverageKey,
         assets: portfolio.assets.map(asset => asset.tokenId),
+        actionBalances: portfolio.actionBalances?.map(asset => asset.tokenId) ?? null,
         canRecord: portfolio.canRecord,
         empty: portfolio.empty,
         allocation: 'allocation' in portfolio ? portfolio.allocation : undefined
@@ -97,6 +100,22 @@ it('derives the separate 24h market-price move from current quantities, not obse
   );
   view.rerender(<Probe requested={{ ...scope, rpcUrl: 'https://node-b' }} />);
   expect(screen.getByRole('status').textContent).toContain('"priceMovement24h":null');
+});
+
+it('keeps an older proof on the figure and withholds it from an action', () => {
+  const prove = (capturedAt: number) =>
+    tagBalanceSnapshot(
+      rows,
+      { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt },
+      scope.accountId
+    );
+  prove(Date.now() - 2 * 15 * 60_000);
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"assets":["priced"]');
+  expect(screen.getByRole('status').textContent).toContain('"actionBalances":[]');
+  prove(Date.now());
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"actionBalances":["priced"]');
 });
 
 it('keeps current token identities when quote service is loading or failed, without publishing cached fiat', () => {
@@ -144,6 +163,26 @@ it.each(['ready', 'error'] as const)('displays a fresher cached quote without re
     allocation: [],
     canRecord: false,
     priceMovement24h: null
+  });
+});
+
+it('shows the cached-quote total on the first frame even when another held token has no quote', () => {
+  const now = Date.now();
+  rows = [row('priced', 3), row('unquoted', 1)];
+  tagBalanceSnapshot(
+    rows,
+    { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt: now },
+    scope.accountId
+  );
+  mockCachedPrices = {
+    priced: { ...quote, price: 4, observedAt: now - 1000, change24h: NaN, percentageChange24h: NaN }
+  };
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  render(<Probe />);
+  expect(JSON.parse(screen.getByRole('status').textContent ?? '')).toMatchObject({
+    value: '12',
+    coverage: 'partial',
+    canRecord: false
   });
 });
 
@@ -373,4 +412,54 @@ it('refuses nominal or stale quotes and a balance proof from an old read', () =>
   );
   view.rerender(<Probe />);
   expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+});
+
+const prove = (capturedAt = Date.now()) =>
+  tagBalanceSnapshot(
+    rows,
+    { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt },
+    scope.accountId
+  );
+
+it.each(['loading', 'error'] as const)(
+  'values fixed holdings beside a token no quote can reach while the feed is %s',
+  status => {
+    rows = [row('fixed', 4.25), row('unlisted', 12.5)];
+    useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: status });
+    prove();
+    render(<Probe />);
+    const text = screen.getByRole('status').textContent;
+    expect(text).toContain('"value":"4.25"');
+    expect(text).toContain('"coverage":"partial"');
+    expect(text).toContain('"canRecord":false');
+  }
+);
+
+it('waits for the feed while a held token without a quote may still be quoted', () => {
+  rows = [row('fixed', 4.25), row('pending', 1)];
+  useWalletStore.setState({ balances: { 'account-a': rows }, tokenPrices: {}, tokenPricesStatus: 'loading' });
+  prove();
+  render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
+});
+
+it('shows the last proven balance past the record window without recording it', () => {
+  prove(Date.now() - 2 * 60 * 60_000);
+  render(<Probe />);
+  const text = screen.getByRole('status').textContent;
+  expect(text).toContain('"value":"6"');
+  expect(text).toContain('"assets":["priced"]');
+  expect(text).toContain('"canRecord":false');
+});
+
+it('values a cached quote up to a day old without recording it, and none older', () => {
+  useWalletStore.setState({ tokenPrices: {}, tokenPricesStatus: 'loading' });
+  prove();
+  mockCachedPrices = { priced: { ...quote, observedAt: Date.now() - 3 * 60 * 60_000 } };
+  const view = render(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":"6"');
+  expect(screen.getByRole('status').textContent).toContain('"canRecord":false');
+  mockCachedPrices = { priced: { ...quote, observedAt: Date.now() - 25 * 60 * 60_000 } };
+  view.rerender(<Probe />);
+  expect(screen.getByRole('status').textContent).toContain('"value":null');
 });

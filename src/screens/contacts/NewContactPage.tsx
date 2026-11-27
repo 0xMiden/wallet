@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -17,6 +17,14 @@ import { TextField } from 'components/ui/TextField';
 import { usePreset } from 'lib/animation';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { isMidenNameSupported } from 'lib/miden/name/config';
+import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
+import { resolveMidenName } from 'lib/miden/name/resolver';
+import {
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  subscribeEffectiveEndpoints
+} from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -27,9 +35,11 @@ import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { useContactBridgeNetworks } from './contact-network';
+import { isContactAddressChain, useContactBridgeNetworks } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
+
+const getRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), getEffectiveRpcUrl()]);
 
 /**
  * New contact, from Settings → Address Book: the address (typed, pasted or scanned), its network,
@@ -48,7 +58,8 @@ export const NewContactPage: React.FC = () => {
   // The invalid-address message waits until the field is left (or filled by paste or scan), so it
   // does not flash on every keystroke of an address still being typed.
   const [addressTouched, setAddressTouched] = useState(false);
-  const [name, setName] = useState('');
+  const [name, setName] = useState<string>();
+  const [nameLookup, setNameLookup] = useState<{ input: string; scope: string; address?: string; error?: string }>();
   const [network, setNetwork] = useState<BridgeNetworkId>(() => defaultBridgeNetwork().id);
   const networks = useContactBridgeNetworks();
   const selectedNetwork = networks.find(option => option.id === network)?.id ?? defaultBridgeNetwork().id;
@@ -62,12 +73,49 @@ export const NewContactPage: React.FC = () => {
   useMobileBackHandler(() => saving, [saving]);
 
   const trimmedAddress = address.trim();
-  const trimmedName = name.trim();
-  const isValid = isValidRecipientAddress(trimmedAddress);
-  const isEvm = detectAddressChain(trimmedAddress) === 'ethereum';
+  const isMidenName = looksLikeMidenName(trimmedAddress);
+  const scope = useSyncExternalStore(subscribeEffectiveEndpoints, getRegistryScope, getRegistryScope);
+  const nameSupported = useSyncExternalStore(subscribeEffectiveEndpoints, isMidenNameSupported, isMidenNameSupported);
+  const lookup = nameLookup?.input === trimmedAddress && nameLookup.scope === scope ? nameLookup : undefined;
+  const resolving = isMidenName && nameSupported && !lookup?.address && !lookup?.error;
+  const resolvedAddress = isMidenName ? (nameSupported ? (lookup?.address ?? '') : '') : trimmedAddress;
+  const suggestedName = isMidenName && lookup?.address ? formatMidenName(normalizeMidenNameInput(trimmedAddress)) : '';
+  const displayName = name ?? suggestedName;
+  const trimmedName = displayName.trim();
+  const addressChain = detectAddressChain(resolvedAddress);
+  // A Solana, Bitcoin or NEAR address is a send recipient, but not a contact.
+  const isValid = isValidRecipientAddress(resolvedAddress) && isContactAddressChain(addressChain);
+  const isEvm = addressChain === 'ethereum';
   const existing = isValid
-    ? allContacts.find(c => c.address.trim().toLowerCase() === trimmedAddress.toLowerCase())
+    ? allContacts.find(c => c.address.trim().toLowerCase() === resolvedAddress.toLowerCase())
     : undefined;
+
+  useEffect(() => {
+    if (!isMidenName || !nameSupported) return;
+    const controller = new AbortController();
+    setNameLookup({ input: trimmedAddress, scope });
+    const timer = setTimeout(async () => {
+      try {
+        const result = await resolveMidenName(normalizeMidenNameInput(trimmedAddress), { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setNameLookup({
+          input: trimmedAddress,
+          scope,
+          address: result ?? undefined,
+          error: result ? undefined : 'midenNameNotFound'
+        });
+      } catch {
+        if (!controller.signal.aborted)
+          setNameLookup({ input: trimmedAddress, scope, error: 'midenNameResolveFailed' });
+      }
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [trimmedAddress, isMidenName, nameSupported, scope]);
+
+  const resolveOptionalErrorId = (key: string): UserErrorId | null => (isUserErrorId(key) ? key : null);
 
   let addressError: string | undefined;
   let addressErrorId: UserErrorId | null = null;
@@ -77,7 +125,13 @@ export const NewContactPage: React.FC = () => {
   } else if (pasteError) {
     addressError = t(pasteError);
     addressErrorId = 'nothingToPaste';
-  } else if (trimmedAddress && !isValid && addressTouched) {
+  } else if (isMidenName && !nameSupported) {
+    addressError = t('midenNameUnsupportedNetwork');
+    addressErrorId = resolveOptionalErrorId('midenNameUnsupportedNetwork');
+  } else if (isMidenName && lookup?.error) {
+    addressError = t(lookup.error);
+    addressErrorId = resolveOptionalErrorId(lookup.error);
+  } else if (trimmedAddress && !isValid && !resolving && addressTouched) {
     addressError = t('invalidAddress');
     addressErrorId = 'invalidAddress';
   } else if (existing?.accountInWallet) {
@@ -126,12 +180,12 @@ export const NewContactPage: React.FC = () => {
   };
 
   const save = async () => {
-    if (!canSave) return;
+    if (!canSave || (isMidenName && scope !== getRegistryScope())) return;
     setSaving(true);
     setSaveError(undefined);
     try {
       await addContact({
-        address: trimmedAddress,
+        address: resolvedAddress,
         name: trimmedName,
         addedAt: Date.now(),
         ...(isEvm ? { network: selectedNetwork } : {})
@@ -180,7 +234,7 @@ export const NewContactPage: React.FC = () => {
         <Hero
           visual={
             <ContactAvatar
-              address={trimmedAddress || '0'}
+              address={resolvedAddress || '0'}
               name={trimmedName}
               network={isValid && isEvm ? 'ethereum' : undefined}
               size="xl"
@@ -190,7 +244,7 @@ export const NewContactPage: React.FC = () => {
 
         <TextField
           multiline
-          label={t('address')}
+          label={t('contactAddressOrMidenName')}
           labelSize="md"
           value={address}
           onChange={event => {
@@ -200,7 +254,7 @@ export const NewContactPage: React.FC = () => {
             setSaveError(undefined);
           }}
           onBlur={() => setAddressTouched(true)}
-          placeholder={t('enterAddress')}
+          placeholder={t('contactAddressOrMidenNamePlaceholder')}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -232,6 +286,17 @@ export const NewContactPage: React.FC = () => {
           }
         />
 
+        {resolving && (
+          <p role="status" className="text-body-sm text-muted">
+            {t('midenNameResolving')}
+          </p>
+        )}
+        {isMidenName && isValid && (
+          <p className="break-all text-body-sm text-muted" data-testid="contact-resolved-address">
+            {t('contactResolvedAddress', { address: resolvedAddress })}
+          </p>
+        )}
+
         <AnimatePresence initial={false}>
           {isValid && (
             // The shared `reveal` preset, which is reduced-motion aware on its own.
@@ -247,7 +312,7 @@ export const NewContactPage: React.FC = () => {
           )}
         </AnimatePresence>
 
-        <ContactNameInput value={name} onChange={setName} />
+        <ContactNameInput value={displayName} onChange={setName} />
 
         <ErrorLine className="-mt-2" errorId="raw_contact_save_failed">
           {saveError}

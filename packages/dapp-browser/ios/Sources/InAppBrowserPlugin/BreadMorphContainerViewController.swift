@@ -82,6 +82,11 @@ class BreadMorphContainerViewController: UIViewController, UIGestureRecognizerDe
     override var childForScreenEdgesDeferringSystemGestures: UIViewController? { child }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { child.supportedInterfaceOrientations }
 
+    func refreshPresentationSystemUI() {
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+
     func layoutAtRest() {
         morphing = false
         let size = view.bounds.size

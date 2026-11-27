@@ -192,10 +192,12 @@ export function isRunningPipelineKill(err: unknown): boolean {
  * The landed shape stays landed: a terminated client under an apply-after-submit
  * error failed the local apply after the node took the write.
  */
+export function isClientTerminatedKill(err: unknown): boolean {
+  return someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err);
+}
+
 export function isKilledPipeline(err: unknown): boolean {
-  return (
-    isRunningPipelineKill(err) || (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
-  );
+  return isRunningPipelineKill(err) || isClientTerminatedKill(err);
 }
 
 /**
@@ -330,8 +332,18 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   // two errors that never described one event — and this classifier's verdict is
   // that the write DID reach the chain, which marks the row Completed. A
   // never-submitted write reported as success is the worse direction of the two.
-  return errorMessageParts(err).some(part =>
-    /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
+  return errorMessageParts(err).some(
+    part =>
+      /accepted into the node's mempool[\s\S]*local store update failed/i.test(part) ||
+      // web-sdk's `applyTransaction` binding, which every SDK write sequence
+      // (`submitNewTransaction*`, the JS `transactions.submit`, and this wallet's
+      // split `submit()` + `apply()` leaves) calls ONLY after
+      // `submitProvenTransaction` returned a height. It wraps a failed store
+      // update with one of these two context strings and no code, so without
+      // them a landed write whose local apply failed (for example the note
+      // screener refusing an output note) is misread as a failed submit.
+      /failed to build transaction update/i.test(part) ||
+      /failed to apply transaction result/i.test(part)
   );
 }
 
@@ -401,6 +413,46 @@ export function hasErrorBeforeSubmit(err: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+const killedBeforeSubmit = new WeakSet<object>();
+const lockEvictedErrors = new WeakSet<object>();
+const insideSubmitLeafErrors = new WeakSet<object>();
+
+/** Record a confirmed pre-submit pipeline kill (`isKilledPipeline(err)`) without mutating frozen/proxy errors. */
+export function markKilledBeforeSubmit(err: unknown): void {
+  if (typeof err === 'object' && err !== null && isKilledPipeline(err)) {
+    killedBeforeSubmit.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markKilledBeforeSubmit}. */
+export function isKilledBeforeSubmit(err: unknown): boolean {
+  return someInCauseChain(err, link => killedBeforeSubmit.has(link));
+}
+
+/** Record a real lock-eviction or replaced-client `WasmClientPoisonedError`. */
+export function markLockEvictedError(err: unknown): void {
+  if (typeof err === 'object' && err !== null) {
+    lockEvictedErrors.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markLockEvictedError}. */
+export function isLockEvictedError(err: unknown): boolean {
+  return someInCauseChain(err, link => lockEvictedErrors.has(link));
+}
+
+/** Record an error that escaped from inside a submit leaf (`runWriteLeaf` or `runInlineGuardianLeaf`). */
+export function markInsideSubmitLeaf(err: unknown): void {
+  if (typeof err === 'object' && err !== null) {
+    insideSubmitLeafErrors.add(err);
+  }
+}
+
+/** True when any link in `err`'s cause chain was recorded via {@link markInsideSubmitLeaf}. */
+export function isInsideSubmitLeaf(err: unknown): boolean {
+  return someInCauseChain(err, link => insideSubmitLeafErrors.has(link));
 }
 
 /**

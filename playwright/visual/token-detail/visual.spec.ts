@@ -1,4 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+// The area draws itself from JavaScript, which `animations: 'disabled'` does not stop: a capture
+// taken at once shows an empty chart.
+const chartDrawn = async (page: Page) => {
+  await expect(page.locator('.recharts-area-area')).toBeVisible();
+  await page.waitForTimeout(2000);
+};
 
 test.beforeEach(({ page }, testInfo) => {
   page.on('pageerror', error => {
@@ -61,6 +68,7 @@ test('captures the real token detail page in compact light and dark layouts', as
   const send = page.getByTestId('token-detail-send');
   const sendBox = await send.boundingBox();
   expect(sendBox?.height).toBeGreaterThanOrEqual(44);
+  await chartDrawn(page);
   await page.screenshot({
     path: testInfo.outputPath(`token-detail-${viewportKind}-${dark ? 'dark' : 'light'}-after-top.png`),
     animations: 'disabled',
@@ -115,7 +123,7 @@ test('captures the real token detail page in compact light and dark layouts', as
   await activity.scrollIntoViewIfNeeded();
   await expect(activity).toBeVisible();
   await expect(activity.getByRole('heading', { level: 2 })).toBeVisible();
-  await expect(activity.getByTestId('token-history-fixture-row-title')).toHaveText('Received');
+  await expect(activity.getByTestId('activity-row')).toHaveCount(5);
   await expect(activity).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath(`token-detail-${viewportKind}-${dark ? 'dark' : 'light'}-after-history.png`),
@@ -130,7 +138,9 @@ test('captures the real token detail page in compact light and dark layouts', as
   await expect(page.getByRole('dialog', { name: 'Token details' })).toBeVisible();
 });
 
-test('retains honest identity when metadata and native-faucet discovery are unavailable', async ({ page }, testInfo) => {
+test('retains honest identity when metadata and native-faucet discovery are unavailable', async ({
+  page
+}, testInfo) => {
   const query = ['missing', 'unverified', 'nativeUnknown', 'sidePanel'];
   if (testInfo.project.name.endsWith('dark')) query.push('dark');
   if (testInfo.project.name.startsWith('mobile')) query.push('mobile');
@@ -142,4 +152,84 @@ test('retains honest identity when metadata and native-faucet discovery are unav
   await expect(page.getByTestId('token-detail-edit')).toHaveCount(0);
   await expect(page.getByTestId('token-detail-send')).toBeVisible();
   await expect(page.getByTestId('token-detail-receive')).toBeVisible();
+});
+
+test('shows pending claim lines beside the available balance and the reconciling states', async ({
+  page
+}, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline has no pending lines');
+  const project = testInfo.project.name;
+  const mode = project.endsWith('dark') ? 'dark' : 'light';
+  const stateCopy = { updating: 'Updating balance', unavailable: 'Could not load balance.' };
+  for (const state of ['updating', 'unavailable'] as const) {
+    const query = ['pending', state, 'sidePanel'];
+    if (mode === 'dark') query.push('dark');
+    if (project.startsWith('mobile')) query.push('mobile');
+    await page.goto(`/?${query.join('&')}`);
+
+    const hero = page.getByTestId('token-detail-hero');
+    await expect(hero).toContainText('Available');
+    await expect(page.getByTestId('token-detail-pending-claim')).toContainText('2.00 IETH to claim');
+    await expect(page.getByTestId('token-detail-pending-claiming')).toContainText('0.25 IETH claiming');
+    await expect(page.getByTestId('token-detail-balance-state')).toHaveText(stateCopy[state]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await chartDrawn(page);
+    await page.screenshot({
+      path: testInfo.outputPath(`token-detail-${project}-${state}-pending.png`),
+      animations: 'disabled',
+      caret: 'hide'
+    });
+  }
+});
+
+test('lists five rows with this token claim cards only, and links to all activity', async ({ page }, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'the baseline lists the whole history');
+  const project = testInfo.project.name;
+  const query = ['pending', 'sidePanel'];
+  if (project.endsWith('dark')) query.push('dark');
+  if (project.startsWith('mobile')) query.push('mobile');
+  await page.goto(`/?${query.join('&')}`);
+
+  const activity = page.getByTestId('token-detail-activity');
+  const cards = activity.locator('[data-pending-note-id]');
+  await expect(cards).toHaveCount(3);
+  expect(await cards.evaluateAll(els => els.map(el => el.getAttribute('data-pending-note-id')))).toEqual([
+    'n1',
+    'n2',
+    'n3'
+  ]);
+  // Seven settled rows and three cards of this token: five are listed.
+  await expect(activity.getByTestId('activity-row')).toHaveCount(2);
+  await expect(activity).not.toContainText('OTHER');
+  const seeAll = page.getByTestId('token-detail-see-all');
+  await expect(seeAll).toHaveText('See all');
+  expect((await seeAll.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+
+  // Tall enough that the whole section is on screen at once.
+  const width = page.viewportSize()!.width;
+  await page.setViewportSize({ width, height: 1800 });
+  await activity.screenshot({
+    path: testInfo.outputPath(`token-detail-${project}-activity.png`),
+    animations: 'disabled',
+    caret: 'hide'
+  });
+  await seeAll.click();
+  await expect(page).toHaveURL(/#\/history$/);
+});
+
+test('shows stale price and failed-refresh warnings cleanly in compact viewports', async ({ page }, testInfo) => {
+  test.skip(process.env.TOKEN_DETAIL_CAPTURE === 'before', 'slice 2 adds stale quote and refresh warnings');
+  const project = testInfo.project.name;
+  const query = ['stalePrice', 'refreshFailed', 'sidePanel'];
+  if (project.endsWith('dark')) query.push('dark');
+  if (project.startsWith('mobile')) query.push('mobile');
+  await page.goto(`/?${query.join('&')}`);
+
+  await expect(page.getByTestId('token-detail-hero')).toContainText('987654321.12');
+  await expect(page.getByTestId('token-detail-balance-state')).toHaveText(
+    'Could not refresh balance. Showing last confirmed balance.'
+  );
+  await expect(page.getByTestId('token-detail-quote-context')).toContainText('USD price is out of date');
+  await expect(page.getByTestId('token-detail-price')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

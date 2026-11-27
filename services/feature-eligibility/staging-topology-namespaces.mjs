@@ -1,3 +1,5 @@
+import { isTopologyTargetScript } from './staging-topology-api.mjs';
+
 const CLASSES = ['TopologyControl', 'EligibilityGuard', 'CallerEligibilityGuard', 'RestartProof'];
 
 // These records are observation evidence, not deployment or cleanup authorization.
@@ -52,8 +54,7 @@ export function readTopologyNamespaceInventory(pages) {
 export function validateTopologyNamespaces(pages, expected) {
   if (
     !expected ||
-    typeof expected.script !== 'string' ||
-    !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
+    !isTopologyTargetScript(expected.script) ||
     !Array.isArray(expected.classes) ||
     expected.classes.length !== CLASSES.length ||
     new Set(expected.classes).size !== CLASSES.length ||
@@ -77,8 +78,7 @@ export function validateTopologyBindings(scripts, expected) {
   if (
     !Array.isArray(scripts) ||
     !expected ||
-    typeof expected.script !== 'string' ||
-    !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(expected.script) ||
+    !isTopologyTargetScript(expected.script) ||
     !Array.isArray(expected.scripts) ||
     !Array.isArray(expected.namespaceIds) ||
     !Array.isArray(rateIds) ||
@@ -361,8 +361,7 @@ export async function observeTopologyRelationships(api, expected) {
 
 export async function observeTopologyNamespaceAbsence(api, scriptName) {
   try {
-    if (typeof scriptName !== 'string' || !/^miden-elig-topology-[1-9][0-9]{0,17}-[1-9][0-9]{0,5}$/.test(scriptName))
-      return false;
+    if (!isTopologyTargetScript(scriptName)) return false;
     const scan = async () => {
       const pages = [];
       let totalPages = 1;
