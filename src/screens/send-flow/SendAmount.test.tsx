@@ -216,6 +216,9 @@ describe('SendAmount', () => {
   it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 
+    expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 10000.2999');
+    expect(screen.getByTitle('available 10000.29999999999')).toBeVisible();
+
     fireEvent.click(screen.getByTestId('send-amount-max'));
     expect(props.onAmountChange).toHaveBeenCalledWith('10000.29999999999');
   });
