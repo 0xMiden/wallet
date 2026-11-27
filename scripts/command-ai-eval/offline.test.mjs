@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import fs, { readFileSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import * as evaluation from './run-eval.mjs';
@@ -672,6 +674,77 @@ test('compares a command run with the baseline', () => {
   assert.deepEqual(evaluation.compareCommands(cases, baseline, summary([])).length, cases.length);
 });
 
+test('requires two passes of three from a case the baseline never ran', () => {
+  const cases = ['broken', 'flaky', 'intended'].map(id => ({
+    id,
+    expected: { op: 'set_intent' },
+    intendedChange: id === 'intended'
+  }));
+  const rows = [
+    ['broken', 1],
+    ['flaky', 2],
+    ['intended', 0]
+  ];
+  const current = { results: rows.map(([id, passes]) => ({ id, passes, runs: 3, ops: ['unsupported'] })) };
+  assert.deepEqual(evaluation.compareCommands(cases, { results: [] }, current), [
+    'broken: not on the baseline, now 1 of 3'
+  ]);
+});
+
+const holdoutCases = (counts = { answerable: 80, near_miss: 30, out_of_scope: 30 }) =>
+  Object.entries(counts).flatMap(([name, count]) =>
+    Array.from({ length: count }, (_, index) =>
+      selectionCase(`held-${name}-${index}`, { class: name, cards: name === 'answerable' ? ['usdcx'] : [] })
+    )
+  );
+
+function holdoutFile(context, cases) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'holdout-'));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'help-holdout.json');
+  writeFileSync(file, JSON.stringify(cases));
+  return file;
+}
+
+test('loads the holdout for the merge gate and leaves it out of a dev run', context => {
+  assert.equal(typeof evaluation.loadSelectionCases, 'function');
+  const dev = evaluation.loadSelectionCases({ devOnly: true, holdoutPath: holdoutFile(context, holdoutCases()) });
+  assert.ok(dev.length > 0 && dev.every(item => item.set === undefined));
+  const all = evaluation.loadSelectionCases({ holdoutPath: holdoutFile(context, holdoutCases()) });
+  assert.equal(all.filter(item => item.set === 'holdout').length, 140);
+  assert.equal(all.length, dev.length + 140);
+});
+
+test('refuses a selection run without a holdout', () => {
+  assert.throws(
+    () => evaluation.loadSelectionCases({ holdoutPath: path.join(tmpdir(), 'no-such-holdout.json') }),
+    /help-holdout\.json is missing/
+  );
+});
+
+for (const [name, broken, message] of [
+  ['an unknown forbidden card', { forbidCards: ['lost_phrases'] }, /unknown card lost_phrases/],
+  ['an unknown accepted card', { cards: ['usd_cx'] }, /unknown card usd_cx/],
+  ['an unknown class', { class: 'near-miss' }, /bad class/],
+  ['an unknown priority', { priority: 'p0' }, /bad priority/],
+  ['an answerable case without a card', { cards: [] }, /cards must be listed exactly for answerable cases/],
+  ['an unknown help topic', { helpContext: 'Guardian' }, /bad helpContext/],
+  ['a missing forbidden list', { forbidCards: undefined }, /forbidCards must be a list/],
+  ['a missing cluster', { cluster: '' }, /missing cluster/],
+  ['a repeated id', { id: 'held-near_miss-0' }, /repeated id/]
+]) {
+  test(`refuses a holdout with ${name}`, context => {
+    const cases = holdoutCases();
+    Object.assign(cases[0], broken);
+    assert.throws(() => evaluation.loadSelectionCases({ holdoutPath: holdoutFile(context, cases) }), message);
+  });
+}
+
+test('refuses a holdout with too few clusters in a class', context => {
+  const holdoutPath = holdoutFile(context, holdoutCases({ answerable: 80, near_miss: 29, out_of_scope: 30 }));
+  assert.throws(() => evaluation.loadSelectionCases({ holdoutPath }), /29 near_miss clusters, needs 30/);
+});
+
 test('runs a sized deploy gate before the deploy step and selection from the live job', () => {
   const read = name => readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8');
   const deploy = read('deploy-command-ai');
@@ -681,5 +754,8 @@ test('runs a sized deploy gate before the deploy step and selection from the liv
   assert.ok(deploy.includes("COMMAND_AI_EVAL_RETRY_BUDGET_MS: '1200000'\n"));
   const live = read('command-ai');
   assert.ok(live.includes('selection) node scripts/command-ai-eval/run-eval.mjs --selection --require-live ;;'));
+  assert.ok(
+    live.includes('selection-dev) node scripts/command-ai-eval/run-eval.mjs --selection --dev-only --require-live ;;')
+  );
   assert.ok(live.includes('--compare scripts/command-ai-eval/baseline.json'));
 });

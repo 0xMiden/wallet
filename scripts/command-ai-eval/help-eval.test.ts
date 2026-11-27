@@ -52,6 +52,7 @@ const GROUPS = [
 ].map(group => group.split(' '));
 
 const ids = (bad: (item: HelpCase) => boolean) => cases.filter(bad).map(item => item.id);
+const ofCluster = (name: string) => cases.filter(item => item.cluster === name);
 const ofClass = (name: HelpCase['class']) => cases.filter(item => item.class === name);
 const splitOf = (cluster: string) =>
   parseInt(createHash('sha256').update(cluster).digest('hex').slice(0, 8), 16) % 100 < 15 ? 'regression' : 'dev';
@@ -92,6 +93,26 @@ describe('card references', () => {
     );
     expect(thin.map(card => card.id)).toEqual([]);
   });
+
+  // Accuracy is gated on dev and holdout only, so a card accepted only in regression cases is never measured.
+  it('accepts every card in a dev case', () => {
+    const measured = new Set(cases.filter(item => item.split === 'dev').flatMap(item => item.cards));
+    expect(data.cards.map(card => card.id).filter(id => !UNKNOWN.includes(id) && !measured.has(id))).toEqual([]);
+  });
+
+  it('forbids at least one card on every P0 case', () => {
+    expect(ids(item => item.priority === 'P0' && item.forbidCards.length === 0)).toEqual([]);
+  });
+});
+
+// A cluster is one intent and is scored once, so merged intents hide each other's misses.
+it('keeps one class and a commonly accepted card in each cluster', () => {
+  const merged = [...new Set(cases.map(item => item.cluster))].filter(cluster => {
+    const [first, ...rest] = ofCluster(cluster);
+    const shared = first!.cards.filter(id => rest.every(item => item.cards.includes(id)));
+    return rest.some(item => item.class !== first!.class) || (first!.class === 'answerable' && shared.length === 0);
+  });
+  expect(merged).toEqual([]);
 });
 
 it('splits by cluster hash, so sibling cases never straddle the sets', () => {
