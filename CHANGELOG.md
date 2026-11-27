@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [CHANGE][mobile] Require device authentication when opening a biometric wallet on iOS, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
+- [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
 - [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
 - [CHORE][all] Update the Miden Web SDK, React SDK, wallet adapters, and Vite plugin to 0.18.2.
