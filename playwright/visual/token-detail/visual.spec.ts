@@ -216,3 +216,58 @@ test('lists five rows with this token claim cards only, and links to all activit
   await seeAll.click();
   await expect(page).toHaveURL(/#\/history$/);
 });
+
+test('captures Swap and Earn Available at the precision boundary', async ({ page, context }, testInfo) => {
+  const capture = process.env.SHARED_AVAILABLE_CAPTURE;
+  test.skip(!capture, 'Runs on the isolated shared Available proof branch');
+  if (capture !== 'before' && capture !== 'after') throw new Error('Expected an explicit before or after capture');
+  const theme = testInfo.project.name.endsWith('dark') ? 'dark' : 'light';
+  const origin = 'http://127.0.0.1:5192';
+  const unsupportedRequests: string[] = [];
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin === origin) return route.continue();
+    unsupportedRequests.push(url.origin);
+    return route.abort();
+  });
+  await page.setViewportSize({ width: 320, height: 640 });
+
+  const exactMax = '10000.29999999999';
+  const shown = capture === 'before' ? '10000.3' : '10000.2999';
+  const exact = capture === 'before' ? '10000.3' : exactMax;
+  const fiat = capture === 'before' ? '$500.02' : '$500.01';
+  for (const flow of ['swap', 'earn']) {
+    await page.goto(`${origin}/shared-available.html?flow=${flow}${theme === 'dark' ? '&dark' : ''}`);
+    expect(await page.locator('html').evaluate(element => element.classList.contains('dark'))).toBe(theme === 'dark');
+    const available = page.getByTitle(`Available ${exact} USDC`, { exact: true });
+    await expect(available).toHaveText(`Available ${shown} USDC`);
+    await expect(page.getByText(`≈ ${fiat} USD`, { exact: true })).toBeVisible();
+
+    const max = page.getByTestId('amount-shortcut-max');
+    if (flow === 'swap') {
+      await max.click();
+      await expect(page.locator('main')).toHaveAttribute('data-canonical-amount', exactMax);
+    } else {
+      await expect(max).toHaveCount(0);
+      await expect(page.getByTestId('send-amount-confirm')).toBeDisabled();
+    }
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    const box = await available.boundingBox();
+    if (!box) throw new Error('Expected a visible Available amount');
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+    expect(box.y + box.height).toBeLessThanOrEqual(640);
+    await page.screenshot({
+      path: testInfo.outputPath(`shared-available-${flow}-${theme}-${capture}.png`),
+      animations: 'disabled',
+      caret: 'hide',
+      scale: 'css'
+    });
+  }
+  expect(pageErrors).toEqual([]);
+  expect(unsupportedRequests).toEqual([]);
+});

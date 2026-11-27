@@ -1,7 +1,6 @@
-import { resolve } from 'node:path';
-
 import tailwind from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
+import { resolve } from 'node:path';
 import { defineConfig, transformWithOxc, type Plugin } from 'vite';
 
 import extension from '../../../vite.extension.config';
@@ -11,6 +10,7 @@ const fixture = resolve(import.meta.dirname, 'fixture.tsx');
 const historyFixture = resolve(import.meta.dirname, 'history.fixture.tsx');
 const claimsFixture = resolve(import.meta.dirname, 'claims.fixture.tsx');
 const historyLeaves = resolve(import.meta.dirname, 'history.leaves.ts');
+const sharedAvailableLeaves = resolve(import.meta.dirname, 'shared-available.leaves.ts');
 const nativeFaucetFixture = resolve(import.meta.dirname, 'native-faucet.fixture.ts');
 const compileSvgJsx: Plugin = {
   name: 'token-detail-svg-jsx-compile',
@@ -39,6 +39,7 @@ const fixtureModules: Record<string, string> = {
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
   'lib/miden/front': fixture,
+  ...(process.env.SHARED_AVAILABLE_CAPTURE ? { 'lib/miden/swap/tokens': sharedAvailableLeaves } : {}),
   'lib/miden/metadata/overrides': fixture,
   'lib/mobile/external-browser': fixture,
   'lib/mobile/haptics': fixture,
@@ -52,7 +53,7 @@ const fixtureModules: Record<string, string> = {
   'lib/token-list/runtime': fixture,
   'lib/token-list/useTokenLogoUri': fixture,
   'lib/token-list/useTokenVerification': fixture,
-  'lib/woozie': fixture
+  'lib/woozie': process.env.SHARED_AVAILABLE_CAPTURE ? resolve(root, 'src/lib/woozie/index.ts') : fixture
 };
 
 export default defineConfig({
