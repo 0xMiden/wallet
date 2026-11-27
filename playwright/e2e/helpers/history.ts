@@ -594,9 +594,7 @@ export function assertNeverStartedBuilding(
 ): void {
   const problems: string[] = [];
   if (row.status !== expectStatus) {
-    problems.push(
-      `status is ${txStatusName(row.status ?? -1) ?? row.status} (wanted ${txStatusName(expectStatus)})`
-    );
+    problems.push(`status is ${txStatusName(row.status ?? -1) ?? row.status} (wanted ${txStatusName(expectStatus)})`);
   }
   if (row.processingStartedAt !== undefined) problems.push(`processingStartedAt=${row.processingStartedAt} is set`);
   if (row.stage !== undefined) problems.push(`stage=${row.stage} is set`);

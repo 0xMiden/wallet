@@ -612,7 +612,12 @@ export async function waitForNoPendingCard(
       if (!isOnPendingList(wallet.page)) return undefined;
       const card = await evaluatePendingCard(wallet, noteId).catch(() => undefined);
       if (card !== null) return card;
-      return (await wallet.page.locator(PENDING_LOADING_BAR).count().catch(() => 1)) === 0 ? null : undefined;
+      return (await wallet.page
+        .locator(PENDING_LOADING_BAR)
+        .count()
+        .catch(() => 1)) === 0
+        ? null
+        : undefined;
     },
     card => card === null,
     {
