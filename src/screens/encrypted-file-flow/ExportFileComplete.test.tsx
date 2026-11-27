@@ -494,6 +494,21 @@ describe('ExportFileComplete', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('writes and shares nothing when the authentication prompt is cancelled', async () => {
+    mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error('Authentication cancelled'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent();
+    await screen.findByText('encryptedWalletFileExportFailedTitle');
+
+    expect(mockExportWalletBackupMaterial).toHaveBeenCalledTimes(1);
+    expect(mockEncryptJson).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(mockShare).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('shows the generic failure description for a backend error it cannot name', async () => {
     mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error('recursive use of an object'));
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

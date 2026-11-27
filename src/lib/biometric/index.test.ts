@@ -590,6 +590,48 @@ describe('hardware security service', () => {
       expect(onRewrapped).toHaveBeenCalledWith('up1:ID:NEW');
     });
 
+    it('sends the prompt text and hands back a reveal approval', async () => {
+      const local = makePlugin({
+        decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN', revealApproval: 'APPROVAL' })
+      });
+      const { mod } = load({ platform: IOS, local });
+      const onApproval = jest.fn();
+
+      await mod.decryptWithHardwareKey('CIPHER', undefined, {
+        reason: 'Reveal',
+        revealHotKey: { publicKey: '02ab', onApproval }
+      });
+
+      expect(local.decryptWithHardwareKey).toHaveBeenCalledWith({
+        encrypted: 'CIPHER',
+        reason: 'Reveal',
+        revealHotKeyPublicKey: '02ab'
+      });
+      expect(onApproval).toHaveBeenCalledWith('APPROVAL');
+    });
+
+    it('sends the setup prompt text with an encrypt', async () => {
+      const local = makePlugin();
+      const { mod } = load({ platform: IOS, local });
+
+      await mod.encryptWithHardwareKey('plain', 'Set up');
+      expect(local.encryptWithHardwareKey).toHaveBeenCalledWith({ data: 'plain', reason: 'Set up' });
+    });
+
+    it('drops approvals on iOS only, and never rejects', async () => {
+      const local = makePlugin({ discardRevealApproval: jest.fn().mockRejectedValue(new Error('bridge')) });
+      const { mod } = load({ platform: IOS, local });
+
+      await expect(mod.discardRevealApproval('APPROVAL')).resolves.toBeUndefined();
+      await expect(mod.discardRevealApproval()).resolves.toBeUndefined();
+      expect(local.discardRevealApproval.mock.calls).toEqual([[{ approval: 'APPROVAL' }], [{}]]);
+
+      const android = load({ platform: ANDROID, local });
+      local.discardRevealApproval.mockClear();
+      await android.mod.discardRevealApproval();
+      expect(local.discardRevealApproval).not.toHaveBeenCalled();
+    });
+
     it('does not call back when there is no replacement', async () => {
       const local = makePlugin({ decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'PLAIN' }) });
       const { mod } = load({ platform: IOS, local });
