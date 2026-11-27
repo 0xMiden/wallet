@@ -1,3 +1,4 @@
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import type { TokenPriceInfo } from 'lib/prices/binance';
 import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
@@ -12,6 +13,11 @@ import {
 } from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
 import type { AiCompilerOutput, PatchIntentSlots } from './schema';
+
+jest.mock('lib/miden/swap/faucet-ids', () => {
+  const actual = jest.requireActual('lib/miden/swap/faucet-ids');
+  return { ...actual, normalizedFaucetId: jest.fn(actual.normalizedFaucetId) };
+});
 
 jest.mock('lib/token-list/runtime', () => ({
   ...jest.requireActual('lib/token-list/runtime'),
@@ -1059,6 +1065,96 @@ describe('command-ai orchestrator', () => {
         }
       );
       expect(res).toMatchObject({ handoff: { draft: { route: 'foo-out', amount: '4' } } });
+    });
+
+    const resolve = (draft: Parameters<typeof resolveDraftToAction>[0], ctx = context()) =>
+      resolveDraftToAction(draft, redact('x', ctx).map, ctx);
+    const sendRoute = (id: string, symbol: string) => ({
+      id,
+      provider: 'agglayer',
+      mode: 'send' as const,
+      sourceSymbol: symbol,
+      sourceNetwork: 'miden-testnet',
+      destinationSymbol: symbol,
+      destinationNetwork: 'sepolia'
+    });
+    // 'faucet-foo-2' is the picked holding. Unless a case lists it, only its same-symbol sibling is left.
+    const gone = { assetQuery: 'FOO', tokenId: 'faucet-foo-2' };
+    const swapListing = (fooId: string) => [
+      ...context().swapTokens.slice(0, 2),
+      { symbol: 'FOO', faucetId: fooId, decimals: 6 }
+    ];
+
+    it('does not send another holding when the picked one is gone from the balances', () => {
+      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' }, twins());
+      const next = question(pick(assets, 'faucet-foo-2', twins()));
+      expect(reply(next, 'send 3 FOO', { amount, asset: 'FOO' })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiAssetNotFound'
+      });
+    });
+
+    it('asks again when the picked swap token is no longer listed', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo') };
+      expect(resolve({ action: 'swap', ...gone, toAssetQuery: 'USDCx', amount: '1' }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        questionKey: 'commandAiChooseAsset'
+      });
+    });
+
+    it('does not size a swap from another holding with the same symbol', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo-2') };
+      expect(resolve({ action: 'swap', ...gone, toAssetQuery: 'USDCx', amountIsMax: true }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        slot: 'amount'
+      });
+    });
+
+    it('asks again when the picked receive token of a swap is no longer listed', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo') };
+      const draft = { action: 'swap' as const, assetQuery: 'MIDEN', tokenId: miden!, amount: '1' };
+      expect(resolve({ ...draft, toAssetQuery: 'FOO', toTokenId: 'faucet-foo-2' }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        questionKey: 'commandAiChooseSwapTarget'
+      });
+    });
+
+    it.each([
+      ['FOO', 'FOO', 'faucet-foo-2'],
+      ['USDC', 'USDCx', 'faucet-usdc']
+    ])('does not size a %s bridge from another holding when the picked one is gone', (query, symbol, tokenId) => {
+      const ctx = { ...context(), bridgeRoutes: [sendRoute('out', symbol)] };
+      const draft = { action: 'bridge' as const, assetQuery: query, tokenId, toChain: 'sepolia', amountIsMax: true };
+      expect(resolve(draft, ctx)).toMatchObject({ kind: 'clarifying', slot: 'amount' });
+    });
+
+    const earnFrom = (collateralFaucetId: string) => ({
+      ...context(),
+      earnVaults: [{ id: 'vault-1', name: 'FOO vault', symbol: 'FOO', collateralFaucetId }]
+    });
+
+    it('does not size an Earn deposit from a token that only shares the collateral symbol', () => {
+      expect(resolve({ action: 'earn', amountIsMax: true }, earnFrom('faucet-foo-2'))).toMatchObject({
+        kind: 'handoff',
+        handoff: { draft: { amount: '' } }
+      });
+    });
+
+    it('sizes an Earn deposit when the collateral faucet is spelled differently from the balance key', () => {
+      const normalize = jest.mocked(normalizedFaucetId);
+      const actual = normalize.getMockImplementation()!;
+      normalize.mockImplementation(id => id.replace(/^0x-/, 'faucet-'));
+      expect(resolve({ action: 'earn', amountIsMax: true }, earnFrom('0x-foo'))).toMatchObject({
+        handoff: { draft: { amount: '50' } }
+      });
+      normalize.mockImplementation(actual);
+    });
+
+    it('opens Receive with no token when the picked one is gone', () => {
+      expect(resolve({ action: 'receive', ...gone })).toEqual({
+        kind: 'handoff',
+        handoff: { action: 'receive', path: '/receive', jumpToConfirm: false }
+      });
     });
   });
 });

@@ -2,6 +2,7 @@ import { formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18
 import { maxSendableNativeBaseUnits } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from 'lib/miden/swap/quote';
 import { getSwapPartners, tokenQuote, type SwapToken } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
@@ -218,8 +219,7 @@ function resolveBalanceAsset(
   balances: readonly TokenBalanceData[]
 ): TokenBalanceData | undefined {
   if (tokenId) {
-    const byId = balances.find(b => b.tokenId === tokenId);
-    if (byId) return byId;
+    return balances.find(b => normalizedFaucetId(b.tokenId) === normalizedFaucetId(tokenId));
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -236,8 +236,7 @@ function resolveSwapAsset(
   tokens: readonly SwapToken[]
 ): SwapToken | undefined {
   if (tokenId) {
-    const byId = tokens.find(t => t.faucetId === tokenId);
-    if (byId) return byId;
+    return tokens.find(t => t.faucetId === tokenId);
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -897,7 +896,7 @@ function resolveBridgeFlow(
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
   const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
-  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceTokenId = !held || isSameSymbol(held.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
   const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
