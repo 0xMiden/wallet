@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [CHANGE][all] Add small motion cues: a rejected code shakes, inline errors open in place, the progress meter travels to its value, revealed recovery words fade in, a new unread dot pops in, and token rows show a pressed fill. Success receipts stack each label above its value.
 - [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
 - [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.

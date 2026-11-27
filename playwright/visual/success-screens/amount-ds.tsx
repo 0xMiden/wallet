@@ -10,6 +10,7 @@
 // The one thing that is not in the app: a decimal key on the keypad. Numpad has no "." today, so it
 // is drawn into the pad's empty bottom-left slot here in the digit keys' own style. Shipping this
 // means adding that key to Numpad.
+import type { TokenPriceInfo } from '../../../src/lib/prices/binance';
 import React, { FC, useState } from 'react';
 
 import { Icon, IconName } from '../../../src/app/icons/v2';
@@ -27,7 +28,7 @@ import { USDCX } from './fixture';
 
 const BALANCE = 140.5;
 // A price observed just now, so the real field shows its dollar line and its unit switch works.
-const QUOTE = { price: 1, change24h: 0, percentageChange24h: 0, observedAt: Date.now() };
+const QUOTE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0, kind: 'market', observedAt: Date.now() };
 
 export const AmountOnSystem: FC<{ initial?: string }> = ({ initial = '' }) => {
   const [amount, setAmount] = useState(initial);

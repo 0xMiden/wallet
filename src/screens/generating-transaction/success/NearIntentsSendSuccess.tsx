@@ -69,7 +69,7 @@ export const NearIntentsSendSuccess: FC<NearIntentsSendSuccessProps> = ({
 
   const rows = useMemo(() => {
     const list: ReceiptRow[] = [
-      { label: t('to'), value: tracking.request.recipient, stacked: true },
+      { label: t('to'), value: tracking.request.recipient },
       { label: t('network'), value: networkName },
       { label: t('transactionRoute', { defaultValue: 'Route' }), value: t('bridgeRouteNearIntents') }
     ];
