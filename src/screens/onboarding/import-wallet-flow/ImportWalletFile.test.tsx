@@ -21,7 +21,7 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *     are steered by hand. `handleSubmit(cb)` always invokes `cb`, which is the
  *     only way to reach `handleImportSubmit`'s guards and try/catch on demand.
  *   - `lib/miden/passworder`'s crypto primitives and `lib/miden/repo`'s
- *     `importDb` are jest.fn()s so we
+ *     `importDbInRecoveryLifetimeTurn` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
  *     and drive the wrong-password / thrown-error arms.
  *   - `TextField` / `components/Button` / the v2 icon barrel are thin harnesses
@@ -100,11 +100,10 @@ jest.mock('lib/miden/passworder', () => ({
   decryptJson: (...args: unknown[]) => mockDecryptJson(...args)
 }));
 
-// `db.tables` keeps the global jest.setup.js afterEach cleanup happy; `importDb`
-// is mockable so we can assert the wallet-db payload is threaded through.
+// `db.tables` keeps the global Jest cleanup happy. The import mock records the wallet-db payload.
 jest.mock('lib/miden/repo', () => ({
   db: { tables: [] },
-  importDb: (...args: unknown[]) => mockImportDb(...args)
+  importDbInRecoveryLifetimeTurn: (...args: unknown[]) => mockImportDb(...args)
 }));
 
 // The restore replaces the store the active client has open, so it goes through

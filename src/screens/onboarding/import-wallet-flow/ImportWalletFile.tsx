@@ -20,8 +20,9 @@ import {
   UnsupportedBackupVersionError,
   WrongNetworkBackupError
 } from 'lib/miden/backup-file';
+import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
-import { importDb } from 'lib/miden/repo';
+import { importDbInRecoveryLifetimeTurn } from 'lib/miden/repo';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { alertUserError } from 'lib/telemetry/browser-alert';
@@ -163,12 +164,17 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             assertWasmHoldCurrent(hold, 'in the encrypted-file restore after the genesis read');
             if (!current()) return;
             assertSameGenesis(fileGenesis, activeGenesis);
-            await midenClient.importDb(payload.midenClientDbContent);
+            await withWalletRecoveryLifetime(async () => {
+              assertWasmHoldCurrent(hold, 'in the encrypted-file restore after acquiring the storage turn');
+              if (!current()) return;
+              await midenClient.importDb(payload.midenClientDbContent);
+              assertWasmHoldCurrent(hold, 'in the encrypted-file restore after replacing the client store');
+              if (!current()) return;
+              await importDbInRecoveryLifetimeTurn(payload.walletDbContent);
+            });
           },
           { label: 'onboarding-restore-import-store' }
         );
-        if (!current()) return;
-        await importDb(payload.walletDbContent);
         if (!current()) return;
         onSubmit(payload);
       } catch (error) {
