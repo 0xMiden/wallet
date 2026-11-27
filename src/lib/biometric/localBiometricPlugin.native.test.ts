@@ -23,7 +23,8 @@ describe('LocalBiometricPlugin.swift access control', () => {
   });
 
   it('never deletes the legacy key while migrating, so an unsaved replacement cannot strand the wallet', () => {
-    expect(source).not.toContain('deleteKey(tag: kLegacyKeyTag)');
+    // The legacy tag travels in a local there, so no form of deletion belongs in the function.
+    expect(body('decryptWithHardwareKey')).not.toMatch(/deleteKey|SecItemDelete|deleteHardwareKey|hardwareKeyTags/);
   });
 });
 
