@@ -704,12 +704,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
   const mountedRef = useRef(true);
-  const reviewSubmissionSeqRef = useRef(0);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      reviewSubmissionSeqRef.current += 1;
     };
   }, []);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
@@ -1088,10 +1086,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       fundFlow?.recordActionWithoutProgress();
       return true;
     }
-    reviewSubmissionSeqRef.current += 1;
     if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
       fundFlow?.transitionStep('close');
       onClose();
+      return true;
+    }
+    if (creatingBridgeRow || confirming.current) {
+      fundFlow?.recordActionWithoutProgress();
       return true;
     }
     if (cardStack.length > 1) {
@@ -1102,7 +1103,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     fundFlow?.transitionStep('close');
     onClose();
     return true;
-  }, [activeRoute?.name, cardStack, fundFlow, goBack, onClose, usdcxSubmissionPending]);
+  }, [activeRoute?.name, cardStack, creatingBridgeRow, fundFlow, goBack, onClose, usdcxSubmissionPending]);
 
   useEffect(() => {
     resetEpoch();
@@ -2315,11 +2316,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [fundFlow, navigateTo, setupReady]);
 
   const handleHeaderBack = useCallback(() => {
-    if (usdcxSubmissionPending) {
+    if (usdcxSubmissionPending || creatingBridgeRow || confirming.current) {
       fundFlow?.recordActionWithoutProgress();
       return;
     }
-    reviewSubmissionSeqRef.current += 1;
     if (cardStack.length > 1) {
       fundFlow?.transitionStep('back', stepForReceiveRoute(cardStack[cardStack.length - 2]?.name));
       goBack();
@@ -2327,7 +2327,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     fundFlow?.transitionStep('close');
     onClose();
-  }, [cardStack, fundFlow, goBack, onClose, usdcxSubmissionPending]);
+  }, [cardStack, creatingBridgeRow, fundFlow, goBack, onClose, usdcxSubmissionPending]);
 
   // From the Route step: proceed to Review (once the route is confirmable) rather
   // than submitting directly. The Review step's Confirm runs handleConfirm.
@@ -2342,7 +2342,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [canConfirmRoute, fundFlow, navigateTo]);
 
   const handleStatusDone = useCallback(() => {
-    reviewSubmissionSeqRef.current += 1;
     fundFlow?.transitionStep('close');
     onClose();
   }, [fundFlow, onClose]);
@@ -2367,8 +2366,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return;
     }
     confirming.current = true;
-    const submissionSeq = reviewSubmissionSeqRef.current + 1;
-    reviewSubmissionSeqRef.current = submissionSeq;
     setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
     setSwitchDrawerOpen(false);
@@ -2446,15 +2443,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
         drive
       );
-      if (!mountedRef.current || reviewSubmissionSeqRef.current !== submissionSeq) return;
+      if (!mountedRef.current) return;
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       confirming.current = false;
-      if (mountedRef.current) setUsdcxSubmissionPending(false);
-      if (!mountedRef.current || reviewSubmissionSeqRef.current !== submissionSeq) return;
+      if (!mountedRef.current) return;
       setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
+      setUsdcxSubmissionPending(false);
       setConfirmSettled(count => count + 1);
     } finally {
       if (mountedRef.current) setCreatingBridgeRow(false);
@@ -2772,7 +2769,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <NetworkModeBanner />
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <PageHeader title={t('bridgeInTitle')} onBack={usdcxSubmissionPending ? undefined : handleHeaderBack} />
+          <PageHeader
+            title={t('bridgeInTitle')}
+            onBack={usdcxSubmissionPending || creatingBridgeRow ? undefined : handleHeaderBack}
+          />
         </div>
       )}
       <NetworkNamedByShell>
