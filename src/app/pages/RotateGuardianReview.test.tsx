@@ -13,6 +13,9 @@ jest.mock('lib/telemetry/user-visible-error', () => ({ reportUserVisibleError: j
 const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
 const mockUnlock = jest.fn();
+const mockVerify = jest.fn();
+// One identity, as the store gives.
+const mockVerifyAction = (...args: unknown[]) => mockVerify(...args);
 const mockInitiateSwitch = jest.fn();
 // Empty by default: the queue check before every submit only refuses when a
 // switch-guardian row is already pending for this account.
@@ -198,8 +201,8 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (state: { currentAccount: typeof mockCurrentAccount }) => unknown) =>
-    selector({ currentAccount: mockCurrentAccount })
+  useWalletStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ currentAccount: mockCurrentAccount, verifyStrictActionAuthentication: mockVerifyAction })
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -224,6 +227,7 @@ beforeEach(() => {
   mockHasHardwareProtector.mockResolvedValue(false);
   mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
+  mockVerify.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
   // Re-armed after `clearAllMocks`, which drops the declaration-site default.
   mockGetUncompleted.mockResolvedValue([]);
@@ -279,7 +283,7 @@ it('states the old Guardian cannot block the rotation as a reassuring fact, not 
 it('hardware authentication succeeds once and only then queues the switch', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
   let finishAuthentication: (() => void) | undefined;
-  mockUnlock.mockImplementation(
+  mockVerify.mockImplementation(
     () =>
       new Promise<void>(resolve => {
         finishAuthentication = resolve;
@@ -295,8 +299,9 @@ it('hardware authentication succeeds once and only then queues the switch', asyn
   // queue read. The property under test is unchanged and is what `submissionRef`
   // being claimed before that first await guarantees — two clicks in one tick
   // still produce exactly one unlock.
-  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
-  expect(mockUnlock).toHaveBeenCalledWith(undefined);
+  await waitFor(() => expect(mockVerify).toHaveBeenCalledTimes(1));
+  expect(mockVerify).toHaveBeenCalledWith(undefined, 'switch-guardian');
+  expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
   finishAuthentication?.();
@@ -306,7 +311,7 @@ it('hardware authentication succeeds once and only then queues the switch', asyn
 
 it('hardware cancellation never queues a switch', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
-  mockUnlock.mockRejectedValue(new Error('cancelled'));
+  mockVerify.mockRejectedValue(new Error('cancelled'));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -344,7 +349,7 @@ it('wraps the long guardian error on the mobile hardware-auth path so it is not 
   // On mobile hasHardwareProtector() is true; the error renders in the review
   // page's own error row instead of the password step's TextField.
   mockHasHardwareProtector.mockResolvedValue(true);
-  mockUnlock.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
+  mockVerify.mockRejectedValue(new Error(LONG_GUARDIAN_ERROR));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -563,14 +568,14 @@ describe('hardware back', () => {
   it('abandons an in-flight switch rather than swallowing the press', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     let finishAuthentication: (() => void) | undefined;
-    mockUnlock.mockImplementation(() => new Promise<void>(resolve => (finishAuthentication = resolve)));
+    mockVerify.mockImplementation(() => new Promise<void>(resolve => (finishAuthentication = resolve)));
     render(<RotateGuardianReview />);
     const confirm = await screen.findByTestId('rotate-guardian-confirm');
     await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
     // Wait for the switch to actually be in flight — `unlock` sits behind the
     // queue read now, so pressing back sooner would not be testing the hung case.
-    await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockVerify).toHaveBeenCalledTimes(1));
 
     // Consuming the press without navigating is what made a hung `unlock`
     // inescapable — `unlock` can never settle (no timeout on `request()`, and
@@ -613,7 +618,7 @@ it('still lets the user leave when a switch hangs and never settles', async () =
   // strands `unlock` and `submitting` never clears. Gating back on `submitting`
   // therefore trapped the user permanently — `hideToolbar` means the chevron is
   // the only exit this screen has.
-  mockUnlock.mockImplementation(() => new Promise<void>(() => {}));
+  mockVerify.mockImplementation(() => new Promise<void>(() => {}));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -627,7 +632,7 @@ it('still lets the user leave when a switch hangs and never settles', async () =
 it('does not drag the user back after they leave mid-flight', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
   let releaseUnlock: () => void = () => {};
-  mockUnlock.mockImplementation(
+  mockVerify.mockImplementation(
     () =>
       new Promise<void>(resolve => {
         releaseUnlock = resolve;
@@ -779,7 +784,7 @@ it('allows a retry after a hang, which created no row', async () => {
 
 it('announces a failure rather than only rendering it above the button', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
-  mockUnlock.mockRejectedValue(new Error('cancelled'));
+  mockVerify.mockRejectedValue(new Error('cancelled'));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
@@ -814,7 +819,7 @@ it('switches through the hardware protector when the hardware read fails and no 
 
   fireEvent.click(confirm);
 
-  await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  await waitFor(() => expect(mockVerify).toHaveBeenCalledWith(undefined, 'switch-guardian'));
   expect(screen.queryByTestId('rotate-guardian-auth-submit')).not.toBeInTheDocument();
 });
 
@@ -877,12 +882,12 @@ it('drives the queue itself when the user abandons on mobile, so the switch is n
   mockIsMobile.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(true);
   let releaseUnlock: () => void = () => {};
-  mockUnlock.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
+  mockVerify.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
-  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mockVerify).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   await act(async () => {
@@ -897,12 +902,12 @@ it('leaves the queue to the service worker on extension', async () => {
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(true);
   let releaseUnlock: () => void = () => {};
-  mockUnlock.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
+  mockVerify.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
-  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mockVerify).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
   await act(async () => {

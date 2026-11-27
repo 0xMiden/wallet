@@ -15,7 +15,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, savePlain } from './safe-storage';
+import { encryptAndSaveMany, getPlain, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 // Nearly every test here seeds a real vault, which runs the production PBKDF2
@@ -201,6 +201,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     AccountType: { RegularAccountImmutableCode: 2 }
   };
 });
+
+const mockRevealHotKey = jest.fn(async (_ciphertext: string, _approval?: string) => 'ab'.repeat(32));
+jest.mock('lib/secure-hot-key', () => ({
+  ...jest.requireActual<object>('lib/secure-hot-key'),
+  revealHotKey: (ciphertext: string, approval?: string) => mockRevealHotKey(ciphertext, approval)
+}));
 
 const { isDesktop, isMobile } = jest.requireMock('lib/platform');
 
@@ -684,6 +690,7 @@ describe('Vault hardware-backed unlock + reveal', () => {
           storedHardwareB64 = b;
           return `enc(${b})`;
         }),
+        discardRevealApproval: jest.fn(async () => {}),
         decryptWithHardwareKey: jest.fn(async (encrypted: string) => {
           // The vault stores the encrypted blob; decryption must round-trip
           // back to the original base64 vault-key bytes.
@@ -736,6 +743,166 @@ describe('Vault hardware-backed unlock + reveal', () => {
     expect(unlocked).toBeInstanceOf(Vault);
   });
 
+  describe('one prompt per action', () => {
+    it.each<[string, () => Promise<unknown>, string]>([
+      ['unlock', () => Vault.setup(), 'authReasonUnlock'],
+      ['view the recovery phrase', () => Vault.revealMnemonic(), 'authReasonViewRecoveryPhrase'],
+      ['reveal the private key', () => Vault.revealPrivateKey('aabb'), 'authReasonRevealPrivateKey'],
+      ['reveal the everyday key', () => Vault.revealHotKey('acc-pub-key-1'), 'authReasonRevealEverydayKey'],
+      [
+        'export an account file',
+        () => Vault.withAccountFileKeyReader('acc-pub-key-1', undefined, async () => 1),
+        'authReasonExportAccountFile'
+      ],
+      ['export the wallet file', () => Vault.exportWalletBackupMaterial(), 'authReasonExportWalletFile'],
+      [
+        'change a spending limit',
+        () => Vault.verifyProtector(undefined, 'change-spending-limit'),
+        'authReasonChangeSpendingLimit'
+      ],
+      [
+        'approve an over-limit transaction',
+        () => Vault.verifyProtector(undefined, 'over-limit-transaction'),
+        'authReasonOverLimitTransaction'
+      ],
+      ['remove a device', () => Vault.verifyProtector(undefined, 'remove-device'), 'authReasonRemoveDevice'],
+      ['switch Guardian', () => Vault.verifyProtector(undefined, 'switch-guardian'), 'authReasonSwitchGuardian']
+    ])('asks once, naming the action, to %s', async (_action, run, reason) => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+      const decrypt = require('lib/biometric').decryptWithHardwareKey;
+      decrypt.mockClear();
+
+      // What each action does after the prompt is covered elsewhere; here only the prompt matters.
+      await run().catch(() => {});
+
+      expect(decrypt).toHaveBeenCalledTimes(1);
+      expect(decrypt.mock.calls[0][2].reason).toBe(reason);
+    });
+
+    it('hands the approval of an everyday key reveal to the hot key, and drops it however the reveal ends', async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      const vault = await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+      const vaultKey = (vault as any).vaultKey as CryptoKey;
+      await encryptAndSaveMany(
+        [
+          [
+            keys.accounts,
+            [{ publicKey: 'g1', type: WalletType.Guardian, hotPublicKey: 'hot-pub-hex', evmAddress: '0xEvm' }]
+          ],
+          [keys.accAuthSecretKey('hot-pub-hex'), 'tag:payload'],
+          [`${ck('accevmsecretkey')}_0xevm`, `0x${'cd'.repeat(32)}`]
+        ],
+        vaultKey
+      );
+      const biometric = require('lib/biometric');
+      const decrypt = biometric.decryptWithHardwareKey;
+      const unwrap = decrypt.getMockImplementation();
+      const discard = biometric.discardRevealApproval;
+      const approve = (id: string) => async (encrypted: string, onRewrapped: unknown, prompt: any) => {
+        expect(prompt.revealHotKey.publicKey).toBe('hot-pub-hex');
+        prompt.revealHotKey.onApproval(id);
+        return unwrap(encrypted, onRewrapped);
+      };
+
+      decrypt.mockImplementationOnce(approve('APPROVAL'));
+      await expect(Vault.revealHotKey('g1', undefined, 'hot-pub-hex')).resolves.toBe(
+        `${'ab'.repeat(32)}:${'cd'.repeat(32)}`
+      );
+      expect(mockRevealHotKey).toHaveBeenLastCalledWith('tag:payload', 'APPROVAL');
+      expect(discard).toHaveBeenLastCalledWith('APPROVAL');
+
+      // A cancelled prompt reveals nothing.
+      mockRevealHotKey.mockClear();
+      decrypt.mockRejectedValueOnce(new Error('Authentication cancelled'));
+      await expect(Vault.revealHotKey('g1', undefined, 'hot-pub-hex')).rejects.toThrow('cancelled');
+      expect(mockRevealHotKey).not.toHaveBeenCalled();
+
+      // A failure between the two native calls still drops the approval.
+      decrypt.mockImplementationOnce(approve('UNUSED'));
+      await expect(Vault.revealHotKey('no-such-account', undefined, 'hot-pub-hex')).rejects.toThrow(
+        'Account not found'
+      );
+      expect(mockRevealHotKey).not.toHaveBeenCalled();
+      expect(discard).toHaveBeenLastCalledWith('UNUSED');
+    });
+
+    it('names the setup when it wraps a new vault key', async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      const encrypt = require('lib/biometric').encryptWithHardwareKey;
+      encrypt.mockClear();
+
+      await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+
+      expect(encrypt.mock.calls).toEqual([[expect.any(String), 'authReasonSetUp']]);
+    });
+  });
+
+  describe('replacing the hardware wrapper', () => {
+    // The platform decrypts the old wrapper and hands back a replacement, as iOS does for its earlier key.
+    const decryptAndReplace =
+      (beforeReplace: () => Promise<void> = async () => {}) =>
+      async (encrypted: string, onRewrapped?: (rewrapped: string) => Promise<void>) => {
+        await beforeReplace();
+        await onRewrapped?.(`new-${encrypted}`);
+        return encrypted.replace(/^(new-)*enc\(/, '').slice(0, -1);
+      };
+
+    const spawnHardwareWallet = async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      await Vault.spawn(WalletType.OnChain, undefined as any, VALID_MNEMONIC);
+      return (await getPlain<string>(keys.vaultKeyHardware))!;
+    };
+
+    it('stores the replacement after unlocking with the old wrapper', async () => {
+      const previous = await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(decryptAndReplace());
+
+      expect(await Vault.tryHardwareUnlock()).toBeInstanceOf(Vault);
+      expect(await getPlain(keys.vaultKeyHardware)).toBe(`new-${previous}`);
+    });
+
+    it('keeps a protector that changed while the prompt was open', async () => {
+      await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(() => savePlain(keys.vaultKeyHardware, 'another-wallet'))
+      );
+
+      await Vault.tryHardwareUnlock();
+      expect(await getPlain(keys.vaultKeyHardware)).toBe('another-wallet');
+    });
+
+    it('does not restore a protector that was removed while the prompt was open', async () => {
+      await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(async () => {
+          delete memoryStore[keys.vaultKeyHardware];
+        })
+      );
+
+      await Vault.tryHardwareUnlock();
+      expect(await getPlain(keys.vaultKeyHardware)).toBeUndefined();
+    });
+
+    it('still unlocks and keeps the old wrapper when the replacement cannot be written', async () => {
+      const previous = await spawnHardwareWallet();
+      require('lib/biometric').decryptWithHardwareKey.mockImplementationOnce(
+        decryptAndReplace(async () => {
+          mockStorageSet.mockRejectedValueOnce(new Error('disk full'));
+        })
+      );
+      mockStorageSet.mockClear();
+
+      expect(await Vault.tryHardwareUnlock()).toBeInstanceOf(Vault);
+      expect(mockStorageSet).toHaveBeenCalled();
+      expect(await getPlain(keys.vaultKeyHardware)).toBe(previous);
+    });
+  });
+
   it('verifyProtector uses hardware without replacing the installed vault', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
     (isDesktop as jest.Mock).mockReturnValue(false);
@@ -745,7 +912,7 @@ describe('Vault hardware-backed unlock + reveal', () => {
     biometric.decryptWithHardwareKey.mockClear();
     installRealmKeystore.mockClear();
 
-    await expect(Vault.verifyProtector()).resolves.toBeUndefined();
+    await expect(Vault.verifyProtector(undefined, 'remove-device')).resolves.toBeUndefined();
 
     expect(biometric.decryptWithHardwareKey).toHaveBeenCalledTimes(1);
     expect(installRealmKeystore).not.toHaveBeenCalled();
