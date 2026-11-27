@@ -12,12 +12,14 @@ import {
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest, normalizedFaucetId } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { _resetDisplayFeedForTest } from 'lib/prices/display-feed';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -188,6 +190,7 @@ jest.mock('lib/prices', () => ({
 // A basket's chart loads each token's candles with their length, straight from the feed.
 const mockFetchKlineSeries = jest.fn();
 jest.mock('lib/prices/feed', () => ({
+  ...jest.requireActual('lib/prices/feed'),
   fetchKlineSeries: (...args: unknown[]) => mockFetchKlineSeries(...args)
 }));
 
@@ -467,10 +470,11 @@ function configure(o: Overrides = {}) {
           { time: 1_700_000_120_000, value: 3 }
         ]
       : o.klineData;
-  mockUseRetryableSWR.mockImplementation((_key: unknown, fetcher: () => unknown) => {
-    // Cover the inline `() => fetchKlineData(symbol, timeframe)` closure.
-    fetcher();
-    return { data };
+  mockUseRetryableSWR.mockImplementation((key: unknown, fetcher: () => unknown) => {
+    // Cover the inline `() => fetchKlineData(symbol, timeframe)` closure. A rejection is SWR's error state.
+    Promise.resolve(fetcher()).catch(() => undefined);
+    // The display cache's read is still pending here; only the chart takes the configured payload.
+    return { data: Array.isArray(key) && key[0] === 'cached-display-market-quotes' ? undefined : data };
   });
 }
 
@@ -510,6 +514,7 @@ beforeEach(() => {
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
   jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(null);
   resetHiddenTokens();
+  _resetDisplayFeedForTest();
   mockReadStorage.mockReset();
   // Unread by default: most cases never look at the row, and a read settling after a synchronous
   // case ends would update the page outside act().
@@ -804,6 +809,23 @@ describe('TokenDetail', () => {
     expect(hero.querySelector('p')).toHaveTextContent('\u2014');
   });
 
+  // MICO on mainnet: no list prices it, so no feed answer can give it a fiat line to wait for.
+  it('shows no fiat line for a token no list prices, even before prices load', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const unlistedId = 'mtst1unlisted';
+    renderPage(
+      {
+        balances: [{ tokenId: unlistedId, balance: 12.5, metadata: { symbol: 'MICO', decimals: 4 } }],
+        tokenPrices: {}
+      },
+      unlistedId
+    );
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toBeNull();
+  });
+
   // IETH is priced at ETH, which never takes the nominal rate, so its line waits on the feed.
   it('shows the placeholder dash in the fiat line off mainnet while prices have not loaded, for a listed token', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
@@ -819,6 +841,23 @@ describe('TokenDetail', () => {
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
     }
+  });
+
+  // A cold page: only the stored feed run knows that no market quotes ETH, so the page must read it.
+  it('drops the fiat dash when the stored feed already ruled the market out', async () => {
+    const feedKey = `display_feed_v1:${getEffectiveNetworkName()}`;
+    mockReadStorage.mockImplementation(key =>
+      key === feedKey
+        ? Promise.resolve({ fetchedAt: Date.now(), baskets: {}, unquoted: ['ETH'] })
+        : new Promise(() => {})
+    );
+    const view = renderPage({ tokenPrices: {} });
+    await act(async () => {});
+    view.rerender(<TokenDetail tokenId={TOKEN_ID} />);
+
+    const hero = screen.getByTestId('token-detail-hero');
+    expect(within(hero).getByText('12.50')).toBeInTheDocument();
+    expect(hero.querySelector('p')).toBeNull();
   });
 
   // The E2E fixture has no market quote, even when the nominal display setting is on.

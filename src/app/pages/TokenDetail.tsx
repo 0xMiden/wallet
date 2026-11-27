@@ -37,7 +37,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
-import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
+import { normalizedFaucetId, priceSymbolFor, quoteMayArrive } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -46,6 +46,7 @@ import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { BasketComponent, KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { basketChange24h, basketKlines } from 'lib/prices/basket';
+import { useCachedDisplayQuotes } from 'lib/prices/display-cache';
 import { fetchKlineSeries } from 'lib/prices/feed';
 import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -141,6 +142,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   } = useAllBalances(account.publicKey, allTokensMetadata);
   const { representedItems, listItems, renderPendingItem, isLoadingNotes } = useActivityClaimList('', 'all');
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Reads the stored feed run into this realm, so quoteMayArrive knows what it already ruled out.
+  useCachedDisplayQuotes();
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const token = balances?.find(b => b.tokenId === tokenId);
@@ -237,7 +240,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
-              scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
+              scaleIsKnown &&
+              (quote || (quoteMayArrive(tokenId, symbol) && !pricesLoaded(tokenPrices, [priceSymbol]))) ? (
                 <UsdAmount amount={fiatValue} animated grouping={false} />
               ) : undefined
             }
