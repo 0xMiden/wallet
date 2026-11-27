@@ -40,7 +40,6 @@
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
 import { isExtensionPageSender, isExtensionServiceWorkerSender } from 'lib/intercom/sender';
-import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import {
   clearConnectivityIssue,
@@ -83,6 +82,7 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
+import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { OFFSCREEN_PROOF_BUDGET_MS, type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
