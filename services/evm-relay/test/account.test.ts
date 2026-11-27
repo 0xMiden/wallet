@@ -241,8 +241,9 @@ describe('GET /v1/account', () => {
       createHarness({ relayConfig: relayConfigOf({ '8453': chainEntry({ calibur: {} }) }), chains: CHAINS })
     ],
     [
+      // 999 is not in DEFAULT_NATIVE_PRICES, and the config has no entry for it.
       'GAS_MODE is deduct and a served chain has no nativePrice',
-      createHarness({ gasMode: 'deduct', relayConfig: relayConfigOf({ '8453': chainEntry() }), chains: CHAINS })
+      createHarness({ gasMode: 'deduct', relayConfig: relayConfigOf({ '8453': chainEntry() }), chains: [8453, 999] })
     ],
     [
       'RELAY_CONFIG has the old fees field',

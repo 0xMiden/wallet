@@ -124,8 +124,9 @@ describe('health route', () => {
     ['a valid RPC URL of a chain without an entry', { rpcUrls: { '10': 'not a url secret' } }],
     ['a chain id in each RPC_URL_ secret', { rpcUrls: { '8453': 'https://secret.example', '': 'https://secret.x' } }],
     [
+      // 999 is not in DEFAULT_NATIVE_PRICES, and the config has no entry for it.
       'a nativePrice for each served chain in deduct mode',
-      { gasMode: 'deduct', relayConfig: oneChainConfig(), chains: [8453, 1] }
+      { gasMode: 'deduct', relayConfig: oneChainConfig(), chains: [8453, 999] }
     ]
   ])('answers 503 with ok false and no config value without %s', async (_name, options) => {
     const response = await send(createHarness(options), '/healthz');
