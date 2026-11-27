@@ -1,0 +1,8 @@
+{
+  "contacts": [
+    { "id": "c-alice", "name": "Alice", "address": "mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62" },
+    { "id": "c-alice-work", "name": "Alice Work", "address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" },
+    { "id": "c-bob", "name": "Bob", "address": "mtst1qp2t7nsjausqsgr57c58s2nqqg9f9999" }
+  ],
+  "heldNicheTickers": [{ "symbol": "ZORK", "tokenId": "faucet-zork" }]
+}
