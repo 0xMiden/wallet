@@ -33,7 +33,7 @@ interface HomePage {
 
 function buildPages(swapEnabled: boolean): HomePage[] {
   return [
-    { id: 'overview', path: '/', node: <Explore balanceAction={<CommandLauncher inBalanceCard />} /> },
+    { id: 'overview', path: '/', node: <Explore balanceAction={<CommandLauncher />} /> },
     { id: 'send', path: '/send', node: <SendFlow isLoading={false} /> },
     { id: 'receive', path: '/receive', node: <Receive /> },
     { id: 'earn', path: '/earn', node: <Earn /> },

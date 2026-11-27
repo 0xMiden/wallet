@@ -2373,6 +2373,51 @@ describe('user-visible error reports', () => {
     expect(leaksIn(wireText())).toEqual([]);
   });
 
+  it.each(['review_submit_catch', 'run_swap_catch'] as const)(
+    'sends the closed Swap submit origin %s',
+    async origin => {
+      consentOn();
+      reportUserVisibleError('raw_swap_submit_failed', 'review', {
+        kind: 'swap_submit_failure',
+        swapSubmitFailureOrigin: origin
+      });
+      await flushEgress();
+      expect(captured).toHaveLength(1);
+      const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+      const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+      expect(diagnostics).toMatchObject({
+        userErrorId: 'raw_swap_submit_failed',
+        userErrorSurface: 'review',
+        swapSubmitFailureOrigin: origin
+      });
+      expect(diagnostics).not.toHaveProperty('kind');
+      expect(leaksIn(wireText())).toEqual([]);
+    }
+  );
+
+  it.each([
+    ['unknown origin', 'raw_swap_submit_failed', 'review', { swapSubmitFailureOrigin: POISON.amount }],
+    [
+      'private extra',
+      'raw_swap_submit_failed',
+      'review',
+      { swapSubmitFailureOrigin: 'run_swap_catch', rawError: POISON.addressTestnet }
+    ],
+    ['wrong surface', 'raw_swap_submit_failed', 'notice', { swapSubmitFailureOrigin: 'run_swap_catch' }],
+    ['wrong id', 'swapPriceUnavailable', 'review', { swapSubmitFailureOrigin: 'run_swap_catch' }]
+  ] as const)('drops Swap submit evidence with %s', async (_label, id, surface, evidence) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [id, surface, { kind: 'swap_submit_failure', ...evidence }]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).toMatchObject({ userErrorId: id, userErrorSurface: surface });
+    expect(diagnostics).not.toHaveProperty('swapSubmitFailureOrigin');
+    expect(diagnostics).not.toHaveProperty('rawError');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   it.each(['send_step', 'command_send'] as const)('sends the closed invalid amount producer %s', async producer => {
     consentOn();
     reportUserVisibleError('invalidAmount', 'field', { kind: 'invalid_amount', invalidAmountProducer: producer });
