@@ -223,16 +223,23 @@ test.describe('Usage analytics egress', () => {
       // The pane is read back rather than assumed: "nothing was sent" would
       // pass just as well if the route never committed, which is the one way
       // this step could go quiet for the wrong reason.
-      const visited = await page.evaluate(ms => {
-        const go = (hash: string) => history.pushState(null, '', `${location.pathname}${hash}`);
-        go('#/send');
-        const reached = location.hash;
-        return new Promise<string>(resolve => setTimeout(() => (go('#/'), resolve(reached)), ms));
-      }, Math.floor(ROUTE_DWELL_MS / 3));
+      const visited = await page.evaluate(
+        ms => {
+          const go = (hash: string) => history.pushState(null, '', `${location.pathname}${hash}`);
+          go('#/send');
+          const reached = location.hash;
+          return new Promise<string>(resolve => setTimeout(() => (go('#/'), resolve(reached)), ms));
+        },
+        Math.floor(ROUTE_DWELL_MS / 3)
+      );
 
       expect(visited).toBe('#/send');
       await sink.settle(SILENCE_WINDOW_MS);
-      expect(describeRequests(sink.requests.slice(beforeTransit))).toEqual([]);
+      // Only `send` events are ruled out. A visit that ended as the transit began (here Receive, from the step
+      // before) is a real, qualified visit and arrives on schedule; the swiped-through pane must not report one.
+      expect(
+        describeRequests(sink.requests.slice(beforeTransit)).filter(line => /eventName\\?":\\?"send_/.test(line))
+      ).toEqual([]);
     });
 
     await test.step('an abandoned multi-step flow reports the step it got to', async () => {
@@ -296,9 +303,17 @@ test.describe('Usage analytics egress', () => {
       // an `open` with a `send`. Both are named rather than counted: a bare
       // "more than one kind" would be satisfied by any incidental extra flow
       // even after the two this step is about had stopped arriving.
-      const sessions = new Set(sinceReload.map(envelope => String(envelope.sessionId)));
+      // Visits are left out: a document being replaced reports its last visit under its own run on pagehide,
+      // so a visit may legitimately carry the run of the page that just went away.
+      const sessions = new Set(
+        sinceReload.filter(e => !String(e.eventName).endsWith('_visit')).map(envelope => String(envelope.sessionId))
+      );
       const flowNames = [
-        ...new Set(sinceReload.map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, '')))
+        ...new Set(
+          sinceReload
+            .filter(e => !String(e.eventName).endsWith('_visit'))
+            .map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, ''))
+        )
       ];
       expect(sessions.size).toBe(1);
       expect(flowNames).toEqual(expect.arrayContaining(['open', 'send']));
@@ -311,7 +326,7 @@ test.describe('Usage analytics egress', () => {
       // including them would collapse every one of them under a single
       // `undefined` key and read as exactly the fusion this is checking for.
       const namesByFlowId = new Map<string, Set<string>>();
-      for (const envelope of sinceReload.filter(e => !String(e.eventName).endsWith('_settled'))) {
+      for (const envelope of sinceReload.filter(e => !/_(settled|visit)$/.test(String(e.eventName)))) {
         const id = String(propsOf(envelope).flowId);
         const name = String(envelope.eventName).replace(/_(started|ended)$/, '');
         namesByFlowId.set(id, (namesByFlowId.get(id) ?? new Set()).add(name));
@@ -441,7 +456,32 @@ function describeRequests(requests: readonly SinkRequest[]): string[] {
  */
 const ENVELOPE_KEYS = ['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'];
 const SYSTEM_PROPS_KEYS = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
-const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step', 'network'];
+const PROPS_KEYS = [
+  'flowId',
+  'result',
+  'errorKind',
+  'durationMs',
+  'step',
+  'screen',
+  'navSource',
+  'surface',
+  'order',
+  'complete',
+  'network'
+];
+const VISIT_SCREENS = [
+  'overview',
+  'send',
+  'receive',
+  'funding',
+  'swap',
+  'earn',
+  'explore',
+  'activity',
+  'me',
+  'tx_status',
+  'other'
+];
 
 function assertEnvelopeShape(request: SinkRequest): void {
   const envelope = JSON.parse(request.body) as Record<string, unknown>;
@@ -454,7 +494,7 @@ function assertEnvelopeShape(request: SinkRequest): void {
 
   // Every part comes from a closed literal union in `types.ts`, so anything
   // outside this shape means a free-form string reached the event name.
-  expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended|settled)$/);
+  expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended|settled|visit)$/);
   // The session id is an ephemeral per-run nanoid. Asserting its shape is what
   // keeps a persistent or device-derived identifier from being introduced
   // without a test noticing: anything derived from a device would not be 21
@@ -475,7 +515,16 @@ function assertEnvelopeShape(request: SinkRequest): void {
   const shape =
     flowId === undefined ? 'absent' : /^[A-Za-z0-9_-]{21}$/.test(String(flowId)) ? 'nanoid' : `neither: ${flowId}`;
 
-  expect(shape).toBe(String(envelope.eventName).endsWith('_settled') ? 'absent' : 'nanoid');
+  const pairless = /_(settled|visit)$/.test(String(envelope.eventName));
+  expect(shape).toBe(pairless ? 'absent' : 'nanoid');
+  // Unconditional by construction: a non-visit event is checked against stand-ins, so the visit contract goes
+  // quiet for no event kind.
+  const isVisit = String(envelope.eventName).endsWith('_visit');
+  const visitProps = envelope.props as Record<string, unknown>;
+  expect(VISIT_SCREENS).toContain(isVisit ? visitProps.screen : VISIT_SCREENS[0]);
+  expect(isVisit ? visitProps.screen : 'x').toBe(isVisit ? String(envelope.eventName).replace(/_visit$/, '') : 'x');
+  expect(['initial', 'push', 'back', 'replace', 'resume']).toContain(isVisit ? visitProps.navSource : 'initial');
+  expect(['popup', 'side_panel', 'full_page', 'app']).toContain(isVisit ? visitProps.surface : 'popup');
   // Holds either way: an absent flow id stringifies to something no 21-character
   // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));

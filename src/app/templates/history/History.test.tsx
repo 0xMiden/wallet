@@ -551,6 +551,25 @@ describe('History initial-load signal', () => {
 });
 
 describe('History', () => {
+  it('hands the view the row cap and stops paging once the capped list is full', async () => {
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      id: `capped-${i}`,
+      accountId: '0xme',
+      displayMessage: 'Sent',
+      displayIcon: 'DEFAULT',
+      type: 'send',
+      status: STATUS.Completed,
+      completedAt: 700 - i
+    }));
+    mockGetCompletedTransactions.mockResolvedValue(rows);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory({ numItems: 5, fullHistory: true });
+
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(5));
+    expect(mockHistoryViewProps.maxRows).toBe(5);
+    expect(mockHistoryViewProps.hasMore).toBe(false);
+  });
+
   it('filters Arcade by recorded dApp origins on both completed and pending entries, never by token name', async () => {
     const base = { accountId: '0xme', displayMessage: 'GC transfer', displayIcon: 'DEFAULT', type: 'send' };
     mockGetCompletedTransactions.mockResolvedValueOnce([
