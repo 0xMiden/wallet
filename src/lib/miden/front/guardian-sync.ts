@@ -46,6 +46,7 @@ import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/c
 import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { GuardianOutageReason, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -321,7 +322,8 @@ const guardianRateLimit = createRateCooldown(GUARDIAN_RATE_LIMIT_BOUNDS, monoton
 export const GUARDIAN_SYNC_OUTAGE_THRESHOLD = 6;
 
 const consecutiveServerFailures = new Map<string, number>();
-const outageAccounts = new Set<string>();
+type GuardianOutage = Readonly<Extract<UiEvidenceInput, { kind: 'guardian_outage' }>>;
+const outageAccounts = new Map<string, GuardianOutage>();
 // Answering, unusable, and out of automatic repairs — see `isGuardianUnrepairable`.
 const unrepairableAccounts = new Set<string>();
 const outageListeners = new Set<() => void>();
@@ -369,6 +371,10 @@ export function subscribeGuardianSyncOutage(listener: () => void): () => void {
 /** Is this account's guardian currently flagged as down? */
 export function isGuardianSyncOutage(accountPublicKey: string): boolean {
   return outageAccounts.has(accountPublicKey);
+}
+
+export function getGuardianSyncOutage(accountPublicKey: string): GuardianOutage | undefined {
+  return outageAccounts.get(accountPublicKey);
 }
 
 /** `Date.now()` of this account's last completed guardian sync, if any this session. */
@@ -515,19 +521,20 @@ function markGuardianUnrepairable(accountPublicKey: string, reason: string): voi
 }
 
 /** Flag this account's guardian as down, which surfaces the switch-guardian prompt. Arms once. */
-function armGuardianOutage(accountPublicKey: string, reason: string): void {
+function armGuardianOutage(accountPublicKey: string, guardianOutageReason: GuardianOutageReason, reason: string): void {
   if (outageAccounts.has(accountPublicKey)) return;
   console.warn(
     `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${reason}) - surfacing the switch-guardian prompt`
   );
-  outageAccounts.add(accountPublicKey);
+  outageAccounts.set(accountPublicKey, { kind: 'guardian_outage', guardianOutageReason });
   notifyOutageListeners();
 }
 
 function recordGuardianServerFailure(accountPublicKey: string): void {
   const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
   consecutiveServerFailures.set(accountPublicKey, fails);
-  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD) armGuardianOutage(accountPublicKey, `${fails} consecutive failures`);
+  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD)
+    armGuardianOutage(accountPublicKey, 'consecutive_unreachable', `${fails} consecutive failures`);
 }
 
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
@@ -2853,7 +2860,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // The fuse lights below the outage threshold and a fused account skips this catch until its next probe, half an
       // hour away, so a silent Guardian would otherwise reach the switch-guardian prompt only an hour later.
       if (guardianTimedOut && isSyncFused(fuseKey)) {
-        armGuardianOutage(account.publicKey, 'its requests keep timing out');
+        armGuardianOutage(account.publicKey, 'request_timeout_fuse', 'its requests keep timing out');
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
