@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Keep the token you picked when your reply to a Bread assistant question repeats its symbol and you hold two tokens with that symbol, never replace a picked token that is no longer available with another token of the same symbol, and stop a swap from receiving the only available pair when the token you named to receive is not listed.
+- [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
 - [CHANGE][all] Send only per-request option ids and common token symbols in assistant follow-up requests, use placeholders for saved addresses in any typed format and for every held token symbol, and use the newly named asset when a follow-up changes it.
 - [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
