@@ -602,6 +602,15 @@ describe('feature discovery', () => {
         entryPoint: 'bottom_nav',
         discoveryAction: 'exposed'
       });
+      const exploreExposures = () =>
+        events().filter(
+          event =>
+            event &&
+            event.phase === 'discovery' &&
+            event.feature === 'explore' &&
+            event.entryPoint === 'bottom_nav' &&
+            event.discoveryAction === 'exposed'
+        );
       expect(events()).toContainEqual(explore);
       expect(events()).not.toContainEqual(expect.objectContaining({ entryPoint: 'home_actions' }));
       const initialEvents = events();
@@ -613,14 +622,28 @@ describe('feature discovery', () => {
       showBars(1);
       expect(events()).toEqual(initialEvents);
       visibility.mockReturnValue('visible');
-      document.body.removeAttribute('data-hide-home-actions');
-      document.body.setAttribute('data-hide-navbar', '');
       fireEvent(document, new Event('visibilitychange'));
       showBars(1);
-      expect(events().slice(initialEvents.length)).toContainEqual(
+      expect(exploreExposures()).toHaveLength(2);
+
+      const beforePageHide = events();
+      fireEvent(window, new Event('pagehide'));
+      showBars(1);
+      expect(events()).toEqual(beforePageHide);
+      fireEvent(window, new Event('pageshow'));
+      showBars(1);
+      expect(exploreExposures()).toHaveLength(3);
+
+      fireEvent(window, new Event('pagehide'));
+      const beforeHomeActions = events();
+      document.body.removeAttribute('data-hide-home-actions');
+      document.body.setAttribute('data-hide-navbar', '');
+      fireEvent(window, new Event('pageshow'));
+      showBars(1);
+      expect(events().slice(beforeHomeActions.length)).toContainEqual(
         expect.objectContaining({ entryPoint: 'home_actions' })
       );
-      expect(events().slice(initialEvents.length)).not.toContainEqual(
+      expect(events().slice(beforeHomeActions.length)).not.toContainEqual(
         expect.objectContaining({ entryPoint: 'bottom_nav' })
       );
     } finally {
