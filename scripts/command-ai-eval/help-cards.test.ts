@@ -288,6 +288,19 @@ it('maps each topic button to its card and lists every shipped and current title
   expect(bad).toEqual([]);
 });
 
+it('keeps the public-send sentence out of the privacy overview, so writing cannot bring it back', () => {
+  const card = data.cards.find(item => item.id === 'privacy_overview');
+  expect(card?.facts).not.toContain('p.publicsend');
+  expect(card?.answer).not.toContain('A public send shows');
+});
+
+it('claims no download for proving on the device', () => {
+  expect(data.facts['p.proveoff']?.text).toBe(
+    'Turning off Delegate Proof Generation builds proofs on your device, which is slower.'
+  );
+  expect(JSON.stringify(data)).not.toMatch(/download/i);
+});
+
 // Safety, emergency and who-can-see cards are never reworded by the model.
 const WORD_FOR_WORD = `
   lost_phrase lost_phrase_and_device forgot_password reset_reinstall secrets_scams phrase_exposed
