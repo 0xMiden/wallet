@@ -10,6 +10,7 @@ import helpFacts from '../../src/lib/command-ai/help-facts.json';
 import { redactPrompt } from '../../src/lib/command-ai/redactor';
 import { parseAiCompilerOutput } from '../../src/lib/command-ai/schema';
 import { type HelpDataset, explainReply } from '../../services/command-ai/src/help';
+import { CHECKER_RULES, CHECKER_SCHEMA, WRITER_SCHEMA, writerInput } from '../../services/command-ai/src/help-write';
 import helpCards from '../../services/command-ai/src/help-cards.json';
 import {
   COMMAND_AI_JSON_SCHEMA,
@@ -289,5 +290,259 @@ describe('topic buttons', () => {
   it('does not match a title under another topic', async () => {
     const { calls } = await press('Notes', shippedTitles.Recovery[0]!);
     expect(calls).toBe(1);
+  });
+});
+
+describe('written answers', () => {
+  const ROUTER = 'openai/gpt-oss-120b';
+  const SMALL = 'openai/gpt-oss-20b';
+  const listed = (...cards: string[]): HelpDataset => ({ ...data, writing: { ...data.writing, cards } });
+  const on = listed('guardian_what', 'guardian_why', 'guardian_down');
+
+  const sentence = (id: string) => ({ facts: [id], text: data.facts[id]!.text });
+  const draft = { answerable: true, sentences: [sentence('g.service')] };
+  const written = {
+    op: 'explain',
+    topic: card('guardian_what').topic,
+    answer: `${data.facts['g.service']!.text} ${data.facts['g.see']!.text}`
+  };
+  const yes = { supported: true, answers: true };
+
+  const completion = (value: unknown, finish = 'stop') =>
+    Response.json({ choices: [{ finish_reason: finish, message: { content: JSON.stringify(value) } }] });
+  type Step = () => Promise<Response>;
+  const says =
+    (value: unknown, finish?: string): Step =>
+    async () =>
+      completion(value, finish);
+  const router = (...cards: string[]) => says({ result: { op: 'help', cards } });
+
+  async function run(steps: Step[], { dataset = on, now }: { dataset?: HelpDataset; now?: () => number } = {}) {
+    const fetchMock = jest.fn<typeof fetch>(async () => {
+      const step = steps[fetchMock.mock.calls.length - 1];
+      if (!step) throw new Error('unscripted call');
+      return step();
+    });
+    const traces: HelpTrace[] = [];
+    const service = createService({
+      fetchImpl: fetchMock,
+      dataset,
+      onTrace: trace => traces.push(trace),
+      ...(now ? { now } : {})
+    });
+    const response = await compile(service, { redactedText: SECRET, helpContext: null });
+    const bodies = fetchMock.mock.calls.map(call => JSON.parse(String((call[1] as RequestInit).body)));
+    return { response, bodies, trace: traces[0], calls: fetchMock.mock.calls.length, fetchMock };
+  }
+
+  const clock = (...times: number[]) => {
+    let call = 0;
+    return () => times[Math.min(call++, times.length - 1)]!;
+  };
+
+  it('writes, checks and replies with three calls', async () => {
+    const { response, bodies, trace, fetchMock } = await run([router('guardian_what'), says(draft), says(yes)]);
+    expect(response).toEqual({ status: 200, body: { output: written } });
+    expect(parseAiCompilerOutput(written)).toEqual(written);
+    expect(bodies.map(body => body.model)).toEqual([ROUTER, SMALL, SMALL]);
+    const input = writerInput([card('guardian_what')], on, SECRET, null);
+    const strict = (name: string, schema: object) => ({
+      type: 'json_schema',
+      json_schema: { name, strict: true, schema }
+    });
+    const small = { model: SMALL, temperature: 0.1, reasoning_effort: 'low', include_reasoning: false, stream: false };
+    expect(bodies[1]).toEqual({
+      ...small,
+      messages: [
+        { role: 'system', content: input.system },
+        { role: 'user', content: input.user }
+      ],
+      max_completion_tokens: 800,
+      response_format: strict('bread_help_answer', WRITER_SCHEMA)
+    });
+    expect(bodies[2]).toEqual({
+      ...small,
+      messages: [
+        { role: 'system', content: CHECKER_RULES },
+        { role: 'user', content: expect.any(String) }
+      ],
+      max_completion_tokens: 600,
+      response_format: strict('bread_help_check', CHECKER_SCHEMA)
+    });
+    expect(JSON.parse(bodies[2].messages[1].content)).toMatchObject({ ANSWER: written.answer, QUESTION: SECRET });
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect(call[0]).toBe(fetchMock.mock.calls[0]![0]);
+      expect((call[1] as RequestInit).headers).toEqual((fetchMock.mock.calls[0]![1] as RequestInit).headers);
+    }
+    expect(trace).toEqual({
+      path: 'written',
+      picked: ['guardian_what'],
+      unknownIds: [],
+      served: 'guardian_what',
+      writing: { cards: ['guardian_what'], outcome: 'written' }
+    });
+  });
+
+  it('writes from two cards and reports only the cited one', async () => {
+    const { trace } = await run([router('guardian_what', 'guardian_why'), says(draft), says(yes)]);
+    expect(trace).toMatchObject({ path: 'written', writing: { cards: ['guardian_what'] } });
+  });
+
+  const failures: [string, Step][] = [
+    ['a 429', async () => new Response(null, { status: 429 })],
+    ['a 500', async () => new Response(null, { status: 500 })],
+    [
+      'a thrown fetch',
+      async () => {
+        throw new Error('fetch failed');
+      }
+    ],
+    [
+      'an abort',
+      async () => {
+        throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+      }
+    ],
+    ['bad JSON', async () => Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{no' } }] })],
+    ['no content', async () => Response.json({ choices: [] })],
+    ['a cut-off reply', says(yes, 'length')],
+    ['a wrong shape', says({ zebra: true })]
+  ];
+
+  const expectCard = (result: Awaited<ReturnType<typeof run>>, id: string, outcome: string, calls: number) => {
+    expect(result.response).toEqual({ status: 200, body: { output: explainReply(card(id)) } });
+    expect(result.trace).toMatchObject({ served: id, writing: { cards: expect.any(Array), outcome } });
+    expect(result.calls).toBe(calls);
+  };
+
+  it.each(failures)('serves the checked answer when the writer returns %s', async (_, step) => {
+    const result = await run([router('guardian_what'), step]);
+    expectCard(result, 'guardian_what', 'writer_technical', 2);
+    expect(result.trace?.path).toBe('card');
+  });
+
+  it.each(failures)('serves the checked answer when the checker returns %s', async (_, step) => {
+    const result = await run([router('guardian_what'), says(draft), step]);
+    expectCard(result, 'guardian_what', 'checker_technical', 3);
+    expect(result.trace?.path).toBe('card');
+  });
+
+  it('falls back to the card the draft drew most on', async () => {
+    const own = card('guardian_why').facts.filter(id => !card('guardian_what').facts.includes(id));
+    const second = { answerable: true, sentences: [sentence(own[0]!)] };
+    const result = await run([router('guardian_what', 'guardian_why'), says(second), failures[0]![1]]);
+    expectCard(result, 'guardian_why', 'checker_technical', 3);
+  });
+
+  it('serves the checked answer for a format failure without asking the checker', async () => {
+    const opener = { answerable: true, sentences: [{ facts: ['g.service'], text: 'Yes, in Bread.' }] };
+    expectCard(await run([router('guardian_what'), says(opener)]), 'guardian_what', 'format', 2);
+  });
+
+  const invented = { answerable: true, sentences: [{ facts: ['g.service'], text: 'Zebra Labs runs it.' }] };
+
+  it.each<[string, Step[], string]>([
+    ['the writer cannot answer', [says({ answerable: false, sentences: [] })], 'unanswerable'],
+    ['the draft reaches past its cards', [says(invented)], 'content'],
+    ['the checker finds it unsupported', [says(draft), says({ supported: false, answers: true })], 'not_supported'],
+    ['the checker finds it off the question', [says(draft), says({ supported: true, answers: false })], 'not_answers']
+  ])('says it does not know when %s', async (_, steps, outcome) => {
+    const result = await run([router('guardian_what'), ...steps]);
+    expectCard(result, 'not_covered', outcome, steps.length + 1);
+    expect(result.trace).toMatchObject({ path: 'unknown', writing: { cards: ['guardian_what'] } });
+    expect(JSON.stringify(result.response)).not.toContain('Zebra Labs');
+    expect(logs.flatMap(spy => spy.mock.calls)).toEqual([[JSON.stringify({ event: 'compile_ok', model: ROUTER })]]);
+  });
+
+  it('says it cannot diagnose when the first card is a problem card', async () => {
+    const result = await run([router('guardian_down'), says({ answerable: false, sentences: [] })]);
+    expectCard(result, 'cannot_diagnose', 'unanswerable', 2);
+  });
+
+  const hung: Step = async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) }) as Response;
+
+  it('gives up on a writer whose body never arrives', async () => {
+    const result = await run([router('guardian_what'), hung], { now: clock(0, 7000) });
+    expectCard(result, 'guardian_what', 'writer_technical', 2);
+  });
+
+  it('gives up on a checker whose body never arrives', async () => {
+    const result = await run([router('guardian_what'), says(draft), hung], { now: clock(0, 0, 8000) });
+    expectCard(result, 'guardian_what', 'checker_technical', 3);
+  });
+
+  it('aborts the call it gives up on', async () => {
+    const result = await run([router('guardian_what'), hung], { now: clock(0, 7000) });
+    expect(result.calls).toBe(2);
+    expect((result.fetchMock.mock.calls[1]![1] as RequestInit).signal?.aborted).toBe(true);
+  });
+
+  it('skips the writer with under 2 seconds left', async () => {
+    const result = await run([router('guardian_what')], { now: clock(0, 7001) });
+    expectCard(result, 'guardian_what', 'writer_technical', 1);
+  });
+
+  it('skips the checker with under 1 second left', async () => {
+    const result = await run([router('guardian_what'), says(draft)], { now: clock(0, 0, 8001) });
+    expectCard(result, 'guardian_what', 'checker_technical', 2);
+  });
+
+  it.each<[number[], number[]]>([
+    [
+      [0, 0, 0],
+      [15000, 4000, 3000]
+    ],
+    [
+      [0, 6500, 7500],
+      [15000, 1500, 1500]
+    ]
+  ])('times the calls from the start of the request at %j', async (times, expected) => {
+    const timers = jest.spyOn(globalThis, 'setTimeout');
+    await run([router('guardian_what'), says(draft), says(yes)], { now: clock(...times) });
+    expect(timers.mock.calls.map(call => call[1]).filter(ms => Number(ms) >= 1000)).toEqual(expected);
+  });
+
+  it.each<[string, string[]]>([
+    ['a fixed card', ['phrase_exposed']],
+    ['a checked card', ['guardian_see']],
+    ['an unknown pick', ['not_covered']],
+    ['no pick', []],
+    ['an unlisted card', ['usdcx']],
+    ['an unlisted first card', ['usdcx', 'guardian_what']],
+    ['a fixed second card', ['guardian_what', 'phrase_exposed']]
+  ])('makes no second call for %s', async (_, cards) => {
+    expect((await run([router(...cards)])).calls).toBe(1);
+  });
+
+  it('makes no second call for a command, a button or a bare number', async () => {
+    expect((await run([says({ result: { op: 'cancel' } })])).calls).toBe(1);
+    const fetchImpl = jest.fn<typeof fetch>(async () =>
+      completion({ result: { op: 'help', cards: ['guardian_what'] } })
+    );
+    const service = createService({ fetchImpl, dataset: on });
+    await compile(service, { redactedText: shippedTitles.Recovery[0]!, helpContext: 'Recovery' });
+    expect(fetchImpl).toHaveBeenCalledTimes(0);
+    await compile(service, { redactedText: '<AMT_1>', helpContext: null });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['writer', 'checker'] as const)('writes nothing when the %s is the router model', async role => {
+    const dataset = { ...on, writing: { ...on.writing, [role]: ROUTER } };
+    expect((await run([router('guardian_what')], { dataset })).calls).toBe(1);
+  });
+
+  it('writes nothing with the shipped dataset, whatever the router picks', async () => {
+    const extra: string[] = [];
+    for (const { id } of data.cards) {
+      if ((await run([router(id)], { dataset: data })).calls !== 1) extra.push(id);
+    }
+    expect(extra).toEqual([]);
+  });
+
+  it('sends the router the same request with writing on and off', async () => {
+    const off = await run([router('guardian_what')], { dataset: data });
+    const enabled = await run([router('guardian_what'), says(draft), says(yes)]);
+    expect(enabled.bodies[0]).toEqual(off.bodies[0]);
+    expect(enabled.calls).toBe(3);
   });
 });

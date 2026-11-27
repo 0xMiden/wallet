@@ -597,16 +597,30 @@ async function dispatch(request: Request, env: Env, options: ServiceOptions): Pr
 }
 
 export interface HelpTrace {
-  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder';
+  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written';
   picked: string[];
   unknownIds: string[];
+  /** The card the user got: the first cited one for written text. */
   served: string | null;
+  /** Set when the writer was eligible. `cards` are the cited ones when written, else the ones it was given. */
+  writing?: { cards: string[]; outcome: WritingOutcome };
 }
+
+export type WritingOutcome =
+  | 'written'
+  | 'unanswerable'
+  | 'content'
+  | 'not_supported'
+  | 'not_answers'
+  | 'format'
+  | 'writer_technical'
+  | 'checker_technical';
 
 export interface ServiceOptions {
   fetchImpl?: typeof fetch;
   dataset?: HelpDataset;
   onTrace?: (trace: HelpTrace) => void;
+  now?: () => number;
 }
 
 /** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl, dataset and trace. */
