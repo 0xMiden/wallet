@@ -2331,6 +2331,45 @@ describe('crash-report egress', () => {
 });
 
 describe('user-visible error reports', () => {
+  it.each(['send_step', 'command_send'] as const)('sends the closed invalid amount producer %s', async producer => {
+    consentOn();
+    reportUserVisibleError('invalidAmount', 'field', { kind: 'invalid_amount', invalidAmountProducer: producer });
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).toMatchObject({
+      userErrorId: 'invalidAmount',
+      userErrorSurface: 'field',
+      invalidAmountProducer: producer
+    });
+    expect(diagnostics).not.toHaveProperty('kind');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each([
+    ['private producer', 'invalidAmount', 'field', { invalidAmountProducer: POISON.amount }],
+    [
+      'private extra',
+      'invalidAmount',
+      'field',
+      { invalidAmountProducer: 'send_step', rawError: POISON.addressTestnet }
+    ],
+    ['wrong surface', 'invalidAmount', 'inline', { invalidAmountProducer: 'send_step' }],
+    ['wrong id', 'raw_bridge_balance_failed', 'field', { invalidAmountProducer: 'send_step' }]
+  ] as const)('drops invalid amount evidence with %s', async (_label, id, surface, evidence) => {
+    consentOn();
+    Reflect.apply(reportUserVisibleError, undefined, [id, surface, { kind: 'invalid_amount', ...evidence }]);
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    const event = parsePayload(captured[0]?.body.split('\n')[2] ?? '');
+    const diagnostics = objectAt(objectAt(event, 'extra'), 'walletDiagnostics');
+    expect(diagnostics).toMatchObject({ userErrorId: id, userErrorSurface: surface });
+    expect(diagnostics).not.toHaveProperty('invalidAmountProducer');
+    expect(diagnostics).not.toHaveProperty('rawError');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
   const retryCases = [
     ['raw_history_retry_failed', 'inline', 'history_retry', 'history_primary'],
     ['raw_history_retry_failed', 'notice', 'history_payback_retry', 'history_payback'],

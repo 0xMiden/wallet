@@ -677,68 +677,72 @@ describe('connect payload', () => {
   });
 
   it('declines the connection with confirmed=false', async () => {
+    jest.useFakeTimers();
     ctx.confirmDAppPermission.mockResolvedValue(undefined);
     setPayload(connectPayload());
-    render(<ConfirmPage />);
+    try {
+      render(<ConfirmPage />);
+      await act(async () => fireEvent.click(screen.getByText('deny')));
 
-    await act(async () => {
-      fireEvent.click(screen.getByText('deny'));
-    });
-
-    await waitFor(() =>
       expect(ctx.confirmDAppPermission).toHaveBeenCalledWith('req-1', false, ACCOUNT.publicKey, UPON_REQUEST, [
         'balance'
-      ])
-    );
-  });
-
-  it('surfaces an error thrown by onConfirm through the error notice', async () => {
-    ctx.confirmDAppPermission.mockRejectedValue(new Error('network boom'));
-    setPayload(connectPayload());
-    render(<ConfirmPage />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
-    });
-
-    await waitFor(() => expect(screen.getByText(/^network boom\./)).toBeInTheDocument());
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 1050));
-    });
-    expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledWith('raw_confirm_approval_failed', 'notice');
-  });
-
-  it('keeps one report for the real approval error notice across parent rerenders', async () => {
-    jest.useFakeTimers();
-    ctx.confirmDAppPermission.mockRejectedValueOnce(new Error('private approval detail'));
-    setPayload(connectPayload());
-    const { rerender } = render(<ConfirmPage />);
-
-    try {
-      await act(async () => {
-        fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
-      });
-      await act(async () => {
-        jest.advanceTimersByTime(300);
-      });
-      expect(within(screen.getByTestId('connect-error')).getByText(/^private approval detail\./)).toBeInTheDocument();
-      expect(screen.getByTestId('connect-error')).toHaveAttribute('role', 'alert');
-      act(() => jest.advanceTimersByTime(999));
+      ]);
+      act(() => jest.advanceTimersByTime(1300));
+      expect(screen.queryByTestId('connect-error')).not.toBeInTheDocument();
       expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
-      act(() => jest.advanceTimersByTime(1));
-      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'notice']
-      ]);
-
-      rerender(<ConfirmPage />);
-      act(() => jest.advanceTimersByTime(5000));
-      expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
-        ['raw_confirm_approval_failed', 'notice']
-      ]);
     } finally {
       jest.useRealTimers();
     }
   });
+
+  it.each(['approve', 'decline', 'automatic_reconnect'] as const)(
+    'reports only the closed confirmation origin %s',
+    async origin => {
+      jest.useFakeTimers();
+      const canary = 'synthetic confirmation failure details';
+      ctx.confirmDAppPermission.mockRejectedValueOnce(new Error(canary));
+      setPayload(connectPayload({ existingPermission: origin === 'automatic_reconnect' }));
+
+      try {
+        const { rerender } = render(<ConfirmPage />);
+        await act(async () => {
+          if (origin === 'approve')
+            fireEvent.click(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton));
+          if (origin === 'decline') fireEvent.click(screen.getByText('deny'));
+        });
+        expect(ctx.confirmDAppPermission).toHaveBeenCalledTimes(1);
+        expect(ctx.confirmDAppPermission).toHaveBeenCalledWith(
+          'req-1',
+          origin !== 'decline',
+          ACCOUNT.publicKey,
+          UPON_REQUEST,
+          ['balance']
+        );
+        await act(async () => {
+          jest.advanceTimersByTime(300);
+        });
+        const notice = screen.getByTestId('connect-error');
+        expect(notice).toHaveTextContent(canary);
+        expect(notice).toHaveAttribute('role', 'alert');
+        act(() => jest.advanceTimersByTime(999));
+        expect(userVisibleErrors.reportUserVisibleError).not.toHaveBeenCalled();
+        act(() => jest.advanceTimersByTime(1));
+        expect(jest.mocked(userVisibleErrors.reportUserVisibleError).mock.calls).toEqual([
+          [
+            'raw_confirm_approval_failed',
+            'notice',
+            { kind: 'confirm_approval_failure', confirmApprovalFailureOrigin: origin }
+          ]
+        ]);
+
+        rerender(<ConfirmPage />);
+        act(() => jest.advanceTimersByTime(5000));
+        expect(userVisibleErrors.reportUserVisibleError).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
 
   it('falls back to the generic error message when the thrown error has none', async () => {
     ctx.confirmDAppPermission.mockRejectedValue({});
