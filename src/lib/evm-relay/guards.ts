@@ -17,12 +17,20 @@ function sameHex(a: string, b: string): boolean {
 }
 
 /**
- * The fee recipient of a `deduct` account: the `feeRecipient` of the chain config. Throws `RelayMismatchError` when the
- * chain configures none (it does not take `deduct` mode) or when the account names another recipient.
+ * The only recipient that the wallet pays a `deduct` fee to: the `feeRecipient` of the chain config, else its
+ * `executor`. The executor is the relayer, which pays the gas, so a config without `feeRecipient` pays the relayer
+ * back. Both values come from the wallet config, never from the relay service.
+ */
+export function configuredFeeRecipient(chain: RelayChainConfig): Address {
+  return chain.feeRecipient ?? chain.executor;
+}
+
+/**
+ * The fee recipient of a `deduct` account: `configuredFeeRecipient` of the chain config. Throws `RelayMismatchError`
+ * when the account names another recipient.
  */
 export function deductFeeRecipient(account: RelayAccount, chain: RelayChainConfig): Address {
-  const configured = chain.feeRecipient;
-  if (configured === undefined) throw new RelayMismatchError('relay: the chain does not take deduct mode');
+  const configured = configuredFeeRecipient(chain);
   if (account.feeRecipient === null || !sameHex(account.feeRecipient, configured)) {
     throw new RelayMismatchError('relay: the fee recipient is not the configured fee recipient');
   }
@@ -90,8 +98,8 @@ export interface RelayReviewedFee {
 
 /**
  * Throws unless the wallet may show the quote to the user and sign its fee:
- * - `RelayMismatchError` when the quote is for another chain, the chain configures no fee recipient (it does not take
- *   `deduct` mode), the recipient is not the configured `feeRecipient`, or the token is not the asked `feeToken`;
+ * - `RelayMismatchError` when the quote is for another chain, the recipient is not `configuredFeeRecipient` of the
+ *   chain, or the token is not the asked `feeToken`;
  * - `RelayRefusedError` (`fee-not-accepted`) when the fee is 0, the config has no `maxFee` entry for the token, or the
  *   fee is above that entry;
  * - `RelayRefusedError` (`quote-expired`) when `validUntil` is not after `nowSeconds`.
@@ -105,9 +113,7 @@ export function assertRelayQuoteMatches(
 ): void {
   const token = relayFeeToken(feeToken);
   if (quote.chainId !== chain.chainId) throw new RelayMismatchError('relay: the quote is for another chain');
-  const configured = chain.feeRecipient;
-  if (configured === undefined) throw new RelayMismatchError('relay: the chain does not take deduct mode');
-  if (!sameHex(quote.recipient, configured)) {
+  if (!sameHex(quote.recipient, configuredFeeRecipient(chain))) {
     throw new RelayMismatchError('relay: the fee recipient is not the configured fee recipient');
   }
   if (!sameHex(quote.token, token)) throw new RelayMismatchError('relay: the quote is for another fee token');

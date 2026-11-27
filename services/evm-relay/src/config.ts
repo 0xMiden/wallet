@@ -8,6 +8,7 @@
 import { notConfigured } from './errors';
 import { isRecord } from './http';
 import { ParseError, address, fail, shape, type Hex } from './parse';
+import { relayerAddress } from './secrets';
 import type { Env } from './types';
 
 export type { Hex } from './parse';
@@ -45,6 +46,58 @@ export const DEFAULT_NATIVE_PRICES: ReadonlyMap<number, PriceSymbol> = new Map([
   [5042002, USD_SYMBOL], // Arc Testnet: the native coin is USDC
   [11155111, 'ETHUSDT'] // Sepolia
 ]);
+
+/** The fee tokens of one chain: token address in lower case to its price symbol. */
+function tokens(...entries: [Hex, PriceSymbol][]): ReadonlyMap<Hex, PriceSymbol> {
+  return new Map(entries);
+}
+
+/**
+ * The price symbol of each known ERC-20 that a batch can pay its fee in, by chain id and token address in lower case.
+ * These are the tokens that the wallet can bridge from the chain (the `supportedEvmChains` of the wallet config
+ * documents), so a deposit pays its fee in the token that it bridges, with no `feeTokens` in RELAY_CONFIG. A
+ * `feeTokens` entry of RELAY_CONFIG adds a token, or replaces the symbol of a token of this table. A wrapped token
+ * takes the symbol of the coin that it wraps. For a new token, add a line here.
+ */
+export const DEFAULT_FEE_TOKENS: ReadonlyMap<number, ReadonlyMap<Hex, PriceSymbol>> = new Map([
+  [
+    1, // Ethereum
+    tokens(
+      ['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', USD_SYMBOL], // USDC
+      ['0xdac17f958d2ee523a2206206994597c13d831ec7', USD_SYMBOL], // USDT
+      ['0x6c3ea9036406852006290770bedfcaba0e23a0e8', USD_SYMBOL], // PYUSD
+      ['0xe343167631d89b6ffc58b88d6b7fb0228795491d', USD_SYMBOL], // USDG
+      ['0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', 'BTCUSDT'], // WBTC
+      ['0xd31a59c85ae9d8edefec411d448f90841571b89c', 'SOLUSDT'], // WSOL
+      ['0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4', 'NEARUSDT'], // NEAR
+      ['0x45804880de22913dafe09f4980848ece6ecbaf78', 'PAXGUSDT'], // PAXG
+      ['0x418d75f65a02b3d53b2418fb8e1fe493759c7605', 'BNBUSDT'], // WBNB
+      ['0x455e53cbb86018ac2b8092fdcd39d8444affc3f6', 'POLUSDT'] // POL
+    )
+  ],
+  [137, tokens(['0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', USD_SYMBOL])], // Polygon: USDC
+  [4663, tokens(['0x5fc5360d0400a0fd4f2af552add042d716f1d168', USD_SYMBOL])], // Robinhood: USDG
+  [5042, tokens(['0x3600000000000000000000000000000000000000', USD_SYMBOL])], // Arc: USDC
+  [8453, tokens(['0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', USD_SYMBOL])], // Base: USDC
+  [42161, tokens(['0xaf88d065e77c8cc2239327c5edb3a432268e5831', USD_SYMBOL])], // Arbitrum One: USDC
+  [84532, tokens(['0x036cbd53842c5426634e7929541ec2318f3dcf7e', USD_SYMBOL])], // Base Sepolia: USDC
+  [421614, tokens(['0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d', USD_SYMBOL])], // Arbitrum Sepolia: USDC
+  [5042002, tokens(['0x3600000000000000000000000000000000000000', USD_SYMBOL])], // Arc Testnet: USDC
+  [
+    11155111, // Sepolia
+    tokens(
+      ['0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', USD_SYMBOL], // USDC of Circle
+      ['0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', USD_SYMBOL] // The test USDC of Epoch and Agglayer
+    )
+  ]
+]);
+
+/** The fee tokens of a served chain: the tokens of `DEFAULT_FEE_TOKENS`, then the tokens of its `chains` entry. */
+function feeTokensOf(chainId: number, configured: ReadonlyMap<Hex, PriceSymbol> | undefined): Map<Hex, PriceSymbol> {
+  const merged = new Map<Hex, PriceSymbol>(DEFAULT_FEE_TOKENS.get(chainId) ?? []);
+  for (const [token, symbol] of configured ?? []) merged.set(token, symbol);
+  return merged;
+}
 
 export interface CaliburConfig {
   address: Hex;
@@ -255,14 +308,18 @@ export interface ParsedRelayConfig {
  * Parse `RELAY_CONFIG` for the served chains `chainIds`. Each served chain gets the one Calibur pin and the one fee
  * recipient, and the native price, the fee tokens and the allowed targets of its `chains` entry. A served chain
  * without an entry gets the native price of `DEFAULT_NATIVE_PRICES` (none for a chain that the table does not have),
- * no fee token and no target list. In `deduct` mode each served chain needs a native price: a chain that is not in the
- * table needs an entry with `nativePrice`. The parse checks an entry of a chain that is not served, but does not keep
- * it: that chain is not supported.
+ * the fee tokens of `DEFAULT_FEE_TOKENS` and no target list. In `deduct` mode each served chain needs a native price:
+ * a chain that is not in the table needs an entry with `nativePrice`. The parse checks an entry of a chain that is not
+ * served, but does not keep it: that chain is not supported.
+ *
+ * `relayer` is the relayer address, or null when the relayer key is missing or not valid. In `deduct` mode a config
+ * without `feeRecipient` pays the fee to the relayer. `sponsor` mode has no fee, so it keeps only a configured value.
  */
 export function parseRelayConfig(
   relayConfig: string | undefined,
   gasMode: GasMode,
-  chainIds: readonly number[]
+  chainIds: readonly number[],
+  relayer: Hex | null = null
 ): ParsedRelayConfig {
   let value: unknown;
   try {
@@ -273,9 +330,11 @@ export function parseRelayConfig(
   return configured(() => {
     const fields = shape(value, 'RELAY_CONFIG', ['calibur'], ['feeRecipient', 'chains']);
     const calibur = parseCalibur(fields.calibur, 'RELAY_CONFIG.calibur');
-    const feeRecipient =
+    const configuredRecipient =
       fields.feeRecipient === undefined ? null : address(fields.feeRecipient, 'RELAY_CONFIG.feeRecipient');
+    const feeRecipient = gasMode === 'deduct' ? (configuredRecipient ?? relayer) : configuredRecipient;
     const entries = parseChainEntries(fields.chains);
+    // Only without a valid relayer key: the Worker then relays nothing in any case.
     if (gasMode === 'deduct' && feeRecipient === null) {
       fail('RELAY_CONFIG.feeRecipient', 'is required when GAS_MODE is deduct');
     }
@@ -291,7 +350,7 @@ export function parseRelayConfig(
         calibur,
         feeRecipient,
         nativePrice,
-        feeTokens: entry?.feeTokens ?? new Map<Hex, PriceSymbol>(),
+        feeTokens: feeTokensOf(chainId, entry?.feeTokens),
         allowedTargets: entry?.allowedTargets ?? null
       });
     }
@@ -303,7 +362,8 @@ export function parseRelayConfig(
 export function parseConfig(env: Env): RelayConfig {
   const gasMode = parseGasMode(env.GAS_MODE);
   const allowedOrigins = parseOrigins(env.ALLOWED_ORIGINS);
-  return { gasMode, allowedOrigins, ...parseRelayConfig(env.RELAY_CONFIG, gasMode, servedChainIds(env)) };
+  const relayer = relayerAddress(env);
+  return { gasMode, allowedOrigins, ...parseRelayConfig(env.RELAY_CONFIG, gasMode, servedChainIds(env), relayer) };
 }
 
 /** The config of a route. A variable that does not parse gives `503 service_unavailable`. */

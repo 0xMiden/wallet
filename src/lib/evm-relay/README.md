@@ -139,9 +139,9 @@ The service is not trusted for anything that decides where funds go or what they
 quotes the fee of each batch from its simulation of the calls: the simulated gas cost, priced in the fee token, with
 a margin. There is no fixed fee table. In `sponsor` mode there is no fee, no quote and no fee call.
 
-- The remote config names one fee recipient for every chain (`relay.feeRecipient`). Without it the wallet does not
-  take `deduct` mode. In `deduct` mode `assertRelayAccountMatches` requires the account's `feeRecipient` to be the
-  configured one. The config `relay.maxFee` is the highest fee that the wallet accepts for each token; a token without
+- The wallet pays a fee to one recipient only, for every chain: the `relay.feeRecipient` of the remote config, else
+  its `relay.executor` (`configuredFeeRecipient`). The executor is the relayer, which pays the gas. In `deduct` mode
+  `assertRelayAccountMatches` requires the account's `feeRecipient` to be that address. The config `relay.maxFee` is the highest fee that the wallet accepts for each token; a token without
   an entry is not accepted as a fee.
 - `GET /v1/account` gives `feeTokens`: the tokens that the relay takes a fee in (the native coin first), empty in
   `sponsor` mode. It gives no fee amount.
@@ -309,7 +309,8 @@ is no partial result. Unknown fields are ignored (also the `fees` table of an ol
 
 - `assertRelayAccountMatches(account, chain, address)`: the account echoes the asked chain and address, its executor
   is the configured `chain.executor`, a `sponsor` account has no fee recipient and no fee tokens, and a `deduct`
-  account names the configured `chain.feeRecipient` (`deductFeeRecipient`). Else it throws `RelayMismatchError`.
+  account names the configured fee recipient, which is `chain.feeRecipient`, else `chain.executor`
+  (`deductFeeRecipient`). Else it throws `RelayMismatchError`.
 - `assertRelayQuoteMatches(quote, chain, feeToken, nowSeconds)`: see the fee rule. `assertFeeWithinCap` (the config
   `maxFee`), `assertRelayTakesFeeToken` (the account's `feeTokens`) and `relayFeeToken` are the parts that `submit`
   also uses.

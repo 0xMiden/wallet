@@ -149,8 +149,9 @@ export function validateRelease(env, worker) {
     RELAY_CONFIG: env.EVM_RELAY_CONFIG
   };
   try {
-    // The Worker reads its served chains from the RPC_URL_<chainId> keys, so the parse gets them too.
-    worker.parseConfig({ ...vars, ...rpc.secrets });
+    // The Worker reads its served chains from the RPC_URL_<chainId> keys, so the parse gets them too. It gets the
+    // relayer key also: in deduct mode a config without feeRecipient pays the fee to the relayer.
+    worker.parseConfig({ ...vars, ...rpc.secrets, RELAYER_PRIVATE_KEY: env.EVM_RELAY_RELAYER_PRIVATE_KEY });
   } catch (error) {
     // The Worker's messages name a variable path and a rule, never a secret key or value.
     const reason = error instanceof Error ? error.message : 'unknown error';

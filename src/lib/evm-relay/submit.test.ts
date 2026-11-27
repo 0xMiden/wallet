@@ -396,12 +396,19 @@ describe('deduct mode', () => {
     expect(h.signRequests).toHaveLength(0);
   });
 
-  it('refuses deduct mode on a chain without a configured fee recipient', async () => {
+  it('pays the fee to the executor on a chain without a configured fee recipient', async () => {
+    const h = harness({ chain: { ...CHAIN, feeRecipient: undefined } });
+    h.accounts = [deductAccount({ feeRecipient: EXECUTOR })];
+    await h.submitter.submit([CALL], { fee: { token: USDC, amount: 1200n } });
+    expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: EXECUTOR, amount: 1200n })]);
+  });
+
+  it('refuses an account that names another recipient than the executor on such a chain', async () => {
     const h = harness({ chain: { ...CHAIN, feeRecipient: undefined } });
     h.accounts = [deductAccount()];
     expect(await failure(h.submitter.submit([CALL], { fee: USDC_FEE }))).toMatchObject({
       name: 'RelayMismatchError',
-      message: 'relay: the chain does not take deduct mode'
+      message: 'relay: the fee recipient is not the configured fee recipient'
     });
     expect(h.signRequests).toHaveLength(0);
   });

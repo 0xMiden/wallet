@@ -156,9 +156,11 @@ test("runs the Worker's own parse and reports its path", () => {
     { EVM_RELAY_CONFIG: relayConfig({ 8453: chain({ allowedTargets: [] }) }) },
     /Worker refuses the release config: RELAY_CONFIG\.chains\.8453\.allowedTargets must be a non-empty array/
   );
-  // Deduct mode needs a fee recipient and the price symbol of the native coin on each served chain. The Worker knows
-  // the symbol of a chain of its default table (8453 and 1 are in it). 999 is not in the table.
-  refuses({ EVM_RELAY_GAS_MODE: 'deduct' }, /Worker refuses the release config: .*feeRecipient is required/);
+  // Deduct mode needs the price symbol of the native coin on each served chain. The Worker knows the symbol of a chain
+  // of its default table (8453 and 1 are in it). 999 is not in the table. A config without feeRecipient is valid: the
+  // fee then goes to the relayer.
+  const noRecipient = validateRelease(env({ EVM_RELAY_GAS_MODE: 'deduct' }), worker);
+  assert.equal(noRecipient.vars.GAS_MODE, 'deduct');
   const deduct = chain({ nativePrice: 'ETHUSDT', feeTokens: { [`0x${'ee'.repeat(20)}`]: 'usd' } });
   const deductConfig = relayConfig({ 8453: deduct }, { feeRecipient: FEE_RECIPIENT });
   refuses(
