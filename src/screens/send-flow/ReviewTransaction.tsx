@@ -330,7 +330,13 @@ export const ReviewTransaction: React.FC = () => {
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const {
+    data: balanceData,
+    isLoading: balancesLoading,
+    readFailed: balanceReadFailed,
+    balanceReadInFlight,
+    mutate: retryBalanceRead
+  } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   // Loaded here too: a review held for want of the document resolves only once one arrives.
   const bridgeConfig = useBridgeConfigSnapshot();
@@ -1445,6 +1451,25 @@ export const ReviewTransaction: React.FC = () => {
           }}
           footer={
             <div className="flex flex-col gap-2">
+              {burnBalancesLoading && balanceReadFailed && (
+                <Notice
+                  tone="negative"
+                  role="alert"
+                  trailing={
+                    <Button
+                      type="button"
+                      size="sm"
+                      title={t('retry')}
+                      variant={ButtonVariant.Secondary}
+                      onClick={retryBalanceRead}
+                      disabled={balanceReadInFlight}
+                      data-testid="review-balance-retry"
+                    />
+                  }
+                >
+                  {t('tokenDetailBalanceUnavailable')}
+                </Notice>
+              )}
               {(scaleIsUnknown || submitError || amountExceedsPrecision || burnValidationError || recallInvalid) && (
                 <ReviewErrorMessage message={reviewError} errorId={reviewErrorId} />
               )}
