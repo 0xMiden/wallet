@@ -1369,6 +1369,30 @@ describe('ForgotPassword non-destructive restore, hot-key recovery, and confirma
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
     await dispatch({ id: 'back' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    const HOT_PAIR = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+
+    // 4. Desktop Hot-Key Import: CreatePassword -> ImportFromKey, Confirmation -> ImportSelectRecoveryMethod
+    mockIsMobile.mockReturnValue(false);
+    await dispatch({ id: 'import-with-key' });
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_PAIR });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromKey);
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_PAIR });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+
+    // 5. Mobile Hot-Key Import: SetupPasscode -> ImportFromKey
+    mockIsMobile.mockReturnValue(true);
+    await dispatch({ id: 'import-with-key' });
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_PAIR });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromKey);
   });
 
   it('clears ENDPOINT_OVERRIDE_STORAGE_KEY on failed recoverOnly registration when no prior override existed', async () => {
