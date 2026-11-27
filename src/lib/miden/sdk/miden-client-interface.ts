@@ -111,6 +111,7 @@ import {
   isPipelineKillLink,
   isSubmitCrossingUnrecorded,
   markErrorBeforeSubmit,
+  markLockEvictedError,
   readWasmHandle,
   rethrowTrapOrKill
 } from './sdk-error-code';
@@ -156,6 +157,13 @@ import {
   reclaimDisabledP2ideTarget,
   resolveSendReclaimHeight
 } from '../helpers';
+
+/** Construct a lock/client-replacement poison error tagged as lock-evicted for pre-submit tracking. */
+const evictedPoisonError = (message: string): WasmClientPoisonedError => {
+  const error = new WasmClientPoisonedError('watchdog', new Error(message));
+  markLockEvictedError(error);
+  return error;
+};
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -2002,7 +2010,7 @@ export class MidenClientInterface {
       this.client,
       () => this.client.sync(),
       () => {
-        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        if (this.isDisposed) throw evictedPoisonError('sync client was replaced');
         assertLive();
       }
     );
@@ -2571,7 +2579,7 @@ export class MidenClientInterface {
     // A gated write's stamp waits for the service worker to record the crossing, a real parking point, so ownership is
     // asked again whether or not the write has a check of its own before its submit (#1081).
     if (attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned after worker prove or submit gate'));
+      throw evictedPoisonError('operation abandoned after worker prove or submit gate');
     }
     beforeSubmit?.();
     attempt.markSubmitting();
@@ -2619,10 +2627,7 @@ export class MidenClientInterface {
             `Delegated ${write} prove`,
             () => {
               if (attempt.evicted()) {
-                throw new WasmClientPoisonedError(
-                  'watchdog',
-                  new Error(`operation abandoned before the ${write} remote re-prove`)
-                );
+                throw evictedPoisonError(`operation abandoned before the ${write} remote re-prove`);
               }
             }
           )
@@ -2642,7 +2647,7 @@ export class MidenClientInterface {
     // The prove and the stage stamp both park, and an eviction during either hands the client to a
     // successor: submitting on it would be a second borrow of a client this write no longer owns.
     if (attempt.evicted()) {
-      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
+      throw evictedPoisonError(`operation abandoned after the ${write} prove`);
     }
     beforeSubmit?.();
     // Point of no return: a retry past here would build a fresh request (a new note serial; for a
@@ -2749,20 +2754,14 @@ export class MidenClientInterface {
         await onStage('submitting', { evidence: readSubmitEvidence(txResult, proven, () => attempt.holdIsCurrent()) });
       }
       if (attempt.evicted()) {
-        throw new WasmClientPoisonedError(
-          'watchdog',
-          new Error('operation abandoned after offscreen prove or submit gate')
-        );
+        throw evictedPoisonError('operation abandoned after offscreen prove or submit gate');
       }
       beforeSubmit?.();
       // Point of no return — see the identical mark on the inline send path.
       attempt.markSubmitting();
       await access._withInnerWebClient(async inner => {
         if (attempt.evicted()) {
-          throw new WasmClientPoisonedError(
-            'watchdog',
-            new Error('operation abandoned while acquiring offscreen submit client')
-          );
+          throw evictedPoisonError('operation abandoned while acquiring offscreen submit client');
         }
         recordProveTiming('proveLocallyViaOffscreen inside SDK lock; submit');
         const height = await inner.submitProvenTransaction(proven, txResult);
@@ -3124,7 +3123,7 @@ export async function proveWithFallback<T>(
     // successor's. `proveInWorker` itself refuses a hold that is no longer current.
     proveInWorker: result =>
       liveness.disposed || hold === null
-        ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
+        ? Promise.reject(evictedPoisonError('worker prove refused: no live hold'))
         : proveInWorker(result, hold),
     holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
     retireCaughtTrap: cause => {
@@ -3180,7 +3179,7 @@ export async function proveWithFallback<T>(
       // recovery took away, while the row already takes the kill path (#1233).
       if (attempt.evicted()) {
         reportProve({ startedAt, step: 'prove_delegate', error: err });
-        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned before the local fallback'));
+        throw evictedPoisonError('operation abandoned before the local fallback');
       }
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back

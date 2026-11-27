@@ -9,7 +9,11 @@ import {
   forceCaneclAllInProgressTransactions,
   verifyStuckTransactionsFromNode
 } from './cancel';
-import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { judgeSubmitEvidence } from './reconcile-judge';
 import { NodeReads } from './reconcile-reads';
 import { GUARDIAN_PENDING_HOLD_SEC, keptCandidateHoldUntil } from './verdict-rules';
@@ -18,6 +22,7 @@ import {
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { markKilledBeforeSubmit } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.mock('../back/background-notification', () => ({
@@ -283,6 +288,52 @@ describe('the kill route (#1081)', () => {
     await Repo.transactions.put(preWrite);
     await cancelTransactionAfterPipelineStopped(preWrite, new WasmClientPoisonedError('watchdog', new Error('x')));
     expect((await read())?.submitEvidence).toBeUndefined();
+  });
+
+  it('skips kill evidence, mayHaveSubmitted, and cancelledInFlightAt while persisting preSubmitKill on confirmed pre-submit kills (#2325)', async () => {
+    const inFlightSend = generating({
+      type: 'send',
+      stage: 'proving',
+      processingStartedAt: NOW - 10,
+      attemptId: 'a1'
+    });
+    await Repo.transactions.put(inFlightSend);
+    const preSubmitKill = new WasmClientPoisonedError('watchdog', new Error('evicted pre-submit'));
+    markKilledBeforeSubmit(preSubmitKill);
+
+    await cancelTransactionAfterPipelineStopped(inFlightSend, preSubmitKill, 'a1');
+
+    const stored = await read();
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(stored?.preSubmitKill).toBe(true);
+    expect(stored?.mayHaveSubmitted).toBeUndefined();
+    expect(stored?.cancelledInFlightAt).toBeUndefined();
+    expect(stored?.submitEvidence).toBeUndefined();
+  });
+
+  it('keeps kill evidence, mayHaveSubmitted, and cancelledInFlightAt for an untagged kill after processingStartedAt (#2325)', async () => {
+    const inFlightSend = generating({
+      type: 'send',
+      stage: 'proving',
+      processingStartedAt: NOW - 10,
+      attemptId: 'a1'
+    });
+    await Repo.transactions.put(inFlightSend);
+
+    await cancelTransactionAfterPipelineStopped(
+      inFlightSend,
+      new WasmClientPoisonedError('watchdog', new Error('untagged kill')),
+      'a1'
+    );
+
+    const stored = await read();
+    expect(stored?.status).toBe(ITransactionStatus.Failed);
+    expect(stored?.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(stored?.preSubmitKill).toBeUndefined();
+    expect(stored?.mayHaveSubmitted).toBe(true);
+    expect(stored?.cancelledInFlightAt).toEqual(expect.any(Number));
+    expect(stored?.submitEvidence).toEqual([expect.objectContaining({ source: 'kill', attemptId: 'a1' })]);
   });
 });
 

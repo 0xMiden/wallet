@@ -2175,7 +2175,160 @@ describe('MidenClientInterface', () => {
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(outcome).toMatchObject({ name: 'WasmClientPoisonedError' });
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(outcome)).toBe(true);
     });
+  });
+
+  it('marks syncState replaced-client WasmClientPoisonedError as lock-evicted (#2325)', async () => {
+    jest.dontMock('lib/miden-chain/effective-endpoints');
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { isLockEvictedError } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+    client.markPoisoned();
+    const syncErr = await client.syncState().catch((err: unknown) => err);
+
+    expect(syncErr).toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(isLockEvictedError(syncErr)).toBe(true);
+  });
+
+  it('marks worker prove and staged prove/re-prove hold-loss evictions as lock-evicted (#2325)', async () => {
+    jest.dontMock('lib/miden-chain/effective-endpoints');
+    const { isLockEvictedError } = await import('./sdk-error-code');
+
+    try {
+      // 1. proveInWorker refuses when client was poisoned before proveInWorker runs (:2823)
+      {
+        mockStagedSdk();
+        jest.doMock('./local-prove-transport', () => ({
+          getLocalProveTransport: () => ({ prewarm: jest.fn() }),
+          proveInWorker: jest.fn(),
+          recordProveTiming: jest.fn()
+        }));
+        let client!: MidenClientInterfaceType;
+        const staged = stagedExecuteRequest();
+        staged.executeRequest.mockImplementationOnce(async () => {
+          client.markPoisoned();
+          return { id: 'tx-id', result: fakeTransactionResult, prove: staged.prove };
+        });
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        client = MidenClientInterface.fromClient(
+          buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+          'testnet'
+        );
+        const err = await client
+          .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+          .catch(e => e);
+        expect(isLockEvictedError(err)).toBe(true);
+      }
+
+      // 2. proveInWorkerAndSubmit refuses after proveInWorker when hold is poisoned during prove (:2279)
+      {
+        jest.resetModules();
+        mockStagedSdk();
+        const hold = { id: 'live-worker-hold' };
+        jest.doMock('./miden-client', () => ({
+          ...jest.requireActual('./miden-client'),
+          getCurrentWasmLockHold: () => hold
+        }));
+        let client!: MidenClientInterfaceType;
+        const proveInWorker = jest.fn(async () => {
+          client.markPoisoned();
+          return 'worker-proof';
+        });
+        jest.doMock('./local-prove-transport', () => ({
+          getLocalProveTransport: () => ({ prewarm: jest.fn() }),
+          proveInWorker,
+          recordProveTiming: jest.fn()
+        }));
+        try {
+          const staged = stagedExecuteRequest();
+          const { MidenClientInterface } = await import('./miden-client-interface');
+          const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+          client = MidenClientInterface.fromClient(
+            buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+            'testnet'
+          );
+          const err = await client
+            .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+            .catch(e => e);
+          expect(proveInWorker).toHaveBeenCalledTimes(1);
+          expect((err as Error & { cause?: Error }).cause?.message).toContain('after worker prove or submit gate');
+          expect(checkEvicted(err)).toBe(true);
+        } finally {
+          jest.dontMock('./miden-client');
+        }
+      }
+
+      // 3. proveInRealmAndSubmit local prove marks eviction right after prove (:2346)
+      {
+        jest.resetModules();
+        mockStagedSdk();
+        jest.dontMock('./local-prove-transport');
+        let client!: MidenClientInterfaceType;
+        const staged = stagedExecuteRequest(() => {
+          client.markPoisoned();
+        });
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+        client = MidenClientInterface.fromClient(
+          buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+          'testnet'
+        );
+        const err = await client
+          .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: false } as any)
+          .catch(e => e);
+        expect(checkEvicted(err)).toBe(true);
+      }
+
+      // 4. proveDelegated remote re-prove guard marks eviction before passing error to proveWithFallback (:2327)
+      {
+        jest.resetModules();
+        jest.useFakeTimers();
+        const hiddenDoc = installHiddenDocument();
+        let resetBgTime: (() => void) | undefined;
+        try {
+          mockStagedSdk();
+          const reportProve = jest.fn();
+          jest.doMock('lib/telemetry/report-operation', () => ({ reportProve }));
+          let failFirst!: (err: unknown) => void;
+          const firstProve = new Promise<never>((_, reject) => {
+            failFirst = reject;
+          });
+          const staged = stagedExecuteRequest();
+          staged.prove.mockReturnValueOnce(firstProve);
+          const backgroundTime = await import('lib/mobile/background-time');
+          backgroundTime.initBackgroundTimeTracking();
+          resetBgTime = backgroundTime.__resetBackgroundTimeForTest;
+          const { MidenClientInterface } = await import('./miden-client-interface');
+          const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+          const client = MidenClientInterface.fromClient(
+            buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+            'testnet'
+          );
+          const pending = client
+            .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any)
+            .catch(e => e);
+          await jest.advanceTimersByTimeAsync(0);
+          hiddenDoc.setHidden(true);
+          hiddenDoc.freezeFor(140_000);
+          hiddenDoc.setHidden(false);
+          client.markPoisoned();
+          failFirst(new Error('DeadlineExceeded: Request timed out'));
+          await pending;
+          expect(checkEvicted(reportProve.mock.calls[0]?.[0]?.error)).toBe(true);
+        } finally {
+          resetBgTime?.();
+          jest.dontMock('lib/telemetry/report-operation');
+          hiddenDoc.restore();
+          jest.useRealTimers();
+        }
+      }
+    } finally {
+      jest.dontMock('./local-prove-transport');
+    }
   });
 
   it('every non-Guardian write leaf builds its request with EXPIRATION_DELTA_BLOCKS itself (#1081)', async () => {
@@ -4169,7 +4322,10 @@ describe('MidenClientInterface', () => {
       client = await stagedClient(staged.executeRequest);
       const { WasmClientPoisonedError } = await import('./wasm-client-poison');
 
-      await expect(client.swapTransaction(swapTx as any)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      const poisonErr = await client.swapTransaction(swapTx as any).catch((err: unknown) => err);
+      expect(poisonErr).toBeInstanceOf(WasmClientPoisonedError);
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(poisonErr)).toBe(true);
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(staged.submit).not.toHaveBeenCalled();
@@ -4531,8 +4687,8 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await expect(
-        client.sendTransaction({
+      const err = await client
+        .sendTransaction({
           accountId: 'sender',
           secondaryAccountId: 'recip',
           faucetId: 'faucet',
@@ -4540,10 +4696,59 @@ describe('MidenClientInterface', () => {
           amount: BigInt(100),
           extraInputs: {}
         } as any)
-      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+        .catch((caught: unknown) => caught);
+
+      expect(err).toMatchObject({ name: 'WasmClientPoisonedError' });
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(err)).toBe(true);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+
+    it('marks offscreen submit inner-client acquisition eviction as lock-evicted (#2325)', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs();
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      let client!: MidenClientInterfaceType;
+      let innerCalls = 0;
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => {
+        innerCalls += 1;
+        if (innerCalls === 2) client.markPoisoned();
+        return fn(inner);
+      };
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const err = await client
+        .sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+        .catch((caught: unknown) => caught);
+
+      expect(innerCalls).toBe(2);
+      expect((err as Error & { cause?: Error }).cause?.message).toContain('while acquiring offscreen submit client');
+      expect(isLockEvictedError(err)).toBe(true);
       expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
 

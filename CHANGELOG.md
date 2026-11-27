@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Keep the existing wallet and network override intact across Forgot password until replacement validation succeeds, surface honest replacement confirmation with cancel/back-out, and support Guardian hot-key recovery during password reset (#2360).
+- [FIX][all] Recheck Guardian proof freshness after the submitting database update and submission gate so a slow write never submits an expired proof, retracting the pre-submit crossing and re-executing with a fresh proof instead (#2325).
 - [FIX][all] Index transaction status, completion-by-status, and held note IDs and chunk background and history transaction reads so wallet page reads no longer block background transaction writes (#2327).
 - [CHORE][all] Guardian connectivity reports distinguish repeated unreachable responses from the request timeout fuse without including account or endpoint details.
 - [FIX][extension] Show the balance at once when the Sidebar or Bread Command opens, instead of a dash while prices load, when a held token has no price or a recent price is cached.
