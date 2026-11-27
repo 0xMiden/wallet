@@ -63,6 +63,8 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 jest.mock('lib/miden/front/storage', () => {
   const values = new Map<string, object | string>();
   return {
+    inStorageTurn:
+      jest.requireActual<typeof import('lib/miden/front/storage')>('lib/miden/front/storage').inStorageTurn,
     fetchFromStorage: async (key: string) => values.get(key) ?? null,
     putToStorage: async (key: string, value: object | string) => {
       values.set(key, value);

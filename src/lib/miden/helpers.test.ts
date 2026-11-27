@@ -11,6 +11,7 @@ import {
   isAddressValid,
   isPrivateNoteType,
   mayConsume,
+  mayEverConsume,
   noteConsumeRestriction,
   reclaimDisabledP2ideTarget,
   standardPaymentScriptRoots,
@@ -246,6 +247,37 @@ describe('which account can ever consume a note', () => {
     expect(mayConsume(target, account(0x00000000abcdef01n, 0x2f1a3b4c5d6e0000n))).toBe(false);
     expect(mayConsume(target, account(0x00000000feedbeefn, 0x2f1a3b4c5d6e0000n))).toBe(false);
     expect(mayConsume('nobody', account(0x00000000feedbeefn, 0x7c9d1e2f3a4b0000n))).toBe(false);
+  });
+
+  // Pending-note recovery keeps only these notes of the many that share the account's 14-bit tag (#2266).
+  describe('mayEverConsume', () => {
+    const reclaimer = { prefix: 0x00000000abcdef01n.toString(), suffix: 0x2f1a3b4c5d6e0000n.toString() };
+    const stranger = { prefix: '7', suffix: '8' };
+
+    it('admits the target of a P2ID alone', () => {
+      const p2id = makeNote(P2ID_ROOT, [0x7c9d1e2f3a4b0000n, 0x00000000feedbeefn, 5n, 6n]);
+      expect(mayEverConsume(p2id, target)).toBe(true);
+      expect(mayEverConsume(p2id, stranger)).toBe(false);
+      expect(mayEverConsume(p2id, { prefix: target.prefix, suffix: reclaimer.suffix })).toBe(false);
+    });
+
+    it('admits the target of a P2IDE, and its reclaimer only while its reclaim is enabled', () => {
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, p2ideStorage(1200n)), target)).toBe(true);
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, p2ideStorage(1200n)), reclaimer)).toBe(true);
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, p2ideStorage(1200n)), stranger)).toBe(false);
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, p2ideStorage(0n)), target)).toBe(true);
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, p2ideStorage(0n)), reclaimer)).toBe(false);
+    });
+
+    it('admits nobody to a fee sponsorship whose reclaim is disabled', () => {
+      expect(mayEverConsume(makeNote(SPONSORSHIP_ROOT, sponsorship(0n)), reclaimer)).toBe(false);
+    });
+
+    it('admits any account to a script its storage cannot settle, and to a layout it does not know', () => {
+      expect(mayEverConsume(makeNote('0xswap', [1n, 2n]), stranger)).toBe(true);
+      expect(mayEverConsume(makeNote(P2IDE_ROOT, [0n, ...p2ideStorage(1200n)]), stranger)).toBe(true);
+      expect(mayEverConsume(makeNote(SPONSORSHIP_ROOT, sponsorship(1200n)), stranger)).toBe(true);
+    });
   });
 
   it('does not resolve the account for a note with no restriction', () => {

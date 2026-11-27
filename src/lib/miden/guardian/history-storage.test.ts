@@ -8,13 +8,25 @@ import {
 } from './history-storage';
 
 const mockValues = new Map<string, object | string>();
-let mockBeforeWrite: (() => Promise<void>) | undefined;
+const mockTurnTails = new Map<string, Promise<void>>();
+let mockBeforeGenerationWrite: (() => Promise<void>) | undefined;
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: async (key: string) => mockValues.get(key) ?? null,
+  inStorageTurn: (name: string, operation: () => Promise<unknown>) => {
+    const turn = (mockTurnTails.get(name) ?? Promise.resolve()).then(operation);
+    mockTurnTails.set(
+      name,
+      turn.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return turn;
+  },
   putToStorage: async (key: string, value: object | string) => {
-    if (key === 'guardian_history_recovery_v1' && mockBeforeWrite) {
-      const callback = mockBeforeWrite;
-      mockBeforeWrite = undefined;
+    if (key === 'guardian_history_generation_v1' && mockBeforeGenerationWrite) {
+      const callback = mockBeforeGenerationWrite;
+      mockBeforeGenerationWrite = undefined;
       await callback();
     }
     mockValues.set(key, value);
@@ -34,7 +46,8 @@ const checkpoint: GuardianHistoryCheckpoint = {
 
 beforeEach(() => {
   mockValues.clear();
-  mockBeforeWrite = undefined;
+  mockTurnTails.clear();
+  mockBeforeGenerationWrite = undefined;
 });
 
 it('retains the page cursor across reads', async () => {
@@ -71,12 +84,27 @@ it('rejects a checkpoint from a pass that predates an import', async () => {
   expect((await readGuardianHistoryState()).checkpoints).toEqual({});
 });
 
-it('does not undo an import marker when a late cursor write races the reset', async () => {
-  const state = await readGuardianHistoryState();
-  mockBeforeWrite = clearGuardianHistoryCheckpoints;
-  await saveGuardianHistoryCheckpoint(state.generation, checkpoint);
+it('serializes generation initialization and checkpoint reset in separate turns', async () => {
+  let beginWrite!: () => void;
+  let releaseWrite!: () => void;
+  const writing = new Promise<void>(resolve => {
+    beginWrite = resolve;
+  });
+  const writeGate = new Promise<void>(resolve => {
+    releaseWrite = resolve;
+  });
+  mockBeforeGenerationWrite = async () => {
+    beginWrite();
+    await writeGate;
+  };
+
+  const initial = readGuardianHistoryGeneration();
+  await writing;
+  const reset = clearGuardianHistoryCheckpoints();
+  releaseWrite();
+  const [initialGeneration] = await Promise.all([initial, reset]);
   const after = await readGuardianHistoryState();
-  expect(after.generation).not.toBe(state.generation);
+  expect(after.generation).not.toBe(initialGeneration);
   expect(after.checkpoints).toEqual({});
 });
 

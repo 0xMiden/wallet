@@ -19,6 +19,11 @@ import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from
 import { Buffer } from 'buffer';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
+import {
+  readExistingGuardianHistoryGeneration,
+  readGuardianHistoryGeneration,
+  withWalletRecoveryLifetime
+} from 'lib/miden/guardian/history-storage';
 import { ProofFreshnessUnknownError, StaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import type { NoteExportType } from 'lib/miden/sdk/constants';
@@ -47,6 +52,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { readRecoverablePublicNotes, resolveRecoveryScanRange } from 'lib/miden/sdk/recovery-public-notes';
 import { markErrorBeforeSubmit, markLockEvictedError } from 'lib/miden/sdk/sdk-error-code';
 import {
   WasmClientPoisonedError,
@@ -56,7 +62,12 @@ import {
 import { checkStorage, isStorageStalledNow, StorageStalledError } from 'lib/miden/storage-health';
 import { readSwapFeeContext, type SwapFeeContext } from 'lib/miden/swap/fee-context';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEndpointState,
+  sameEndpointState,
+  whenEndpointOverridesLoaded,
+  type EndpointState
+} from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 import { safeOwnDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
 import {
@@ -170,8 +181,8 @@ const SYNC_DEADLINE_MS = 45_000;
 
 /**
  * Per-op deadline (ms) for one pending-note recovery chunk (transport drain,
- * proposal-note import, scan-range resolution, or one bounded public-backfill
- * range). Recovery is deliberately chunked into ops of this size — a single
+ * proposal-note import, or the import of one public-backfill range's notes; the
+ * backfill's node reads take no op at all). Recovery is deliberately chunked into ops of this size — a single
  * long-held op starves queued reads past their dispatch-armed deadlines and
  * gets the realm killed.
  */
@@ -212,29 +223,43 @@ function parseRecoveryCounts(method: string, resultB64: string | null): { import
 }
 
 /**
- * `saturated` drives the caller's range-splitting loop, so a non-boolean has to
- * throw rather than be coerced: a truthy string would make it split forever.
+ * A recovery read runs in THIS realm on an `RpcClient` of its own, so it needs
+ * this realm's WASM module and its effective endpoint, not the offscreen ones.
  */
-function readRecoverySaturated(method: string, parsed: unknown): boolean {
-  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'saturated') : undefined;
-  if (typeof value !== 'boolean') {
-    throw new Error(`${method}: offscreen document returned a malformed saturated`);
-  }
-  return value;
+async function prepareRecoveryRead(): Promise<void> {
+  await whenEndpointOverridesLoaded();
+  await getWasmOrThrow();
 }
 
 /**
- * `nextNoteOffset` re-offers the same block range, so like `saturated` it can
- * loop: absent means finished, and anything present that is not a non-negative
- * integer throws rather than being coerced into a cursor that never advances.
+ * The public backfill's node changed, or the wallet was replaced, between the read and the use of
+ * its result. Not a pipeline kill: the pass fails the source and does not resume it.
  */
-function readRecoveryNoteOffset(method: string, parsed: unknown): number | undefined {
-  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'nextNoteOffset') : undefined;
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${method}: offscreen document returned a malformed nextNoteOffset`);
+export class RecoveryContextReplacedError extends Error {
+  constructor() {
+    super('recovery context replaced');
+    this.name = 'RecoveryContextReplacedError';
   }
-  return value;
+}
+
+/** Wallet and node ownership for a public recovery pass or a standalone read. */
+export interface RecoveryBoundContext {
+  generation: string;
+  endpoints: EndpointState;
+}
+
+function bindRecoveryContext(generation: string, expected?: RecoveryBoundContext): RecoveryBoundContext {
+  if (expected) {
+    assertRecoveryContext(expected, generation);
+    return expected;
+  }
+  return { generation, endpoints: getEndpointState() };
+}
+
+function assertRecoveryContext(bound: RecoveryBoundContext, generation: string | null): void {
+  if (generation !== bound.generation || !sameEndpointState(bound.endpoints, getEndpointState())) {
+    throw new RecoveryContextReplacedError();
+  }
 }
 
 /**
@@ -353,6 +378,7 @@ interface InFlightOp {
   reject: (err: unknown) => void;
   timer: ReturnType<typeof setTimeout> | null;
   method: string;
+  boundContext?: RecoveryBoundContext;
   /** The op's full deadline (ms), retained so a paused deadline can be re-armed
    * from scratch after a sign round-trip. `null` ⇒ no deadline. */
   deadlineMs: number | null;
@@ -564,6 +590,10 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       reject(new GuardianHistoryDataError(resp.error));
       return;
     }
+    if (resp.errorName === 'RecoveryContextReplacedError') {
+      reject(new RecoveryContextReplacedError());
+      return;
+    }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
@@ -728,7 +758,8 @@ async function dispatchOp(
   args: unknown[],
   deadlineMs: number | null,
   critical: boolean,
-  submitGated = false
+  submitGated = false,
+  boundContext?: RecoveryBoundContext
 ): Promise<string | null> {
   // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
   // deadline could later close the document under every write in flight (#1081).
@@ -747,6 +778,12 @@ async function dispatchOp(
     argsB64 = args.map(encodeArg);
   } catch (error) {
     throw markErrorBeforeSubmit(error);
+  }
+  // Only a bound public import re-reads here. The generation read is the last await; the compare, the
+  // in-flight registration and the send are one turn, so a context that moved is refused before the envelope.
+  if (boundContext) {
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(boundContext, generation);
   }
   return new Promise<string | null>((resolve, reject) => {
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
@@ -781,7 +818,8 @@ async function dispatchOp(
       paused: false,
       timerPhase: critical ? 'backstop' : 'dispatch',
       started: false,
-      lastObservedStage: 'not_observed'
+      lastObservedStage: 'not_observed',
+      ...(boundContext ? { boundContext } : {})
     });
 
     const envelope: OffscreenCallRequest = {
@@ -807,8 +845,13 @@ async function dispatchOp(
 }
 
 /** The generic (non-critical) RPC entry: generate an op_id and dispatch a read. */
-function dispatchWithDeadline(method: string, args: unknown[], deadlineMs: number | null): Promise<string | null> {
-  return dispatchOp(newOpId(), method, args, deadlineMs, false);
+function dispatchWithDeadline(
+  method: string,
+  args: unknown[],
+  deadlineMs: number | null,
+  boundContext?: RecoveryBoundContext
+): Promise<string | null> {
+  return dispatchOp(newOpId(), method, args, deadlineMs, false, false, boundContext);
 }
 
 /** A read whose op may sign with the reverse-IPC default signer while it runs (see {@link opDefaultSignerOps}). */
@@ -885,6 +928,24 @@ export function markOpStarted(op_id: string): void {
           void onDeadline(op_id);
         }, op.deadlineMs)
       : null;
+}
+
+export function acknowledgeRecoveryImportStart(opId: string): Promise<{ ok: boolean }> | undefined {
+  const op = inFlight.get(opId);
+  const bound = op?.boundContext;
+  if (op?.method !== 'importRecoveryNoteFiles' || !bound) return undefined;
+
+  // The receiver holds the shared turn while waiting for this reply.
+  return readExistingGuardianHistoryGeneration()
+    .then(generation => {
+      const current = inFlight.get(opId);
+      if (current !== op || current.method !== 'importRecoveryNoteFiles' || current.boundContext !== bound) {
+        return { ok: false };
+      }
+      assertRecoveryContext(bound, generation);
+      return { ok: true };
+    })
+    .catch(() => ({ ok: false }));
 }
 
 /**
@@ -1245,8 +1306,12 @@ export function dispatchGuardianPipeline(
  */
 export const midenClientProxy = {
   /** Generic RPC — forward `method(args)` to the offscreen doc, deadline-guarded. */
-  call(method: string, args: unknown[], opts?: { deadlineMs?: number | null }): Promise<string | null> {
-    return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null);
+  call(
+    method: string,
+    args: unknown[],
+    opts?: { deadlineMs?: number | null; boundContext?: RecoveryBoundContext }
+  ): Promise<string | null> {
+    return dispatchWithDeadline(method, args, opts?.deadlineMs ?? null, opts?.boundContext);
   },
 
   /**
@@ -1865,42 +1930,74 @@ export const midenClientProxy = {
     return parseRecoveryCounts('importRecoveryNoteBytes', resultB64);
   },
 
-  /** Pending-note recovery chunk: resolve the creation-block scan range. */
-  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+  /** Import the serialized `NoteFile`s a public-backfill read kept, under the client lock. */
+  async importRecoveryNoteFiles(
+    noteFiles: Uint8Array[],
+    boundContext?: RecoveryBoundContext
+  ): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).resolveRecoveryScanRange(createdAtSeconds));
+      return withWasmClientLock(async hold => {
+        const client = await getMidenClient();
+        if (!boundContext) return client.importRecoveryNoteFiles(noteFiles, hold);
+        return withWalletRecoveryLifetime(async () => {
+          assertRecoveryContext(boundContext, await readExistingGuardianHistoryGeneration());
+          return client.importRecoveryNoteFiles(noteFiles, hold);
+        });
+      });
     }
-    const resultB64 = await this.call('resolveRecoveryScanRange', [createdAtSeconds], {
-      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    const resultB64 = await this.call('importRecoveryNoteFiles', [noteFiles.map(bytesToB64)], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS,
+      ...(boundContext ? { boundContext } : {})
     });
-    const parsed = parseRecoveryResult('resolveRecoveryScanRange', resultB64);
-    return {
-      startBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'startBlock'),
-      latestBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'latestBlock')
-    };
+    return parseRecoveryCounts('importRecoveryNoteFiles', resultB64);
   },
 
-  /** Pending-note recovery chunk: public backfill over ONE bounded block range. */
+  /**
+   * Pending-note recovery: resolve the creation-block scan range. Node reads
+   * only, so it runs in this realm without the client lock (#2266).
+   */
+  async resolveRecoveryScanRange(
+    createdAtSeconds: number,
+    expected?: RecoveryBoundContext
+  ): Promise<{ startBlock: number; latestBlock: number }> {
+    await prepareRecoveryRead();
+    const bound = bindRecoveryContext(await readGuardianHistoryGeneration(), expected);
+    const range = await resolveRecoveryScanRange(createdAtSeconds);
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(bound, generation);
+    return range;
+  },
+
+  /**
+   * Pending-note recovery chunk: public backfill over ONE bounded block range.
+   *
+   * The node reads and the filters run in this realm without the client lock;
+   * only the import of the notes they keep takes it, and only when there is one
+   * (#2266). A read that held the lock for its network time kept queued reads
+   * waiting past their deadline, and the deadline kill took the chunk with it.
+   */
   async recoverPublicNotesRange(
     accountId: string,
     blockFrom: number,
     blockTo: number,
-    noteOffset = 0
+    noteOffset = 0,
+    expected?: RecoveryBoundContext
   ): Promise<RecoveryRangeResult> {
-    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset)
-      );
-    }
-    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo, noteOffset], {
-      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
-    });
-    const parsed = parseRecoveryResult('recoverPublicNotesRange', resultB64);
+    await prepareRecoveryRead();
+    const bound = bindRecoveryContext(await readGuardianHistoryGeneration(), expected);
+    const read = await readRecoverablePublicNotes(accountId, blockFrom, blockTo, noteOffset);
+    const generation = await readGuardianHistoryGeneration();
+    assertRecoveryContext(bound, generation);
+    if (read.saturated) return { imported: 0, failures: read.failures, saturated: true };
+    const imports =
+      read.noteFiles.length > 0
+        ? await this.importRecoveryNoteFiles(read.noteFiles, bound)
+        : { imported: 0, failures: 0 };
     return {
-      imported: readRecoveryCount('recoverPublicNotesRange', parsed, 'imported'),
-      failures: readRecoveryCount('recoverPublicNotesRange', parsed, 'failures'),
-      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed),
-      nextNoteOffset: readRecoveryNoteOffset('recoverPublicNotesRange', parsed)
+      imported: imports.imported,
+      failures: read.failures + imports.failures,
+      saturated: false,
+      nextNoteOffset: read.nextNoteOffset
     };
   },
 

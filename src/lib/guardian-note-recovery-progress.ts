@@ -73,6 +73,11 @@ export type GuardianNoteRecoveryProgress = {
    * is not.
    */
   historyGeneration?: string;
+  /**
+   * Hash of the endpoint a `public` checkpoint was written against. Absent on every other step.
+   * A retry resumes a public watermark only when this equals the current endpoint's scope.
+   */
+  publicScope?: string;
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -87,6 +92,7 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
   if (!['transport', 'proposals', 'public', 'history', 'history-partial', 'history-failed'].includes(step)) return null;
   const operator = Reflect.get(value, 'operator');
   const historyGeneration = Reflect.get(value, 'historyGeneration');
+  const publicScope = Reflect.get(value, 'publicScope');
   return {
     accountId,
     step,
@@ -97,7 +103,9 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
     latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),
     updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt')),
     sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined,
-    historyGeneration: typeof historyGeneration === 'string' ? historyGeneration : undefined
+    historyGeneration: typeof historyGeneration === 'string' ? historyGeneration : undefined,
+    publicScope:
+      step === 'public' && typeof publicScope === 'string' && publicScope.length > 0 ? publicScope : undefined
   };
 }
 

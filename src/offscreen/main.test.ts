@@ -20,7 +20,12 @@
  * (which doesn't export any of the symbols this module needs).
  */
 
-import { encodeArg, OFFSCREEN_SIGN_REQUEST, OFFSCREEN_SUBMIT_GATE } from 'lib/miden/back/offscreen-codec';
+import {
+  encodeArg,
+  OFFSCREEN_OP_STARTED,
+  OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_SUBMIT_GATE
+} from 'lib/miden/back/offscreen-codec';
 import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
@@ -28,6 +33,11 @@ type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => bool
 const G = globalThis as any;
 const originalE2eFlag = process.env.MIDEN_E2E_TEST;
 const mockRestoreFetchFaults = jest.fn<Promise<void>, []>();
+jest.mock('lib/miden/guardian/history-storage', () => {
+  const actual = jest.requireActual('lib/miden/guardian/history-storage');
+  return { ...actual, withWalletRecoveryLifetime: jest.fn(actual.withWalletRecoveryLifetime) };
+});
+
 jest.mock('./e2e-fetch-faults', () => ({ restoreOffscreenFetchFaults: () => mockRestoreFetchFaults() }), {
   virtual: true
 });
@@ -522,7 +532,7 @@ function resetControl() {
       outputNotes: []
     })),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
-    clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
+    clientImportRecoveryNoteFiles: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
     clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
     clientRelayPrivateNoteById: jest.fn(async (_noteId: string, _to: string) => {}),
@@ -638,7 +648,7 @@ function resetControl() {
         importGuardianHistoryP2ideNotes: G.__off.clientImportGuardianHistoryP2ideNotes,
         decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
-        recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
+        importRecoveryNoteFiles: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteFiles(...a),
         sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
         relayPrivateNoteById: (...a: any[]) => (globalThis as any).__off.clientRelayPrivateNoteById(...a),
         isOutputNoteConsumed: (...a: any[]) => (globalThis as any).__off.clientIsOutputNoteConsumed(...a),
@@ -682,7 +692,9 @@ function installChromeMock() {
       getURL: (path: string) => `chrome-extension://${EXTENSION_ID}/${path}`,
       // The Guardian leaf submits only once the service worker opens its submit gate (#1644).
       sendMessage: jest.fn((m?: { type?: string }) =>
-        Promise.resolve(m?.type === OFFSCREEN_SUBMIT_GATE ? { ok: true } : undefined)
+        Promise.resolve(
+          m?.type === OFFSCREEN_SUBMIT_GATE || m?.type === OFFSCREEN_OP_STARTED ? { ok: true } : undefined
+        )
       ),
       onMessage: {
         addListener: jest.fn((l: Listener) => {
@@ -3032,21 +3044,29 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  it('dispatches a public-backfill range with its bounds and note page', async () => {
+  it('dispatches the public-backfill note import under its hold and restores the note files', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportRecoveryNoteFiles = jest.fn(async (_noteFiles: Uint8Array[], _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return { imported: 2, failures: 0 };
+    });
     const sendResponse = jest.fn();
+    const encoded = [Buffer.from([4]).toString('base64'), Buffer.from([5, 6]).toString('base64')];
     const ret = capturedListener!(
-      callReq({
-        method: 'recoverPublicNotesRange',
-        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999), encodeArg(200)]
-      }),
+      callReq({ method: 'importRecoveryNoteFiles', argsB64: [encodeArg(encoded)] }),
       {},
       sendResponse
     );
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 200);
+    expect(G.__off.clientImportRecoveryNoteFiles.mock.calls[0][0]).toEqual([
+      new Uint8Array([4]),
+      new Uint8Array([5, 6])
+    ]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportRecoveryNoteFiles.mock.calls[0][1]).toBe(liveHold);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 2,
@@ -3054,22 +3074,14 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  // An older service worker paired with a newer offscreen bundle sends three
-  // args; that has to mean the first page, not `undefined` reaching the SDK.
-  it('defaults a missing note page to the first one', async () => {
+  // The reads run in the service worker now (#2266), so the offscreen document serves no such op.
+  it.each(['recoverPublicNotesRange', 'resolveRecoveryScanRange'])('serves no %s op', async method => {
     await loadModule();
     const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({
-        method: 'recoverPublicNotesRange',
-        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999)]
-      }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64: [] }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 0);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
   it('dispatches the private-note transport drain with a null result', async () => {
@@ -6784,6 +6796,293 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
     ...extra
   });
   const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS };
+
+  it('refuses a queued recovery import across a same-endpoint reload', async () => {
+    await loadModule();
+    let finishRead!: (account: { serialize: () => Uint8Array }) => void;
+    G.__off.clientGetAccount.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishRead = resolve;
+      })
+    );
+
+    const read = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-read', method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, read);
+    await flush();
+    expect(G.__off.clientGetAccount).toHaveBeenCalledWith('acc');
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+
+    const ack = jest.fn();
+    capturedListener!(reloadReq, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+
+    finishRead({ serialize: () => new Uint8Array([1]) });
+    await flush();
+
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it('refuses a queued recovery import across a different endpoint', async () => {
+    await loadModule();
+    const other = {
+      override: {
+        ...jest.requireActual('lib/miden-chain/effective-endpoints').buildDefaultOverrideFor('devnet'),
+        rpcUrl: 'https://other.example/rpc'
+      },
+      feeFaucetId: undefined
+    };
+    let finishRead!: (account: { serialize: () => Uint8Array }) => void;
+    G.__off.clientGetAccount.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishRead = resolve;
+      })
+    );
+
+    const read = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-read', method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, read);
+    await flush();
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+
+    const ack = jest.fn();
+    capturedListener!({ ...reloadReq, endpoints: other }, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+
+    finishRead({ serialize: () => new Uint8Array([1]) });
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it.each(['same', 'different'] as const)(
+    'refuses a recovery import whose client build is crossed by a %s-endpoint reload',
+    async which => {
+      await loadModule();
+      const endpoints =
+        which === 'same'
+          ? SW_ENDPOINTS
+          : {
+              override: {
+                ...jest.requireActual('lib/miden-chain/effective-endpoints').buildDefaultOverrideFor('devnet'),
+                rpcUrl: 'https://other.example/rpc'
+              },
+              feeFaucetId: undefined
+            };
+      let finishCreate!: (client: { markPoisoned: () => void; importRecoveryNoteFiles: jest.Mock }) => void;
+      G.__off.getMidenClient.mockReturnValueOnce(
+        new Promise(resolve => {
+          finishCreate = resolve;
+        })
+      );
+
+      const imported = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op-recovery',
+          method: 'importRecoveryNoteFiles',
+          argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+        }),
+        {},
+        imported
+      );
+      await flush();
+      expect(G.__off.getMidenClient).toHaveBeenCalled();
+
+      const ack = jest.fn();
+      capturedListener!({ ...reloadReq, endpoints }, {}, ack);
+      await flush();
+      expect(ack).toHaveBeenCalledWith({ ok: true });
+
+      finishCreate({
+        markPoisoned: () => {},
+        importRecoveryNoteFiles: G.__off.clientImportRecoveryNoteFiles
+      });
+      await flush();
+
+      expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+      expect(imported).toHaveBeenCalledWith(
+        expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+      );
+    }
+  );
+
+  const askForRecoveryImport = () => {
+    const reply = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery-start',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      reply
+    );
+    return reply;
+  };
+
+  const mockStartReply = (reply: () => Promise<unknown>) =>
+    G.chrome.runtime.sendMessage.mockImplementation((message?: { type?: string }) =>
+      message?.type === OFFSCREEN_OP_STARTED ? reply() : Promise.resolve(undefined)
+    );
+
+  it.each([
+    ['missing', () => Promise.resolve(undefined)],
+    ['denied', () => Promise.resolve({ ok: false })],
+    ['extra field', () => Promise.resolve({ ok: true, generation: 'gen-1' })],
+    ['wrong type', () => Promise.resolve({ ok: 'true' })],
+    ['null', () => Promise.resolve(null)],
+    ['rejected', () => Promise.reject(new Error('port closed'))]
+  ] as const)('skips recovery import on a %s start acknowledgement', async (_name, reply) => {
+    await loadModule();
+    mockStartReply(reply);
+    const imported = askForRecoveryImport();
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it('takes one shared storage turn for a successful mocked recovery import', async () => {
+    await loadModule();
+    const { withWalletRecoveryLifetime } = await import('lib/miden/guardian/history-storage');
+    mockStartReply(() => Promise.resolve({ ok: true }));
+    const imported = askForRecoveryImport();
+    await flush();
+
+    expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+    expect(withWalletRecoveryLifetime).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes a synchronous recovery import start-signal throw', async () => {
+    await loadModule();
+    mockStartReply(() => {
+      throw new Error('port closed');
+    });
+    const imported = askForRecoveryImport();
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+    expect(imported).toHaveBeenCalledWith(
+      expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+    );
+  });
+
+  it.each(['reload', 'successor lock'] as const)(
+    'skips recovery import after a %s while the start acknowledgement is pending',
+    async interruption => {
+      await loadModule();
+      let acknowledge!: (reply: { ok: true }) => void;
+      mockStartReply(
+        () =>
+          new Promise(resolve => {
+            acknowledge = resolve;
+          })
+      );
+      const imported = askForRecoveryImport();
+      await flush();
+
+      expect(acknowledge).toBeDefined();
+      expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+      const miden = jest.requireMock('lib/miden/sdk/miden-client');
+      const currentHold = miden.getCurrentWasmLockHold;
+      const reply = jest.fn();
+      try {
+        if (interruption === 'reload') {
+          capturedListener!(reloadReq, {}, reply);
+          await flush();
+        } else {
+          miden.getCurrentWasmLockHold = () => ({ mock: 'successor' });
+        }
+        expect(reply.mock.calls).toEqual(interruption === 'reload' ? [[{ ok: true }]] : []);
+        acknowledge({ ok: true });
+        await flush();
+
+        expect(G.__off.clientImportRecoveryNoteFiles).not.toHaveBeenCalled();
+        expect(imported).toHaveBeenCalledWith(
+          expect.objectContaining({ ok: false, errorName: 'RecoveryContextReplacedError' })
+        );
+      } finally {
+        miden.getCurrentWasmLockHold = currentHold;
+      }
+    }
+  );
+
+  it('allows an ordinary read when its start-signal promise rejects', async () => {
+    await loadModule();
+    mockStartReply(() => Promise.reject(new Error('port closed')));
+    const reply = jest.fn();
+    capturedListener!(callReq({ method: 'getAccount', argsB64: [encodeArg('acc')] }), {}, reply);
+    await flush();
+
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
+
+  it('finishes an import already inside the client after a reload', async () => {
+    await loadModule();
+    let finishImport!: (result: { imported: number; failures: number }) => void;
+    G.__off.clientImportRecoveryNoteFiles.mockReturnValueOnce(
+      new Promise(resolve => {
+        finishImport = resolve;
+      })
+    );
+
+    const imported = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-recovery',
+        method: 'importRecoveryNoteFiles',
+        argsB64: [encodeArg([Buffer.from([4]).toString('base64')])]
+      }),
+      {},
+      imported
+    );
+    await flush();
+    expect(G.__off.clientImportRecoveryNoteFiles).toHaveBeenCalledTimes(1);
+    expect(imported).not.toHaveBeenCalled();
+
+    const ack = jest.fn();
+    capturedListener!(reloadReq, {}, ack);
+    await flush();
+    expect(ack).toHaveBeenCalledWith({ ok: true });
+    expect(imported).not.toHaveBeenCalled();
+
+    finishImport({ imported: 2, failures: 0 });
+    await flush();
+
+    expect(imported).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
 
   it('leaves an in-flight write untouched — it finishes on the client it already captured', async () => {
     await loadModule();

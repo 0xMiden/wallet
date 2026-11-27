@@ -13,6 +13,7 @@ import { badgesFromHistory } from '../badges/backfill';
 import { BADGE_EVIDENCE_TYPES } from '../badges/evidence';
 import { compareAccountIds } from './activity/utils';
 import { BridgedSendTransaction, ISwapExtraInputs, ITransaction, ITransactionStatus } from './db/types';
+import { withWalletRecoveryLifetime } from './guardian/history-storage';
 import {
   BADGE_EVIDENCE_ROW_TYPES,
   createSchemaFor,
@@ -297,6 +298,29 @@ describe('miden repo export/import', () => {
 
       expect((await transactions.toArray())[0]!.extraInputs).toEqual({ $bigint: 'not a number' });
     });
+  });
+
+  it('keeps the wallet recovery lifetime turn until the replacement transaction settles', async () => {
+    const order: string[] = [];
+    let nextTurn: Promise<void> | undefined;
+    const replace = jest.spyOn(db, 'transaction').mockImplementationOnce(() =>
+      Dexie.Promise.resolve().then(async () => {
+        nextTurn = withWalletRecoveryLifetime(async () => {
+          order.push('next turn');
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        order.push('replacement settled');
+      })
+    );
+
+    try {
+      await importDb(JSON.stringify({ [Table.Transactions]: [] }));
+      await nextTurn;
+
+      expect(order).toEqual(['replacement settled', 'next turn']);
+    } finally {
+      replace.mockRestore();
+    }
   });
 
   // A malformed dump must fail in the pure mapping step, which runs before the

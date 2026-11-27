@@ -61,6 +61,8 @@
 - [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
 - [FIX][ci] Align the cached solver registry test with the token list readiness field.
 
+- [FIX][all] Read the seed-recovery note backfill without the WASM client lock and import only unspent notes the account can consume, so the extension no longer restarts its offscreen client and repeats the same scan chunk forever (#2266).
+
 ## 1.18.2 (TBD)
 
 - [FIX][ci] Run the mainnet nightly's main job on the larger runner, scheduled and by default, because on the default runner the second wallet's launch hung on a page reload in several nightlies, which stranded a NEAR checkpoint and failed the night; the runner stays selectable per dispatch, and no loop, loss cap, one-shot or signing rule changes.

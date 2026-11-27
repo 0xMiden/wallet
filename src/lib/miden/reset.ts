@@ -5,6 +5,7 @@ import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
 import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { preparePlatformCredentialWipeInTurn } from 'lib/miden/back/platform-unlock-store';
 import { inStorageTurn, rereadStorageCache } from 'lib/miden/front/storage';
+import { GUARDIAN_HISTORY_GENERATION_KEY, withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY, forgetDeveloperNetworkChoice } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
@@ -54,6 +55,12 @@ const DEVELOPER_RESET_KEPT_KEYS: readonly string[] = PRESERVED_STORAGE_KEYS.filt
   key => key !== ENDPOINT_OVERRIDE_STORAGE_KEY && !BRIDGE_CONFIG_DOCUMENT_KEYS.includes(key)
 );
 
+// A partial sequential wipe must retire the old recovery generation before other data is removed.
+function recoveryGenerationFirst(keys: string[], generationKey = GUARDIAN_HISTORY_GENERATION_KEY): string[] {
+  const index = keys.indexOf(generationKey);
+  return index > 0 ? [generationKey, ...keys.slice(0, index), ...keys.slice(index + 1)] : keys;
+}
+
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed. Badge writers
 // hold this same turn until their seen-key write settles, so the snapshot, the removal of exactly
@@ -67,14 +74,16 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
       if (isMobile()) {
         const { Preferences } = await import('@capacitor/preferences');
         const { keys } = await Preferences.keys();
-        for (const key of keys) {
+        for (const key of recoveryGenerationFirst(keys)) {
           if (!keep.includes(key)) await Preferences.remove({ key });
         }
       } else if (isDesktop()) {
         removeLocalStorageExcept(keep);
       } else if (isExtension()) {
         const browser = await import('webextension-polyfill');
-        const doomed = Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key));
+        const doomed = recoveryGenerationFirst(
+          Object.keys(await browser.default.storage.local.get(null)).filter(key => !keep.includes(key))
+        );
         if (doomed.length > 0) await browser.default.storage.local.remove(doomed);
       }
     } finally {
@@ -94,7 +103,8 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
 // Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
 function removeLocalStorageExcept(keep: readonly string[], preserveDesktopKeys = false): void {
   const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
-  for (const key of Object.keys(localStorage)) {
+  const generationKey = DESKTOP_STORAGE_PREFIX + GUARDIAN_HISTORY_GENERATION_KEY;
+  for (const key of recoveryGenerationFirst(Object.keys(localStorage), generationKey)) {
     if (kept.has(key)) continue;
     if (preserveDesktopKeys && key.startsWith(DESKTOP_STORAGE_PREFIX)) continue;
     localStorage.removeItem(key);
@@ -128,16 +138,18 @@ function removeSessionStorageExcept(keep: readonly string[]): void {
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
 export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = PRESERVED_STORAGE_KEYS) {
-  await clearPlatformKeyValueStorage(keep);
-  await Repo.portfolioObservations.clear();
-  if (clearDb) {
-    await Repo.transactions.clear();
-    // The spend history and the caps computed from it go together. Recovery from the same mnemonic
-    // reproduces the same account ids, so a surviving configuration would key-match the recovered
-    // account and keep enforcing a cap over a total that was just zeroed - and the disclosure copy
-    // promises that resetting app data removes both.
-    await Repo.spendingLimits.clear();
-  }
+  await withWalletRecoveryLifetime(async () => {
+    await clearPlatformKeyValueStorage(keep);
+    await Repo.portfolioObservations.clear();
+    if (clearDb) {
+      await Repo.transactions.clear();
+      // The spend history and the caps computed from it go together. Recovery from the same mnemonic
+      // reproduces the same account ids, so a surviving configuration would key-match the recovered
+      // account and keep enforcing a cap over a total that was just zeroed - and the disclosure copy
+      // promises that resetting app data removes both.
+      await Repo.spendingLimits.clear();
+    }
+  });
   await resetNativeAssetCache();
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
@@ -178,17 +190,19 @@ export async function resetStorageDestructive({
   // The reload after it would hold again the request links Bread held for the wallet it removes. On desktop the
   // key-value clear empties localStorage, and the extension's service worker has none.
   if (isMobile()) localStorage.removeItem(BREAD_CONNECT_QUEUE_KEY);
-  await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
-  try {
-    await Repo.db.delete();
-    await Repo.db.open();
-  } catch (err) {
-    await Repo.db.open().catch(() => {});
-    await Repo.transactions.clear().catch(() => {});
-    await Repo.spendingLimits.clear().catch(() => {});
-    await Repo.portfolioObservations.clear().catch(() => {});
-    throw err;
-  }
+  await withWalletRecoveryLifetime(async () => {
+    await clearPlatformKeyValueStorage(keepEndpointOverride ? PRESERVED_STORAGE_KEYS : DEVELOPER_RESET_KEPT_KEYS);
+    try {
+      await Repo.db.delete();
+      await Repo.db.open();
+    } catch (err) {
+      await Repo.db.open().catch(() => {});
+      await Repo.transactions.clear().catch(() => {});
+      await Repo.spendingLimits.clear().catch(() => {});
+      await Repo.portfolioObservations.clear().catch(() => {});
+      throw err;
+    }
+  });
   await resetNativeAssetCache();
 }
 
@@ -216,7 +230,8 @@ async function runClientStorageCleanup(preserveDesktopKeys: boolean, clearBackup
 }
 
 export async function clearClientStorage(): Promise<void> {
-  await runClientStorageCleanup(false, false);
+  const cleanup = () => runClientStorageCleanup(false, false);
+  await (isDesktop() ? withWalletRecoveryLifetime(cleanup) : cleanup());
 }
 
 /**

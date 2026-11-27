@@ -82,6 +82,7 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
+import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { OFFSCREEN_PROOF_BUDGET_MS, type ProofPass, withFreshProof } from 'lib/miden/guardian/proof-freshness';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
@@ -918,20 +919,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  resolveRecoveryScanRange: async (_context, client, createdAtSeconds: number) => {
-    const result = await client.resolveRecoveryScanRange(createdAtSeconds);
-    return new TextEncoder().encode(JSON.stringify(result));
-  },
-
-  recoverPublicNotesRange: async (
-    _context,
-    client,
-    accountId: string,
-    blockFrom: number,
-    blockTo: number,
-    noteOffset?: number
-  ) => {
-    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
+  // The public backfill's reads run in the service worker without this mutex (#2266); only the
+  // import of the notes they keep comes here.
+  importRecoveryNoteFiles: async (context, client, encodedNoteFiles: string[]) => {
+    const result = await client.importRecoveryNoteFiles(encodedNoteFiles.map(b64ToBytes), context.hold);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
@@ -1490,6 +1481,19 @@ const DISPATCH: Record<string, DispatchFn> = {
 let clientPromise: Promise<MidenClientInterface> | null = null;
 
 /**
+ * How many times a reload has discarded the client. A same-endpoint reload still nulls `clientPromise`
+ * without changing `adoptedEndpoints`, so a queued recovery import compares this count, not the state alone.
+ * Not bumped from `adoptEndpoints`: a call adopting its own envelope is not a discard.
+ */
+let clientDiscardCount = 0;
+
+function recoveryContextReplacedError(): Error {
+  const error = new Error('recovery context replaced');
+  error.name = 'RecoveryContextReplacedError';
+  return error;
+}
+
+/**
  * Drop this realm's client when lock recovery declares it poisoned (issue #775).
  *
  * Recovery's own `replaceClientSingletons()` reaches only `midenClientSingleton`,
@@ -1644,6 +1648,11 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
+    // The recovery import's fence is the envelope it was admitted with and the discard count at that
+    // moment. Both are read before any await, so a reload that lands while init or the mutex waits is visible.
+    const recoveryImport = msg.method === 'importRecoveryNoteFiles';
+    const recoveryEndpoints = recoveryImport ? msg.endpoints : undefined;
+    const recoveryDiscardCount = recoveryImport ? clientDiscardCount : 0;
     adoptEndpoints(msg.endpoints);
     await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
@@ -1701,6 +1710,9 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await stepBeforeSubmit(getOrCreateClient);
+      return recoveryImport ? withWalletRecoveryLifetime(() => executeReady(hold, client)) : executeReady(hold, client);
+    };
+    const executeReady = async (hold: WasmLockHold, client: MidenClientInterface) => {
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons
@@ -1714,6 +1726,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
         throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
       }
+      if (recoveryImport) {
+        if (
+          adoptedEndpoints === undefined ||
+          recoveryEndpoints === undefined ||
+          !sameEndpointState(adoptedEndpoints, recoveryEndpoints) ||
+          clientDiscardCount !== recoveryDiscardCount
+        ) {
+          throw recoveryContextReplacedError();
+        }
+      }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
@@ -1726,14 +1748,34 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         currentOpId = msg.op_id;
       };
       // Now that this op has WON the WASM mutex and is about to execute, tell the
-      // SW to arm its write deadline at EXECUTION START (issue #260 flip-prep #3).
-      // Fire-and-forget: queue-wait behind other ops was off-budget; the clock
-      // starts here. Sent from inside the lock so it fires exactly once per op,
-      // only for a real dispatch (unknown-method / init-failure paths never reach
-      // here). `Promise.resolve(...)` tolerates a mock sendMessage that returns a
-      // non-promise; the response is intentionally ignored.
+      // SW to arm its write deadline at execution start. A recovery import also needs
+      // the SW to confirm its storage context after the queue wait.
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
-      void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      if (recoveryImport) {
+        let reply: unknown;
+        try {
+          reply = await chrome.runtime.sendMessage(started);
+        } catch {
+          throw recoveryContextReplacedError();
+        }
+        if (
+          typeof reply !== 'object' ||
+          reply === null ||
+          Reflect.ownKeys(reply).length !== 1 ||
+          Reflect.ownKeys(reply)[0] !== 'ok' ||
+          !('ok' in reply) ||
+          reply.ok !== true ||
+          getCurrentWasmLockHold() !== hold ||
+          adoptedEndpoints === undefined ||
+          recoveryEndpoints === undefined ||
+          !sameEndpointState(adoptedEndpoints, recoveryEndpoints) ||
+          clientDiscardCount !== recoveryDiscardCount
+        ) {
+          throw recoveryContextReplacedError();
+        }
+      } else {
+        void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      }
       recordProveTiming(`call '${msg.method}' client ready; dispatching`);
       // The dispatch's own identity, built from the hold the lock handed THIS
       // callback — the only point at which "the op that owns this hold" is
@@ -1938,6 +1980,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         adoptEndpoints(request.endpoints);
         // Dropped even when the state did not change: seed removal sends this only to discard the client.
         clientPromise = null;
+        clientDiscardCount += 1;
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {
