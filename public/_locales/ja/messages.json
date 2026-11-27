@@ -7489,8 +7489,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどうたどり着いたか、どのウィンドウを使用したか、どこで操作が滞ったか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームといった情報を収集します。これにより、不具合を修正できるようにするためです。鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、または取引内容は一切収集しません。 他のアプリやサイトへの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別子を一切含まない状態で送信されます。この設定はいつでも変更可能です。",
-    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどのように到達したか、どの機能コントロールが表示または選択されたか、どのウィンドウを使用したか、どこで行き詰まったか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームなどをお知らせください。そうすることで、不具合の原因を特定し修正することができます。 鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、取引内容などは一切収集しません。 他のアプリやサイトでの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別情報を含まない状態で送信されます。この設定はいつでも変更可能です。",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "利用状況データの共有",
@@ -7509,8 +7509,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどのように到達したか、どのウィンドウを使用したか、どこで行き詰まったか、大まかなエラーの分類、アプリのバージョン、および使用しているプラットフォーム。",
-    "englishSource": "Which screens you open and how long each is visible, how you got there, which window you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどのように到達したか、どの機能コントロールが表示されたかまたは選択されたか、どのウィンドウを使用したか、どこで行き詰まったか、大まかなエラーの分類、アプリのバージョン、および使用しているプラットフォーム。",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
