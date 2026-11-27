@@ -3,6 +3,7 @@ import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk
 import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
 import { installLandedTrapRetirement } from './landed-trap-retirement';
+import { markLockEvictedError } from './sdk-error-code';
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads - the three ceilings in `armWatchdogFor`, the error
@@ -307,7 +308,12 @@ export function getCurrentWasmLockHold(): WasmLockHold | null {
 export function assertWasmHoldCurrent(hold: WasmLockHold, where: string, step?: string): void {
   if (hold != null && getCurrentWasmLockHold() === hold) return;
   // `step` is the callee's own re-check point, forwarded through an AssertLive.
-  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
+  const error = new WasmClientPoisonedError(
+    'watchdog',
+    new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`)
+  );
+  markLockEvictedError(error);
+  throw error;
 }
 
 /**
@@ -1275,6 +1281,7 @@ export async function withWasmClientLock<T>(
     // innocent successor. Park a no-op handler so the abandonment is silent.
     running.catch(() => {});
     const aborted = holder.aborted.catch(error => {
+      markLockEvictedError(error);
       try {
         options?.onEvicted?.();
       } catch (callbackError) {
@@ -1725,7 +1732,9 @@ class MidenClientSingleton {
         console.warn(
           `[miden-client] ${kind} refused: the WASM client was replaced (built at generation ${generationAtBuild}, now ${this.generation})`
         );
-        throw new WasmClientPoisonedError('watchdog', new Error(`${kind} requested on a replaced WASM client`));
+        const error = new WasmClientPoisonedError('watchdog', new Error(`${kind} requested on a replaced WASM client`));
+        markLockEvictedError(error);
+        throw error;
       }
     };
     const installed = <K extends keyof RealmKeystore>(kind: K): NonNullable<RealmKeystore[K]> => {
@@ -1768,10 +1777,12 @@ class MidenClientSingleton {
           console.warn(
             `[miden-client] insertKey refused: the WASM client was replaced (built at generation ${generationAtBuild}, now ${this.generation}) and the realm sink changed since`
           );
-          throw new WasmClientPoisonedError(
+          const error = new WasmClientPoisonedError(
             'watchdog',
             new Error('insertKey requested on a replaced WASM client after the realm sink changed')
           );
+          markLockEvictedError(error);
+          throw error;
         }
         return sink(key, secretKey);
       },
