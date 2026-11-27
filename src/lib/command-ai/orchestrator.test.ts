@@ -9,6 +9,7 @@ import {
   type OrchestratorWalletContext
 } from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
+import type { AiCompilerOutput, PatchIntentSlots } from './schema';
 
 jest.mock('lib/token-list/runtime', () => ({
   ...jest.requireActual('lib/token-list/runtime'),
@@ -901,6 +902,222 @@ describe('command-ai orchestrator', () => {
         createContext()
       );
       expect(res).toMatchObject({ handoff: { draft: { bridgeNetwork: 'ethereum' } } });
+    });
+  });
+
+  describe('a follow-up that changes the asset', () => {
+    type Question = Extract<ReturnType<typeof compileOutputToResolution>, { kind: 'clarifying' }>;
+    const row = (tokenId: string, symbol: string, balance: number) => ({
+      tokenId,
+      tokenSlug: symbol,
+      balance,
+      balanceBaseUnits: String(balance * 1_000_000),
+      fiatPrice: 1,
+      change24h: 0,
+      metadata: { symbol, name: symbol, decimals: 6 }
+    });
+    const [usdcx, miden, eth] = ['faucet-usdcx', 'faucet-miden', 'faucet-eth'];
+    const context = (extra: ReturnType<typeof row>[] = []): OrchestratorWalletContext => ({
+      ...createContext(),
+      balances: [row(miden!, 'MIDEN', 100), row(usdcx!, 'USDCx', 1000), row('faucet-foo', 'FOO', 50), ...extra],
+      swapTokens: [
+        { symbol: 'MIDEN', faucetId: miden!, decimals: 6 },
+        { symbol: 'USDCx', faucetId: usdcx!, decimals: 6 },
+        { symbol: 'ETH', faucetId: eth!, decimals: 8 }
+      ]
+    });
+    const empty: Omit<PatchIntentSlots, 'action'> = {
+      amount: null,
+      asset: null,
+      to_asset: null,
+      from_chain: null,
+      to_chain: null,
+      recipient_ref: null,
+      provider: null,
+      note_type: null,
+      earn_op: null
+    };
+    const amount = { kind: 'exact_ref' as const, ref: 'AMT_1' };
+    const redact = (text: string, ctx: OrchestratorWalletContext) =>
+      redactPrompt(text, {
+        contacts: ctx.contacts,
+        heldNicheTickers: ctx.balances
+          .filter(b => b.metadata.symbol === 'FOO')
+          .map(b => ({ symbol: b.metadata.symbol, tokenId: b.tokenId }))
+      });
+    function question(res: ReturnType<typeof compileOutputToResolution>): Question {
+      if (res.kind !== 'clarifying') throw new Error(`expected a clarification, got ${JSON.stringify(res)}`);
+      return res;
+    }
+    const ask = (text: string, slots: Partial<typeof empty> & { action: 'send' | 'swap' }, ctx = context()): Question =>
+      question(
+        compileOutputToResolution(
+          { op: 'set_intent', ...empty, ...slots } as AiCompilerOutput,
+          redact(text, ctx).map,
+          ctx
+        )
+      );
+    const reply = (prev: Question, text: string, slots: Partial<typeof empty>, ctx = context()) =>
+      compileOutputToResolution(
+        { op: 'patch_slots', patch: { action: null, ...empty, ...slots } },
+        mergeRedactionMaps(prev.map, redact(text, ctx).map),
+        ctx,
+        prev.draft
+      );
+    const pick = (prev: Question, id: string, ctx = context()) =>
+      applyChipSelection(prev, prev.chips.find(chip => chip.id === id)!, ctx);
+    const review = (draft: object) => ({ kind: 'handoff', handoff: { jumpToConfirm: true, draft } });
+
+    const sendAmountQuestion = () =>
+      ask('send MIDEN to Alice', { action: 'send', asset: 'MIDEN', recipient_ref: 'CONTACT_1' });
+
+    it('reviews the new token when the reply to the amount question names it', () => {
+      expect(reply(sendAmountQuestion(), 'send 10 USDCx instead', { amount, asset: 'USDCx' })).toMatchObject(
+        review({
+          tokenId: usdcx,
+          amount: '10'
+        })
+      );
+    });
+
+    it('sizes the amount chips by the new token', () => {
+      const next = question(reply(sendAmountQuestion(), 'use USDCx', { asset: 'USDCx' }));
+      expect(next.draft).toMatchObject({ assetQuery: 'USDCx', tokenId: usdcx });
+      expect(pick(next, '50pct')).toMatchObject(review({ tokenId: usdcx, amount: '500' }));
+    });
+
+    it('reports a token the wallet does not hold instead of reviewing the old one', () => {
+      expect(reply(sendAmountQuestion(), 'send 5 DAI instead', { amount, asset: 'DAI' })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiAssetNotFound',
+        messageParams: { asset: 'DAI' }
+      });
+    });
+
+    it('drops a token picked from a chip when the reply names another', () => {
+      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' });
+      const next = question(pick(assets, miden!));
+      expect(reply(next, '10 USDCx', { amount, asset: 'USDCx' })).toMatchObject(review({ tokenId: usdcx }));
+    });
+
+    it('drops an unlisted token named first when the recipient reply names another', () => {
+      const recipient = ask('send 5 FOO', { action: 'send', amount, asset: 'TOKEN_1' });
+      expect(reply(recipient, 'USDCx to Alice', { asset: 'USDCx', recipient_ref: 'CONTACT_1' })).toMatchObject(
+        review({ tokenId: usdcx })
+      );
+    });
+
+    it("converts a dollar amount at the new token's price", () => {
+      jest.mocked(peekTokenPriceAssets).mockReturnValue(
+        new Map([
+          [miden!, 'ETH'],
+          [usdcx!, 'SOL']
+        ])
+      );
+      const quote = (price: number) => ({
+        price,
+        change24h: 0,
+        percentageChange24h: 0,
+        kind: 'market' as const,
+        observedAt: Date.now()
+      });
+      const priced = { ...context(), tokenPrices: { ETH: quote(2), SOL: quote(1) } };
+      const first = ask('send MIDEN to Alice', { action: 'send', asset: 'MIDEN', recipient_ref: 'CONTACT_1' }, priced);
+      const fiat = { kind: 'fiat_ref' as const, ref: 'FIAT_AMT_1', currency: 'USD' as const };
+      expect(reply(first, 'send $10 of USDCx', { amount: fiat, asset: 'USDCx' }, priced)).toMatchObject(
+        review({
+          tokenId: usdcx,
+          amount: '10'
+        })
+      );
+      jest.mocked(peekTokenPriceAssets).mockReset();
+    });
+
+    // Two holdings share a symbol, so only the id says which one the user picked.
+    const twins = () => context([row('faucet-foo-2', 'FOO', 8)]);
+
+    it.each(['FOO', 'foo', 'TOKEN_1'])('keeps the picked holding when the reply repeats its symbol as %s', asset => {
+      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' }, twins());
+      const next = question(pick(assets, 'faucet-foo-2', twins()));
+      expect(reply(next, 'send 3 FOO', { amount, asset }, twins())).toMatchObject(review({ tokenId: 'faucet-foo-2' }));
+    });
+
+    it('takes the id of an unlisted token the reply changes to', () => {
+      expect(reply(sendAmountQuestion(), 'send 10 FOO instead', { amount, asset: 'TOKEN_1' })).toMatchObject(
+        review({
+          tokenId: 'faucet-foo'
+        })
+      );
+    });
+
+    const swapAmountQuestion = () => ask('swap MIDEN to USDCx', { action: 'swap', asset: 'MIDEN', to_asset: 'USDCx' });
+
+    it('pays with the new token', () => {
+      expect(reply(swapAmountQuestion(), 'swap 10 ETH instead', { amount, asset: 'ETH' })).toMatchObject({
+        handoff: { draft: { payTokenId: eth, receiveTokenId: usdcx } }
+      });
+    });
+
+    it('receives the new token', () => {
+      expect(reply(swapAmountQuestion(), '10, and receive ETH', { amount, to_asset: 'ETH' })).toMatchObject({
+        handoff: { draft: { payTokenId: miden, receiveTokenId: eth } }
+      });
+    });
+
+    it('does not swap into the only partner when the named receive token is not listed', () => {
+      const ctx = context();
+      ctx.swapTokens = ctx.swapTokens.slice(0, 2);
+      const first = ask('swap MIDEN to USDCx', { action: 'swap', asset: 'MIDEN', to_asset: 'USDCx' }, ctx);
+      expect(reply(first, '10, and receive DAI', { amount, to_asset: 'DAI' }, ctx)).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiSwapUnavailable'
+      });
+    });
+
+    it('keeps the picked holding when a bridge follow-up repeats its symbol and changes the chain', () => {
+      const ctx = {
+        ...twins(),
+        bridgeRoutes: [
+          {
+            id: 'foo-out',
+            provider: 'agglayer',
+            mode: 'send' as const,
+            sourceSymbol: 'FOO',
+            sourceNetwork: 'miden-testnet',
+            destinationSymbol: 'FOO',
+            destinationNetwork: 'sepolia'
+          }
+        ]
+      };
+      const res = compileOutputToResolution(
+        { op: 'patch_slots', patch: { action: null, ...empty, asset: 'FOO', to_chain: 'sepolia' } },
+        redact('x', ctx).map,
+        ctx,
+        {
+          action: 'bridge',
+          assetQuery: 'FOO',
+          tokenId: 'faucet-foo-2',
+          amountFraction: { numerator: 1, denominator: 2 }
+        }
+      );
+      expect(res).toMatchObject({ handoff: { draft: { route: 'foo-out', amount: '4' } } });
+    });
+
+    it('drops the old id when a bridge route chip changes the asset', () => {
+      const route = (id: string, provider: string) => ({
+        id,
+        provider,
+        mode: 'send' as const,
+        sourceSymbol: 'USDCx',
+        sourceNetwork: 'miden-testnet',
+        destinationSymbol: 'MIDEN',
+        destinationNetwork: 'sepolia'
+      });
+      const ctx = { ...context(), bridgeRoutes: [route('r-1', 'agglayer'), route('r-2', 'xreserve')] };
+      const routes = question(
+        resolveDraftToAction({ action: 'bridge', assetQuery: 'MIDEN', tokenId: miden }, redact('x', ctx).map, ctx)
+      );
+      expect(question(pick(routes, 'r-1', ctx)).draft).toMatchObject({ assetQuery: 'USDCx', tokenId: undefined });
     });
   });
 });
