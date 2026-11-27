@@ -10,7 +10,7 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest, normalizedFaucetId } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import {
@@ -2394,7 +2394,17 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
 
   it('resets unverified sheet state and chart timeframe on account or token changes', () => {
     mockVerifyToken.mockReturnValue('unverified');
-    const { rerender } = renderPage();
+    const now = Date.now();
+    const { rerender } = renderPage({
+      balances: [
+        { tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH', decimals: 8 } },
+        { tokenId: TEST_TOKEN_IBTC.faucetId, balance: 1.5, metadata: { symbol: 'BTC', decimals: 8 } }
+      ],
+      tokenPrices: {
+        ETH: { price: 2000, change24h: 3.2, percentageChange24h: 0.1, observedAt: now, provider: 'binance', kind: 'market' },
+        BTC: { price: 65000, change24h: 120, percentageChange24h: 0.2, observedAt: now, provider: 'binance', kind: 'market' }
+      }
+    });
 
     fireEvent.click(screen.getByTestId('token-detail-unverified-pill'));
     expect(screen.getByTestId('unverified-token-sheet')).toBeInTheDocument();
@@ -2403,6 +2413,15 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
 
     mockUseAccount.mockReturnValue({ publicKey: 'pk-next' });
     rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    expect(screen.queryByTestId('unverified-token-sheet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-timeframe-1D')).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(screen.getByTestId('token-detail-unverified-pill'));
+    expect(screen.getByTestId('unverified-token-sheet')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('token-detail-timeframe-1W'));
+    expect(screen.getByTestId('token-detail-timeframe-1W')).toHaveAttribute('aria-checked', 'true');
+
+    rerender(<TokenDetail tokenId={TEST_TOKEN_IBTC.faucetId} />);
     expect(screen.queryByTestId('unverified-token-sheet')).not.toBeInTheDocument();
     expect(screen.getByTestId('token-detail-timeframe-1D')).toHaveAttribute('aria-checked', 'true');
   });
