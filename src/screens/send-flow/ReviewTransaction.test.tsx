@@ -83,6 +83,8 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
+let mockBalancesLoading = false;
+let mockReviewSubmit: (() => void | Promise<void>) | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' | 'solana' = 'miden';
 const reviewedEpochBinding: { address: string; validity: QuoteValidity } = {
@@ -379,11 +381,14 @@ jest.mock('components/TokenLogo', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
-    <button type="button" data-accent={accent} {...rest}>
-      {title}
-    </button>
-  )
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => {
+    if (rest['data-testid'] === 'send-review-submit') mockReviewSubmit = rest.onClick;
+    return (
+      <button type="button" data-accent={accent} {...rest}>
+        {title}
+      </button>
+    );
+  }
 }));
 
 jest.mock('lib/biometric', () => ({
@@ -430,7 +435,7 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: mockPublicKey }),
-  useAllBalances: () => ({ data: mockBalanceData }),
+  useAllBalances: () => ({ data: mockBalanceData, isLoading: mockBalancesLoading }),
   useAllTokensBaseMetadata: () => mockTokensMeta
 }));
 
@@ -763,6 +768,8 @@ beforeEach(() => {
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
   mockBalanceData = undefined;
+  mockBalancesLoading = false;
+  mockReviewSubmit = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
@@ -1567,6 +1574,63 @@ describe('USDCx burn review', () => {
     mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
+  const balancePlaceholders = {
+    empty: [],
+    'native zero': [
+      {
+        ...VALID_TOKEN,
+        tokenId: USDCX_FAUCET_ID_BECH32,
+        metadata: { symbol: 'USDCX', decimals: 6 },
+        balance: 0,
+        balanceBaseUnits: '0'
+      }
+    ]
+  };
+
+  it.each(Object.entries(balancePlaceholders))(
+    'keeps the %s pending balance placeholder on the USDCx burn review',
+    async (_label, placeholder) => {
+      const landedBalances = mockBalanceData;
+      mockBalancesLoading = true;
+      mockBalanceData = placeholder;
+      const { rerender } = render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+
+      // A disabled button suppresses click events, so invoke the handler itself.
+      expect(mockReviewSubmit).toEqual(expect.any(Function));
+      await act(async () => {
+        await mockReviewSubmit?.();
+      });
+      expect(mockWalletStoreState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+
+      mockBalancesLoading = false;
+      mockBalanceData = landedBalances;
+      rerender(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    }
+  );
+
+  it.each(Object.entries(balancePlaceholders))(
+    'redirects a loaded USDCx burn when the landed snapshot is %s',
+    async (_label, placeholder) => {
+      mockBalanceData = placeholder;
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+    }
+  );
+
   it('submits the exact base-unit burn and shows Circle fee as varying, with no payout bound', async () => {
     render(<ReviewTransaction />);
     await flush();
@@ -1762,6 +1826,16 @@ describe('ReviewTransaction — redirect guards', () => {
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: 'other' }];
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  it('redirects a same-chain review while a matching zero row is still loading', async () => {
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalancesLoading = true;
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 0 }];
+    render(<ReviewTransaction />);
+    await flush();
+
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
