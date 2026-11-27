@@ -5,9 +5,10 @@ import { Share } from '@capacitor/share';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { useFeatureDiscovery } from 'app/hooks/useFeatureDiscovery';
 import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
-import { usePageActive } from 'app/layouts/page-active';
+import { usePageActive, usePageOnScreen } from 'app/layouts/page-active';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import type { FlowPresentation } from 'components/flow/FlowPresentation';
@@ -73,6 +74,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
   });
 
 interface ReceiveActionTileProps {
+  buttonRef?: React.Ref<HTMLButtonElement>;
   icon: IconName;
   /** The glyph's size in the circle; a glyph that reads small at `xs` can take a step up. */
   iconSize?: 'xs' | 'sm';
@@ -87,6 +89,7 @@ interface ReceiveActionTileProps {
 
 /** One of the Receive actions: an outlined tile, the glyph in the Receive tint centred over the label and its caption. */
 const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
+  buttonRef,
   icon,
   iconSize = 'xs',
   title,
@@ -104,6 +107,7 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
       className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
     >
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={() => {
@@ -139,14 +143,22 @@ export function ReceiveBridgeTile({
   availability: FeatureAvailability;
 }) {
   const { t } = useTranslation();
+  const disabled = isFeatureBlocked(availability);
+  const pageActive = usePageActive();
+  const pageOnScreen = usePageOnScreen();
+  const discovery = useFeatureDiscovery<HTMLButtonElement>('receive_tile', pageActive && pageOnScreen && !disabled);
   return (
     <ReceiveActionTile
       icon={IconName.CrossChain}
       iconSize="sm"
       title={t('crossChain')}
       caption={t('receiveCrossChainCaption')}
-      onClick={onBridgeDeposit}
-      disabled={isFeatureBlocked(availability)}
+      buttonRef={discovery.ref}
+      onClick={() => {
+        discovery.select('funding');
+        onBridgeDeposit();
+      }}
+      disabled={disabled}
       data-testid="receive-cross-chain"
     />
   );

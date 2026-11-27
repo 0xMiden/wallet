@@ -581,3 +581,7 @@ Added for #1969. Read before drawing a conclusion from `*_visit` events.
 | 4 | activity | push | 9.0 s | Left the send task for Activity |
 
 The report orders and times screens only. It says nothing about whether a send was completed.
+
+## Feature exposure and selection
+
+The bottom navigation, Home actions and Receive funding tile report exposure when enabled and fully visible in a foreground wallet for 600 ms. A feature and entry point count at most once in each foreground opportunity, even if the control remounts. This is a count of opportunities to notice a control, not proof that anyone read it. A deliberate selection before the dwell still reports as a selection. Do not infer a missing exposure or divide selections by exposures as though they were paired. These events have no per-event order or flow identifier, and never report what a person entered. Without viewport observation the App records eligible selections only.
