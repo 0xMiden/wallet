@@ -26,7 +26,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Sized for the paced answer gate. Provisional until the provider key's rate limits are measured.
+    timeout-minutes: 30
     environment: command-ai-production
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -85,6 +86,7 @@ jobs:
         if: hashFiles('scripts/command-ai-eval/questions.json') != ''
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          COMMAND_AI_EVAL_RETRY_BUDGET_MS: '1200000'
         run: node scripts/command-ai-eval/run-eval.mjs --questions --require-live
 
       - name: Prepare server configuration and secrets

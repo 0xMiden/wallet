@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,27 +93,271 @@ export async function retryTransient(run, budget = freshRetryBudget()) {
   }
 }
 
-const DEFAULT_CONTEXT = {
-  contacts: [
-    { id: 'c-alice', name: 'Alice', address: 'mtst1ap2t7nsjausqsgr57c58s2nqqg9f8m62' },
-    { id: 'c-alice-work', name: 'Alice Work', address: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e' },
-    { id: 'c-bob', name: 'Bob', address: 'mtst1qp2t7nsjausqsgr57c58s2nqqg9f9999' }
-  ],
-  heldNicheTickers: [{ symbol: 'ZORK', tokenId: 'faucet-zork' }]
+const readJson = file => JSON.parse(readFileSync(path.join(__dirname, file), 'utf8'));
+const DEFAULT_CONTEXT = readJson('eval-context.json');
+const DEFAULT_EVAL_MODEL = () => process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b';
+const helpDataset = () => readJson('../../services/command-ai/src/help-cards.json');
+const UNKNOWN_CARDS = ['not_covered', 'cannot_diagnose'];
+const INTENT_OPS = ['set_intent', 'set_plan'];
+
+function loadAppModules() {
+  const schemaMod = loadTsModule('src/lib/command-ai/schema.ts');
+  return { schemaMod, redactorMod: loadTsModule('src/lib/command-ai/redactor.ts', { './schema': schemaMod }) };
+}
+
+/** The real Worker with paced provider calls. `compile` also returns the Worker's help trace. */
+export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset } = {}) {
+  const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0 };
+  let providerFailureDetail;
+  let trace;
+  const service = loadTsModule('services/command-ai/src/index.ts').createService({
+    dataset,
+    onTrace: value => {
+      trace = value;
+    },
+    fetchImpl: async (...args) => {
+      providerFailureDetail = undefined;
+      const response = await fetch(...args);
+      const body = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(body);
+      } catch {}
+      stats.promptTokens = data?.usage?.prompt_tokens ?? 0;
+      stats.maxPromptTokens = Math.max(stats.maxPromptTokens, stats.promptTokens);
+      const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
+      if (limits.length > 0) stats.rateLimitHeaders = Object.fromEntries(limits);
+      const finishReason = data?.choices?.[0]?.finish_reason;
+      providerFailureDetail = !response.ok
+        ? `provider HTTP ${response.status}`
+        : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
+          ? `provider finish ${finishReason}`
+          : undefined;
+      const delayMs = paceDelayMs(response.headers, stats.promptTokens);
+      if (delayMs > 0) {
+        stats.pacedMs += delayMs;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+      // Rebuilt because the sleep can outlast the Worker's abort timer, which would break the original body.
+      return new Response(response.status === 204 ? null : body, {
+        status: response.status,
+        headers: response.headers
+      });
+    }
+  });
+
+  async function compile(body) {
+    providerFailureDetail = undefined;
+    trace = undefined;
+    stats.promptTokens = 0;
+    const response = await service.fetch(
+      new Request('https://command-ai.test/v1/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }),
+      {
+        ALLOWED_ORIGINS: '[]',
+        GROQ_API_KEY: process.env.GROQ_API_KEY,
+        COMMAND_AI_MODEL: model,
+        COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
+      }
+    );
+    if (response.ok) return { ...(await response.json()), trace };
+    const detail = response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
+    const error = new Error(`Worker returned ${response.status}${detail}`);
+    if (response.status === 429) {
+      const header = response.headers.get('Retry-After');
+      if (typeof header === 'string' && /^\d+$/.test(header)) {
+        const seconds = Number(header);
+        if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
+      }
+    }
+    throw error;
+  }
+
+  return { stats, compile };
+}
+
+/** Sends each help question `runs` times, redacted as the app would send it. */
+export async function runSelection({ cases, runs = 3, service = createEvalWorker() }) {
+  const { schemaMod, redactorMod } = loadAppModules();
+  const budget = freshRetryBudget();
+  const results = [];
+  for (const item of cases) {
+    const { redactedText } = redactorMod.redactPrompt(item.q, DEFAULT_CONTEXT);
+    const result = {
+      id: item.id,
+      cluster: item.cluster,
+      class: item.class,
+      priority: item.priority,
+      set: item.set ?? item.split,
+      cards: item.cards,
+      forbidCards: item.forbidCards,
+      benignHowTo: item.benignHowTo === true,
+      runs: []
+    };
+    results.push(result);
+    for (let attempt = 0; attempt < runs; attempt++) {
+      try {
+        const reply = await retryTransient(
+          () => service.compile({ redactedText, helpContext: item.helpContext }),
+          budget
+        );
+        result.runs.push({
+          op: schemaMod.parseAiCompilerOutput(reply.output)?.op ?? 'invalid',
+          served: reply.trace?.served ?? null,
+          unknownIds: reply.trace?.unknownIds ?? [],
+          promptTokens: service.stats.promptTokens
+        });
+      } catch (error) {
+        result.runs.push({ op: 'error', served: null, unknownIds: [], promptTokens: 0, error: error?.message });
+      }
+    }
+  }
+  return results;
+}
+
+const isUnknownReply = run => UNKNOWN_CARDS.includes(run.served);
+const isAnswered = run => run.served !== null && !isUnknownReply(run);
+
+// A cluster counts once and is right only if every run of every member is.
+function clusterShare(members, isRight) {
+  const clusters = new Map();
+  for (const member of members) {
+    clusters.set(
+      member.cluster,
+      (clusters.get(member.cluster) ?? true) && member.runs.every(run => isRight(member, run))
+    );
+  }
+  return clusters.size === 0 ? null : [...clusters.values()].filter(Boolean).length / clusters.size;
+}
+
+export function scoreSelection(results) {
+  const urgent = new Set(
+    helpDataset()
+      .cards.filter(card => card.urgent)
+      .map(card => card.id)
+  );
+  const inClass = (set, name) => results.filter(item => item.set === set && item.class === name);
+  const accepted = set =>
+    clusterShare(
+      inClass(set, 'answerable').filter(item => item.runs.some(isAnswered)),
+      (item, run) => !isAnswered(run) || item.cards.includes(run.served)
+    );
+  const gated = results.some(item => item.set === 'holdout') ? 'holdout' : 'dev';
+  const refused = name => clusterShare(inClass(gated, name), (_, run) => isUnknownReply(run));
+  const idsWith = (include, matches) =>
+    results.filter(item => include(item) && item.runs.some(run => matches(item, run))).map(item => item.id);
+  const isHelp = item => ['answerable', 'near_miss', 'out_of_scope'].includes(item.class);
+  const allRuns = results.flatMap(item => item.runs);
+  return {
+    devAccepted: accepted('dev'),
+    holdoutAccepted: accepted('holdout'),
+    answeredRate: clusterShare(inClass(gated, 'answerable'), (_, run) => isAnswered(run)),
+    nearMissRefused: refused('near_miss'),
+    outOfScopeRefused: refused('out_of_scope'),
+    p0Forbidden: idsWith(
+      item => item.priority === 'P0',
+      (item, run) => item.forbidCards.includes(run.served)
+    ),
+    benignUrgent: idsWith(
+      item => item.benignHowTo,
+      (_, run) => urgent.has(run.served)
+    ),
+    helpAsIntent: idsWith(isHelp, (_, run) => INTENT_OPS.includes(run.op)),
+    unknownIds: [...new Set(allRuns.flatMap(run => run.unknownIds))],
+    unsupportedOnHelp: idsWith(isHelp, (_, run) => run.op === 'unsupported'),
+    maxPromptTokens: Math.max(0, ...allRuns.map(run => run.promptTokens)) || null,
+    requestErrors: idsWith(
+      () => true,
+      (_, run) => run.op === 'error'
+    )
+  };
+}
+
+const MIN_SHARES = {
+  devAccepted: 0.95,
+  holdoutAccepted: 0.9,
+  answeredRate: 0.8,
+  nearMissRefused: 0.85,
+  outOfScopeRefused: 0.9
 };
+const MAX_PROMPT_TOKENS = 3600;
+
+export function selectionFailures(score) {
+  // The holdout and near-miss bars are judged on a holdout only.
+  const holdoutOnly = ['holdoutAccepted', 'nearMissRefused'];
+  const failures = Object.entries(MIN_SHARES)
+    .filter(([name]) => score.holdoutAccepted !== null || !holdoutOnly.includes(name))
+    .filter(([name, bar]) => !(score[name] >= bar))
+    .map(([name, bar]) => `${name} ${score[name]} is under ${bar}`);
+  for (const name of ['p0Forbidden', 'benignUrgent', 'helpAsIntent']) {
+    if (score[name].length > 0) failures.push(`${name} ${score[name].join(', ')}`);
+  }
+  if (score.maxPromptTokens > MAX_PROMPT_TOKENS) {
+    failures.push(`maxPromptTokens ${score.maxPromptTokens} is over ${MAX_PROMPT_TOKENS}`);
+  }
+  if (score.requestErrors.length > 0) failures.push(`requestErrors ${score.requestErrors.join(', ')}`);
+  return failures;
+}
+
+/** The command gate: what got worse than the baseline run, plus the replies no run may give. */
+export function compareCommands(cases, baseline, current) {
+  const byId = summary => new Map(summary.results.map(result => [result.id, result]));
+  const before = byId(baseline);
+  const after = byId(current);
+  return cases.flatMap(item => {
+    const now = after.get(item.id);
+    if (!now) return [`${item.id}: not run`];
+    const was = before.get(item.id);
+    const expected = [item.expected.op].flat();
+    const failures = [];
+    if (!item.intendedChange && was && was.passes === was.runs && now.runs - now.passes >= 2) {
+      failures.push(`passed ${was.passes} of ${was.runs} on the baseline, now ${now.passes} of ${now.runs}`);
+    }
+    if (expected.includes('explain')) {
+      const intent = now.ops.find(op => INTENT_OPS.includes(op));
+      if (intent) failures.push(`a help question produced ${intent}`);
+    } else if (now.ops.includes('explain')) {
+      const what = item.category === 'fragment' ? 'a clarification reply' : 'a command';
+      failures.push(`${what} was answered as help`);
+    }
+    return failures.map(failure => `${item.id}: ${failure}`);
+  });
+}
+
+const GATE_HELP_ACCURACY = 0.9;
+
+function matchesExpected(parsed, expected) {
+  const ticker = value => (value ?? '').toUpperCase().replace(/[<>]/g, '');
+  return (
+    [expected.op].flat().includes(parsed.op) &&
+    (!expected.action || parsed.action === expected.action) &&
+    (!expected.asset || ticker(parsed.asset) === expected.asset.toUpperCase()) &&
+    (!expected.to_asset || ticker(parsed.to_asset) === expected.to_asset.toUpperCase()) &&
+    (!expected.query || parsed.query === expected.query) &&
+    (!expected.earn_op || parsed.earn_op === expected.earn_op) &&
+    (expected.amountKind === undefined ||
+      (expected.amountKind === null ? parsed.amount === null : parsed.amount?.kind === expected.amountKind))
+  );
+}
 
 export async function runEval({
   offlineOnly = true,
   questions = false,
   commandsViaWorker = false,
-  runs = commandsViaWorker ? 3 : 1,
-  model = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b'
+  runs = commandsViaWorker || questions ? 3 : 1,
+  model = DEFAULT_EVAL_MODEL(),
+  dataset
 } = {}) {
-  const schemaMod = loadTsModule('src/lib/command-ai/schema.ts');
-  const redactorMod = loadTsModule('src/lib/command-ai/redactor.ts', {
-    './schema': schemaMod
-  });
-  const cases = JSON.parse(readFileSync(path.join(__dirname, questions ? 'questions.json' : 'cases.json'), 'utf8'));
+  const { schemaMod, redactorMod } = loadAppModules();
+  const cases = readJson(questions ? 'questions.json' : 'cases.json');
+  const cards = new Map((dataset ?? helpDataset()).cards.map(card => [card.id, card]));
+  const globalForbid = (dataset ?? helpDataset()).forbid;
+  const gateFailures = new Set();
+  let helpTotal = 0;
+  let helpPassed = 0;
   let redactionFailures = 0;
   let provenanceFailures = 0;
   let obligationFailures = 0;
@@ -121,48 +365,12 @@ export async function runEval({
   const errors = [];
   const latencies = [];
   let maxPromptTokens = 0;
-  let providerFailureDetail;
-  let rateLimitHeaders = null;
-  let pacedMs = 0;
   const results = [];
   const retryBudget = freshRetryBudget();
   const viaWorker = questions || commandsViaWorker;
   const proxyMod =
     offlineOnly || viaWorker ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
-  const worker =
-    offlineOnly || !viaWorker
-      ? null
-      : loadTsModule('services/command-ai/src/index.ts').createService({
-          fetchImpl: async (...args) => {
-            providerFailureDetail = undefined;
-            const response = await fetch(...args);
-            const body = await response.text();
-            let data = null;
-            try {
-              data = JSON.parse(body);
-            } catch {}
-            const promptTokens = data?.usage?.prompt_tokens ?? 0;
-            maxPromptTokens = Math.max(maxPromptTokens, promptTokens);
-            const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
-            if (limits.length > 0) rateLimitHeaders = Object.fromEntries(limits);
-            const finishReason = data?.choices?.[0]?.finish_reason;
-            providerFailureDetail = !response.ok
-              ? `provider HTTP ${response.status}`
-              : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
-                ? `provider finish ${finishReason}`
-                : undefined;
-            const delayMs = paceDelayMs(response.headers, promptTokens);
-            if (delayMs > 0) {
-              pacedMs += delayMs;
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-            // Rebuilt because the sleep can outlast the Worker's abort timer, which would break the original body.
-            return new Response(response.status === 204 ? null : body, {
-              status: response.status,
-              headers: response.headers
-            });
-          }
-        });
+  const worker = offlineOnly || !viaWorker ? null : createEvalWorker({ model, dataset });
 
   const retryCompile = compile => retryTransient(compile, worker ? retryBudget : undefined);
 
@@ -201,57 +409,40 @@ export async function runEval({
       errors.push(`[PROVENANCE FAIL] ${testCase.id}: accepted hallucinated refs`);
     }
 
-    const topic = testCase.expected?.topic;
-    if ((topic === 'Pending' || topic === 'Recovery' || topic === 'Safety') && !testCase.answerContains?.length) {
-      obligationFailures += 1;
-      errors.push(`[OBLIGATION FAIL] ${testCase.id}: ${topic} requires answer substance`);
-      continue;
+    const isHelp = Array.isArray(testCase.cards);
+    if (questions) {
+      // A help question names its accepted cards, and a P0 one the cards that must never answer it.
+      const declared = isHelp
+        ? [...testCase.cards, ...(testCase.forbidCards ?? [])].every(id => cards.has(id)) &&
+          (testCase.priority !== 'P0' || testCase.forbidCards?.length > 0)
+        : Boolean(testCase.expected?.op);
+      if (!declared) {
+        obligationFailures += 1;
+        errors.push(`[OBLIGATION FAIL] ${testCase.id}: names no valid expected cards, forbidden cards or op`);
+        continue;
+      }
     }
 
     if (worker || proxyMod) {
-      const result = { id: testCase.id, passes: 0, runs, ops: [] };
+      const result = { id: testCase.id, passes: 0, runs, ops: [], ...(questions ? { served: [] } : {}) };
       results.push(result);
-      for (let attempt = 0; attempt < runs; attempt++) {
-        providerFailureDetail = undefined;
+      const block = reason => gateFailures.add(`${testCase.id}: ${reason}`);
+      let attempts = 0;
+      let misses = 0;
+      while (attempts < runs) {
+        const attempt = attempts++;
         const t0 = Date.now();
-        const pacedBefore = pacedMs;
+        const pacedBefore = worker?.stats.pacedMs ?? 0;
         try {
           const res = await retryCompile(() =>
             worker
-              ? worker
-                  .fetch(
-                    new Request('https://command-ai.test/v1/compile', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        redactedText: redaction.redactedText,
-                        // The app sends a help context with every first message and none with a snapshot.
-                        ...(testCase.snapshot
-                          ? { snapshot: testCase.snapshot }
-                          : { helpContext: commandsViaWorker ? (testCase.helpContext ?? null) : testCase.helpContext })
-                      })
-                    }),
-                    {
-                      ALLOWED_ORIGINS: '[]',
-                      GROQ_API_KEY: process.env.GROQ_API_KEY,
-                      COMMAND_AI_MODEL: model,
-                      COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
-                    }
-                  )
-                  .then(async response => {
-                    if (response.ok) return response.json();
-                    const detail =
-                      response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
-                    const error = new Error(`Worker returned ${response.status}${detail}`);
-                    if (response.status === 429) {
-                      const header = response.headers.get('Retry-After');
-                      if (typeof header === 'string' && /^\d+$/.test(header)) {
-                        const seconds = Number(header);
-                        if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
-                      }
-                    }
-                    throw error;
-                  })
+              ? worker.compile({
+                  redactedText: redaction.redactedText,
+                  // The app sends a help context with every first message and none with a snapshot.
+                  ...(testCase.snapshot
+                    ? { snapshot: testCase.snapshot }
+                    : { helpContext: testCase.helpContext ?? null })
+                })
               : proxyMod.compileWithGroq({
                   redactedText: redaction.redactedText,
                   snapshot: testCase.snapshot,
@@ -259,60 +450,72 @@ export async function runEval({
                   model
                 })
           );
-          latencies.push(Date.now() - t0 - (pacedMs - pacedBefore));
+          latencies.push(Date.now() - t0 - ((worker?.stats.pacedMs ?? 0) - pacedBefore));
           maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
           const parsed = schemaMod.parseAiCompilerOutput(res.output);
+          const served = res.trace?.served ?? null;
           result.ops.push(parsed?.op ?? 'invalid');
-          if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
-            modelFailures += 1;
-            errors.push(`[MODEL SCHEMA/PROV FAIL] ${testCase.id}: ${JSON.stringify(res.output)}`);
-            continue;
+          if (questions) {
+            result.served.push(served);
+            const forbid = [...globalForbid, ...(cards.get(served)?.forbid ?? [])];
+            if (!parsed) block('reply failed the app parser');
+            else if (parsed.op === 'explain' && forbid.some(pattern => new RegExp(pattern, 'i').test(parsed.answer))) {
+              block('reply hit a forbidden pattern');
+            }
+            if (isHelp && INTENT_OPS.includes(parsed?.op)) block(`a help question produced ${parsed.op}`);
+            if (isHelp && testCase.priority === 'P0' && testCase.forbidCards.includes(served)) {
+              block(`served the forbidden card ${served}`);
+            }
           }
-          const exp = testCase.expected;
-          const matchesOp = [exp.op].flat().includes(parsed.op);
-          const matchesAction = !exp.action || parsed.action === exp.action;
-          const matchesAsset =
-            !exp.asset || (parsed.asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.asset.toUpperCase();
-          const matchesToAsset =
-            !exp.to_asset || (parsed.to_asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.to_asset.toUpperCase();
-          const matchesQuery = !exp.query || parsed.query === exp.query;
-          const matchesTopic = !exp.topic || parsed.topic === exp.topic;
-          const answer = parsed.answer?.toLowerCase().replaceAll('’', "'") ?? '';
-          const answerCoversFacts =
-            testCase.answerContains?.every(requirement => {
-              const alternatives = Array.isArray(requirement) ? requirement : [requirement];
-              return alternatives.some(term => answer.includes(term));
-            }) ?? true;
-          const matchesEarnOp = !exp.earn_op || parsed.earn_op === exp.earn_op;
-          const matchesAmountKind =
-            exp.amountKind === undefined ||
-            (exp.amountKind === null ? parsed.amount === null : parsed.amount?.kind === exp.amountKind);
-
-          if (
-            !matchesOp ||
-            !matchesAction ||
-            !matchesAsset ||
-            !matchesToAsset ||
-            !matchesQuery ||
-            !matchesTopic ||
-            !answerCoversFacts ||
-            !matchesEarnOp ||
-            !matchesAmountKind
-          ) {
-            modelFailures += 1;
-            errors.push(
-              `[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(exp)}`
-            );
-          } else {
+          if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
+            misses += 1;
+            errors.push(`[MODEL SCHEMA/PROV FAIL] ${testCase.id}: ${JSON.stringify(res.output)}`);
+          } else if (questions && isHelp) {
+            const accepted = testCase.cards.length > 0 ? testCase.cards : UNKNOWN_CARDS;
+            if (accepted.includes(served)) {
+              result.passes += 1;
+            } else {
+              misses += 1;
+              errors.push(`[MODEL ACCURACY FAIL] ${testCase.id}: served ${served}, accepted ${accepted.join(', ')}`);
+            }
+          } else if (matchesExpected(parsed, testCase.expected)) {
             result.passes += 1;
+          } else {
+            misses += 1;
+            errors.push(
+              `[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(testCase.expected)}`
+            );
           }
         } catch (err) {
-          if (result.ops.length === attempt) result.ops.push('error');
-          modelFailures += 1;
+          if (result.ops.length === attempt) {
+            result.ops.push('error');
+            result.served?.push(null);
+          }
+          misses += 1;
           errors.push(`[MODEL ERR] ${testCase.id}: ${err?.message || err}`);
         }
+        // The gate asks a question twice more only after a miss.
+        if (questions && attempts === 1 && misses === 0) break;
+      }
+      if (!questions) {
+        modelFailures += misses;
+        continue;
+      }
+      result.runs = attempts;
+      const passed = misses === 0 || result.passes >= 2;
+      if (!passed) modelFailures += 1;
+      if (isHelp) {
+        helpTotal += 1;
+        if (passed) helpPassed += 1;
+      } else if (!passed) {
+        block('control failed');
       }
     }
+  }
+
+  const helpAccuracy = helpTotal === 0 ? null : helpPassed / helpTotal;
+  if (helpAccuracy !== null && helpAccuracy < GATE_HELP_ACCURACY) {
+    gateFailures.add(`help card accuracy ${helpAccuracy.toFixed(2)} is under ${GATE_HELP_ACCURACY}`);
   }
 
   return {
@@ -323,8 +526,9 @@ export async function runEval({
     provenanceFailures,
     obligationFailures,
     modelFailures,
-    maxPromptTokens: maxPromptTokens || null,
-    rateLimitHeaders,
+    ...(questions && worker ? { gate: { helpAccuracy, failures: [...gateFailures] } } : {}),
+    maxPromptTokens: Math.max(maxPromptTokens, worker?.stats.maxPromptTokens ?? 0) || null,
+    rateLimitHeaders: worker?.stats.rateLimitHeaders ?? null,
     errors,
     p95LatencyMs:
       latencies.length > 0
@@ -338,22 +542,44 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     throw new Error('The live evaluation requires its model credential.');
   }
   const offlineOnly = process.argv.includes('--offline') || !process.env.GROQ_API_KEY;
-  const summary = await runEval({
-    offlineOnly,
-    questions: process.argv.includes('--questions'),
-    commandsViaWorker: process.argv.includes('--commands')
-  });
+  const questions = process.argv.includes('--questions');
   const summaryPath = process.env.COMMAND_AI_EVAL_SUMMARY;
   // stdout also carries the Worker's log lines, so the artifact is written separately.
-  if (summaryPath) writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
-  for (const err of summary.errors) console.error(err);
-  console.log(JSON.stringify({ ...summary, errors: undefined, results: undefined }, null, 2));
-  if (
-    summary.redactionFailures > 0 ||
-    summary.provenanceFailures > 0 ||
-    summary.obligationFailures > 0 ||
-    summary.modelFailures > 0
-  ) {
+  const writeSummary = summary => summaryPath && writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+  let failed;
+  if (process.argv.includes('--selection')) {
+    if (offlineOnly) throw new Error('The selection run needs a model credential.');
+    const holdout = existsSync(path.join(__dirname, 'help-holdout.json'))
+      ? readJson('help-holdout.json').map(item => ({ ...item, set: 'holdout' }))
+      : [];
+    const service = createEvalWorker();
+    const results = await runSelection({ cases: [...readJson('help-eval.json'), ...holdout], service });
+    const score = scoreSelection(results);
+    const failures = selectionFailures(score);
+    writeSummary({ score, failures, rateLimitHeaders: service.stats.rateLimitHeaders, results });
+    console.log(JSON.stringify({ score, failures }, null, 2));
+    failed = failures.length > 0;
+  } else {
+    const commandsViaWorker = process.argv.includes('--commands');
+    const summary = await runEval({ offlineOnly, questions, commandsViaWorker });
+    const compareAt = process.argv.indexOf('--compare');
+    if (compareAt > 0) {
+      const baseline = JSON.parse(readFileSync(process.argv[compareAt + 1], 'utf8'));
+      summary.compareFailures = compareCommands(readJson('cases.json'), baseline, summary);
+    }
+    writeSummary(summary);
+    for (const err of summary.errors) console.error(err);
+    console.log(JSON.stringify({ ...summary, errors: undefined, results: undefined }, null, 2));
+    // The deploy gate and the baseline comparison allow some model misses, and decide for themselves.
+    const modelFailed = summary.gate
+      ? summary.gate.failures.length > 0
+      : summary.compareFailures
+        ? summary.compareFailures.length > 0
+        : summary.modelFailures > 0;
+    failed =
+      summary.redactionFailures > 0 || summary.provenanceFailures > 0 || summary.obligationFailures > 0 || modelFailed;
+  }
+  if (failed) {
     process.exit(1);
   }
 }

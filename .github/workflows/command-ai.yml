@@ -76,7 +76,15 @@ jobs:
           COMMAND_AI_EVAL_SUMMARY: ${{ github.workspace }}/command-ai-eval.json
         run: |
           case "$SUITE" in
-            commands) node scripts/command-ai-eval/run-eval.mjs --commands --require-live ;;
+            commands)
+              # A committed baseline turns the run into the command gate.
+              compare=()
+              if [[ -f scripts/command-ai-eval/baseline.json ]]; then
+                compare=(--compare scripts/command-ai-eval/baseline.json)
+              fi
+              node scripts/command-ai-eval/run-eval.mjs --commands --require-live "${compare[@]}"
+              ;;
+            selection) node scripts/command-ai-eval/run-eval.mjs --selection --require-live ;;
             *) echo "Suite $SUITE is not implemented yet." >&2; exit 1 ;;
           esac
       - name: Upload the summary

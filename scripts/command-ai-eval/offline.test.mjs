@@ -59,7 +59,9 @@ test('requires accepted and forbidden cards on every sensitive question fixture'
     help.filter(item => item.priority === 'P0' && !item.forbidCards.length).map(({ id }) => id),
     []
   );
-  assert.deepEqual([...new Set(controls.map(item => item.expected.op))].flat().sort(), [
+  // Fragment controls list several accepted ops, so they do not count towards the coverage.
+  const covered = controls.map(item => item.expected.op).filter(op => !Array.isArray(op));
+  assert.deepEqual([...new Set(covered)].sort(), [
     'cancel',
     'patch_slots',
     'query_ledger',
@@ -199,10 +201,9 @@ test('honors Worker Retry-After within a shared evaluator budget', async context
   const calls = new Map();
   const delays = [];
   const realSetTimeout = globalThis.setTimeout;
-  let expectingRetryDelay = false;
   context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-    if (!expectingRetryDelay) return realSetTimeout(callback, delay, ...args);
-    expectingRetryDelay = false;
+    // The Worker's own abort timer keeps its real delay.
+    if (delay !== 60_000) return realSetTimeout(callback, delay, ...args);
     delays.push(delay);
     return realSetTimeout(callback, 0, ...args);
   });
@@ -212,7 +213,6 @@ test('honors Worker Retry-After within a shared evaluator budget', async context
     const attempt = (calls.get(prompt) ?? 0) + 1;
     calls.set(prompt, attempt);
     if (attempt === 1) {
-      expectingRetryDelay = true;
       return new Response(null, { status: 429 });
     }
     return providerReply({ op: 'help', cards: [cards.get(prompt)] });
